@@ -1,0 +1,19 @@
+{
+  "name": "samchlolaurepartners",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/shared",
+    "packages/backend",
+    "packages/frontend"
+  ],
+  "scripts": {
+    "dev:backend": "npm run dev --workspace=packages/backend",
+    "dev:frontend": "npm run dev --workspace=packages/frontend",
+    "build": "npm run build --workspaces",
+    "migrate": "npm run migrate --workspace=packages/backend"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
