@@ -4,9 +4,10 @@ import { EmailTemplate, Partner } from '@samchlolaurepartners/shared';
 import type { RowDataPacket } from 'mysql2';
 
 let running = false;
+let schedulerHandle: NodeJS.Timeout | null = null;
 
 export function startScheduler(intervalMs = 60 * 60 * 1000): NodeJS.Timeout {
-  return setInterval(() => {
+  schedulerHandle = setInterval(() => {
     if (!running) {
       running = true;
       processScheduledEmails().catch(console.error).finally(() => {
@@ -14,6 +15,14 @@ export function startScheduler(intervalMs = 60 * 60 * 1000): NodeJS.Timeout {
       });
     }
   }, intervalMs);
+  return schedulerHandle;
+}
+
+export function stopScheduler(): void {
+  if (schedulerHandle !== null) {
+    clearInterval(schedulerHandle);
+    schedulerHandle = null;
+  }
 }
 
 async function processScheduledEmails(): Promise<void> {

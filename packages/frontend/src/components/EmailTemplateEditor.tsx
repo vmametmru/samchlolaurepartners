@@ -75,14 +75,16 @@ export default function EmailTemplateEditor({ template, onSave }: Props) {
         />
       </div>
 
-      {/* Preview */}
+      {/* Preview — sandboxed iframe prevents XSS */}
       <details className="border border-gray-200 rounded-lg">
         <summary className="px-4 py-2 text-sm font-medium text-gray-700 cursor-pointer">
           Aperçu HTML
         </summary>
-        <div
-          className="p-4 prose max-w-none text-sm"
-          dangerouslySetInnerHTML={{ __html: body }}
+        <iframe
+          className="w-full min-h-48 rounded-b-lg bg-white"
+          sandbox=""
+          title="Email template preview"
+          srcDoc={body}
         />
       </details>
 

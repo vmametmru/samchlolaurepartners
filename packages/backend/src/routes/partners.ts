@@ -27,8 +27,8 @@ router.get('/current', async (req: AuthRequest, res: Response): Promise<void> =>
   }
 
   // Never expose SMTP credentials or markup to public
-  const { smtp_host, smtp_port, smtp_user, smtp_pass, markup_percent, ...publicFields } = req.partner;
-  void smtp_host; void smtp_port; void smtp_user; void smtp_pass; void markup_percent;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { smtp_host: _h, smtp_port: _p, smtp_user: _u, smtp_pass: _pw, markup_percent: _m, ...publicFields } = req.partner;
   res.json({ data: publicFields });
 });
 

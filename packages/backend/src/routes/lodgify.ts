@@ -77,17 +77,17 @@ router.get('/properties/:id/rates', authMiddleware, async (req: AuthRequest, res
       if (rows.length > 0) markupPercent = Number(rows[0].markup_percent);
     }
 
+    // IMPORTANT: Lodgify real rates are NEVER exposed to the frontend.
+    // price_per_night is already the marked-up rate the partner will charge customers.
+    const markedUpRate = (baseRate: number) =>
+      parseFloat((baseRate * (1 + markupPercent / 100)).toFixed(2));
+
     const ratesWithMarkup: RateWithMarkup[] = rawRates.map((r: LodgifyRate) => ({
       date_from: r.date_from,
       date_to: r.date_to,
       currency: r.currency,
-      // Real price is hidden — only the marked-up price is returned
-      price_per_night: parseFloat(
-        (r.price_per_night * (1 + markupPercent / 100)).toFixed(2)
-      ),
-      price_per_night_with_markup: parseFloat(
-        (r.price_per_night * (1 + markupPercent / 100)).toFixed(2)
-      ),
+      price_per_night: markedUpRate(r.price_per_night),
+      price_per_night_with_markup: markedUpRate(r.price_per_night),
       markup_percent: markupPercent,
     }));
 

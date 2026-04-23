@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import mysql from 'mysql2/promise';
 import pool from './connection';
 
 async function runMigrations(): Promise<void> {
@@ -46,8 +47,6 @@ async function runMigrations(): Promise<void> {
     await pool.end();
   }
 }
-
-import mysql from 'mysql2/promise';
 
 runMigrations().catch((err) => {
   console.error('[migrate] Error:', err);

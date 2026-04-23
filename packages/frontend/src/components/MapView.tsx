@@ -45,9 +45,9 @@ export default function MapView({ properties, onMarkerClick }: Props) {
     if (!map) return;
 
     import('leaflet').then((L) => {
-      // Remove all existing markers
+      // Remove only marker layers (not the base tile layer)
       map.eachLayer((layer) => {
-        if ((layer as import('leaflet').Marker).getLatLng) {
+        if (layer instanceof L.Marker) {
           map.removeLayer(layer);
         }
       });

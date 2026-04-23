@@ -23,15 +23,22 @@ echo "=== Rolling back to version ${VERSION} ==="
 # Restore backend
 if [ -d "${DEPLOY_DIR}/api" ]; then
   echo "[1/2] Restoring backend..."
+  # Copy to a temp dir first to avoid partial state on failure
+  cp -r "${DEPLOY_DIR}/api" packages/backend/dist.tmp
   rm -rf packages/backend/dist
-  cp -r "${DEPLOY_DIR}/api" packages/backend/dist
+  mv packages/backend/dist.tmp packages/backend/dist
+else
+  echo "Warning: No api directory found in ${DEPLOY_DIR}, skipping backend restore"
 fi
 
 # Restore frontend
 if [ -d "${DEPLOY_DIR}/dist" ]; then
   echo "[2/2] Restoring frontend dist..."
+  cp -r "${DEPLOY_DIR}/dist" packages/frontend/dist.tmp
   rm -rf packages/frontend/dist
-  cp -r "${DEPLOY_DIR}/dist" packages/frontend/dist
+  mv packages/frontend/dist.tmp packages/frontend/dist
+else
+  echo "Warning: No dist directory found in ${DEPLOY_DIR}, skipping frontend restore"
 fi
 
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
