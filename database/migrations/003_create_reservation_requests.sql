@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS reservation_requests (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  partner_id INT NOT NULL,
+  property_id VARCHAR(100) DEFAULT NULL,
+  property_name VARCHAR(255) NOT NULL DEFAULT '',
+  client_name VARCHAR(255) NOT NULL,
+  client_email VARCHAR(255) NOT NULL,
+  client_phone VARCHAR(50) DEFAULT NULL,
+  checkin_date DATE NOT NULL,
+  checkout_date DATE NOT NULL,
+  adults TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  children TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  guests JSON DEFAULT NULL COMMENT 'Array of {type, nationality}',
+  message TEXT DEFAULT NULL,
+  status ENUM('pending', 'confirmed', 'cancelled') NOT NULL DEFAULT 'pending',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (partner_id) REFERENCES partners(id) ON DELETE CASCADE,
+  INDEX idx_partner_status (partner_id, status),
+  INDEX idx_checkin (checkin_date)
+);

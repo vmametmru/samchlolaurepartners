@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS lodgify_cache (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  cache_key VARCHAR(500) NOT NULL UNIQUE,
+  data LONGTEXT NOT NULL,
+  expires_at DATETIME NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_expires (expires_at)
+);
