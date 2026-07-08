@@ -15,6 +15,7 @@ export default function HomePage() {
 
   const handleSearch = useCallback(async (params: SearchParams) => {
     setLoading(true);
+    setSearched(false);
     try {
       const res = await api.get<{ data: LodgifyProperty[] }>('/api/lodgify/properties', {
         params: {
@@ -24,11 +25,11 @@ export default function HomePage() {
         },
       });
       setProperties(res.data.data);
-      setSearched(true);
     } catch {
       setProperties([]);
     } finally {
       setLoading(false);
+      setSearched(true);
     }
   }, []);
 

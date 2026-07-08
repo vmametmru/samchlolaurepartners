@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -18,8 +19,12 @@ export default function LoginPage() {
     try {
       await login(email, password);
       navigate('/partner/dashboard');
-    } catch {
-      setError('Email ou mot de passe incorrect');
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err) && err.response?.status === 401) {
+        setError('Email ou mot de passe incorrect.');
+      } else {
+        setError('Impossible de joindre le serveur. Vérifiez que le backend est démarré.');
+      }
     } finally {
       setLoading(false);
     }

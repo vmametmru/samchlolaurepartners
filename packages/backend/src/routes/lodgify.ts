@@ -10,7 +10,7 @@ import type { RowDataPacket } from 'mysql2';
 const router = Router();
 
 // GET /api/lodgify/properties
-router.get('/properties', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/properties', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const properties = await lodgify.getProperties();
     res.json({ data: properties });
@@ -21,7 +21,7 @@ router.get('/properties', authMiddleware, async (req: AuthRequest, res: Response
 });
 
 // GET /api/lodgify/properties/:id
-router.get('/properties/:id', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/properties/:id', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const property = await lodgify.getProperty(parseInt(req.params.id, 10));
     res.json({ data: property });
@@ -32,7 +32,7 @@ router.get('/properties/:id', authMiddleware, async (req: AuthRequest, res: Resp
 });
 
 // GET /api/lodgify/properties/:id/availability?from=&to=
-router.get('/properties/:id/availability', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/properties/:id/availability', async (req: AuthRequest, res: Response): Promise<void> => {
   const { from, to } = req.query as { from?: string; to?: string };
 
   if (!from || !to) {
@@ -51,7 +51,7 @@ router.get('/properties/:id/availability', authMiddleware, async (req: AuthReque
 
 // GET /api/lodgify/properties/:id/rates?from=&to=&guests=&partner_id=
 // Applies partner markup — real Lodgify rates are NEVER exposed
-router.get('/properties/:id/rates', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/properties/:id/rates', async (req: AuthRequest, res: Response): Promise<void> => {
   const { from, to, guests } = req.query as { from?: string; to?: string; guests?: string };
 
   if (!from || !to) {
