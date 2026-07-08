@@ -37,40 +37,28 @@ jobs:
 
       - name: Prepare artifacts
         run: |
-          rm -rf artifact-api artifact-dist
-          mkdir -p artifact-api artifact-dist
-          cp -r packages/backend/dist/. artifact-api/
-          cp packages/backend/package.json artifact-api/
-          cp -r packages/frontend/dist/. artifact-dist/
+          rm -rf artifact-package
+          mkdir -p artifact-package/api
+          cp -r packages/frontend/dist/. artifact-package/
+          cp -r packages/backend/dist/. artifact-package/api/
+          cp packages/backend/package.json artifact-package/api/
 
-      - name: Upload api artifact
+      - name: Upload merged artifact
         uses: actions/upload-artifact@v4
         with:
-          name: api
-          path: artifact-api/
+          name: deployment-package
+          path: artifact-package/
 
-      - name: Upload dist artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: artifact-dist/
-
-      - name: Create release archives
+      - name: Create release archive
         if: github.event_name == 'release'
         run: |
           (
-            cd artifact-api
-            zip -r ../api.zip .
-          )
-          (
-            cd artifact-dist
-            zip -r ../dist.zip .
+            cd artifact-package
+            zip -r ../deployment-package.zip .
           )
 
       - name: Attach artifacts to release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            api.zip
-            dist.zip
+          files: deployment-package.zip
