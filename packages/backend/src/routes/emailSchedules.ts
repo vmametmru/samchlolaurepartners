@@ -8,8 +8,8 @@ const router = Router();
 // GET /api/email-schedules
 router.get('/', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
   const partnerId = req.user?.role === 'admin'
-    ? (req.query.partner_id ?? req.user.partner_id)
-    : req.user?.partner_id;
+    ? (typeof req.query.partner_id === 'string' ? req.query.partner_id : req.user?.partner_id ?? null)
+    : req.user?.partner_id ?? null;
 
   try {
     const [rows] = await pool.execute<RowDataPacket[]>(
@@ -35,7 +35,7 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response): Promis
   try {
     const [result] = await pool.execute<ResultSetHeader>(
       'INSERT INTO email_schedules (partner_id, days_before_arrival, template_type) VALUES (?, ?, ?)',
-      [req.user?.partner_id, days_before_arrival, template_type]
+      [req.user?.partner_id ?? null, days_before_arrival, template_type]
     );
     res.status(201).json({ data: { id: result.insertId }, message: 'Schedule created' });
   } catch (err) {
@@ -47,11 +47,15 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response): Promis
 // PUT /api/email-schedules/:id
 router.put('/:id', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
   const { days_before_arrival, template_type, active } = req.body as Record<string, unknown>;
+  const partnerId = req.user?.partner_id ?? null;
+  const daysBeforeArrival = typeof days_before_arrival === 'number' ? days_before_arrival : null;
+  const templateType = typeof template_type === 'string' ? template_type : null;
+  const activeValue = active === false ? 0 : 1;
 
   try {
     await pool.execute(
       'UPDATE email_schedules SET days_before_arrival=?, template_type=?, active=?, updated_at=NOW() WHERE id=? AND partner_id=?',
-      [days_before_arrival, template_type, active ?? 1, req.params.id, req.user?.partner_id]
+      [daysBeforeArrival, templateType, activeValue, req.params.id, partnerId]
     );
     res.json({ data: null, message: 'Schedule updated' });
   } catch (err) {
@@ -62,10 +66,12 @@ router.put('/:id', authMiddleware, async (req: AuthRequest, res: Response): Prom
 
 // DELETE /api/email-schedules/:id
 router.delete('/:id', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+  const partnerId = req.user?.partner_id ?? null;
+
   try {
     await pool.execute(
       'DELETE FROM email_schedules WHERE id=? AND partner_id=?',
-      [req.params.id, req.user?.partner_id]
+      [req.params.id, partnerId]
     );
     res.json({ data: null, message: 'Schedule deleted' });
   } catch (err) {

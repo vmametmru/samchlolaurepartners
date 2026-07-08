@@ -10,8 +10,8 @@ const router = (0, express_1.Router)();
 // GET /api/email-schedules
 router.get('/', authMiddleware_1.authMiddleware, async (req, res) => {
     const partnerId = req.user?.role === 'admin'
-        ? (req.query.partner_id ?? req.user.partner_id)
-        : req.user?.partner_id;
+        ? (typeof req.query.partner_id === 'string' ? req.query.partner_id : req.user?.partner_id ?? null)
+        : req.user?.partner_id ?? null;
     try {
         const [rows] = await connection_1.default.execute('SELECT * FROM email_schedules WHERE partner_id = ? ORDER BY days_before_arrival', [partnerId]);
         res.json({ data: rows });
@@ -29,7 +29,7 @@ router.post('/', authMiddleware_1.authMiddleware, async (req, res) => {
         return;
     }
     try {
-        const [result] = await connection_1.default.execute('INSERT INTO email_schedules (partner_id, days_before_arrival, template_type) VALUES (?, ?, ?)', [req.user?.partner_id, days_before_arrival, template_type]);
+        const [result] = await connection_1.default.execute('INSERT INTO email_schedules (partner_id, days_before_arrival, template_type) VALUES (?, ?, ?)', [req.user?.partner_id ?? null, days_before_arrival, template_type]);
         res.status(201).json({ data: { id: result.insertId }, message: 'Schedule created' });
     }
     catch (err) {
@@ -40,8 +40,12 @@ router.post('/', authMiddleware_1.authMiddleware, async (req, res) => {
 // PUT /api/email-schedules/:id
 router.put('/:id', authMiddleware_1.authMiddleware, async (req, res) => {
     const { days_before_arrival, template_type, active } = req.body;
+    const partnerId = req.user?.partner_id ?? null;
+    const daysBeforeArrival = typeof days_before_arrival === 'number' ? days_before_arrival : null;
+    const templateType = typeof template_type === 'string' ? template_type : null;
+    const activeValue = active === false ? 0 : 1;
     try {
-        await connection_1.default.execute('UPDATE email_schedules SET days_before_arrival=?, template_type=?, active=?, updated_at=NOW() WHERE id=? AND partner_id=?', [days_before_arrival, template_type, active ?? 1, req.params.id, req.user?.partner_id]);
+        await connection_1.default.execute('UPDATE email_schedules SET days_before_arrival=?, template_type=?, active=?, updated_at=NOW() WHERE id=? AND partner_id=?', [daysBeforeArrival, templateType, activeValue, req.params.id, partnerId]);
         res.json({ data: null, message: 'Schedule updated' });
     }
     catch (err) {
@@ -51,8 +55,9 @@ router.put('/:id', authMiddleware_1.authMiddleware, async (req, res) => {
 });
 // DELETE /api/email-schedules/:id
 router.delete('/:id', authMiddleware_1.authMiddleware, async (req, res) => {
+    const partnerId = req.user?.partner_id ?? null;
     try {
-        await connection_1.default.execute('DELETE FROM email_schedules WHERE id=? AND partner_id=?', [req.params.id, req.user?.partner_id]);
+        await connection_1.default.execute('DELETE FROM email_schedules WHERE id=? AND partner_id=?', [req.params.id, partnerId]);
         res.json({ data: null, message: 'Schedule deleted' });
     }
     catch (err) {

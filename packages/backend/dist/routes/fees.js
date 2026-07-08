@@ -52,6 +52,9 @@ router.get('/tourist-tax', authMiddleware_1.authMiddleware, adminMiddleware_1.ad
 // PUT /api/fees/tourist-tax — admin
 router.put('/tourist-tax', authMiddleware_1.authMiddleware, adminMiddleware_1.adminMiddleware, async (req, res) => {
     const { per_person_per_night, applies_to_foreigners_only, applies_to_children } = req.body;
+    const perPersonPerNight = typeof per_person_per_night === 'number' ? per_person_per_night : 0;
+    const appliesToForeignersOnly = applies_to_foreigners_only === true;
+    const appliesToChildren = applies_to_children === true;
     try {
         await connection_1.default.execute(`INSERT INTO tourist_tax (id, per_person_per_night, applies_to_foreigners_only, applies_to_children)
        VALUES (1, ?, ?, ?)
@@ -59,7 +62,7 @@ router.put('/tourist-tax', authMiddleware_1.authMiddleware, adminMiddleware_1.ad
          per_person_per_night = VALUES(per_person_per_night),
          applies_to_foreigners_only = VALUES(applies_to_foreigners_only),
          applies_to_children = VALUES(applies_to_children),
-         updated_at = NOW()`, [per_person_per_night ?? 0, applies_to_foreigners_only ? 1 : 0, applies_to_children ? 1 : 0]);
+         updated_at = NOW()`, [perPersonPerNight, appliesToForeignersOnly ? 1 : 0, appliesToChildren ? 1 : 0]);
         res.json({ data: null, message: 'Tourist tax updated' });
     }
     catch (err) {

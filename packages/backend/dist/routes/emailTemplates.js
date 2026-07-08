@@ -10,8 +10,8 @@ const router = (0, express_1.Router)();
 // GET /api/email-templates — partner
 router.get('/', authMiddleware_1.authMiddleware, async (req, res) => {
     const partnerId = req.user?.role === 'admin'
-        ? (req.query.partner_id ?? req.user.partner_id)
-        : req.user?.partner_id;
+        ? (typeof req.query.partner_id === 'string' ? req.query.partner_id : req.user?.partner_id ?? null)
+        : req.user?.partner_id ?? null;
     try {
         const [rows] = await connection_1.default.execute('SELECT * FROM email_templates WHERE partner_id = ? ORDER BY type', [partnerId]);
         res.json({ data: rows });
@@ -23,8 +23,9 @@ router.get('/', authMiddleware_1.authMiddleware, async (req, res) => {
 });
 // GET /api/email-templates/:id
 router.get('/:id', authMiddleware_1.authMiddleware, async (req, res) => {
+    const partnerId = req.user?.partner_id ?? null;
     try {
-        const [rows] = await connection_1.default.execute('SELECT * FROM email_templates WHERE id = ? AND partner_id = ? LIMIT 1', [req.params.id, req.user?.partner_id]);
+        const [rows] = await connection_1.default.execute('SELECT * FROM email_templates WHERE id = ? AND partner_id = ? LIMIT 1', [req.params.id, partnerId]);
         if (rows.length === 0) {
             res.status(404).json({ error: 'Not Found', message: 'Template not found' });
             return;
@@ -44,7 +45,7 @@ router.post('/', authMiddleware_1.authMiddleware, async (req, res) => {
         return;
     }
     try {
-        const [result] = await connection_1.default.execute('INSERT INTO email_templates (partner_id, type, subject, body_html) VALUES (?, ?, ?, ?)', [req.user?.partner_id, type, subject, body_html]);
+        const [result] = await connection_1.default.execute('INSERT INTO email_templates (partner_id, type, subject, body_html) VALUES (?, ?, ?, ?)', [req.user?.partner_id ?? null, type, subject, body_html]);
         res.status(201).json({ data: { id: result.insertId }, message: 'Template created' });
     }
     catch (err) {
@@ -55,8 +56,9 @@ router.post('/', authMiddleware_1.authMiddleware, async (req, res) => {
 // PUT /api/email-templates/:id
 router.put('/:id', authMiddleware_1.authMiddleware, async (req, res) => {
     const { subject, body_html } = req.body;
+    const partnerId = req.user?.partner_id ?? null;
     try {
-        await connection_1.default.execute('UPDATE email_templates SET subject=?, body_html=?, updated_at=NOW() WHERE id=? AND partner_id=?', [subject, body_html, req.params.id, req.user?.partner_id]);
+        await connection_1.default.execute('UPDATE email_templates SET subject=?, body_html=?, updated_at=NOW() WHERE id=? AND partner_id=?', [subject ?? null, body_html ?? null, req.params.id, partnerId]);
         res.json({ data: null, message: 'Template updated' });
     }
     catch (err) {
@@ -66,8 +68,9 @@ router.put('/:id', authMiddleware_1.authMiddleware, async (req, res) => {
 });
 // DELETE /api/email-templates/:id
 router.delete('/:id', authMiddleware_1.authMiddleware, async (req, res) => {
+    const partnerId = req.user?.partner_id ?? null;
     try {
-        await connection_1.default.execute('DELETE FROM email_templates WHERE id=? AND partner_id=?', [req.params.id, req.user?.partner_id]);
+        await connection_1.default.execute('DELETE FROM email_templates WHERE id=? AND partner_id=?', [req.params.id, partnerId]);
         res.json({ data: null, message: 'Template deleted' });
     }
     catch (err) {

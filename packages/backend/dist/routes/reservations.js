@@ -77,8 +77,8 @@ router.post('/request', async (req, res) => {
 // GET /api/reservations — partner dashboard
 router.get('/', authMiddleware_1.authMiddleware, async (req, res) => {
     const partnerId = req.user?.role === 'admin'
-        ? (req.query.partner_id ?? null)
-        : req.user?.partner_id;
+        ? (typeof req.query.partner_id === 'string' ? req.query.partner_id : null)
+        : req.user?.partner_id ?? null;
     try {
         const [rows] = await connection_1.default.execute(`SELECT rr.*, r.id AS reservation_id, r.confirmed_at, r.cancelled_at
        FROM reservation_requests rr
@@ -94,12 +94,13 @@ router.get('/', authMiddleware_1.authMiddleware, async (req, res) => {
 });
 // GET /api/reservations/:id — partner dashboard
 router.get('/:id', authMiddleware_1.authMiddleware, async (req, res) => {
+    const partnerId = req.user?.partner_id ?? null;
     try {
         const [rows] = await connection_1.default.execute(`SELECT rr.*, r.id AS reservation_id, r.confirmed_at, r.cancelled_at, r.notes
        FROM reservation_requests rr
        LEFT JOIN reservations r ON r.request_id = rr.id
        WHERE rr.id = ? AND rr.partner_id = ?
-       LIMIT 1`, [req.params.id, req.user?.partner_id]);
+       LIMIT 1`, [req.params.id, partnerId]);
         if (rows.length === 0) {
             res.status(404).json({ error: 'Not Found', message: 'Reservation not found' });
             return;
@@ -114,9 +115,10 @@ router.get('/:id', authMiddleware_1.authMiddleware, async (req, res) => {
 // PUT /api/reservations/:id/confirm — partner dashboard
 router.put('/:id/confirm', authMiddleware_1.authMiddleware, async (req, res) => {
     const { notes } = req.body;
+    const partnerId = req.user?.partner_id ?? null;
     try {
         // Validate ownership
-        const [reqRows] = await connection_1.default.execute('SELECT * FROM reservation_requests WHERE id = ? AND partner_id = ? LIMIT 1', [req.params.id, req.user?.partner_id]);
+        const [reqRows] = await connection_1.default.execute('SELECT * FROM reservation_requests WHERE id = ? AND partner_id = ? LIMIT 1', [req.params.id, partnerId]);
         if (reqRows.length === 0) {
             res.status(404).json({ error: 'Not Found', message: 'Reservation request not found' });
             return;
@@ -125,13 +127,13 @@ router.put('/:id/confirm', authMiddleware_1.authMiddleware, async (req, res) => 
         // Upsert reservation
         await connection_1.default.execute(`INSERT INTO reservations (request_id, partner_id, confirmed_at, notes)
        VALUES (?, ?, NOW(), ?)
-       ON DUPLICATE KEY UPDATE confirmed_at = NOW(), cancelled_at = NULL, notes = VALUES(notes)`, [req.params.id, req.user?.partner_id, notes ?? null]);
+       ON DUPLICATE KEY UPDATE confirmed_at = NOW(), cancelled_at = NULL, notes = VALUES(notes)`, [req.params.id, partnerId, notes ?? null]);
         await connection_1.default.execute("UPDATE reservation_requests SET status = 'confirmed', updated_at = NOW() WHERE id = ?", [req.params.id]);
         // Fetch partner config
-        const [partnerRows] = await connection_1.default.execute('SELECT * FROM partners WHERE id = ? LIMIT 1', [req.user?.partner_id]);
+        const [partnerRows] = await connection_1.default.execute('SELECT * FROM partners WHERE id = ? LIMIT 1', [partnerId]);
         const partner = partnerRows[0];
         // Send confirmation email to client
-        const [templateRows] = await connection_1.default.execute('SELECT * FROM email_templates WHERE partner_id = ? AND type = ? LIMIT 1', [req.user?.partner_id, 'RESERVATION_CONFIRMED']);
+        const [templateRows] = await connection_1.default.execute('SELECT * FROM email_templates WHERE partner_id = ? AND type = ? LIMIT 1', [partnerId, 'RESERVATION_CONFIRMED']);
         const variables = {
             nom_client: String(reqRow.client_name),
             email_client: String(reqRow.client_email),
@@ -158,8 +160,9 @@ router.put('/:id/confirm', authMiddleware_1.authMiddleware, async (req, res) => 
 });
 // PUT /api/reservations/:id/cancel — partner dashboard
 router.put('/:id/cancel', authMiddleware_1.authMiddleware, async (req, res) => {
+    const partnerId = req.user?.partner_id ?? null;
     try {
-        const [reqRows] = await connection_1.default.execute('SELECT * FROM reservation_requests WHERE id = ? AND partner_id = ? LIMIT 1', [req.params.id, req.user?.partner_id]);
+        const [reqRows] = await connection_1.default.execute('SELECT * FROM reservation_requests WHERE id = ? AND partner_id = ? LIMIT 1', [req.params.id, partnerId]);
         if (reqRows.length === 0) {
             res.status(404).json({ error: 'Not Found', message: 'Reservation request not found' });
             return;
@@ -167,9 +170,9 @@ router.put('/:id/cancel', authMiddleware_1.authMiddleware, async (req, res) => {
         await connection_1.default.execute('UPDATE reservations SET cancelled_at = NOW() WHERE request_id = ?', [req.params.id]);
         await connection_1.default.execute("UPDATE reservation_requests SET status = 'cancelled', updated_at = NOW() WHERE id = ?", [req.params.id]);
         const reqRow = reqRows[0];
-        const [partnerRows] = await connection_1.default.execute('SELECT * FROM partners WHERE id = ? LIMIT 1', [req.user?.partner_id]);
+        const [partnerRows] = await connection_1.default.execute('SELECT * FROM partners WHERE id = ? LIMIT 1', [partnerId]);
         const partner = partnerRows[0];
-        const [templateRows] = await connection_1.default.execute('SELECT * FROM email_templates WHERE partner_id = ? AND type = ? LIMIT 1', [req.user?.partner_id, 'RESERVATION_CANCELLED']);
+        const [templateRows] = await connection_1.default.execute('SELECT * FROM email_templates WHERE partner_id = ? AND type = ? LIMIT 1', [partnerId, 'RESERVATION_CANCELLED']);
         const variables = {
             nom_client: String(reqRow.client_name),
             dates: `${reqRow.checkin_date} → ${reqRow.checkout_date}`,

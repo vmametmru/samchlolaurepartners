@@ -55,6 +55,9 @@ router.get('/tourist-tax', authMiddleware, adminMiddleware, async (_req: AuthReq
 // PUT /api/fees/tourist-tax — admin
 router.put('/tourist-tax', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
   const { per_person_per_night, applies_to_foreigners_only, applies_to_children } = req.body as Record<string, unknown>;
+  const perPersonPerNight = typeof per_person_per_night === 'number' ? per_person_per_night : 0;
+  const appliesToForeignersOnly = applies_to_foreigners_only === true;
+  const appliesToChildren = applies_to_children === true;
 
   try {
     await pool.execute(
@@ -65,7 +68,7 @@ router.put('/tourist-tax', authMiddleware, adminMiddleware, async (req: AuthRequ
          applies_to_foreigners_only = VALUES(applies_to_foreigners_only),
          applies_to_children = VALUES(applies_to_children),
          updated_at = NOW()`,
-      [per_person_per_night ?? 0, applies_to_foreigners_only ? 1 : 0, applies_to_children ? 1 : 0]
+      [perPersonPerNight, appliesToForeignersOnly ? 1 : 0, appliesToChildren ? 1 : 0]
     );
     res.json({ data: null, message: 'Tourist tax updated' });
   } catch (err) {

@@ -126,8 +126,8 @@ router.post('/request', async (req: Request, res: Response): Promise<void> => {
 // GET /api/reservations — partner dashboard
 router.get('/', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
   const partnerId = req.user?.role === 'admin'
-    ? (req.query.partner_id ?? null)
-    : req.user?.partner_id;
+    ? (typeof req.query.partner_id === 'string' ? req.query.partner_id : null)
+    : req.user?.partner_id ?? null;
 
   try {
     const [rows] = await pool.execute<RowDataPacket[]>(
@@ -147,6 +147,8 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response): Promise
 
 // GET /api/reservations/:id — partner dashboard
 router.get('/:id', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+  const partnerId = req.user?.partner_id ?? null;
+
   try {
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT rr.*, r.id AS reservation_id, r.confirmed_at, r.cancelled_at, r.notes
@@ -154,7 +156,7 @@ router.get('/:id', authMiddleware, async (req: AuthRequest, res: Response): Prom
        LEFT JOIN reservations r ON r.request_id = rr.id
        WHERE rr.id = ? AND rr.partner_id = ?
        LIMIT 1`,
-      [req.params.id, req.user?.partner_id]
+      [req.params.id, partnerId]
     );
 
     if (rows.length === 0) {
@@ -171,12 +173,13 @@ router.get('/:id', authMiddleware, async (req: AuthRequest, res: Response): Prom
 // PUT /api/reservations/:id/confirm — partner dashboard
 router.put('/:id/confirm', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
   const { notes } = req.body as { notes?: string };
+  const partnerId = req.user?.partner_id ?? null;
 
   try {
     // Validate ownership
     const [reqRows] = await pool.execute<RowDataPacket[]>(
       'SELECT * FROM reservation_requests WHERE id = ? AND partner_id = ? LIMIT 1',
-      [req.params.id, req.user?.partner_id]
+      [req.params.id, partnerId]
     );
 
     if (reqRows.length === 0) {
@@ -191,7 +194,7 @@ router.put('/:id/confirm', authMiddleware, async (req: AuthRequest, res: Respons
       `INSERT INTO reservations (request_id, partner_id, confirmed_at, notes)
        VALUES (?, ?, NOW(), ?)
        ON DUPLICATE KEY UPDATE confirmed_at = NOW(), cancelled_at = NULL, notes = VALUES(notes)`,
-      [req.params.id, req.user?.partner_id, notes ?? null]
+      [req.params.id, partnerId, notes ?? null]
     );
 
     await pool.execute(
@@ -202,14 +205,14 @@ router.put('/:id/confirm', authMiddleware, async (req: AuthRequest, res: Respons
     // Fetch partner config
     const [partnerRows] = await pool.execute<RowDataPacket[]>(
       'SELECT * FROM partners WHERE id = ? LIMIT 1',
-      [req.user?.partner_id]
+      [partnerId]
     );
     const partner = partnerRows[0] as unknown as Partner;
 
     // Send confirmation email to client
     const [templateRows] = await pool.execute<RowDataPacket[]>(
       'SELECT * FROM email_templates WHERE partner_id = ? AND type = ? LIMIT 1',
-      [req.user?.partner_id, 'RESERVATION_CONFIRMED']
+      [partnerId, 'RESERVATION_CONFIRMED']
     );
 
     const variables: Record<string, string> = {
@@ -244,10 +247,12 @@ router.put('/:id/confirm', authMiddleware, async (req: AuthRequest, res: Respons
 
 // PUT /api/reservations/:id/cancel — partner dashboard
 router.put('/:id/cancel', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+  const partnerId = req.user?.partner_id ?? null;
+
   try {
     const [reqRows] = await pool.execute<RowDataPacket[]>(
       'SELECT * FROM reservation_requests WHERE id = ? AND partner_id = ? LIMIT 1',
-      [req.params.id, req.user?.partner_id]
+      [req.params.id, partnerId]
     );
 
     if (reqRows.length === 0) {
@@ -268,13 +273,13 @@ router.put('/:id/cancel', authMiddleware, async (req: AuthRequest, res: Response
     const reqRow = reqRows[0];
     const [partnerRows] = await pool.execute<RowDataPacket[]>(
       'SELECT * FROM partners WHERE id = ? LIMIT 1',
-      [req.user?.partner_id]
+      [partnerId]
     );
     const partner = partnerRows[0] as unknown as Partner;
 
     const [templateRows] = await pool.execute<RowDataPacket[]>(
       'SELECT * FROM email_templates WHERE partner_id = ? AND type = ? LIMIT 1',
-      [req.user?.partner_id, 'RESERVATION_CANCELLED']
+      [partnerId, 'RESERVATION_CANCELLED']
     );
 
     const variables: Record<string, string> = {

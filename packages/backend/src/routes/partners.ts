@@ -64,7 +64,18 @@ router.post('/', authMiddleware, adminMiddleware, async (req: AuthRequest, res: 
     const [result] = await pool.execute<ResultSetHeader>(
       `INSERT INTO partners (subdomain, name, logo_url, primary_color, email, markup_percent, smtp_host, smtp_port, smtp_user, smtp_pass)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [subdomain, name, logo_url ?? null, primary_color ?? '#E61E4D', email, markup_percent ?? 0, smtp_host ?? null, smtp_port ?? null, smtp_user ?? null, smtp_pass ?? null]
+      [
+        String(subdomain),
+        String(name),
+        typeof logo_url === 'string' ? logo_url : null,
+        typeof primary_color === 'string' ? primary_color : '#E61E4D',
+        String(email),
+        typeof markup_percent === 'number' ? markup_percent : 0,
+        typeof smtp_host === 'string' ? smtp_host : null,
+        typeof smtp_port === 'number' ? smtp_port : null,
+        typeof smtp_user === 'string' ? smtp_user : null,
+        typeof smtp_pass === 'string' ? smtp_pass : null,
+      ]
     );
     res.status(201).json({ data: { id: result.insertId }, message: 'Partner created' });
   } catch (err) {
@@ -82,7 +93,19 @@ router.put('/:id', authMiddleware, adminMiddleware, async (req: AuthRequest, res
       `UPDATE partners SET name=?, logo_url=?, primary_color=?, email=?, markup_percent=?,
        smtp_host=?, smtp_port=?, smtp_user=?, smtp_pass=?, active=?, updated_at=NOW()
        WHERE id=?`,
-      [name, logo_url ?? null, primary_color, email, markup_percent, smtp_host ?? null, smtp_port ?? null, smtp_user ?? null, smtp_pass ?? null, active ?? 1, req.params.id]
+      [
+        typeof name === 'string' ? name : null,
+        typeof logo_url === 'string' ? logo_url : null,
+        typeof primary_color === 'string' ? primary_color : null,
+        typeof email === 'string' ? email : null,
+        typeof markup_percent === 'number' ? markup_percent : 0,
+        typeof smtp_host === 'string' ? smtp_host : null,
+        typeof smtp_port === 'number' ? smtp_port : null,
+        typeof smtp_user === 'string' ? smtp_user : null,
+        typeof smtp_pass === 'string' ? smtp_pass : null,
+        active === false ? 0 : 1,
+        req.params.id,
+      ]
     );
     res.json({ data: null, message: 'Partner updated' });
   } catch (err) {
