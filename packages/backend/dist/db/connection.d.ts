@@ -1,4 +1,3 @@
-import mysql from 'mysql2/promise';
-declare const pool: mysql.Pool;
+declare const pool: any;
 export default pool;
 //# sourceMappingURL=connection.d.ts.map

@@ -1,1 +1,1 @@
-{"version":3,"file":"reservations.d.ts","sourceRoot":"","sources":["../../src/routes/reservations.ts"],"names":[],"mappings":"AAOA,QAAA,MAAM,MAAM,4CAAW,CAAC;AAsSxB,eAAe,MAAM,CAAC"}
+{"version":3,"file":"reservations.d.ts","sourceRoot":"","sources":["../../src/routes/reservations.ts"],"names":[],"mappings":"AAOA,QAAA,MAAM,MAAM,KAAW,CAAC;AAsSxB,eAAe,MAAM,CAAC"}
