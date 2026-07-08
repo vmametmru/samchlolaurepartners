@@ -8,13 +8,17 @@ import api from '../api';
 export default function PropertiesPage() {
   const [properties, setProperties] = useState<LodgifyProperty[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [selected, setSelected] = useState<LodgifyProperty | null>(null);
   const [search, setSearch] = useState('');
 
   useEffect(() => {
     api.get<{ data: LodgifyProperty[] }>('/api/lodgify/properties')
       .then((res) => setProperties(res.data.data))
-      .catch(console.error)
+      .catch((err) => {
+        console.error(err);
+        setFetchError('Impossible de charger les hébergements. Vérifiez que le serveur est accessible.');
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -42,6 +46,10 @@ export default function PropertiesPage() {
         {loading ? (
           <div className="text-center py-16">
             <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-brand-500 mx-auto" />
+          </div>
+        ) : fetchError ? (
+          <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-6 text-center">
+            {fetchError}
           </div>
         ) : (
           <div className="flex flex-col lg:flex-row gap-6">

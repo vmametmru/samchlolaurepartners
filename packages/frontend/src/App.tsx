@@ -22,6 +22,7 @@ import AdminPartnerForm from './pages/admin/PartnerForm';
 import AdminFees from './pages/admin/Fees';
 import AdminVersions from './pages/admin/Versions';
 import AdminSync from './pages/admin/Sync';
+import AdminDiagnostic from './pages/admin/Diagnostic';
 
 export default function App() {
   return (
@@ -55,6 +56,7 @@ export default function App() {
               <Route path="fees" element={<AdminFees />} />
               <Route path="versions" element={<AdminVersions />} />
               <Route path="sync" element={<AdminSync />} />
+              <Route path="diagnostic" element={<AdminDiagnostic />} />
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />

@@ -44,7 +44,7 @@ const lodgifyCache_1 = require("../middleware/lodgifyCache");
 const connection_1 = __importDefault(require("../db/connection"));
 const router = (0, express_1.Router)();
 // GET /api/lodgify/properties
-router.get('/properties', authMiddleware_1.authMiddleware, async (req, res) => {
+router.get('/properties', async (req, res) => {
     try {
         const properties = await lodgify.getProperties();
         res.json({ data: properties });
@@ -55,7 +55,7 @@ router.get('/properties', authMiddleware_1.authMiddleware, async (req, res) => {
     }
 });
 // GET /api/lodgify/properties/:id
-router.get('/properties/:id', authMiddleware_1.authMiddleware, async (req, res) => {
+router.get('/properties/:id', async (req, res) => {
     try {
         const property = await lodgify.getProperty(parseInt(req.params.id, 10));
         res.json({ data: property });
@@ -66,7 +66,7 @@ router.get('/properties/:id', authMiddleware_1.authMiddleware, async (req, res) 
     }
 });
 // GET /api/lodgify/properties/:id/availability?from=&to=
-router.get('/properties/:id/availability', authMiddleware_1.authMiddleware, async (req, res) => {
+router.get('/properties/:id/availability', async (req, res) => {
     const { from, to } = req.query;
     if (!from || !to) {
         res.status(400).json({ error: 'Bad Request', message: 'from and to query params are required' });
@@ -83,7 +83,7 @@ router.get('/properties/:id/availability', authMiddleware_1.authMiddleware, asyn
 });
 // GET /api/lodgify/properties/:id/rates?from=&to=&guests=&partner_id=
 // Applies partner markup — real Lodgify rates are NEVER exposed
-router.get('/properties/:id/rates', authMiddleware_1.authMiddleware, async (req, res) => {
+router.get('/properties/:id/rates', async (req, res) => {
     const { from, to, guests } = req.query;
     if (!from || !to) {
         res.status(400).json({ error: 'Bad Request', message: 'from and to query params are required' });

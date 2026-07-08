@@ -19,6 +19,7 @@ const emailSchedules_1 = __importDefault(require("./routes/emailSchedules"));
 const contact_1 = __importDefault(require("./routes/contact"));
 const fees_1 = __importDefault(require("./routes/fees"));
 const versions_1 = __importDefault(require("./routes/versions"));
+const diagnostic_1 = __importDefault(require("./routes/diagnostic"));
 const schedulerService_1 = require("./services/schedulerService");
 dotenv_1.default.config();
 const app = (0, express_1.default)();
@@ -66,6 +67,7 @@ app.use('/api/email-schedules', emailSchedules_1.default);
 app.use('/api/contact', contact_1.default);
 app.use('/api/fees', fees_1.default);
 app.use('/api/versions', versions_1.default);
+app.use('/api/diagnostic', diagnostic_1.default);
 // ─── 404 Handler ──────────────────────────────────────────────────────────────
 app.use((_req, res) => {
     res.status(404).json({ error: 'Not Found', message: 'Route not found' });

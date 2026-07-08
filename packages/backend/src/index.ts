@@ -15,6 +15,7 @@ import emailScheduleRoutes from './routes/emailSchedules';
 import contactRoutes from './routes/contact';
 import feeRoutes from './routes/fees';
 import versionRoutes from './routes/versions';
+import diagnosticRoutes from './routes/diagnostic';
 import { startScheduler } from './services/schedulerService';
 
 dotenv.config();
@@ -69,6 +70,7 @@ app.use('/api/email-schedules', emailScheduleRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/fees', feeRoutes);
 app.use('/api/versions', versionRoutes);
+app.use('/api/diagnostic', diagnosticRoutes);
 
 // ─── 404 Handler ──────────────────────────────────────────────────────────────
 app.use((_req, res) => {
