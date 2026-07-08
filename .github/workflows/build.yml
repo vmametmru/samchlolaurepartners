@@ -35,27 +35,37 @@ jobs:
       - name: Build frontend
         run: npm run build --workspace=packages/frontend
 
-      - name: Create api.zip
+      - name: Prepare artifacts
         run: |
-          cd packages/backend
-          zip -r ../../api.zip dist/ package.json
+          rm -rf artifact-api artifact-dist
+          mkdir -p artifact-api artifact-dist
+          cp -r packages/backend/dist/. artifact-api/
+          cp packages/backend/package.json artifact-api/
+          cp -r packages/frontend/dist/. artifact-dist/
 
-      - name: Create dist.zip
-        run: |
-          cd packages/frontend
-          zip -r ../../dist.zip dist/
-
-      - name: Upload api.zip
+      - name: Upload api artifact
         uses: actions/upload-artifact@v4
         with:
           name: api
-          path: api.zip
+          path: artifact-api/
 
-      - name: Upload dist.zip
+      - name: Upload dist artifact
         uses: actions/upload-artifact@v4
         with:
           name: dist
-          path: dist.zip
+          path: artifact-dist/
+
+      - name: Create release archives
+        if: github.event_name == 'release'
+        run: |
+          (
+            cd artifact-api
+            zip -r ../api.zip .
+          )
+          (
+            cd artifact-dist
+            zip -r ../dist.zip .
+          )
 
       - name: Attach artifacts to release
         if: github.event_name == 'release'
