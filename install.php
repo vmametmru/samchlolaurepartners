@@ -195,7 +195,7 @@ function processSmtp(): array
 //  INSTALLATION
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function runInstallation(): bool|string
+function runInstallation()
 {
     $db    = $_SESSION['db']    ?? null;
     $site  = $_SESSION['site']  ?? null;
