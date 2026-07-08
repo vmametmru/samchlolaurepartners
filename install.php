@@ -7,9 +7,9 @@
  */
 
 define('BASE_DIR',        __DIR__);
-define('ENV_FILE',        BASE_DIR . '/.env');
+define('ENV_FILE',        BASE_DIR . '/api/.env');
 define('MIGRATIONS_DIR',  BASE_DIR . '/database/migrations');
-define('LOGO_UPLOAD_DIR', BASE_DIR . '/packages/frontend/public/logos');
+define('LOGO_UPLOAD_DIR', BASE_DIR . '/logos');
 
 // ─── Step constants ─────────────────────────────────────────────────────────
 define('S_REQUIREMENTS', 1);
