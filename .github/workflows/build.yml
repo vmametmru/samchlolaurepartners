@@ -1,0 +1,64 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  release:
+    types: [created]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build backend
+        run: npm run build --workspace=packages/backend
+
+      - name: Build frontend
+        run: npm run build --workspace=packages/frontend
+
+      - name: Create api.zip
+        run: |
+          cd packages/backend
+          zip -r ../../api.zip dist/ package.json
+
+      - name: Create dist.zip
+        run: |
+          cd packages/frontend
+          zip -r ../../dist.zip dist/
+
+      - name: Upload api.zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: api
+          path: api.zip
+
+      - name: Upload dist.zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist.zip
+
+      - name: Attach artifacts to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            api.zip
+            dist.zip
