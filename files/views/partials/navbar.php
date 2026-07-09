@@ -17,6 +17,9 @@
         <span class="navbar-user-info">Connecté : <?= \App\View::e($user['email'] ?? '') ?> (<?= \App\View::e($user['role'] ?? '') ?>)</span>
         <a class="btn-secondary" href="/logout">Déconnexion</a>
       <?php else: ?>
+        <?php if (!empty($authDebug['cookie_present']) && empty($authDebug['valid'])): ?>
+          <span class="navbar-user-info">Session invalide ou expirée — reconnectez-vous.</span>
+        <?php endif; ?>
         <a class="btn-primary" style="background-color: <?= \App\View::e($primaryColor) ?>;" href="/login">Connexion</a>
       <?php endif; ?>
     </div>

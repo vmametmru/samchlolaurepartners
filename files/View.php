@@ -17,6 +17,7 @@ final class View
 
         $partner = Tenant::currentPublic();
         $user = Auth::user();
+        $authDebug = $user === null ? Auth::debugStatus() : null;
         $flash = Flash::pull();
         $pageTitle = $data['pageTitle'] ?? 'samchlolaurepartners';
         extract($data, EXTR_SKIP);

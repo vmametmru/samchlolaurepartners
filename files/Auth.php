@@ -70,6 +70,22 @@ final class Auth
         return $token ? self::verifyToken($token) : null;
     }
 
+    /**
+     * Non-sensitive session diagnostic: tells whether an auth cookie is present and,
+     * if so, why it failed to resolve to a user (missing/invalid/expired), without
+     * requiring the caller to already be authenticated. Used to surface silent
+     * cookie/session issues (e.g. a Domain-attribute mismatch) directly in the UI.
+     */
+    public static function debugStatus(): array
+    {
+        $token = self::tokenFromRequest();
+        if ($token === null) {
+            return ['cookie_present' => false, 'valid' => false];
+        }
+
+        return ['cookie_present' => true, 'valid' => self::verifyToken($token) !== null];
+    }
+
     public static function requireUser(bool $adminOnly = false): array
     {
         $token = self::tokenFromRequest();
@@ -182,9 +198,15 @@ final class Auth
             return $configured;
         }
 
-        $host = parse_url((string) (Env::get('APP_URL', '') ?? ''), PHP_URL_HOST);
+        // Use the actual Host header of the current request as the primary source, not
+        // the configured APP_URL: if APP_URL in .env doesn't exactly match (or isn't a
+        // parent domain of) the domain actually serving the request, setting a Domain
+        // attribute derived from it makes browsers silently discard the Set-Cookie header
+        // entirely — the user appears logged in (redirect succeeds) but no session
+        // actually persists on the next request, with no visible error anywhere.
+        $host = $_SERVER['HTTP_HOST'] ?? '';
         if (!is_string($host) || $host === '') {
-            $host = $_SERVER['HTTP_HOST'] ?? '';
+            $host = parse_url((string) (Env::get('APP_URL', '') ?? ''), PHP_URL_HOST) ?: '';
         }
 
         $host = strtolower(trim((string) $host));
