@@ -287,10 +287,21 @@ function actionInstallDependencies(): array
         ignore_user_abort(true);
     }
 
+    // On cPanel accounts that once had a "Setup Node.js App" entry for this
+    // same domain/path (e.g. a previous nodevenv at .../api/20), the shell's
+    // account-wide environment can still carry NPM_CONFIG_PREFIX / npm_config_prefix
+    // (and/or matching .npmrc files) pointing at that stale virtualenv's lib/
+    // directory. Because that env var takes precedence over the working
+    // directory, npm then looks for package.json under the venv's lib/
+    // instead of under api/, failing with ENOENT even though "cd" succeeded
+    // and package.json is right there in api/. Explicitly unsetting the
+    // inherited prefix vars and passing --prefix on the command line (which
+    // always wins over env/.npmrc config) forces npm back onto api/.
     $cmd = sprintf(
-        'cd %s && %s install --omit=dev --no-audit --no-fund 2>&1',
+        'cd %s && NPM_CONFIG_PREFIX= npm_config_prefix= %s install --omit=dev --no-audit --no-fund --prefix %s 2>&1',
         escapeshellarg(API_DIR),
-        $npm
+        $npm,
+        escapeshellarg(API_DIR)
     );
     $output = @shell_exec($cmd);
     appendLog("npm install:\n" . ($output ?? ''));
