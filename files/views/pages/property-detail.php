@@ -34,7 +34,7 @@ $currency = $rates[0]['currency'] ?? 'EUR';
       <?php endif; ?>
       <div>
         <h2 class="section-title">Disponibilités</h2>
-        <?php require BASE_PATH . '/src/views/partials/calendar.php'; ?>
+        <?php require BASE_PATH . '/files/views/partials/calendar.php'; ?>
       </div>
       <?php if ($property['latitude'] !== null && $property['longitude'] !== null): ?>
         <div class="card card-body">
@@ -59,7 +59,7 @@ $currency = $rates[0]['currency'] ?? 'EUR';
         <label><span>Nom complet *</span><input class="input" type="text" name="client_name" required></label>
         <label><span>Email *</span><input class="input" type="email" name="client_email" required></label>
         <label><span>Téléphone</span><input class="input" type="tel" name="client_phone"></label>
-        <?php require BASE_PATH . '/src/views/partials/nationalities.php'; ?>
+        <?php require BASE_PATH . '/files/views/partials/nationalities.php'; ?>
         <label><span>Message (optionnel)</span><textarea class="input" rows="3" name="message"></textarea></label>
         <button class="btn-primary" type="submit">Envoyer ma demande</button>
         <p class="form-feedback" data-form-feedback></p>

@@ -1,5 +1,10 @@
 .env
 .deploy_token
-public/uploads/
-storage/logs/
-storage/cache/
+images/logo/*
+images/listings/*
+images/others/*
+!images/logo/.gitkeep
+!images/listings/.gitkeep
+!images/others/.gitkeep
+files/storage/logs/
+files/storage/cache/

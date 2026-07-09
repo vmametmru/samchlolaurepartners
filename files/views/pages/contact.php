@@ -16,7 +16,7 @@
       <label><span>Adultes</span><input class="input" type="number" name="adults" min="1" max="20" value="2"></label>
       <label><span>Enfants (&lt;12)</span><input class="input" type="number" name="children" min="0" max="20" value="0"></label>
     </div>
-    <?php require BASE_PATH . '/src/views/partials/nationalities.php'; ?>
+    <?php require BASE_PATH . '/files/views/partials/nationalities.php'; ?>
     <label><span>Message *</span><textarea class="input" rows="4" name="message" required></textarea></label>
     <button class="btn-primary" type="submit">Envoyer le message</button>
     <p class="form-feedback" data-form-feedback></p>

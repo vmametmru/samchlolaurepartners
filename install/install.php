@@ -1,19 +1,19 @@
 <?php
 /**
- * install.php — Assistant d'installation pour samchlolaurepartners.
+ * install/install.php — Assistant d'installation pour samchlolaurepartners.
  *
- * Placez ce fichier à la racine du projet puis ouvrez-le dans votre navigateur.
- * ⚠️ Supprimez-le après installation pour des raisons de sécurité.
+ * Ouvrez-le dans votre navigateur via https://votre-domaine/install/install.php.
+ * ⚠️ Supprimez le dossier install/ après installation pour des raisons de sécurité.
  */
 
 declare(strict_types=1);
 
 session_start();
 
-define('BASE_DIR', __DIR__);
+define('BASE_DIR', dirname(__DIR__));
 define('ENV_FILE', BASE_DIR . '/.env');
-define('MIGRATIONS_DIR', BASE_DIR . '/database/migrations');
-define('LOGO_UPLOAD_DIR', BASE_DIR . '/public/uploads/logos');
+define('MIGRATIONS_DIR', BASE_DIR . '/db/migrations');
+define('LOGO_UPLOAD_DIR', BASE_DIR . '/images/logo');
 
 if (is_file(ENV_FILE) && !isset($_GET['reinstall'])) {
     renderPage('Installation déjà effectuée', '<p>Le fichier <code>.env</code> existe déjà.</p><p><a class="btn" href="?reinstall=1">Relancer l\'installation</a></p>');
@@ -25,7 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         runInstallation();
         session_destroy();
-        renderPage('Installation terminée', '<p>✅ Installation terminée avec succès.</p><ul><li>Pointez le webroot sur <code>public/</code>.</li><li>Supprimez <code>install.php</code> après vérification.</li><li>Ajoutez un cron: <code>php ' . htmlspecialchars(BASE_DIR . '/bin/run-scheduler.php', ENT_QUOTES) . '</code></li></ul>');
+        renderPage('Installation terminée', '<p>✅ Installation terminée avec succès.</p><ul><li>Le webroot doit déjà pointer sur la racine du projet.</li><li>Supprimez le dossier <code>install/</code> après vérification.</li><li>Ajoutez un cron: <code>php ' . htmlspecialchars(BASE_DIR . '/bin/run-scheduler.php', ENT_QUOTES) . '</code></li></ul>');
         exit;
     } catch (Throwable $e) {
         $errors[] = $e->getMessage();
@@ -150,7 +150,7 @@ function handleLogoUpload(array $file): string
     $filename = 'logo_' . time() . '.' . $ext;
     $destination = LOGO_UPLOAD_DIR . '/' . $filename;
     if (!move_uploaded_file($file['tmp_name'], $destination)) throw new RuntimeException('Impossible de sauvegarder le logo.');
-    return '/uploads/logos/' . $filename;
+    return '/images/logo/' . $filename;
 }
 
 function buildEnv(array $db, array $site, array $admin, array $smtp): string

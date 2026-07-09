@@ -12,7 +12,7 @@ final class Migrator
     {
         $pdo = Database::connection();
         $pdo->exec('CREATE TABLE IF NOT EXISTS db_migrations (id INT AUTO_INCREMENT PRIMARY KEY, filename VARCHAR(255) NOT NULL UNIQUE, applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)');
-        $dir = BASE_PATH . '/database/migrations';
+        $dir = BASE_PATH . '/db/migrations';
         $files = glob($dir . '/*.sql') ?: [];
         sort($files);
         $applied = [];

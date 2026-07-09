@@ -8,7 +8,7 @@ final class View
 {
     public static function render(string $template, array $data = [], string $layout = 'layout'): void
     {
-        $viewsPath = BASE_PATH . '/src/views';
+        $viewsPath = BASE_PATH . '/files/views';
         $templatePath = $viewsPath . '/' . $template . '.php';
         $layoutPath = $viewsPath . '/' . $layout . '.php';
         if (!is_file($templatePath)) {

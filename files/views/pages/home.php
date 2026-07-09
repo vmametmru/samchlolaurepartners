@@ -26,12 +26,12 @@
           <p class="empty-state">Aucun hébergement disponible pour ces dates.</p>
         <?php else: ?>
           <div class="property-grid">
-            <?php foreach ($properties as $property): require BASE_PATH . '/src/views/partials/property-card.php'; endforeach; ?>
+            <?php foreach ($properties as $property): require BASE_PATH . '/files/views/partials/property-card.php'; endforeach; ?>
           </div>
         <?php endif; ?>
       </div>
       <?php if ($properties !== []): ?>
-        <?php require BASE_PATH . '/src/views/partials/map-board.php'; ?>
+        <?php require BASE_PATH . '/files/views/partials/map-board.php'; ?>
       <?php endif; ?>
     </div>
   <?php endif; ?>

@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="/assets/css/styles.css">
 </head>
 <body>
-  <?php require BASE_PATH . '/src/views/partials/navbar.php'; ?>
+  <?php require BASE_PATH . '/files/views/partials/navbar.php'; ?>
   <main class="page-shell">
     <?php if (is_array($flash)): ?>
       <div class="container pt-16">

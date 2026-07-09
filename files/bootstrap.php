@@ -13,16 +13,16 @@ spl_autoload_register(static function (string $class): void {
     }
 
     $relative = substr($class, strlen($prefix));
-    $path = BASE_PATH . '/src/' . str_replace('\\', '/', $relative) . '.php';
+    $path = BASE_PATH . '/files/' . str_replace('\\', '/', $relative) . '.php';
     if (is_file($path)) {
         require $path;
     }
 });
 
 App\Env::load(BASE_PATH . '/.env');
-if (!is_dir(BASE_PATH . '/storage/cache')) {
-    @mkdir(BASE_PATH . '/storage/cache', 0775, true);
+if (!is_dir(BASE_PATH . '/files/storage/cache')) {
+    @mkdir(BASE_PATH . '/files/storage/cache', 0775, true);
 }
-if (!is_dir(BASE_PATH . '/storage/logs')) {
-    @mkdir(BASE_PATH . '/storage/logs', 0775, true);
+if (!is_dir(BASE_PATH . '/files/storage/logs')) {
+    @mkdir(BASE_PATH . '/files/storage/logs', 0775, true);
 }

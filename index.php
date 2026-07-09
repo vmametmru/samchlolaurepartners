@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-require dirname(__DIR__) . '/src/bootstrap.php';
+require __DIR__ . '/files/bootstrap.php';
 
 use App\HttpException;
 use App\controllers\AuthController;
