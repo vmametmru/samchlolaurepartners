@@ -30,7 +30,8 @@ final class Env
             }
             $value = str_replace(['\\"', "\\'", '\\\\'], ['"', "'", '\\'], $value);
 
-            if (getenv($key) === false) {
+            $current = getenv($key);
+            if ($current === false || $current === '') {
                 putenv($key . '=' . $value);
                 $_ENV[$key] = $value;
                 $_SERVER[$key] = $value;
