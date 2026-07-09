@@ -17,10 +17,19 @@ final class Database
             return self::$instance;
         }
 
-        $host = Env::get('DB_HOST', 'localhost');
+        $host = trim((string) (Env::get('DB_HOST') ?? ''));
+        if ($host === '') {
+            $host = 'localhost';
+        }
         $port = Env::int('DB_PORT', 3306);
-        $db = Env::get('DB_NAME', 'partners_db');
-        $user = Env::get('DB_USER', 'partners_user');
+        $db = trim((string) (Env::get('DB_NAME') ?? ''));
+        if ($db === '') {
+            $db = 'partners_db';
+        }
+        $user = trim((string) (Env::get('DB_USER') ?? ''));
+        if ($user === '') {
+            $user = 'partners_user';
+        }
         $pass = Env::get('DB_PASSWORD', 'partners_pass');
 
         $dsn = sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', $host, $port, $db);

@@ -7,6 +7,7 @@ namespace App\controllers;
 use App\Auth;
 use App\Controller;
 use App\Database;
+use App\Env;
 use App\Flash;
 use App\HttpException;
 use App\LodgifyClient;
@@ -366,13 +367,13 @@ final class PageController extends Controller
                 $cacheState = false;
             }
             $data['env'] = [
-                'NODE_ENV' => getenv('APP_ENV') ?: '(not set)',
-                'PORT' => getenv('PORT') ?: '(not set)',
-                'LODGIFY_BASE_URL' => getenv('LODGIFY_BASE_URL') ?: '(not set)',
-                'LODGIFY_API_KEY_SET' => (getenv('LODGIFY_API_KEY') ?: '') !== '',
-                'CORS_ORIGIN' => getenv('CORS_ORIGIN') ?: '(not set)',
-                'DB_HOST' => getenv('DB_HOST') ?: '(not set)',
-                'DB_NAME' => getenv('DB_NAME') ?: '(not set)',
+                'NODE_ENV' => ($v = trim((string) (Env::get('APP_ENV') ?? ''))) !== '' ? $v : '(not set)',
+                'PORT' => ($v = trim((string) (Env::get('PORT') ?? ''))) !== '' ? $v : '(not set)',
+                'LODGIFY_BASE_URL' => ($v = trim((string) (Env::get('LODGIFY_BASE_URL') ?? ''))) !== '' ? $v : 'https://api.lodgify.com/v2',
+                'LODGIFY_API_KEY_SET' => trim((string) (Env::get('LODGIFY_API_KEY', '') ?? '')) !== '',
+                'CORS_ORIGIN' => ($v = trim((string) (Env::get('CORS_ORIGIN') ?? ''))) !== '' ? $v : '(not set)',
+                'DB_HOST' => ($v = trim((string) (Env::get('DB_HOST') ?? ''))) !== '' ? $v : 'localhost',
+                'DB_NAME' => ($v = trim((string) (Env::get('DB_NAME') ?? ''))) !== '' ? $v : 'partners_db',
             ];
             $data['cache'] = [
                 'properties_cached' => $cacheState,

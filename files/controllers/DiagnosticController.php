@@ -20,8 +20,11 @@ final class DiagnosticController extends Controller
         $results['database'] = Database::test();
 
         $client = new LodgifyClient();
-        $key = Env::get('LODGIFY_API_KEY', '') ?? '';
-        $base = Env::get('LODGIFY_BASE_URL', 'https://api.lodgify.com/v2') ?? 'https://api.lodgify.com/v2';
+        $key = trim((string) (Env::get('LODGIFY_API_KEY', '') ?? ''));
+        $base = trim((string) (Env::get('LODGIFY_BASE_URL') ?? ''));
+        if ($base === '') {
+            $base = 'https://api.lodgify.com/v2';
+        }
         if ($key === '') {
             $results['lodgify'] = ['ok' => false, 'error' => 'LODGIFY_API_KEY is not set'];
         } else {
@@ -44,13 +47,13 @@ final class DiagnosticController extends Controller
             'keys_checked' => ['lodgify:properties'],
         ];
         $results['env'] = [
-            'NODE_ENV' => Env::get('APP_ENV', 'production') ?? 'production',
-            'PORT' => Env::get('PORT', '(not set)') ?? '(not set)',
+            'NODE_ENV' => ($v = trim((string) (Env::get('APP_ENV') ?? ''))) !== '' ? $v : 'production',
+            'PORT' => ($v = trim((string) (Env::get('PORT') ?? ''))) !== '' ? $v : '(not set)',
             'LODGIFY_BASE_URL' => $base,
             'LODGIFY_API_KEY_SET' => $key !== '',
-            'CORS_ORIGIN' => Env::get('CORS_ORIGIN', '(not set)') ?? '(not set)',
-            'DB_HOST' => Env::get('DB_HOST', '(not set)') ?? '(not set)',
-            'DB_NAME' => Env::get('DB_NAME', '(not set)') ?? '(not set)',
+            'CORS_ORIGIN' => ($v = trim((string) (Env::get('CORS_ORIGIN') ?? ''))) !== '' ? $v : '(not set)',
+            'DB_HOST' => ($v = trim((string) (Env::get('DB_HOST') ?? ''))) !== '' ? $v : 'localhost',
+            'DB_NAME' => ($v = trim((string) (Env::get('DB_NAME') ?? ''))) !== '' ? $v : 'partners_db',
         ];
 
         self::json(['data' => $results]);
