@@ -57,7 +57,7 @@ final class LodgifyClient
                 return [
                     'date_from' => (string) ($rate['start_date'] ?? $rate['startDate'] ?? $from),
                     'date_to' => (string) ($rate['end_date'] ?? $rate['endDate'] ?? $to),
-                    'price_per_night' => (float) ($rate['price'] ?? $rate['pricePerNight'] ?? 0),
+                    'price_per_night' => (float) ($rate['price_per_night'] ?? $rate['price'] ?? $rate['pricePerNight'] ?? 0),
                     'currency' => (string) ($rate['currency'] ?? 'EUR'),
                 ];
             }, $periods);
@@ -149,6 +149,10 @@ final class LodgifyClient
                 ];
             }
         }
+        // Fallback: list endpoint returns a single image_url string instead of an images array
+        if ($images === [] && isset($item['image_url']) && (string) $item['image_url'] !== '') {
+            $images[] = ['url' => (string) $item['image_url'], 'text' => null];
+        }
 
         $amenities = [];
         foreach (($item['amenities'] ?? []) as $amenity) {
@@ -163,9 +167,9 @@ final class LodgifyClient
             'amenities' => $amenities,
             'latitude' => isset($item['latitude']) ? (float) $item['latitude'] : null,
             'longitude' => isset($item['longitude']) ? (float) $item['longitude'] : null,
-            'max_guests' => (int) ($item['max_guests'] ?? $item['maxGuests'] ?? 0),
-            'bedrooms' => (int) ($item['bedrooms'] ?? 0),
-            'bathrooms' => (int) ($item['bathrooms'] ?? 0),
+            'max_guests' => (int) ($item['people_capacity'] ?? $item['max_guests'] ?? $item['maxGuests'] ?? 0),
+            'bedrooms' => (int) ($item['rooms_count'] ?? $item['bedrooms'] ?? 0),
+            'bathrooms' => (int) ($item['bathrooms_count'] ?? $item['bathrooms'] ?? 0),
         ];
     }
 }
