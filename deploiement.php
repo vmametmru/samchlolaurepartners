@@ -109,10 +109,22 @@ function detectNodeBinary(): ?string
         $candidates[] = $path;
     }
 
-    // cPanel "Setup Node.js App" virtualenvs (if one was ever created manually)
+    // cPanel "Setup Node.js App" virtualenvs (if one was ever created manually).
+    // The venv path mirrors the application root, which cPanel sometimes nests
+    // as a full absolute path (e.g. nodevenv/home/user/domain.com/api/20/bin/node),
+    // so we can't assume a fixed depth here — scan recursively instead.
     $home = getenv('HOME') ?: (BASE_DIR . '/..');
-    foreach (glob($home . '/nodevenv/*/*/bin/node') ?: [] as $path) {
-        $candidates[] = $path;
+    $nodevenvDir = $home . '/nodevenv';
+    if (is_dir($nodevenvDir)) {
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($nodevenvDir, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::SELF_FIRST
+        );
+        foreach ($iterator as $fileInfo) {
+            if ($fileInfo->getFilename() === 'node' && $fileInfo->isFile()) {
+                $candidates[] = $fileInfo->getPathname();
+            }
+        }
     }
 
     foreach ($candidates as $path) {
