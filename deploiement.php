@@ -273,8 +273,22 @@ function actionInstallDependencies(): array
         return ["npm est introuvable à côté du binaire Node détecté ({$node}).", 'error'];
     }
 
+    // Shared hosting typically caps PHP execution at 30s by default, which is
+    // often shorter than the time "npm install" needs to fetch ~11 packages
+    // and their transitive dependencies. npm creates the node_modules/
+    // directory up front and populates it progressively, so a request killed
+    // mid-install leaves an empty or partially-populated directory behind —
+    // exactly the "module(s) manquant(s)" symptom this function detects.
+    // Lift those limits (best effort; some hosts disable these functions)
+    // so the install can actually run to completion.
+    @set_time_limit(0);
+    @ini_set('max_execution_time', '0');
+    if (function_exists('ignore_user_abort')) {
+        ignore_user_abort(true);
+    }
+
     $cmd = sprintf(
-        'cd %s && %s install --omit=dev 2>&1',
+        'cd %s && %s install --omit=dev --no-audit --no-fund 2>&1',
         escapeshellarg(API_DIR),
         $npm
     );
