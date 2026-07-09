@@ -172,6 +172,35 @@ function getPort(): int
     return $port > 0 ? $port : 3000;
 }
 
+/**
+ * Returns the list of dependency names declared in api/package.json that are
+ * NOT present under api/node_modules. An empty array means everything needed
+ * to run the backend is actually installed.
+ *
+ * We check this instead of merely testing that node_modules/ exists, because
+ * a failed "npm install" (e.g. a 404 on an unpublished package) can still
+ * leave an empty or partially-populated node_modules directory behind.
+ */
+function missingNodeModules(): array
+{
+    $packageJsonPath = API_DIR . '/package.json';
+    if (!is_file($packageJsonPath)) {
+        return [];
+    }
+    $decoded = json_decode((string)file_get_contents($packageJsonPath), true);
+    if (!is_array($decoded) || !isset($decoded['dependencies']) || !is_array($decoded['dependencies'])) {
+        return [];
+    }
+
+    $missing = [];
+    foreach (array_keys($decoded['dependencies']) as $dependency) {
+        if (!is_dir(API_DIR . '/node_modules/' . $dependency)) {
+            $missing[] = $dependency;
+        }
+    }
+    return $missing;
+}
+
 function readPid(): ?int
 {
     if (!is_file(PID_FILE)) {
@@ -254,6 +283,14 @@ function actionInstallDependencies(): array
 
     if (!is_dir(API_DIR . '/node_modules')) {
         return ["L'installation des dépendances a échoué. Consultez le journal ci-dessous.", 'error'];
+    }
+    $missing = missingNodeModules();
+    if ($missing !== []) {
+        return [
+            "L'installation des dépendances a échoué : module(s) manquant(s) dans api/node_modules : "
+                . implode(', ', $missing) . ". Consultez le journal ci-dessous.",
+            'error',
+        ];
     }
     return ["Dépendances installées avec succès (node: {$node}).", 'success'];
 }
@@ -553,7 +590,7 @@ function renderRequirementsCard(): void
         'Fichier api/.env présent'                 => is_file(ENV_FILE),
         'Dossier api/ présent'                     => is_dir(API_DIR),
         'api/index.js présent (build backend)'     => is_file(API_DIR . '/index.js'),
-        'Dépendances installées (api/node_modules)' => is_dir(API_DIR . '/node_modules'),
+        'Dépendances installées (api/node_modules)' => is_dir(API_DIR . '/node_modules') && missingNodeModules() === [],
     ];
     ?>
     <div class="card">
