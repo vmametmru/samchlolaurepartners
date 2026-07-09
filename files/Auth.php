@@ -40,12 +40,17 @@ final class Auth
 
     public static function logout(): void
     {
-        setcookie(self::COOKIE_NAME, '', [
+        $options = [
             'expires' => time() - 3600,
             'path' => '/',
             'httponly' => true,
             'samesite' => 'Lax',
-        ]);
+        ];
+        $domain = self::cookieDomain();
+        if ($domain !== null) {
+            $options['domain'] = $domain;
+        }
+        setcookie(self::COOKIE_NAME, '', $options);
         unset($_COOKIE[self::COOKIE_NAME]);
     }
 
@@ -106,13 +111,18 @@ final class Auth
 
     public static function setAuthCookie(string $token): void
     {
-        setcookie(self::COOKIE_NAME, $token, [
+        $options = [
             'expires' => time() + self::EXPIRY_SECONDS,
             'path' => '/',
             'httponly' => true,
             'samesite' => 'Lax',
             'secure' => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'),
-        ]);
+        ];
+        $domain = self::cookieDomain();
+        if ($domain !== null) {
+            $options['domain'] = $domain;
+        }
+        setcookie(self::COOKIE_NAME, $token, $options);
         $_COOKIE[self::COOKIE_NAME] = $token;
     }
 
@@ -163,5 +173,34 @@ final class Auth
             $value .= str_repeat('=', 4 - $padding);
         }
         return (string) base64_decode(strtr($value, '-_', '+/'));
+    }
+
+    private static function cookieDomain(): ?string
+    {
+        $configured = trim((string) (Env::get('APP_COOKIE_DOMAIN', Env::get('COOKIE_DOMAIN', '')) ?? ''));
+        if ($configured !== '') {
+            return $configured;
+        }
+
+        $host = parse_url((string) (Env::get('APP_URL', '') ?? ''), PHP_URL_HOST);
+        if (!is_string($host) || $host === '') {
+            $host = $_SERVER['HTTP_HOST'] ?? '';
+        }
+
+        $host = strtolower(trim((string) $host));
+        if ($host === '') {
+            return null;
+        }
+        if (str_contains($host, ':')) {
+            $host = explode(':', $host, 2)[0];
+        }
+        if ($host === '' || filter_var($host, FILTER_VALIDATE_IP) || !str_contains($host, '.')) {
+            return null;
+        }
+        if (str_starts_with($host, 'www.')) {
+            $host = substr($host, 4);
+        }
+
+        return '.' . ltrim($host, '.');
     }
 }
