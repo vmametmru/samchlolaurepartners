@@ -41,15 +41,30 @@ jobs:
         run: |
           rm -rf artifact-package deployment-package-*.zip
           mkdir -p artifact-package
-          cp index.php artifact-package/
-          cp .htaccess artifact-package/
-          cp -r assets artifact-package/
-          cp -r files artifact-package/
-          cp -r bin artifact-package/
-          cp -r db artifact-package/
-          cp -r install artifact-package/
-          cp .env.example artifact-package/
-          [ -f README.md ] && cp README.md artifact-package/ || true
+          # Export every tracked file (honouring .gitattributes export-ignore)
+          # so the package always contains the full project tree, not a
+          # hand-maintained subset that can silently drop directories.
+          git archive --format=tar HEAD | tar -x -C artifact-package
+          # Runtime directories are gitignored (empty), but the app expects
+          # them to exist, so create them in the package.
+          mkdir -p artifact-package/files/storage/logs
+          mkdir -p artifact-package/files/storage/cache
+
+      - name: Verify package completeness
+        run: |
+          required="index.php .htaccess .env.example assets files files/controllers files/views db install bin images"
+          missing=""
+          for path in $required; do
+            if [ ! -e "artifact-package/$path" ]; then
+              missing="$missing $path"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Deployment package is missing:$missing"
+            exit 1
+          fi
+          echo "Deployment package contents:"
+          ( cd artifact-package && find . | sort )
 
       - name: Create deployment zip
         env:

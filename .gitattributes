@@ -1,0 +1,7 @@
+# Files excluded from the deployment package produced by `git archive`.
+# These are development-only assets that must not be shipped to the webroot.
+/.github export-ignore
+/.gitignore export-ignore
+/.gitattributes export-ignore
+/Dockerfile export-ignore
+/docker-compose.yml export-ignore
