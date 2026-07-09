@@ -19,7 +19,7 @@ final class LodgifyClient
 
     public function getProperties(): array
     {
-        return $this->remember('lodgify:properties', 3600, function (): array {
+        return $this->remember('lodgify:properties', 86400, function (): array {
             $data = $this->request('/properties');
             $items = is_array($data['items'] ?? null) ? $data['items'] : (is_array($data) ? $data : []);
             return array_map([$this, 'mapProperty'], $items);
@@ -28,40 +28,36 @@ final class LodgifyClient
 
     public function getProperty(int $propertyId): array
     {
-        return $this->remember('lodgify:property:' . $propertyId, 3600, fn(): array => $this->mapProperty($this->request('/properties/' . $propertyId)));
+        return $this->remember('lodgify:property:' . $propertyId, 86400, fn(): array => $this->mapProperty($this->request('/properties/' . $propertyId)));
     }
 
     public function getAvailability(int $propertyId, string $from, string $to): array
     {
-        return $this->remember('lodgify:availability:' . $propertyId . ':' . $from . ':' . $to, 1800, function () use ($propertyId, $from, $to): array {
-            $data = $this->request('/availability/' . $propertyId, ['startDate' => $from, 'endDate' => $to]);
-            if (!is_array($data)) {
-                return [];
-            }
-            return array_map(static function ($day): array {
-                return [
-                    'date' => (string) ($day['date'] ?? ''),
-                    'available' => (bool) ($day['available'] ?? false),
-                    'min_stay' => (int) ($day['min_nights'] ?? $day['minStay'] ?? 1),
-                ];
-            }, $data);
-        });
+        $data = $this->request('/availability/' . $propertyId, ['startDate' => $from, 'endDate' => $to]);
+        if (!is_array($data)) {
+            return [];
+        }
+        return array_map(static function ($day): array {
+            return [
+                'date' => (string) ($day['date'] ?? ''),
+                'available' => (bool) ($day['available'] ?? false),
+                'min_stay' => (int) ($day['min_nights'] ?? $day['minStay'] ?? 1),
+            ];
+        }, $data);
     }
 
     public function getRates(int $propertyId, string $from, string $to, int $guests): array
     {
-        return $this->remember('lodgify:rates:' . $propertyId . ':' . $from . ':' . $to . ':' . $guests, 1800, function () use ($propertyId, $from, $to, $guests): array {
-            $data = $this->request('/rates/' . $propertyId, ['startDate' => $from, 'endDate' => $to, 'numberOfGuests' => $guests]);
-            $periods = is_array($data['periods'] ?? null) ? $data['periods'] : (is_array($data) ? $data : []);
-            return array_map(static function ($rate) use ($from, $to): array {
-                return [
-                    'date_from' => (string) ($rate['start_date'] ?? $rate['startDate'] ?? $from),
-                    'date_to' => (string) ($rate['end_date'] ?? $rate['endDate'] ?? $to),
-                    'price_per_night' => (float) ($rate['price_per_night'] ?? $rate['price'] ?? $rate['pricePerNight'] ?? 0),
-                    'currency' => (string) ($rate['currency'] ?? 'EUR'),
-                ];
-            }, $periods);
-        });
+        $data = $this->request('/rates/' . $propertyId, ['startDate' => $from, 'endDate' => $to, 'numberOfGuests' => $guests]);
+        $periods = is_array($data['periods'] ?? null) ? $data['periods'] : (is_array($data) ? $data : []);
+        return array_map(static function ($rate) use ($from, $to): array {
+            return [
+                'date_from' => (string) ($rate['start_date'] ?? $rate['startDate'] ?? $from),
+                'date_to' => (string) ($rate['end_date'] ?? $rate['endDate'] ?? $to),
+                'price_per_night' => (float) ($rate['price_per_night'] ?? $rate['price'] ?? $rate['pricePerNight'] ?? 0),
+                'currency' => (string) ($rate['currency'] ?? 'EUR'),
+            ];
+        }, $periods);
     }
 
     public function invalidate(string $prefix = 'lodgify:'): void
