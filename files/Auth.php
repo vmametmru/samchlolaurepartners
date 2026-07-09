@@ -40,12 +40,8 @@ final class Auth
 
     public static function logout(): void
     {
-        setcookie(self::COOKIE_NAME, '', [
-            'expires' => time() - 3600,
-            'path' => '/',
-            'httponly' => true,
-            'samesite' => 'Lax',
-        ]);
+        $options = self::cookieOptions(time() - 3600);
+        setcookie(self::COOKIE_NAME, '', $options);
         unset($_COOKIE[self::COOKIE_NAME]);
     }
 
@@ -63,6 +59,22 @@ final class Auth
     {
         $token = self::tokenFromRequest();
         return $token ? self::verifyToken($token) : null;
+    }
+
+    /**
+     * Non-sensitive session diagnostic: tells whether an auth cookie is present and,
+     * if so, why it failed to resolve to a user (missing/invalid/expired), without
+     * requiring the caller to already be authenticated. Used to surface silent
+     * cookie/session issues (e.g. a Domain-attribute mismatch) directly in the UI.
+     */
+    public static function debugStatus(): array
+    {
+        $token = self::tokenFromRequest();
+        if ($token === null) {
+            return ['cookie_present' => false, 'valid' => false];
+        }
+
+        return ['cookie_present' => true, 'valid' => self::verifyToken($token) !== null];
     }
 
     public static function requireUser(bool $adminOnly = false): array
@@ -106,14 +118,54 @@ final class Auth
 
     public static function setAuthCookie(string $token): void
     {
-        setcookie(self::COOKIE_NAME, $token, [
-            'expires' => time() + self::EXPIRY_SECONDS,
+        setcookie(self::COOKIE_NAME, $token, self::cookieOptions(time() + self::EXPIRY_SECONDS));
+        $_COOKIE[self::COOKIE_NAME] = $token;
+    }
+
+    /**
+     * Cookie attributes for the auth token. Kept intentionally close to how PHP's own
+     * session cookie is emitted (host-only, path=/, Lax) because that cookie is known to
+     * survive on this deployment. By default we do NOT set a Domain attribute: a host-only
+     * cookie can never be rejected for a Domain/host mismatch, which is the classic cause
+     * of "login redirect succeeds but the session silently disappears on the next request".
+     * A Domain is only attached when explicitly configured (needed for cross-subdomain SSO).
+     */
+    private static function cookieOptions(int $expires): array
+    {
+        $options = [
+            'expires' => $expires,
             'path' => '/',
             'httponly' => true,
             'samesite' => 'Lax',
-            'secure' => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'),
-        ]);
-        $_COOKIE[self::COOKIE_NAME] = $token;
+            'secure' => self::isSecureRequest(),
+        ];
+        $domain = self::cookieDomain();
+        if ($domain !== null) {
+            $options['domain'] = $domain;
+        }
+        return $options;
+    }
+
+    /**
+     * Whether the current request reached us over HTTPS, accounting for TLS-terminating
+     * reverse proxies (common on cPanel/Cloudflare) that forward to Apache over plain HTTP
+     * but advertise the original scheme via X-Forwarded-* headers.
+     */
+    private static function isSecureRequest(): bool
+    {
+        $https = $_SERVER['HTTPS'] ?? '';
+        if ($https !== '' && strtolower((string) $https) !== 'off') {
+            return true;
+        }
+        if (($_SERVER['SERVER_PORT'] ?? '') === '443') {
+            return true;
+        }
+        $proto = strtolower(trim((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')));
+        if ($proto !== '') {
+            return explode(',', $proto)[0] === 'https';
+        }
+        $forwardedSsl = strtolower(trim((string) ($_SERVER['HTTP_X_FORWARDED_SSL'] ?? '')));
+        return $forwardedSsl === 'on';
     }
 
     private static function tokenFromRequest(): ?string
@@ -163,5 +215,71 @@ final class Auth
             $value .= str_repeat('=', 4 - $padding);
         }
         return (string) base64_decode(strtr($value, '-_', '+/'));
+    }
+
+    /**
+     * Resolves the Domain attribute for the auth cookie.
+     *
+     * This app is multi-tenant: the admin console lives on the apex/admin host while each
+     * partner is served from its own subdomain (see Tenant::current()). With a host-only
+     * cookie (no Domain) a session established on one host is NOT sent to another host, so a
+     * partner who authenticates and then lands on (or navigates to) a different subdomain
+     * appears logged out — the navbar shows "Connexion" instead of their email/role, even
+     * though admins on the apex work fine. To make login work for EVERY role across the apex
+     * and all partner subdomains, we share ONE cookie on the registrable parent domain.
+     *
+     * Safety: the parent domain is always derived from the CURRENT request Host and is a
+     * suffix of it, so the serving host always domain-matches the cookie and the browser can
+     * never silently discard the Set-Cookie for a host mismatch (the bug a host-only cookie
+     * was meant to avoid). An explicit APP_COOKIE_DOMAIN/COOKIE_DOMAIN still overrides this,
+     * and IPs / localhost / single-label hosts fall back to a host-only cookie.
+     */
+    private static function cookieDomain(): ?string
+    {
+        $configured = trim((string) (Env::get('APP_COOKIE_DOMAIN', Env::get('COOKIE_DOMAIN', '')) ?? ''));
+        if ($configured !== '') {
+            return $configured;
+        }
+
+        $host = $_SERVER['HTTP_HOST'] ?? '';
+        if (!is_string($host) || $host === '') {
+            $host = parse_url((string) (Env::get('APP_URL', '') ?? ''), PHP_URL_HOST) ?: '';
+        }
+        $host = strtolower(trim((string) $host));
+        if (str_contains($host, ':')) {
+            $host = explode(':', $host, 2)[0];
+        }
+        $host = trim($host, '.');
+
+        // Host-only (return null) for anything that can't legally carry a shared Domain:
+        // empty, an IP literal, localhost, or a single-label host with no dot.
+        if ($host === '' || $host === 'localhost' || filter_var($host, FILTER_VALIDATE_IP) || !str_contains($host, '.')) {
+            return null;
+        }
+
+        return '.' . self::registrableDomain($host);
+    }
+
+    /**
+     * Best-effort registrable ("eTLD+1") domain for sharing one cookie across subdomains,
+     * derived purely from the given host. Uses the last two labels, extending to three when
+     * the public suffix is a two-level one (e.g. "co.uk", "com.au") so the resulting Domain
+     * is never a bare public suffix that browsers would reject. Because the result is always
+     * a suffix of $host, the current request host always matches the cookie Domain.
+     */
+    private static function registrableDomain(string $host): string
+    {
+        $labels = explode('.', $host);
+        $count = count($labels);
+        if ($count <= 2) {
+            return $host;
+        }
+
+        $tld = $labels[$count - 1];
+        $sld = $labels[$count - 2];
+        // Two-level public suffixes look like "<=3 char SLD>.<2 char ccTLD>", e.g. co.uk,
+        // com.au, org.uk, ac.nz, com.br. In that case keep three labels; otherwise two.
+        $keep = (strlen($tld) === 2 && strlen($sld) <= 3) ? 3 : 2;
+        return implode('.', array_slice($labels, -$keep));
     }
 }
