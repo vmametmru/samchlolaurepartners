@@ -1,1 +1,5 @@
 node_modules/
+.deploy_token
+api/.node.pid
+api/deploy.log
+api/node.log
