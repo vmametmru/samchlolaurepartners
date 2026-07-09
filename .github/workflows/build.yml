@@ -41,10 +41,11 @@ jobs:
         run: |
           rm -rf artifact-package deployment-package-*.zip
           mkdir -p artifact-package
-          # Export every tracked file (honouring .gitattributes export-ignore)
-          # so the package always contains the full project tree, not a
-          # hand-maintained subset that can silently drop directories.
-          git archive --format=tar HEAD | tar -x -C artifact-package
+          tar \
+            --exclude='./.git' \
+            --exclude='./artifact-package' \
+            --exclude='./deployment-package-*.zip' \
+            -cf - . | tar -xf - -C artifact-package
           # Runtime directories are gitignored (empty), but the app expects
           # them to exist, so create them in the package.
           mkdir -p artifact-package/files/storage/logs
@@ -52,7 +53,22 @@ jobs:
 
       - name: Verify package completeness
         run: |
-          required="index.php .htaccess .env.example assets files files/controllers files/views db install bin images"
+          tmp_dir="$(mktemp -d)"
+          find . \
+            -path './.git' -prune -o \
+            -path './artifact-package' -prune -o \
+            -name 'deployment-package-*.zip' -prune -o \
+            -type f -print | sed 's#^\./##' | sort > "$tmp_dir/source-files.txt"
+          (
+            cd artifact-package
+            find . -type f -print | sed 's#^\./##' | sort
+          ) > "$tmp_dir/package-files.txt"
+          if ! diff -u "$tmp_dir/source-files.txt" "$tmp_dir/package-files.txt"; then
+            echo "::error::Deployment package does not contain all repository files"
+            exit 1
+          fi
+
+          required=".env.example .gitattributes .github .gitignore .htaccess assets bin db docker-compose.yml Dockerfile files files/controllers files/views images index.php install README.md"
           missing=""
           for path in $required; do
             if [ ! -e "artifact-package/$path" ]; then
