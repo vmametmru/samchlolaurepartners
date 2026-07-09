@@ -1,0 +1,27 @@
+CREATE TABLE IF NOT EXISTS email_schedules (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  partner_id INT NOT NULL,
+  days_before_arrival TINYINT UNSIGNED NOT NULL,
+  template_type ENUM(
+    'REQUEST_RECEIVED_PARTNER',
+    'REQUEST_RECEIVED_CLIENT',
+    'RESERVATION_CONFIRMED',
+    'RESERVATION_CANCELLED',
+    'REMINDER'
+  ) NOT NULL DEFAULT 'REMINDER',
+  active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (partner_id) REFERENCES partners(id) ON DELETE CASCADE,
+  INDEX idx_active_partner (partner_id, active)
+);
+
+CREATE TABLE IF NOT EXISTS sent_schedule_emails (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  schedule_id INT NOT NULL,
+  reservation_id INT NOT NULL,
+  sent_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_schedule_reservation (schedule_id, reservation_id),
+  FOREIGN KEY (schedule_id) REFERENCES email_schedules(id) ON DELETE CASCADE,
+  FOREIGN KEY (reservation_id) REFERENCES reservations(id) ON DELETE CASCADE
+);

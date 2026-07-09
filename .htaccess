@@ -1,0 +1,13 @@
+RewriteEngine On
+RewriteCond %{HTTP:Authorization} .
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+# Bloque tout accès web direct aux dossiers internes et aux fichiers sensibles
+RewriteRule ^(files|db)(/|$) - [F,L]
+RewriteRule (^|/)\.env$ - [F,L]
+RewriteRule \.sql$ - [F,L]
+
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+RewriteRule ^ index.php [QSA,L]

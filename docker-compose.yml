@@ -1,0 +1,40 @@
+version: '3.9'
+
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: partners_db
+      MYSQL_USER: partners_user
+      MYSQL_PASSWORD: partners_pass
+    ports:
+      - '3306:3306'
+    volumes:
+      - db_data:/var/lib/mysql
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    restart: unless-stopped
+    ports:
+      - '1025:1025'
+      - '8025:8025'
+
+  web:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - db
+    env_file: .env
+    environment:
+      DB_HOST: db
+      APP_URL: http://localhost:8080
+      PORT: 80
+    ports:
+      - '8080:80'
+    volumes:
+      - .:/var/www/html
+
+volumes:
+  db_data:

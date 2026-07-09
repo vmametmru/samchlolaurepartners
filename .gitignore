@@ -1,0 +1,10 @@
+.env
+.deploy_token
+images/logo/*
+images/listings/*
+images/others/*
+!images/logo/.gitkeep
+!images/listings/.gitkeep
+!images/others/.gitkeep
+files/storage/logs/
+files/storage/cache/
