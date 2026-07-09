@@ -42,6 +42,12 @@ jobs:
           cp -r packages/frontend/dist/. artifact-package/
           cp -r packages/backend/dist/. artifact-package/api/
           cp packages/backend/package.json artifact-package/api/
+          # @samchlolaurepartners/shared is a workspace-only, type-only dependency:
+          # it is never require()'d by the compiled dist/ output (TypeScript erases
+          # type-only imports) and it does not exist on the public npm registry, so
+          # it must be removed here to avoid a 404 when running "npm install" on the
+          # deployed server outside the monorepo/workspaces context.
+          npm pkg delete "dependencies.@samchlolaurepartners/shared" --prefix artifact-package/api
           cp .env.example artifact-package/api/.env.example
           cp install.php artifact-package/install.php
           cp database/migrations/*.sql artifact-package/database/migrations/
