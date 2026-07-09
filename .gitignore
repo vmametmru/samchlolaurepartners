@@ -8,3 +8,5 @@ images/others/*
 !images/others/.gitkeep
 files/storage/logs/
 files/storage/cache/
+deployment-package.zip
+*.zip
