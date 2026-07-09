@@ -37,11 +37,13 @@ jobs:
         run: |
           rm -rf artifact-package deployment-package.zip
           mkdir -p artifact-package
-          cp -r public artifact-package/
-          cp -r src artifact-package/
+          cp index.php artifact-package/
+          cp .htaccess artifact-package/
+          cp -r assets artifact-package/
+          cp -r files artifact-package/
           cp -r bin artifact-package/
-          cp -r database artifact-package/
-          cp install.php artifact-package/
+          cp -r db artifact-package/
+          cp -r install artifact-package/
           cp .env.example artifact-package/
           [ -f README.md ] && cp README.md artifact-package/ || true
 
