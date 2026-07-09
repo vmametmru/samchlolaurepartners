@@ -3,7 +3,7 @@
   <div class="section-header"><div><h1>Diagnostic système</h1><p>Vérifie la connectivité backend, la base de données et l'API Lodgify.</p></div><a class="btn-primary" href="/admin/diagnostic?run=1">▶ Lancer le diagnostic</a></div>
   <div class="card card-body stack-md">
     <h2 class="section-title">Configuration frontend</h2>
-    <div class="diag-row"><span>Webroot public</span><code>/public</code></div>
+    <div class="diag-row"><span>Webroot public</span><code>/</code></div>
     <div class="diag-row"><span>API login</span><code>/api/auth/login</code></div>
     <div class="diag-row"><span>API hébergements</span><code>/api/lodgify/properties</code></div>
   </div>
@@ -11,6 +11,9 @@
     <div class="card card-body stack-md">
       <h2 class="section-title">Base de données</h2>
       <div class="diag-row"><span>Statut</span><strong><?= !empty($data['database']['ok']) ? '✓ OK' : '✕ Erreur' ?></strong></div>
+      <?php if (empty($data['database']['ok']) && !empty($data['database']['error'])): ?>
+        <pre class="message-box"><?= \App\View::e((string) $data['database']['error']) ?></pre>
+      <?php endif; ?>
       <div class="diag-row"><span>Hôte</span><code><?= \App\View::e($data['env']['DB_HOST']) ?></code></div>
       <div class="diag-row"><span>Base</span><code><?= \App\View::e($data['env']['DB_NAME']) ?></code></div>
     </div>
@@ -20,6 +23,9 @@
       <div class="diag-row"><span>URL de base</span><code><?= \App\View::e($data['env']['LODGIFY_BASE_URL']) ?></code></div>
       <div class="diag-row"><span>Clé API configurée</span><code><?= !empty($data['env']['LODGIFY_API_KEY_SET']) ? 'Oui' : 'Non' ?></code></div>
       <?php if (!empty($data['lodgify']['ok'])): ?><div class="diag-row"><span>Propriétés trouvées</span><code><?= \App\View::e((string) $data['lodgify']['property_count']) ?></code></div><?php else: ?><pre class="message-box"><?= \App\View::e($data['lodgify']['error'] ?? 'Erreur inconnue') ?></pre><?php endif; ?>
+      <?php if (empty($data['env']['LODGIFY_API_KEY_SET']) && !empty($data['cache']['properties_cached'])): ?>
+        <pre class="message-box">Des données Lodgify peuvent encore s'afficher via le cache local, même sans clé API active.</pre>
+      <?php endif; ?>
     </div>
     <div class="card card-body stack-md">
       <h2 class="section-title">Cache</h2>

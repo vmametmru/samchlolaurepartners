@@ -348,19 +348,26 @@ final class PageController extends Controller
         $data = null;
         if (isset($_GET['run'])) {
             $client = new LodgifyClient();
+            $database = Database::test();
+            $cacheState = false;
+            try {
+                $cacheState = Database::connection()->query("SELECT COUNT(*) FROM lodgify_cache WHERE cache_key = 'lodgify:v2:properties' AND expires_at > NOW()")->fetchColumn() > 0;
+            } catch (Throwable) {
+                $cacheState = false;
+            }
             $data = [
-                'database' => Database::test(),
+                'database' => $database,
                 'env' => [
-                    'NODE_ENV' => getenv('APP_ENV') ?: 'production',
+                    'NODE_ENV' => getenv('APP_ENV') ?: '(not set)',
                     'PORT' => getenv('PORT') ?: '(not set)',
-                    'LODGIFY_BASE_URL' => getenv('LODGIFY_BASE_URL') ?: '',
+                    'LODGIFY_BASE_URL' => getenv('LODGIFY_BASE_URL') ?: '(not set)',
                     'LODGIFY_API_KEY_SET' => (getenv('LODGIFY_API_KEY') ?: '') !== '',
-                    'CORS_ORIGIN' => getenv('CORS_ORIGIN') ?: '',
-                    'DB_HOST' => getenv('DB_HOST') ?: '',
-                    'DB_NAME' => getenv('DB_NAME') ?: '',
+                    'CORS_ORIGIN' => getenv('CORS_ORIGIN') ?: '(not set)',
+                    'DB_HOST' => getenv('DB_HOST') ?: '(not set)',
+                    'DB_NAME' => getenv('DB_NAME') ?: '(not set)',
                 ],
                 'cache' => [
-                    'properties_cached' => Database::connection()->query("SELECT COUNT(*) FROM lodgify_cache WHERE cache_key = 'lodgify:v2:properties' AND expires_at > NOW()")->fetchColumn() > 0,
+                    'properties_cached' => $cacheState,
                     'keys_checked' => ['lodgify:v2:properties'],
                 ],
             ];
@@ -375,7 +382,7 @@ final class PageController extends Controller
                     'mapped_sample' => array_slice($mapped, 0, 2),
                 ];
             } catch (Throwable $e) {
-                $data['lodgify'] = ['ok' => false, 'error' => $e->getMessage()];
+                $data['lodgify'] = ['ok' => false, 'error' => $e->getMessage() !== '' ? $e->getMessage() : 'Erreur inconnue (voir logs serveur)'];
             }
         }
         View::render('pages/admin-diagnostic', ['pageTitle' => 'Diagnostic', 'data' => $data]);
