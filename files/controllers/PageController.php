@@ -350,49 +350,59 @@ final class PageController extends Controller
         $data = null;
         if (isset($_GET['run'])) {
             $data = [];
-            // Lodgify connectivity is checked first and independently of caching/mapping,
-            // so a mapping bug elsewhere never hides a real network/API-key problem.
+
+            // Step 1 — .env file
+            $envPath = defined('BASE_PATH') ? BASE_PATH . '/.env' : '';
+            $data['env_file'] = [
+                'path'     => $envPath !== '' ? $envPath : '(BASE_PATH non défini)',
+                'exists'   => $envPath !== '' && is_file($envPath),
+                'readable' => $envPath !== '' && is_readable($envPath),
+            ];
+
+            // Step 2 — Environment variables
+            $data['env'] = [
+                'APP_ENV'          => ($v = trim((string) (Env::get('APP_ENV') ?? ''))) !== '' ? $v : '(non défini)',
+                'PORT'             => ($v = trim((string) (Env::get('PORT') ?? ''))) !== '' ? $v : '(non défini)',
+                'LODGIFY_BASE_URL' => ($v = trim((string) (Env::get('LODGIFY_BASE_URL') ?? ''))) !== '' ? $v : 'https://api.lodgify.com/v2',
+                'LODGIFY_API_KEY_SET' => trim((string) (Env::get('LODGIFY_API_KEY', '') ?? '')) !== '',
+                'CORS_ORIGIN'      => ($v = trim((string) (Env::get('CORS_ORIGIN') ?? ''))) !== '' ? $v : '(non défini)',
+                'DB_HOST'          => ($v = trim((string) (Env::get('DB_HOST') ?? ''))) !== '' ? $v : 'localhost',
+                'DB_NAME'          => ($v = trim((string) (Env::get('DB_NAME') ?? ''))) !== '' ? $v : 'partners_db',
+            ];
+
+            // Step 3 — Database
+            $data['database'] = Database::test();
+
+            // Step 4 — Lodgify network connectivity (independent check, never touches cache/mapping)
             try {
                 $data['lodgify_connectivity'] = (new LodgifyClient())->testConnectivity();
             } catch (Throwable $e) {
                 $data['lodgify_connectivity'] = ['ok' => false, 'error' => $e->getMessage() !== '' ? $e->getMessage() : 'Erreur inconnue (voir logs serveur)'];
             }
 
-            $data['database'] = Database::test();
+            // Step 5 — Lodgify API (full property fetch)
+            try {
+                $client = new LodgifyClient();
+                $raw    = $client->getRawProperties();
+                $mapped = $client->getProperties();
+                $data['lodgify'] = [
+                    'ok'             => true,
+                    'property_count' => count($mapped),
+                    'raw_sample'     => array_slice($raw, 0, 1),
+                    'mapped_sample'  => array_slice($mapped, 0, 2),
+                ];
+            } catch (Throwable $e) {
+                $data['lodgify'] = ['ok' => false, 'error' => $e->getMessage() !== '' ? $e->getMessage() : 'Erreur inconnue (voir logs serveur)'];
+            }
 
+            // Step 6 — Cache
             $cacheState = false;
             try {
                 $cacheState = Database::connection()->query("SELECT COUNT(*) FROM lodgify_cache WHERE cache_key = 'lodgify:v2:properties' AND expires_at > NOW()")->fetchColumn() > 0;
             } catch (Throwable) {
                 $cacheState = false;
             }
-            $data['env'] = [
-                'NODE_ENV' => ($v = trim((string) (Env::get('APP_ENV') ?? ''))) !== '' ? $v : '(not set)',
-                'PORT' => ($v = trim((string) (Env::get('PORT') ?? ''))) !== '' ? $v : '(not set)',
-                'LODGIFY_BASE_URL' => ($v = trim((string) (Env::get('LODGIFY_BASE_URL') ?? ''))) !== '' ? $v : 'https://api.lodgify.com/v2',
-                'LODGIFY_API_KEY_SET' => trim((string) (Env::get('LODGIFY_API_KEY', '') ?? '')) !== '',
-                'CORS_ORIGIN' => ($v = trim((string) (Env::get('CORS_ORIGIN') ?? ''))) !== '' ? $v : '(not set)',
-                'DB_HOST' => ($v = trim((string) (Env::get('DB_HOST') ?? ''))) !== '' ? $v : 'localhost',
-                'DB_NAME' => ($v = trim((string) (Env::get('DB_NAME') ?? ''))) !== '' ? $v : 'partners_db',
-            ];
-            $data['cache'] = [
-                'properties_cached' => $cacheState,
-                'keys_checked' => ['lodgify:v2:properties'],
-            ];
-            try {
-                $client = new LodgifyClient();
-                $raw = $client->getRawProperties();
-                $mapped = $client->getProperties();
-                $rawSample = array_slice($raw, 0, 1);
-                $data['lodgify'] = [
-                    'ok' => true,
-                    'property_count' => count($mapped),
-                    'raw_sample' => $rawSample,
-                    'mapped_sample' => array_slice($mapped, 0, 2),
-                ];
-            } catch (Throwable $e) {
-                $data['lodgify'] = ['ok' => false, 'error' => $e->getMessage() !== '' ? $e->getMessage() : 'Erreur inconnue (voir logs serveur)'];
-            }
+            $data['cache'] = ['properties_cached' => $cacheState];
         }
         View::render('pages/admin-diagnostic', ['pageTitle' => 'Diagnostic', 'data' => $data]);
     }

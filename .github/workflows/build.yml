@@ -43,8 +43,15 @@ jobs:
           mkdir -p artifact-package
           tar \
             --exclude='./.git' \
+            --exclude='./.github' \
             --exclude='./artifact-package' \
             --exclude='./deployment-package-*.zip' \
+            --exclude='./README.md' \
+            --exclude='./Dockerfile' \
+            --exclude='./docker-compose.yml' \
+            --exclude='./.gitignore' \
+            --exclude='./.gitattributes' \
+            --exclude='./.env.example' \
             -cf - . | tar -xf - -C artifact-package
           # Runtime directories are gitignored (empty), but the app expects
           # them to exist, so create them in the package.
@@ -53,22 +60,10 @@ jobs:
 
       - name: Verify package completeness
         run: |
-          tmp_dir="$(mktemp -d)"
-          find . \
-            -path './.git' -prune -o \
-            -path './artifact-package' -prune -o \
-            -name 'deployment-package-*.zip' -prune -o \
-            -type f -print | sed 's#^\./##' | sort > "$tmp_dir/source-files.txt"
-          (
-            cd artifact-package
-            find . -type f -print | sed 's#^\./##' | sort
-          ) > "$tmp_dir/package-files.txt"
-          if ! diff -u "$tmp_dir/source-files.txt" "$tmp_dir/package-files.txt"; then
-            echo "::error::Deployment package does not contain all repository files"
-            exit 1
-          fi
+          echo "=== Package contents ==="
+          (cd artifact-package && find . | sort)
 
-          required=".env.example .gitattributes .github .gitignore .htaccess assets bin db docker-compose.yml Dockerfile files files/controllers files/views images index.php install README.md"
+          required=".htaccess assets bin db files files/controllers files/views images index.php install"
           missing=""
           for path in $required; do
             if [ ! -e "artifact-package/$path" ]; then
@@ -79,8 +74,7 @@ jobs:
             echo "::error::Deployment package is missing:$missing"
             exit 1
           fi
-          echo "Deployment package contents:"
-          ( cd artifact-package && find . | sort )
+          echo "All required runtime files present."
 
       - name: Create deployment zip
         env:

@@ -30,8 +30,12 @@ final class Env
             }
             $value = str_replace(['\\"', "\\'", '\\\\'], ['"', "'", '\\'], $value);
 
+            // Override when the inherited value is absent or blank.
+            // Check both getenv() and $_ENV because PHP-FPM may not expose
+            // server-level vars through getenv() after clear_env = yes.
             $current = getenv($key);
-            if ($current === false || $current === '') {
+            $envCurrent = array_key_exists($key, $_ENV) ? (string) $_ENV[$key] : '';
+            if (($current === false || $current === '') && $envCurrent === '') {
                 putenv($key . '=' . $value);
                 $_ENV[$key] = $value;
                 $_SERVER[$key] = $value;
@@ -43,6 +47,11 @@ final class Env
 
     public static function get(string $key, ?string $default = null): ?string
     {
+        // $_ENV is always populated by load() and works reliably on PHP-FPM
+        // regardless of variables_order or clear_env settings.
+        if (array_key_exists($key, $_ENV)) {
+            return (string) $_ENV[$key];
+        }
         $value = getenv($key);
         return $value === false ? $default : $value;
     }
