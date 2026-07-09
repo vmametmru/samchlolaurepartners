@@ -218,18 +218,68 @@ final class Auth
     }
 
     /**
-     * Only ever returns an *explicitly configured* cookie domain. When none is set we
-     * return null so the browser stores a host-only cookie for the exact host serving the
-     * request — the safest, most compatible behaviour. Deriving a Domain from the request
-     * host or APP_URL is what previously caused browsers to silently drop the Set-Cookie
-     * (e.g. when the served host was a www/apex or cPanel preview domain that didn't match),
-     * leaving the user "logged in" after the redirect but with no session on the next page.
-     * Set APP_COOKIE_DOMAIN (or COOKIE_DOMAIN) only if you need one cookie shared across
-     * several subdomains, e.g. ".example.com".
+     * Resolves the Domain attribute for the auth cookie.
+     *
+     * This app is multi-tenant: the admin console lives on the apex/admin host while each
+     * partner is served from its own subdomain (see Tenant::current()). With a host-only
+     * cookie (no Domain) a session established on one host is NOT sent to another host, so a
+     * partner who authenticates and then lands on (or navigates to) a different subdomain
+     * appears logged out — the navbar shows "Connexion" instead of their email/role, even
+     * though admins on the apex work fine. To make login work for EVERY role across the apex
+     * and all partner subdomains, we share ONE cookie on the registrable parent domain.
+     *
+     * Safety: the parent domain is always derived from the CURRENT request Host and is a
+     * suffix of it, so the serving host always domain-matches the cookie and the browser can
+     * never silently discard the Set-Cookie for a host mismatch (the bug a host-only cookie
+     * was meant to avoid). An explicit APP_COOKIE_DOMAIN/COOKIE_DOMAIN still overrides this,
+     * and IPs / localhost / single-label hosts fall back to a host-only cookie.
      */
     private static function cookieDomain(): ?string
     {
         $configured = trim((string) (Env::get('APP_COOKIE_DOMAIN', Env::get('COOKIE_DOMAIN', '')) ?? ''));
-        return $configured !== '' ? $configured : null;
+        if ($configured !== '') {
+            return $configured;
+        }
+
+        $host = $_SERVER['HTTP_HOST'] ?? '';
+        if (!is_string($host) || $host === '') {
+            $host = parse_url((string) (Env::get('APP_URL', '') ?? ''), PHP_URL_HOST) ?: '';
+        }
+        $host = strtolower(trim((string) $host));
+        if (str_contains($host, ':')) {
+            $host = explode(':', $host, 2)[0];
+        }
+        $host = trim($host, '.');
+
+        // Host-only (return null) for anything that can't legally carry a shared Domain:
+        // empty, an IP literal, localhost, or a single-label host with no dot.
+        if ($host === '' || $host === 'localhost' || filter_var($host, FILTER_VALIDATE_IP) || !str_contains($host, '.')) {
+            return null;
+        }
+
+        return '.' . self::registrableDomain($host);
+    }
+
+    /**
+     * Best-effort registrable ("eTLD+1") domain for sharing one cookie across subdomains,
+     * derived purely from the given host. Uses the last two labels, extending to three when
+     * the public suffix is a two-level one (e.g. "co.uk", "com.au") so the resulting Domain
+     * is never a bare public suffix that browsers would reject. Because the result is always
+     * a suffix of $host, the current request host always matches the cookie Domain.
+     */
+    private static function registrableDomain(string $host): string
+    {
+        $labels = explode('.', $host);
+        $count = count($labels);
+        if ($count <= 2) {
+            return $host;
+        }
+
+        $tld = $labels[$count - 1];
+        $sld = $labels[$count - 2];
+        // Two-level public suffixes look like "<=3 char SLD>.<2 char ccTLD>", e.g. co.uk,
+        // com.au, org.uk, ac.nz, com.br. In that case keep three labels; otherwise two.
+        $keep = (strlen($tld) === 2 && strlen($sld) <= 3) ? 3 : 2;
+        return implode('.', array_slice($labels, -$keep));
     }
 }
