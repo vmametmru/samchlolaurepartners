@@ -47,21 +47,21 @@ jobs:
           cp .env.example artifact-package/
           [ -f README.md ] && cp README.md artifact-package/ || true
 
-      - name: Upload merged artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: deployment-package
-          path: artifact-package/
-
-      - name: Create release archive
-        if: github.event_name == 'release'
+      - name: Create deployment zip
         run: |
           (
             cd artifact-package
             zip -r ../deployment-package.zip .
           )
 
-      - name: Attach artifacts to release
+      - name: Upload deployment zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-package
+          path: deployment-package.zip
+          retention-days: 30
+
+      - name: Attach zip to release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
