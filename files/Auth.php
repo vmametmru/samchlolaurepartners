@@ -40,16 +40,7 @@ final class Auth
 
     public static function logout(): void
     {
-        $options = [
-            'expires' => time() - 3600,
-            'path' => '/',
-            'httponly' => true,
-            'samesite' => 'Lax',
-        ];
-        $domain = self::cookieDomain();
-        if ($domain !== null) {
-            $options['domain'] = $domain;
-        }
+        $options = self::cookieOptions(time() - 3600);
         setcookie(self::COOKIE_NAME, '', $options);
         unset($_COOKIE[self::COOKIE_NAME]);
     }
@@ -127,19 +118,54 @@ final class Auth
 
     public static function setAuthCookie(string $token): void
     {
+        setcookie(self::COOKIE_NAME, $token, self::cookieOptions(time() + self::EXPIRY_SECONDS));
+        $_COOKIE[self::COOKIE_NAME] = $token;
+    }
+
+    /**
+     * Cookie attributes for the auth token. Kept intentionally close to how PHP's own
+     * session cookie is emitted (host-only, path=/, Lax) because that cookie is known to
+     * survive on this deployment. By default we do NOT set a Domain attribute: a host-only
+     * cookie can never be rejected for a Domain/host mismatch, which is the classic cause
+     * of "login redirect succeeds but the session silently disappears on the next request".
+     * A Domain is only attached when explicitly configured (needed for cross-subdomain SSO).
+     */
+    private static function cookieOptions(int $expires): array
+    {
         $options = [
-            'expires' => time() + self::EXPIRY_SECONDS,
+            'expires' => $expires,
             'path' => '/',
             'httponly' => true,
             'samesite' => 'Lax',
-            'secure' => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'),
+            'secure' => self::isSecureRequest(),
         ];
         $domain = self::cookieDomain();
         if ($domain !== null) {
             $options['domain'] = $domain;
         }
-        setcookie(self::COOKIE_NAME, $token, $options);
-        $_COOKIE[self::COOKIE_NAME] = $token;
+        return $options;
+    }
+
+    /**
+     * Whether the current request reached us over HTTPS, accounting for TLS-terminating
+     * reverse proxies (common on cPanel/Cloudflare) that forward to Apache over plain HTTP
+     * but advertise the original scheme via X-Forwarded-* headers.
+     */
+    private static function isSecureRequest(): bool
+    {
+        $https = $_SERVER['HTTPS'] ?? '';
+        if ($https !== '' && strtolower((string) $https) !== 'off') {
+            return true;
+        }
+        if (($_SERVER['SERVER_PORT'] ?? '') === '443') {
+            return true;
+        }
+        $proto = strtolower(trim((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')));
+        if ($proto !== '') {
+            return explode(',', $proto)[0] === 'https';
+        }
+        $forwardedSsl = strtolower(trim((string) ($_SERVER['HTTP_X_FORWARDED_SSL'] ?? '')));
+        return $forwardedSsl === 'on';
     }
 
     private static function tokenFromRequest(): ?string
@@ -191,38 +217,19 @@ final class Auth
         return (string) base64_decode(strtr($value, '-_', '+/'));
     }
 
+    /**
+     * Only ever returns an *explicitly configured* cookie domain. When none is set we
+     * return null so the browser stores a host-only cookie for the exact host serving the
+     * request — the safest, most compatible behaviour. Deriving a Domain from the request
+     * host or APP_URL is what previously caused browsers to silently drop the Set-Cookie
+     * (e.g. when the served host was a www/apex or cPanel preview domain that didn't match),
+     * leaving the user "logged in" after the redirect but with no session on the next page.
+     * Set APP_COOKIE_DOMAIN (or COOKIE_DOMAIN) only if you need one cookie shared across
+     * several subdomains, e.g. ".example.com".
+     */
     private static function cookieDomain(): ?string
     {
         $configured = trim((string) (Env::get('APP_COOKIE_DOMAIN', Env::get('COOKIE_DOMAIN', '')) ?? ''));
-        if ($configured !== '') {
-            return $configured;
-        }
-
-        // Use the actual Host header of the current request as the primary source, not
-        // the configured APP_URL: if APP_URL in .env doesn't exactly match (or isn't a
-        // parent domain of) the domain actually serving the request, setting a Domain
-        // attribute derived from it makes browsers silently discard the Set-Cookie header
-        // entirely — the user appears logged in (redirect succeeds) but no session
-        // actually persists on the next request, with no visible error anywhere.
-        $host = $_SERVER['HTTP_HOST'] ?? '';
-        if (!is_string($host) || $host === '') {
-            $host = parse_url((string) (Env::get('APP_URL', '') ?? ''), PHP_URL_HOST) ?: '';
-        }
-
-        $host = strtolower(trim((string) $host));
-        if ($host === '') {
-            return null;
-        }
-        if (str_contains($host, ':')) {
-            $host = explode(':', $host, 2)[0];
-        }
-        if ($host === '' || filter_var($host, FILTER_VALIDATE_IP) || !str_contains($host, '.')) {
-            return null;
-        }
-        if (str_starts_with($host, 'www.')) {
-            $host = substr($host, 4);
-        }
-
-        return '.' . ltrim($host, '.');
+        return $configured !== '' ? $configured : null;
     }
 }
