@@ -348,31 +348,38 @@ final class PageController extends Controller
         self::requireAdminUser();
         $data = null;
         if (isset($_GET['run'])) {
-            $client = new LodgifyClient();
-            $database = Database::test();
+            $data = [];
+            // Lodgify connectivity is checked first and independently of caching/mapping,
+            // so a mapping bug elsewhere never hides a real network/API-key problem.
+            try {
+                $data['lodgify_connectivity'] = (new LodgifyClient())->testConnectivity();
+            } catch (Throwable $e) {
+                $data['lodgify_connectivity'] = ['ok' => false, 'error' => $e->getMessage() !== '' ? $e->getMessage() : 'Erreur inconnue (voir logs serveur)'];
+            }
+
+            $data['database'] = Database::test();
+
             $cacheState = false;
             try {
                 $cacheState = Database::connection()->query("SELECT COUNT(*) FROM lodgify_cache WHERE cache_key = 'lodgify:v2:properties' AND expires_at > NOW()")->fetchColumn() > 0;
             } catch (Throwable) {
                 $cacheState = false;
             }
-            $data = [
-                'database' => $database,
-                'env' => [
-                    'NODE_ENV' => getenv('APP_ENV') ?: '(not set)',
-                    'PORT' => getenv('PORT') ?: '(not set)',
-                    'LODGIFY_BASE_URL' => getenv('LODGIFY_BASE_URL') ?: '(not set)',
-                    'LODGIFY_API_KEY_SET' => (getenv('LODGIFY_API_KEY') ?: '') !== '',
-                    'CORS_ORIGIN' => getenv('CORS_ORIGIN') ?: '(not set)',
-                    'DB_HOST' => getenv('DB_HOST') ?: '(not set)',
-                    'DB_NAME' => getenv('DB_NAME') ?: '(not set)',
-                ],
-                'cache' => [
-                    'properties_cached' => $cacheState,
-                    'keys_checked' => ['lodgify:v2:properties'],
-                ],
+            $data['env'] = [
+                'NODE_ENV' => getenv('APP_ENV') ?: '(not set)',
+                'PORT' => getenv('PORT') ?: '(not set)',
+                'LODGIFY_BASE_URL' => getenv('LODGIFY_BASE_URL') ?: '(not set)',
+                'LODGIFY_API_KEY_SET' => (getenv('LODGIFY_API_KEY') ?: '') !== '',
+                'CORS_ORIGIN' => getenv('CORS_ORIGIN') ?: '(not set)',
+                'DB_HOST' => getenv('DB_HOST') ?: '(not set)',
+                'DB_NAME' => getenv('DB_NAME') ?: '(not set)',
+            ];
+            $data['cache'] = [
+                'properties_cached' => $cacheState,
+                'keys_checked' => ['lodgify:v2:properties'],
             ];
             try {
+                $client = new LodgifyClient();
                 $raw = $client->getRawProperties();
                 $mapped = $client->getProperties();
                 $rawSample = array_slice($raw, 0, 1);

@@ -9,6 +9,17 @@
   </div>
   <?php if (is_array($data)): ?>
     <div class="card card-body stack-md">
+      <h2 class="section-title">Connectivité Lodgify (vérification directe)</h2>
+      <?php $conn = $data['lodgify_connectivity'] ?? null; ?>
+      <div class="diag-row"><span>Statut</span><strong><?= !empty($conn['ok']) ? '✓ OK' : '✕ Erreur' ?></strong></div>
+      <div class="diag-row"><span>URL de base</span><code><?= \App\View::e($conn['base_url'] ?? '') ?></code></div>
+      <div class="diag-row"><span>Clé API configurée</span><code><?= !empty($conn['api_key_set']) ? 'Oui' : 'Non' ?></code></div>
+      <?php if (!empty($conn['resolved_ip'])): ?><div class="diag-row"><span>IP résolue (DNS)</span><code><?= \App\View::e((string) $conn['resolved_ip']) ?></code></div><?php endif; ?>
+      <?php if (isset($conn['http_status']) && $conn['http_status'] !== null): ?><div class="diag-row"><span>Statut HTTP</span><code><?= \App\View::e((string) $conn['http_status']) ?></code></div><?php endif; ?>
+      <?php if (isset($conn['duration_ms']) && $conn['duration_ms'] !== null): ?><div class="diag-row"><span>Temps de réponse</span><code><?= \App\View::e((string) $conn['duration_ms']) ?> ms</code></div><?php endif; ?>
+      <?php if (!empty($conn['error'])): ?><pre class="message-box"><?= \App\View::e((string) $conn['error']) ?></pre><?php endif; ?>
+    </div>
+    <div class="card card-body stack-md">
       <h2 class="section-title">Base de données</h2>
       <div class="diag-row"><span>Statut</span><strong><?= !empty($data['database']['ok']) ? '✓ OK' : '✕ Erreur' ?></strong></div>
       <?php if (empty($data['database']['ok']) && !empty($data['database']['error'])): ?>

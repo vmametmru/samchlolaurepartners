@@ -12,7 +12,7 @@
       <a href="/properties">Hébergements</a>
       <a href="/contact">Contact</a>
       <?php if (is_array($user)): ?>
-        <?php if (($user['role'] ?? '') === 'admin'): ?><a href="/admin/partners">Admin</a><?php endif; ?>
+        <?php if (($user['role'] ?? '') === 'admin'): ?><a href="/admin/partners">Admin</a><a href="/admin/diagnostic">Diagnostic</a><?php endif; ?>
         <?php if (in_array($user['role'] ?? '', ['partner', 'admin'], true)): ?><a href="/partner/dashboard">Dashboard</a><?php endif; ?>
         <a class="btn-secondary" href="/logout">Déconnexion</a>
       <?php else: ?>

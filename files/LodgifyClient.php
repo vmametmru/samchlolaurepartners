@@ -73,6 +73,73 @@ final class LodgifyClient
         return $items;
     }
 
+    /**
+     * Lightweight, independent connectivity check against the Lodgify API.
+     * Unlike getProperties()/getProperty(), this never reads or writes the local
+     * cache and never attempts to map the response, so it can pinpoint whether a
+     * failure is caused by DNS/network issues, an invalid API key, or an HTTP
+     * error from Lodgify itself — regardless of any bug in the mapping layer.
+     */
+    public function testConnectivity(): array
+    {
+        $result = [
+            'ok' => false,
+            'base_url' => $this->baseUrl,
+            'api_key_set' => $this->apiKey !== '',
+            'resolved_ip' => null,
+            'http_status' => null,
+            'duration_ms' => null,
+            'error' => null,
+        ];
+
+        if ($this->apiKey === '') {
+            $result['error'] = 'LODGIFY_API_KEY n\'est pas configurée.';
+            return $result;
+        }
+
+        $host = parse_url($this->baseUrl, PHP_URL_HOST);
+        if (is_string($host) && $host !== '') {
+            $ip = gethostbyname($host);
+            $result['resolved_ip'] = $ip !== $host ? $ip : null;
+            if ($ip === $host) {
+                $result['error'] = 'Résolution DNS impossible pour l\'hôte : ' . $host;
+                return $result;
+            }
+        }
+
+        $url = $this->baseUrl . '/properties?' . http_build_query(['page' => 1, 'size' => 1]);
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_HTTPHEADER => [
+                'X-ApiKey: ' . $this->apiKey,
+                'Accept: application/json',
+            ],
+        ]);
+        $start = microtime(true);
+        $body = curl_exec($ch);
+        $result['duration_ms'] = (int) round((microtime(true) - $start) * 1000);
+        $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        $curlErrno = curl_errno($ch);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+
+        $result['http_status'] = $status ?: null;
+
+        if ($body === false || $curlErrno !== 0) {
+            $result['error'] = 'Erreur cURL (' . $curlErrno . ') : ' . ($curlError !== '' ? $curlError : 'connexion impossible');
+            return $result;
+        }
+        if ($status >= 400) {
+            $result['error'] = 'HTTP ' . $status . ' : ' . mb_strimwidth((string) $body, 0, 300, '…');
+            return $result;
+        }
+
+        $result['ok'] = true;
+        return $result;
+    }
+
     private function request(string $path, array $params = []): array
     {
         if ($this->apiKey === '') {
