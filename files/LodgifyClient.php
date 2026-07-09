@@ -162,6 +162,21 @@ final class LodgifyClient
             $amenities[] = ['name' => is_array($amenity) ? (string) ($amenity['name'] ?? '') : (string) $amenity];
         }
 
+        // The Lodgify API does not expose bedrooms/bathrooms/capacity as root-level
+        // fields: they are only available per room-type inside the "rooms" array, so
+        // we aggregate them from there when the root-level fields are absent.
+        $roomsBedrooms = 0;
+        $roomsBathrooms = 0;
+        $roomsMaxPeople = 0;
+        foreach (($item['rooms'] ?? []) as $room) {
+            if (!is_array($room)) {
+                continue;
+            }
+            $roomsBedrooms += (int) ($room['bedrooms'] ?? 0);
+            $roomsBathrooms += (int) ($room['bathrooms'] ?? 0);
+            $roomsMaxPeople += (int) ($room['max_people'] ?? $room['maxPeople'] ?? 0);
+        }
+
         return [
             'id' => (int) ($item['id'] ?? 0),
             'name' => (string) ($item['name'] ?? ''),
@@ -170,9 +185,9 @@ final class LodgifyClient
             'amenities' => $amenities,
             'latitude' => isset($item['latitude']) ? (float) $item['latitude'] : null,
             'longitude' => isset($item['longitude']) ? (float) $item['longitude'] : null,
-            'max_guests' => (int) ($item['people_capacity'] ?? $item['max_guests'] ?? $item['maxGuests'] ?? 0),
-            'bedrooms' => (int) ($item['rooms_count'] ?? $item['bedrooms'] ?? 0),
-            'bathrooms' => (int) ($item['bathrooms_count'] ?? $item['bathrooms'] ?? 0),
+            'max_guests' => (int) ($item['people_capacity'] ?? $item['max_guests'] ?? $item['maxGuests'] ?? $roomsMaxPeople),
+            'bedrooms' => (int) ($item['rooms_count'] ?? $item['bedrooms'] ?? $roomsBedrooms),
+            'bathrooms' => (int) ($item['bathrooms_count'] ?? $item['bathrooms'] ?? $roomsBathrooms),
         ];
     }
 }

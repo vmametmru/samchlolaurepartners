@@ -73,6 +73,7 @@ final class PageController extends Controller
             $availability = $client->getAvailability($id, $today, $nextMonth);
             $rates = self::publicRates($client, $id, $today, $nextMonth);
         } catch (Throwable $e) {
+            error_log('Property detail load failed for id ' . $id . ': ' . $e->getMessage());
             throw new HttpException(404, 'Not Found', 'Hébergement introuvable');
         }
         View::render('pages/property-detail', [
