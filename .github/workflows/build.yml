@@ -33,9 +33,13 @@ jobs:
             php -l "$file"
           done
 
+      - name: Set build timestamp
+        id: ts
+        run: echo "value=$(date -u +%Y%m%d%H%M%S)" >> "$GITHUB_OUTPUT"
+
       - name: Prepare artifacts
         run: |
-          rm -rf artifact-package deployment-package.zip
+          rm -rf artifact-package deployment-package-*.zip
           mkdir -p artifact-package
           cp index.php artifact-package/
           cp .htaccess artifact-package/
@@ -48,21 +52,23 @@ jobs:
           [ -f README.md ] && cp README.md artifact-package/ || true
 
       - name: Create deployment zip
+        env:
+          BUILD_TS: ${{ steps.ts.outputs.value }}
         run: |
           (
             cd artifact-package
-            zip -r ../deployment-package.zip .
+            zip -r "../deployment-package-${BUILD_TS}.zip" .
           )
 
       - name: Upload deployment zip
         uses: actions/upload-artifact@v4
         with:
-          name: deployment-package
-          path: deployment-package.zip
+          name: deployment-package-${{ steps.ts.outputs.value }}
+          path: deployment-package-${{ steps.ts.outputs.value }}.zip
           retention-days: 30
 
       - name: Attach zip to release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: deployment-package.zip
+          files: deployment-package-${{ steps.ts.outputs.value }}.zip
