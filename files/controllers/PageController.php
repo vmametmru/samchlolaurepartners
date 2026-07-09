@@ -360,15 +360,22 @@ final class PageController extends Controller
                     'DB_NAME' => getenv('DB_NAME') ?: '',
                 ],
                 'cache' => [
-                    'properties_cached' => Database::connection()->query("SELECT COUNT(*) FROM lodgify_cache WHERE cache_key = 'lodgify:properties' AND expires_at > NOW()")->fetchColumn() > 0,
-                    'keys_checked' => ['lodgify:properties'],
+                    'properties_cached' => Database::connection()->query("SELECT COUNT(*) FROM lodgify_cache WHERE cache_key = 'lodgify:v2:properties' AND expires_at > NOW()")->fetchColumn() > 0,
+                    'keys_checked' => ['lodgify:v2:properties'],
                 ],
             ];
             try {
-                $sample = $client->getProperties();
-                $data['lodgify'] = ['ok' => true, 'http_status' => 200, 'property_count' => count($sample), 'response_keys' => ['items'], 'sample' => array_slice($sample, 0, 2)];
+                $raw = $client->getRawProperties();
+                $mapped = $client->getProperties();
+                $rawSample = array_slice($raw, 0, 1);
+                $data['lodgify'] = [
+                    'ok' => true,
+                    'property_count' => count($mapped),
+                    'raw_sample' => $rawSample,
+                    'mapped_sample' => array_slice($mapped, 0, 2),
+                ];
             } catch (Throwable $e) {
-                $data['lodgify'] = ['ok' => false, 'error' => $e->getMessage(), 'http_status' => null, 'response_body' => null];
+                $data['lodgify'] = ['ok' => false, 'error' => $e->getMessage()];
             }
         }
         View::render('pages/admin-diagnostic', ['pageTitle' => 'Diagnostic', 'data' => $data]);

@@ -19,7 +19,7 @@ final class LodgifyClient
 
     public function getProperties(): array
     {
-        return $this->remember('lodgify:properties', 86400, function (): array {
+        return $this->remember('lodgify:v2:properties', 86400, function (): array {
             $data = $this->request('/properties');
             $items = is_array($data['items'] ?? null) ? $data['items'] : (is_array($data) ? $data : []);
             return array_map([$this, 'mapProperty'], $items);
@@ -28,7 +28,7 @@ final class LodgifyClient
 
     public function getProperty(int $propertyId): array
     {
-        return $this->remember('lodgify:property:' . $propertyId, 86400, fn(): array => $this->mapProperty($this->request('/properties/' . $propertyId)));
+        return $this->remember('lodgify:v2:property:' . $propertyId, 86400, fn(): array => $this->mapProperty($this->request('/properties/' . $propertyId)));
     }
 
     public function getAvailability(int $propertyId, string $from, string $to): array
@@ -64,6 +64,13 @@ final class LodgifyClient
     {
         $stmt = Database::connection()->prepare('DELETE FROM lodgify_cache WHERE cache_key LIKE ?');
         $stmt->execute([$prefix . '%']);
+    }
+
+    public function getRawProperties(): array
+    {
+        $data = $this->request('/properties');
+        $items = is_array($data['items'] ?? null) ? $data['items'] : (is_array($data) ? $data : []);
+        return $items;
     }
 
     private function request(string $path, array $params = []): array

@@ -31,6 +31,12 @@
       <div class="diag-row"><span>PORT</span><code><?= \App\View::e($data['env']['PORT']) ?></code></div>
       <div class="diag-row"><span>CORS_ORIGIN</span><code><?= \App\View::e($data['env']['CORS_ORIGIN']) ?></code></div>
     </div>
-    <?php if (!empty($data['lodgify']['sample'])): ?><div class="card card-body stack-md"><h2 class="section-title">Échantillon Lodgify</h2><pre class="message-box"><?= \App\View::e(json_encode($data['lodgify']['sample'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) ?></pre></div><?php endif; ?>
+    <?php if (!empty($data['lodgify']['raw_sample'])): ?>
+      <div class="card card-body stack-md">
+        <h2 class="section-title">Réponse brute Lodgify (1 bien, champs réels)</h2>
+        <pre class="message-box"><?= \App\View::e(json_encode($data['lodgify']['raw_sample'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) ?></pre>
+      </div>
+    <?php endif; ?>
+    <?php if (!empty($data['lodgify']['mapped_sample'])): ?><div class="card card-body stack-md"><h2 class="section-title">Données mappées (après transformation)</h2><pre class="message-box"><?= \App\View::e(json_encode($data['lodgify']['mapped_sample'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) ?></pre></div><?php endif; ?>
   <?php endif; ?>
 </section>
