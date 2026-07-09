@@ -14,6 +14,7 @@
       <?php if (is_array($user)): ?>
         <?php if (($user['role'] ?? '') === 'admin'): ?><a href="/admin/partners">Admin</a><a href="/admin/diagnostic">Diagnostic</a><?php endif; ?>
         <?php if (in_array($user['role'] ?? '', ['partner', 'admin'], true)): ?><a href="/partner/dashboard">Dashboard</a><?php endif; ?>
+        <span class="navbar-user-info">Connecté : <?= \App\View::e($user['email'] ?? '') ?> (<?= \App\View::e($user['role'] ?? '') ?>)</span>
         <a class="btn-secondary" href="/logout">Déconnexion</a>
       <?php else: ?>
         <a class="btn-primary" style="background-color: <?= \App\View::e($primaryColor) ?>;" href="/login">Connexion</a>
