@@ -1,5 +1,5 @@
-node_modules/
+.env
 .deploy_token
-api/.node.pid
-api/deploy.log
-api/node.log
+public/uploads/
+storage/logs/
+storage/cache/

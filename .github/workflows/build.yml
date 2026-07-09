@@ -21,37 +21,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
         with:
-          node-version: '24'
+          php-version: '8.2'
+          extensions: pdo_mysql
 
-      - name: Install dependencies
-        run: npm install
-
-      - name: Build backend
-        run: npm run build --workspace=packages/backend
-
-      - name: Build frontend
-        run: npm run build --workspace=packages/frontend
+      - name: Lint PHP files
+        run: |
+          find . -name '*.php' -not -path './vendor/*' -print0 | while IFS= read -r -d '' file; do
+            php -l "$file"
+          done
 
       - name: Prepare artifacts
         run: |
-          rm -rf artifact-package
-          mkdir -p artifact-package/api artifact-package/database/migrations artifact-package/database/seeds
-          cp -r packages/frontend/dist/. artifact-package/
-          cp -r packages/backend/dist/. artifact-package/api/
-          cp packages/backend/package.json artifact-package/api/
-          # @samchlolaurepartners/shared is a workspace-only, type-only dependency:
-          # it is never require()'d by the compiled dist/ output (TypeScript erases
-          # type-only imports) and it does not exist on the public npm registry, so
-          # it must be removed here to avoid a 404 when running "npm install" on the
-          # deployed server outside the monorepo/workspaces context.
-          npm pkg delete "dependencies.@samchlolaurepartners/shared" --prefix artifact-package/api
-          cp .env.example artifact-package/api/.env.example
-          cp install.php artifact-package/install.php
-          cp database/migrations/*.sql artifact-package/database/migrations/
-          cp database/seeds/*.sql artifact-package/database/seeds/
+          rm -rf artifact-package deployment-package.zip
+          mkdir -p artifact-package
+          cp -r public artifact-package/
+          cp -r src artifact-package/
+          cp -r bin artifact-package/
+          cp -r database artifact-package/
+          cp install.php artifact-package/
+          cp .env.example artifact-package/
+          [ -f README.md ] && cp README.md artifact-package/ || true
 
       - name: Upload merged artifact
         uses: actions/upload-artifact@v4
