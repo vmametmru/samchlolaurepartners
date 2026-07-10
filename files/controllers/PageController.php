@@ -82,11 +82,21 @@ final class PageController extends Controller
     {
         $client = new LodgifyClient();
         $today = date('Y-m-d');
-        $nextMonth = date('Y-m-d', strtotime('+30 days'));
+        // Calendar range: default shows the current month + next month (2 months).
+        // A "months" query param lets the visitor extend it to 6 or 12 months via
+        // the "Afficher les 6/12 prochains mois" filters on the merged
+        // Tarifs & Disponibilités tab. Any other value falls back to the default.
+        $requestedMonths = (int) ($_GET['months'] ?? 2);
+        $calendarMonths = in_array($requestedMonths, [6, 12], true) ? $requestedMonths : 2;
+        $rangeStart = (new \DateTimeImmutable('first day of this month'))->format('Y-m-d');
+        $rangeEnd = (new \DateTimeImmutable('first day of this month'))
+            ->modify('+' . $calendarMonths . ' months')
+            ->modify('-1 day')
+            ->format('Y-m-d');
         try {
             $property = $client->getProperty($id);
-            $availability = $client->getAvailability($id, $today, $nextMonth);
-            $rates = self::publicRates($client, $id, $today, $nextMonth);
+            $availability = $client->getAvailability($id, $rangeStart, $rangeEnd);
+            $rates = self::publicRates($client, $id, $rangeStart, $rangeEnd);
         } catch (Throwable $e) {
             error_log('Property detail load failed for id ' . $id . ': ' . $e->getMessage());
             // Only a genuine 404 from Lodgify means the property truly doesn't
@@ -104,6 +114,8 @@ final class PageController extends Controller
             'availability' => $availability,
             'rates' => $rates,
             'today' => $today,
+            'calendarMonths' => $calendarMonths,
+            'calendarStart' => $rangeStart,
         ]);
     }
 

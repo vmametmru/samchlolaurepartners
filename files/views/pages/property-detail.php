@@ -32,8 +32,7 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
     <button type="button" class="tab-btn" data-tab-btn="photos">Photos</button>
     <button type="button" class="tab-btn" data-tab-btn="amenities">Équipements</button>
     <button type="button" class="tab-btn" data-tab-btn="location">Emplacement</button>
-    <button type="button" class="tab-btn" data-tab-btn="rates">Tarifs</button>
-    <button type="button" class="tab-btn" data-tab-btn="availability">Disponibilités</button>
+    <button type="button" class="tab-btn" data-tab-btn="rates-availability">Tarifs &amp; Disponibilités</button>
   </nav>
 
   <div class="detail-grid">
@@ -103,31 +102,16 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
         <?php endif; ?>
       </div>
 
-      <div data-tab-panel="rates" hidden>
-        <h2 class="section-title">Tarifs</h2>
+      <div data-tab-panel="rates-availability" hidden>
+        <h2 class="section-title">Tarifs &amp; Disponibilités</h2>
         <?php if ($minRate !== null): ?>
           <p class="price-big"><?= number_format((float) $minRate, 2, ',', ' ') . ' ' . \App\View::e($currency) ?><span>/nuit</span></p>
           <?php if ($extraGuestFee !== null): ?>
             <p class="muted">+ <?= number_format((float) $extraGuestFee['amount'], 2, ',', ' ') . ' ' . \App\View::e($currency) ?> par invité supplémentaire<?= $extraGuestFee['frequency'] === 'PerNight' ? '/nuit' : '' ?></p>
           <?php endif; ?>
-          <table class="input" style="width:100%;border-collapse:collapse;">
-            <thead><tr><th style="text-align:left;">Date</th><th style="text-align:right;">Prix/nuit</th></tr></thead>
-            <tbody>
-              <?php foreach ($rates as $rate): ?>
-                <tr>
-                  <td><?= \App\View::e($rate['date_from']) ?></td>
-                  <td style="text-align:right;"><?= number_format((float) $rate['price_per_night'], 2, ',', ' ') . ' ' . \App\View::e($rate['currency']) ?></td>
-                </tr>
-              <?php endforeach; ?>
-            </tbody>
-          </table>
         <?php else: ?>
           <p class="muted">Tarifs non disponibles pour le moment.</p>
         <?php endif; ?>
-      </div>
-
-      <div data-tab-panel="availability" hidden>
-        <h2 class="section-title">Disponibilités</h2>
         <?php require BASE_PATH . '/files/views/partials/calendar.php'; ?>
       </div>
     </div>

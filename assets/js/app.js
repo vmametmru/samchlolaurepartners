@@ -29,16 +29,19 @@ function initPropertyTabs() {
     const panelsContainer = tabs.parentElement ? tabs.parentElement.querySelector('[data-tab-panels]') : null;
     if (!panelsContainer) return;
     const panels = panelsContainer.querySelectorAll('[data-tab-panel]');
-    buttons.forEach((button) => {
-      button.addEventListener('click', () => {
-        const target = button.dataset.tabBtn;
-        buttons.forEach((item) => item.classList.remove('active'));
-        button.classList.add('active');
-        panels.forEach((panel) => {
-          panel.hidden = panel.dataset.tabPanel !== target;
-        });
+    const activate = (target) => {
+      buttons.forEach((item) => item.classList.toggle('active', item.dataset.tabBtn === target));
+      panels.forEach((panel) => {
+        panel.hidden = panel.dataset.tabPanel !== target;
       });
+    };
+    buttons.forEach((button) => {
+      button.addEventListener('click', () => activate(button.dataset.tabBtn));
     });
+    const hashTarget = window.location.hash ? window.location.hash.slice(1) : '';
+    if (hashTarget && tabs.querySelector(`[data-tab-btn="${hashTarget}"]`)) {
+      activate(hashTarget);
+    }
   });
 }
 
