@@ -187,8 +187,8 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
             <div data-quote-result hidden>
               <div class="quote-line"><span>Tarif pour <span data-quote-nights></span> nuit(s)</span><span data-quote-room></span></div>
               <p class="quote-recap muted" data-quote-recap></p>
-              <div class="quote-line quote-total"><span>Total</span><span data-quote-total></span></div>
-              <p class="quote-tax-note muted" data-quote-tax-line hidden>+ <span data-quote-tax-amount></span> Euros (A Calculer) de Taxe Touristique à régler à l'arrivée en Euros auprès de l'hébergeur</p>
+              <div class="quote-line quote-total"><span>Sous total</span><span data-quote-total></span></div>
+              <p class="quote-tax-note muted" data-quote-tax-line hidden>Remarque : Taxe Touristique de <span data-quote-tax-amount></span> Euros à remettre au gérant ou au propriétaire du bien à l'arrivée, payable en Euros (<span data-quote-tax-rate></span> Euros par pers. / par nuit)</p>
             </div>
           </div>
           <button class="btn-primary" type="submit">Envoyer ma demande</button>

@@ -148,6 +148,7 @@ final class ReservationsController extends Controller
             'room_total' => round($roomTotal, 2),
             'cleaning_total' => $cleaningTotal,
             'tourist_tax_total' => $touristTaxTotal,
+            'tourist_tax_rate' => $taxRate,
             'total_without_tax' => $totalWithoutTax,
             'grand_total' => $grandTotal,
         ]]);

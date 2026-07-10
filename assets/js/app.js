@@ -563,6 +563,10 @@ function initBookingQuote() {
         if (taxAmount) {
           taxAmount.textContent = Number(quote.tourist_tax_total).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         }
+        const taxRate = form.querySelector('[data-quote-tax-rate]');
+        if (taxRate) {
+          taxRate.textContent = Number(quote.tourist_tax_rate || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
       }
       result.hidden = false;
     }
