@@ -11,7 +11,15 @@ try {
     foreach ($result['errors'] as $error) {
         fwrite(STDERR, '[scheduler] ' . $error . PHP_EOL);
     }
-    exit($result['errors'] === [] ? 0 : 1);
+
+    $syncResult = App\Scheduler::syncLodgify();
+    if ($syncResult['error'] !== null) {
+        fwrite(STDERR, '[scheduler] Lodgify sync error: ' . $syncResult['error'] . PHP_EOL);
+    } else {
+        echo '[scheduler] Lodgify sync: ' . $syncResult['synced'] . ' properties refreshed' . PHP_EOL;
+    }
+
+    exit($result['errors'] === [] && $syncResult['error'] === null ? 0 : 1);
 } catch (Throwable $e) {
     fwrite(STDERR, '[scheduler] Error: ' . $e->getMessage() . PHP_EOL);
     exit(1);

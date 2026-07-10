@@ -23,7 +23,9 @@ final class LodgifyClient
         return $this->remember('lodgify:v2:properties', 86400, function (): array {
             $data = $this->request('/properties');
             $items = is_array($data['items'] ?? null) ? $data['items'] : (is_array($data) ? $data : []);
-            return array_map([$this, 'mapProperty'], $items);
+            $properties = array_map([$this, 'mapProperty'], $items);
+            Settings::set('LODGIFY_LAST_SYNC_AT', gmdate('c'));
+            return $properties;
         });
     }
 
@@ -171,7 +173,7 @@ final class LodgifyClient
         }
         $decoded = json_decode($body, true);
         if ($status >= 400) {
-            throw new RuntimeException('Lodgify API error ' . $status . ': ' . $body);
+            throw new LodgifyApiException($status, 'Lodgify API error ' . $status . ': ' . $body);
         }
         return is_array($decoded) ? $decoded : [];
     }

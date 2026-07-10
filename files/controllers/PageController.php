@@ -10,6 +10,7 @@ use App\Database;
 use App\Settings;
 use App\Flash;
 use App\HttpException;
+use App\LodgifyApiException;
 use App\LodgifyClient;
 use App\Scheduler;
 use App\Tenant;
@@ -75,7 +76,14 @@ final class PageController extends Controller
             $rates = self::publicRates($client, $id, $today, $nextMonth);
         } catch (Throwable $e) {
             error_log('Property detail load failed for id ' . $id . ': ' . $e->getMessage());
-            throw new HttpException(404, 'Not Found', 'Hébergement introuvable');
+            // Only a genuine 404 from Lodgify means the property truly doesn't
+            // exist. Any other failure (timeout, 5xx, rate limiting, auth
+            // error, ...) is transient and must not be disguised as "Not Found",
+            // otherwise real outages look like broken/removed listings.
+            if ($e instanceof LodgifyApiException && $e->statusCode === 404) {
+                throw new HttpException(404, 'Not Found', 'Hébergement introuvable');
+            }
+            throw new HttpException(503, 'Service Unavailable', 'Le service de réservation est temporairement indisponible. Veuillez réessayer dans quelques instants.');
         }
         View::render('pages/property-detail', [
             'pageTitle' => (string) $property['name'],
@@ -332,7 +340,10 @@ final class PageController extends Controller
     public static function adminSync(): void
     {
         self::requireAdminUser();
-        View::render('pages/admin-sync', ['pageTitle' => 'Synchronisation Lodgify']);
+        View::render('pages/admin-sync', [
+            'pageTitle' => 'Synchronisation Lodgify',
+            'lastSyncLabel' => self::formatLodgifyLastSync(),
+        ]);
     }
 
     public static function adminRunSync(): never
@@ -460,6 +471,26 @@ final class PageController extends Controller
     private static function requireAdminUser(): array
     {
         return Auth::requireUser(true);
+    }
+
+    /**
+     * Formats the last Lodgify properties sync timestamp for display in the
+     * admin section, converted to GMT+4 (Île Maurice) regardless of the
+     * server's own timezone.
+     */
+    private static function formatLodgifyLastSync(): ?string
+    {
+        $raw = Settings::get('LODGIFY_LAST_SYNC_AT');
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+        try {
+            $date = new \DateTimeImmutable($raw);
+            $date = $date->setTimezone(new \DateTimeZone('Etc/GMT-4'));
+        } catch (\Throwable $e) {
+            return null;
+        }
+        return 'Mis à jour le ' . $date->format('d/m/Y') . ' à ' . $date->format('H:i') . ' (GMT+4)';
     }
 
     private static function publicRates(LodgifyClient $client, int $propertyId, string $from, string $to): array

@@ -14,7 +14,7 @@ Le webroot du projet est la **racine** du dépôt (pas de sous-dossier `public/`
 - `db/migrations/` et `db/seeds/` — schéma SQL d'origine réutilisé tel quel. Accès web direct bloqué via `.htaccess`.
 - `db/config.php` — identifiants de connexion MySQL (à copier depuis `db/config.example.php`). C'est le **seul** réglage qui vit hors de la base de données : il faut bien pouvoir se connecter à MySQL avant de pouvoir y lire quoi que ce soit d'autre. Toute la configuration applicative (clés API, SMTP, JWT, etc.) est stockée dans la table `settings`.
 - `bin/migrate.php` — applique les migrations SQL existantes
-- `bin/run-scheduler.php` — traitement cron des emails planifiés
+- `bin/run-scheduler.php` — traitement cron des emails planifiés et rafraîchissement du cache des propriétés Lodgify (toutes les 30 min recommandé)
 - `install/install.php` — assistant d'installation pour hébergement mutualisé / cPanel (à supprimer après usage)
 
 ## Démarrage local
