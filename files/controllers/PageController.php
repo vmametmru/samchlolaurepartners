@@ -527,6 +527,10 @@ final class PageController extends Controller
     {
         try {
             $client = new LodgifyClient();
+            // This test claims to query Lodgify "in real time" — clear any cached
+            // properties/rooms/rates first so it never silently shows stale numbers
+            // (e.g. capacity/min-stay cached before a mapping fix was deployed).
+            $client->invalidate('lodgify:');
             $guests = $adults + $children;
             $properties = $client->getProperties();
             $rows = [];
@@ -544,24 +548,36 @@ final class PageController extends Controller
                     'currency' => null,
                     'error' => null,
                 ];
-                try {
-                    $days = $client->getAvailability($propertyId, $checkin, $checkout);
-                    $row['available'] = $client->isAvailableForRange($propertyId, $checkin, $checkout);
-                    $minStays = array_filter(array_map(
-                        static fn(array $day): ?int => isset($day['min_stay']) ? (int) $day['min_stay'] : null,
-                        $days
-                    ), static fn(?int $v): bool => $v !== null);
-                    if ($minStays !== []) {
-                        $row['min_stay'] = min($minStays);
+                // A "Capacité max" of 0 can mean either the room really has no
+                // configured capacity in Lodgify, or the "/properties/{id}/rooms"
+                // call (the only source of that number) failed and was silently
+                // swallowed — surface which one it is instead of just showing 0.
+                if ((int) $property['max_guests'] <= 0) {
+                    $capacityDebug = $client->getRoomCapacityDebug($propertyId);
+                    if ($capacityDebug['error'] !== null) {
+                        $row['error'] = 'Capacité max = 0 : échec de /properties/{id}/rooms — ' . $capacityDebug['error'];
                     }
-                } catch (Throwable $e) {
-                    $row['error'] = $e->getMessage();
                 }
                 try {
+                    $row['available'] = $client->isAvailableForRange($propertyId, $checkin, $checkout);
+                } catch (Throwable $e) {
+                    $row['error'] = $row['error'] !== null ? $row['error'] . ' / ' . $e->getMessage() : $e->getMessage();
+                }
+                try {
+                    // Minimum-stay restrictions are only exposed by the Rates
+                    // calendar (CalendarPrice.min_stay), never by the Availability
+                    // endpoint, which is why this used to always read back 1.
                     $rates = $client->getRates($propertyId, $checkin, $checkout, $guests);
                     if ($rates !== []) {
                         $row['price_per_night'] = (float) $rates[0]['price_per_night'];
                         $row['currency'] = (string) $rates[0]['currency'];
+                        $minStays = array_filter(array_map(
+                            static fn(array $rate): ?int => isset($rate['min_stay']) ? (int) $rate['min_stay'] : null,
+                            $rates
+                        ), static fn(?int $v): bool => $v !== null);
+                        if ($minStays !== []) {
+                            $row['min_stay'] = min($minStays);
+                        }
                     }
                 } catch (Throwable $e) {
                     $row['error'] = $row['error'] !== null ? $row['error'] . ' / ' . $e->getMessage() : $e->getMessage();

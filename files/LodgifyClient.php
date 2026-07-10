@@ -134,6 +134,26 @@ final class LodgifyClient
         });
     }
 
+    /**
+     * Uncached diagnostic helper: reports why room-capacity (bedrooms/
+     * bathrooms/max_guests) came back empty for a property, e.g. because
+     * "/properties/{id}/rooms" itself failed. applyRoomCapacity()/
+     * sumRoomCapacity() silently swallow that failure (falling back to 0) so
+     * a single Lodgify hiccup never breaks the whole property page, which
+     * otherwise leaves an admin with no way to tell "genuinely 0 capacity"
+     * apart from "the rooms endpoint failed".
+     */
+    public function getRoomCapacityDebug(int $propertyId): array
+    {
+        try {
+            $raw = $this->request('/properties/' . $propertyId . '/rooms');
+            $count = is_array($raw) ? count($raw) : 0;
+            return ['room_count' => $count, 'error' => null];
+        } catch (\Throwable $e) {
+            return ['room_count' => 0, 'error' => $e->getMessage()];
+        }
+    }
+
     private function fetchPropertyRoomsDetails(int $propertyId): array
     {
         try {
@@ -307,7 +327,6 @@ final class LodgifyClient
                     continue;
                 }
                 $available = (int) ($period['available'] ?? 0);
-                $minStay = (int) ($period['min_stay'] ?? $period['minStay'] ?? 1);
                 try {
                     $cursor = new \DateTimeImmutable($start);
                     $periodEnd = new \DateTimeImmutable($end);
@@ -316,13 +335,17 @@ final class LodgifyClient
                 }
                 // A property is bookable for a given night if at least one of its
                 // room types reports available units for that night.
+                // Note: Lodgify's Availability PeriodDto never carries a "min_stay"
+                // field (only "available", "start"/"end", bookings/closed_period) —
+                // the minimum-stay restriction only exists on the Rates calendar
+                // (CalendarPrice.min_stay, see getRates()). Reading it from here
+                // used to silently default to 1 for every property/date.
                 while ($cursor < $periodEnd) {
                     $day = $cursor->format('Y-m-d');
                     $wasAvailable = $days[$day]['available'] ?? false;
                     $days[$day] = [
                         'date' => $day,
                         'available' => $wasAvailable || $available > 0,
-                        'min_stay' => $minStay,
                     ];
                     $cursor = $cursor->modify('+1 day');
                 }
@@ -393,10 +416,20 @@ final class LodgifyClient
             }
             $prices = is_array($item['prices'] ?? null) ? $item['prices'] : [];
             $pricePerNight = 0.0;
+            $minStay = null;
             foreach ($prices as $price) {
-                if (is_array($price) && isset($price['price_per_day'])) {
-                    $pricePerNight = (float) $price['price_per_day'];
-                    break;
+                if (is_array($price)) {
+                    if (isset($price['price_per_day']) && $pricePerNight === 0.0) {
+                        $pricePerNight = (float) $price['price_per_day'];
+                    }
+                    // Lodgify only exposes the minimum-stay restriction here
+                    // (CalendarPrice.min_stay), never on the Availability endpoint.
+                    if ($minStay === null && isset($price['min_stay'])) {
+                        $minStay = (int) $price['min_stay'];
+                    }
+                    if ($pricePerNight !== 0.0 && $minStay !== null) {
+                        break;
+                    }
                 }
             }
             $rates[] = [
@@ -404,6 +437,7 @@ final class LodgifyClient
                 'date_to' => $date,
                 'price_per_night' => $pricePerNight,
                 'currency' => $currency,
+                'min_stay' => $minStay,
             ];
         }
         return $rates;
