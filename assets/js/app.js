@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
   initGallery();
   initPropertyTabs();
+  initCalendarWidgets();
   initMaps();
   initApiForms();
   initNationalities();
@@ -42,6 +43,44 @@ function initPropertyTabs() {
     if (hashTarget && tabs.querySelector(`[data-tab-btn="${hashTarget}"]`)) {
       activate(hashTarget);
     }
+  });
+}
+
+function initCalendarWidgets() {
+  document.querySelectorAll('[data-calendar-widget]').forEach((widget) => {
+    const propertyId = widget.dataset.propertyId;
+    const tabsContainer = widget.querySelector('[data-calendar-tabs]');
+    const body = widget.querySelector('[data-calendar-body]');
+    const loading = widget.querySelector('[data-calendar-loading]');
+    if (!propertyId || !tabsContainer || !body) return;
+    const buttons = tabsContainer.querySelectorAll('[data-calendar-months]');
+    let currentRequest = 0;
+    buttons.forEach((button) => {
+      button.addEventListener('click', async () => {
+        const months = button.dataset.calendarMonths;
+        if (button.classList.contains('active')) return;
+        const requestId = ++currentRequest;
+        buttons.forEach((item) => {
+          item.classList.toggle('active', item === button);
+          item.setAttribute('aria-selected', item === button ? 'true' : 'false');
+        });
+        if (loading) loading.hidden = false;
+        try {
+          const response = await fetch(`/properties/${propertyId}/calendar?months=${encodeURIComponent(months)}`, {
+            headers: { 'Accept': 'text/html' },
+            credentials: 'same-origin'
+          });
+          const html = await response.text();
+          if (requestId !== currentRequest) return;
+          body.innerHTML = html;
+        } catch (error) {
+          if (requestId !== currentRequest) return;
+          body.innerHTML = '<p class="muted">Impossible de charger le calendrier. Veuillez réessayer.</p>';
+        } finally {
+          if (requestId === currentRequest && loading) loading.hidden = true;
+        }
+      });
+    });
   });
 }
 

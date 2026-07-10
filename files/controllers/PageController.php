@@ -82,17 +82,11 @@ final class PageController extends Controller
     {
         $client = new LodgifyClient();
         $today = date('Y-m-d');
-        // Calendar range: default shows the current month + next month (2 months).
-        // A "months" query param lets the visitor extend it to 6 or 12 months via
-        // the "Afficher les 6/12 prochains mois" filters on the merged
-        // Tarifs & Disponibilités tab. Any other value falls back to the default.
-        $requestedMonths = (int) ($_GET['months'] ?? 2);
-        $calendarMonths = in_array($requestedMonths, [6, 12], true) ? $requestedMonths : 2;
-        $rangeStart = (new \DateTimeImmutable('first day of this month'))->format('Y-m-d');
-        $rangeEnd = (new \DateTimeImmutable('first day of this month'))
-            ->modify('+' . $calendarMonths . ' months')
-            ->modify('-1 day')
-            ->format('Y-m-d');
+        // The detail page always loads with the default 2-month range (current
+        // month + next month). Switching to 6/12 months happens client-side via
+        // an AJAX call to propertyCalendarFragment(), so the page never reloads.
+        $calendarMonths = 2;
+        [$rangeStart, $rangeEnd] = self::calendarRange($calendarMonths);
         try {
             $property = $client->getProperty($id);
             $availability = $client->getAvailability($id, $rangeStart, $rangeEnd);
@@ -117,6 +111,47 @@ final class PageController extends Controller
             'calendarMonths' => $calendarMonths,
             'calendarStart' => $rangeStart,
         ]);
+    }
+
+    /**
+     * Returns the calendar HTML fragment (months grid + legend) for the given
+     * number of months, used by the "2/6/12 prochains mois" tabs on the
+     * property detail page. Fetched via AJAX so switching tabs only refreshes
+     * this fragment instead of reloading the whole page.
+     */
+    public static function propertyCalendarFragment(int $id): never
+    {
+        $requestedMonths = (int) ($_GET['months'] ?? 2);
+        $calendarMonths = in_array($requestedMonths, [2, 6, 12], true) ? $requestedMonths : 2;
+        [$rangeStart, $rangeEnd] = self::calendarRange($calendarMonths);
+        $client = new LodgifyClient();
+        try {
+            $availability = $client->getAvailability($id, $rangeStart, $rangeEnd);
+            $rates = self::publicRates($client, $id, $rangeStart, $rangeEnd);
+        } catch (Throwable $e) {
+            error_log('Property calendar fragment load failed for id ' . $id . ': ' . $e->getMessage());
+            http_response_code(503);
+            header('Content-Type: text/html; charset=utf-8');
+            echo '<p class="muted">Calendrier temporairement indisponible. Veuillez réessayer.</p>';
+            exit;
+        }
+        $calendarStart = $rangeStart;
+        header('Content-Type: text/html; charset=utf-8');
+        require BASE_PATH . '/files/views/partials/calendar-body.php';
+        exit;
+    }
+
+    /**
+     * @return array{0: string, 1: string} [rangeStart, rangeEnd] in Y-m-d format
+     */
+    private static function calendarRange(int $months): array
+    {
+        $rangeStart = (new \DateTimeImmutable('first day of this month'))->format('Y-m-d');
+        $rangeEnd = (new \DateTimeImmutable('first day of this month'))
+            ->modify('+' . $months . ' months')
+            ->modify('-1 day')
+            ->format('Y-m-d');
+        return [$rangeStart, $rangeEnd];
     }
 
     public static function submitBooking(int $propertyId): never

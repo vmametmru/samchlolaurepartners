@@ -104,12 +104,10 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
 
       <div data-tab-panel="rates-availability" hidden>
         <h2 class="section-title">Tarifs &amp; Disponibilités</h2>
-        <?php if ($minRate !== null): ?>
-          <p class="price-big"><?= number_format((float) $minRate, 2, ',', ' ') . ' ' . \App\View::e($currency) ?><span>/nuit</span></p>
-          <?php if ($extraGuestFee !== null): ?>
-            <p class="muted">+ <?= number_format((float) $extraGuestFee['amount'], 2, ',', ' ') . ' ' . \App\View::e($currency) ?> par invité supplémentaire<?= $extraGuestFee['frequency'] === 'PerNight' ? '/nuit' : '' ?></p>
-          <?php endif; ?>
-        <?php else: ?>
+        <?php if ($extraGuestFee !== null): ?>
+          <p class="muted">+ <?= number_format((float) $extraGuestFee['amount'], 2, ',', ' ') . ' ' . \App\View::e($currency) ?> par invité / nuit pour le ménage</p>
+        <?php endif; ?>
+        <?php if ($minRate === null): ?>
           <p class="muted">Tarifs non disponibles pour le moment.</p>
         <?php endif; ?>
         <?php require BASE_PATH . '/files/views/partials/calendar.php'; ?>

@@ -84,6 +84,9 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .calendar-filters { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1rem; }
 .calendar-filters .btn-secondary { padding: .5rem .9rem; font-size: .85rem; font-weight: 600; }
 .calendar-filters .btn-secondary.active { background: var(--brand); color: white; border-color: var(--brand); }
+.calendar-loading { display: flex; align-items: center; gap: .5rem; margin-bottom: 1rem; font-size: .85rem; color: var(--muted); }
+.spinner { width: 1rem; height: 1rem; border-radius: 999px; border: 2px solid #d1d5db; border-top-color: var(--brand); animation: spinner-spin .7s linear infinite; display: inline-block; }
+@keyframes spinner-spin { to { transform: rotate(360deg); } }
 .calendar-months { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1.25rem; }
 .calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: .35rem; }
 .calendar-grid.header div { text-align: center; font-size: .8rem; color: var(--muted); font-weight: 700; }
@@ -92,7 +95,7 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .calendar-cell.unavailable { background: #fee2e2; color: #b91c1c; }
 .calendar-cell.unavailable .calendar-day { text-decoration: line-through; }
 .calendar-day { font-size: .85rem; }
-.calendar-price { font-size: .65rem; font-weight: 700; opacity: .85; }
+.calendar-price { font-size: .425rem; font-weight: 700; opacity: .85; }
 .calendar-legend { margin-top: 1rem; font-size: .85rem; color: var(--muted); display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
 .dot { width: .8rem; height: .8rem; display: inline-block; border-radius: 999px; margin-right: .25rem; }
 .dot-green { background: #dcfce7; border: 1px solid #86efac; }
