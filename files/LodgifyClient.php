@@ -319,45 +319,80 @@ final class LodgifyClient
             return [];
         }
 
-        $days = [];
-        foreach ($data as $roomTypeCalendar) {
-            if (!is_array($roomTypeCalendar)) {
-                continue;
-            }
+        try {
+            $rangeStart = new \DateTimeImmutable($from);
+            $rangeEnd = new \DateTimeImmutable($to);
+        } catch (\Throwable) {
+            return [];
+        }
+        if ($rangeStart >= $rangeEnd) {
+            return [];
+        }
+
+        // Every day in the requested window defaults to available: real Lodgify
+        // responses only carry a period for a night when a booking/closed_period
+        // actually restricts it. When a room type has nothing booked in range at
+        // all, Lodgify returns a single degenerate period stamped with the
+        // sentinel date "0001-01-01" (start === end, entirely outside the
+        // requested window) instead of one spanning [from, to). Previously that
+        // meant no day of that room type ever got an explicit "available" entry,
+        // so every gap between two bookings (and everything after the last one)
+        // rendered as "unknown"/unclickable instead of bookable.
+        $merged = [];
+        for ($cursor = $rangeStart; $cursor < $rangeEnd; $cursor = $cursor->modify('+1 day')) {
+            $merged[$cursor->format('Y-m-d')] = false;
+        }
+
+        $roomTypeCalendars = array_values(array_filter($data, static fn($item): bool => is_array($item)));
+        if ($roomTypeCalendars === []) {
+            return [];
+        }
+
+        foreach ($roomTypeCalendars as $roomTypeCalendar) {
+            // Per room type, days default to available=true and only flip to
+            // false where a period explicitly reports zero available units.
+            $roomDays = array_fill_keys(array_keys($merged), true);
             $periods = is_array($roomTypeCalendar['periods'] ?? null) ? $roomTypeCalendar['periods'] : [];
             foreach ($periods as $period) {
                 if (!is_array($period)) {
                     continue;
                 }
-                $start = (string) ($period['start'] ?? '');
-                $end = (string) ($period['end'] ?? '');
-                if ($start === '' || $end === '') {
-                    continue;
-                }
                 $available = (int) ($period['available'] ?? 0);
                 try {
-                    $cursor = new \DateTimeImmutable($start);
-                    $periodEnd = new \DateTimeImmutable($end);
+                    $periodStart = new \DateTimeImmutable((string) ($period['start'] ?? ''));
+                    $periodEnd = new \DateTimeImmutable((string) ($period['end'] ?? ''));
                 } catch (\Throwable) {
                     continue;
                 }
-                // A property is bookable for a given night if at least one of its
-                // room types reports available units for that night.
-                // Note: Lodgify's Availability PeriodDto never carries a "min_stay"
-                // field (only "available", "start"/"end", bookings/closed_period) —
-                // the minimum-stay restriction only exists on the Rates calendar
-                // (CalendarPrice.min_stay, see getRates()). Reading it from here
-                // used to silently default to 1 for every property/date.
-                while ($cursor < $periodEnd) {
-                    $day = $cursor->format('Y-m-d');
-                    $wasAvailable = $days[$day]['available'] ?? false;
-                    $days[$day] = [
-                        'date' => $day,
-                        'available' => $wasAvailable || $available > 0,
-                    ];
+                if ($periodStart >= $periodEnd || $periodEnd <= $rangeStart || $periodStart >= $rangeEnd) {
+                    // Degenerate (zero-width) or entirely out-of-range period:
+                    // Lodgify uses this to convey "this status applies to the
+                    // whole request" rather than a specific sub-range, so apply
+                    // it across [rangeStart, rangeEnd) instead of skipping it.
+                    $cursor = $rangeStart;
+                    $limit = $rangeEnd;
+                } else {
+                    $cursor = max($periodStart, $rangeStart);
+                    $limit = min($periodEnd, $rangeEnd);
+                }
+                if ($available > 0) {
+                    continue;
+                }
+                while ($cursor < $limit) {
+                    $roomDays[$cursor->format('Y-m-d')] = false;
                     $cursor = $cursor->modify('+1 day');
                 }
             }
+            // A property is bookable for a given night if at least one of its
+            // room types is available that night (OR merge across room types).
+            foreach ($roomDays as $day => $isAvailable) {
+                $merged[$day] = $merged[$day] || $isAvailable;
+            }
+        }
+
+        $days = [];
+        foreach ($merged as $day => $isAvailable) {
+            $days[] = ['date' => $day, 'available' => $isAvailable];
         }
         ksort($days);
         return array_values($days);
