@@ -355,7 +355,11 @@ final class PageController extends Controller
             // Clear PHP's realpath/stat cache first: on long-running workers (FPM/opcache)
             // a stale cache can keep reporting a file as missing after it was created.
             clearstatcache(true);
-            $envPath     = defined('BASE_PATH') ? BASE_PATH . '/.env' : '';
+            $envPrimaryPath = defined('BASE_PATH') ? BASE_PATH . '/.env' : '';
+            // Mirror the same resolution bootstrap.php uses: if BASE_PATH/.env is absent
+            // (e.g. the app is deployed under a subfolder like /admin while a shared .env
+            // sits at the domain root, one or two levels up), look upward for it.
+            $envPath     = $envPrimaryPath !== '' ? Env::resolvePath($envPrimaryPath) : '';
             $envRealBase = $envPath !== '' ? realpath(BASE_PATH) : false;
             $envRealPath = $envPath !== '' ? realpath($envPath) : false;
             $envExists   = $envPath !== '' && is_file($envPath);
@@ -366,18 +370,55 @@ final class PageController extends Controller
             $phpUser     = function_exists('posix_getpwuid') && function_exists('posix_geteuid')
                 ? (posix_getpwuid(posix_geteuid())['name'] ?? null) : null;
             $openBasedir = ini_get('open_basedir');
+
+            // Directory listing of BASE_PATH exactly as PHP sees it on disk, so we can
+            // prove — without guessing — whether ".env" is really there or the app is
+            // simply looking in the wrong folder (wrong BASE_PATH / docroot alias / stale deploy).
+            $baseDirListing = null;
+            if (defined('BASE_PATH') && is_dir(BASE_PATH)) {
+                $entries = @scandir(BASE_PATH);
+                if ($entries !== false) {
+                    $baseDirListing = array_values(array_diff($entries, ['.', '..']));
+                    sort($baseDirListing);
+                }
+            }
+
+            // Also probe a few alternate locations a misconfigured docroot could resolve to,
+            // so we can tell the user exactly where PHP found (or didn't find) a .env file.
+            $altCandidates = array_unique(array_filter([
+                $_SERVER['DOCUMENT_ROOT'] ?? null,
+                isset($_SERVER['DOCUMENT_ROOT']) ? dirname((string) $_SERVER['DOCUMENT_ROOT']) : null,
+                isset($_SERVER['SCRIPT_FILENAME']) ? dirname((string) $_SERVER['SCRIPT_FILENAME']) : null,
+                defined('BASE_PATH') ? dirname(BASE_PATH) : null,
+                defined('BASE_PATH') ? dirname(dirname(BASE_PATH)) : null,
+            ]));
+            $altScan = [];
+            foreach ($altCandidates as $dir) {
+                if ($dir === '' || !is_dir($dir)) {
+                    continue;
+                }
+                $candidate = rtrim($dir, '/') . '/.env';
+                $altScan[$dir] = is_file($candidate);
+            }
+
             $data['env_file'] = [
-                'path'          => $envPath !== '' ? $envPath : '(BASE_PATH non défini)',
-                'base_path'     => defined('BASE_PATH') ? BASE_PATH : '(non défini)',
-                'base_realpath' => $envRealBase !== false ? $envRealBase : '(introuvable — vérifiez les liens symboliques)',
-                'real_path'     => $envRealPath !== false ? $envRealPath : null,
-                'exists'        => $envExists,
-                'is_link'       => $envIsLink,
-                'readable'      => $envPath !== '' && is_readable($envPath),
-                'perms'         => $envPerms,
-                'owner'         => $envOwner,
-                'php_user'      => $phpUser,
-                'open_basedir'  => $openBasedir !== false && $openBasedir !== '' ? $openBasedir : null,
+                'primary_path'     => $envPrimaryPath !== '' ? $envPrimaryPath : '(BASE_PATH non défini)',
+                'path'             => $envPath !== '' ? $envPath : '(BASE_PATH non défini)',
+                'runtime_loaded_path' => Env::getResolvedPath(),
+                'base_path'        => defined('BASE_PATH') ? BASE_PATH : '(non défini)',
+                'base_realpath'    => $envRealBase !== false ? $envRealBase : '(introuvable — vérifiez les liens symboliques)',
+                'real_path'        => $envRealPath !== false ? $envRealPath : null,
+                'exists'           => $envExists,
+                'is_link'          => $envIsLink,
+                'readable'         => $envPath !== '' && is_readable($envPath),
+                'perms'            => $envPerms,
+                'owner'            => $envOwner,
+                'php_user'         => $phpUser,
+                'open_basedir'     => $openBasedir !== false && $openBasedir !== '' ? $openBasedir : null,
+                'document_root'    => $_SERVER['DOCUMENT_ROOT'] ?? null,
+                'script_filename'  => $_SERVER['SCRIPT_FILENAME'] ?? null,
+                'base_dir_listing' => $baseDirListing,
+                'alt_scan'         => $altScan,
             ];
 
             // Step 2 — Environment variables

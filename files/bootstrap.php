@@ -19,7 +19,7 @@ spl_autoload_register(static function (string $class): void {
     }
 });
 
-App\Env::load(BASE_PATH . '/.env');
+App\Env::load(App\Env::resolvePath(BASE_PATH . '/.env'));
 if (!is_dir(BASE_PATH . '/files/storage/cache')) {
     @mkdir(BASE_PATH . '/files/storage/cache', 0775, true);
 }

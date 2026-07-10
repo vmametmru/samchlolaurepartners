@@ -7,13 +7,55 @@ namespace App;
 final class Env
 {
     private static bool $loaded = false;
+    private static ?string $resolvedPath = null;
+
+    /**
+     * Resolves the real .env path to use, in case the app root (BASE_PATH) is
+     * deployed one or two levels below the actual domain docroot (e.g. the app
+     * lives under /admin while a shared .env sits at the domain root).
+     *
+     * Tries $primaryPath first, then walks up parent directories looking for
+     * a ".env" file, up to $maxLevelsUp levels. Returns the first path found,
+     * or $primaryPath unchanged if none of the candidates exist.
+     */
+    public static function resolvePath(string $primaryPath, int $maxLevelsUp = 2): string
+    {
+        if (is_file($primaryPath)) {
+            return $primaryPath;
+        }
+
+        $dir = dirname($primaryPath);
+        for ($i = 0; $i < $maxLevelsUp; $i++) {
+            $parent = dirname($dir);
+            if ($parent === $dir) {
+                break; // reached filesystem root
+            }
+            $candidate = $parent . '/.env';
+            if (is_file($candidate)) {
+                return $candidate;
+            }
+            $dir = $parent;
+        }
+
+        return $primaryPath;
+    }
+
+    public static function getResolvedPath(): ?string
+    {
+        return self::$resolvedPath;
+    }
 
     public static function load(string $path): void
     {
-        if (self::$loaded || !is_file($path)) {
-            self::$loaded = true;
+        if (self::$loaded) {
             return;
         }
+        if (!is_file($path)) {
+            self::$loaded = true;
+            self::$resolvedPath = null;
+            return;
+        }
+        self::$resolvedPath = $path;
 
         $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
         foreach ($lines as $line) {

@@ -70,17 +70,33 @@ use App\View;
       <?php if (!is_null($data['env_file']['open_basedir'] ?? null)): ?>
       <div class="diag-row"><span>open_basedir (PHP)</span><code><?= View::e((string) $data['env_file']['open_basedir']) ?></code></div>
       <?php endif; ?>
+      <?php if (!empty($data['env_file']['document_root'])): ?>
+      <div class="diag-row"><span>DOCUMENT_ROOT (serveur web)</span><code><?= View::e((string) $data['env_file']['document_root']) ?></code></div>
+      <?php endif; ?>
+      <?php if (!empty($data['env_file']['script_filename'])): ?>
+      <div class="diag-row"><span>SCRIPT_FILENAME</span><code><?= View::e((string) $data['env_file']['script_filename']) ?></code></div>
+      <?php endif; ?>
+      <?php if (!empty($data['env_file']['runtime_loaded_path'])): ?>
+      <div class="diag-row"><span>.env réellement chargé au démarrage</span><code><?= View::e((string) $data['env_file']['runtime_loaded_path']) ?></code></div>
+      <?php endif; ?>
+      <?php if (is_array($data['env_file']['base_dir_listing'] ?? null)): ?>
+      <div class="diag-row"><span>Contenu du dossier BASE_PATH</span></div>
+      <pre class="message-box"><?= View::e(implode("\n", $data['env_file']['base_dir_listing'])) ?></pre>
+      <?php endif; ?>
+      <?php if (!empty($data['env_file']['alt_scan'])): ?>
+      <div class="diag-row"><span>Recherche de .env dans d'autres dossiers candidats</span></div>
+      <pre class="message-box"><?php foreach ($data['env_file']['alt_scan'] as $dir => $found): ?><?= View::e($dir . '/.env') ?> : <?= $found ? 'trouvé' : 'absent' ?>
+<?php endforeach; ?></pre>
+      <?php endif; ?>
       <?php if (!$envFileOk): ?>
       <?php if ($envFileExists && !$envFileReadable): ?>
       <pre class="message-box" style="color:var(--red)">Le fichier .env existe mais PHP ne peut pas le lire.
 Vérifiez les permissions (chmod 640 .env) et que le propriétaire correspond à l'utilisateur PHP.</pre>
       <?php else: ?>
-      <pre class="message-box" style="color:var(--red)">Le fichier .env est introuvable à ce chemin.
-Créez-le (cp .env.example .env) et remplissez les valeurs.
-Si le fichier existe réellement à cet emplacement sur le serveur, vérifiez :
-- que "BASE_PATH réel (realpath)" ci-dessus correspond bien au dossier contenant votre .env (attention aux liens symboliques / docroot alias) ;
-- que "open_basedir" (si défini) inclut bien ce chemin ;
-- que le déploiement le plus récent a bien été appliqué sur le serveur (ce diagnostic reflète le code actuellement déployé).</pre>
+      <pre class="message-box" style="color:var(--red)">Le fichier .env est introuvable à cet emplacement (recherche effectuée dans BASE_PATH puis jusqu'à 2 dossiers parents).
+Créez-le (cp .env.example .env) et remplissez les valeurs, ou déplacez votre .env existant dans l'un des dossiers listés ci-dessus.
+Si le fichier existe réellement sur le serveur, comparez "Contenu du dossier BASE_PATH" et "Recherche de .env dans d'autres dossiers candidats" ci-dessus pour voir précisément où PHP regarde et où se trouve réellement votre .env
+(ex : script déployé dans /admin alors que le .env est au vrai dossier racine du domaine).</pre>
       <?php endif; ?>
       <?php endif; ?>
     </div>
