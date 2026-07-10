@@ -105,7 +105,7 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
       <div data-tab-panel="rates-availability" hidden>
         <h2 class="section-title">Tarifs &amp; Disponibilités</h2>
         <?php if ($extraGuestFee !== null): ?>
-          <p class="muted">+ <?= number_format((float) $extraGuestFee['amount'], 2, ',', ' ') . ' ' . \App\View::e($currency) ?> par invité / nuit pour le ménage</p>
+          <p class="muted">Frais de ménage inclus (2 fois par semaine selon la durée de votre séjour).</p>
         <?php endif; ?>
         <?php if ($minRate === null): ?>
           <p class="muted">Tarifs non disponibles pour le moment.</p>
@@ -118,35 +118,77 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
       <form class="stack-md" data-api-form data-booking-form data-property-id="<?= (int) $property['id'] ?>" data-currency="<?= \App\View::e($currency) ?>" data-success-message="Demande envoyée ! Vous recevrez un email de confirmation." method="post" action="/api/reservations/request">
         <input type="hidden" name="property_id" value="<?= (int) $property['id'] ?>">
         <input type="hidden" name="property_name" value="<?= \App\View::e($property['name']) ?>">
-        <div class="stack-sm" data-booking-dates>
-          <span>Dates du séjour *</span>
-          <div class="booking-dates-summary" data-booking-dates-summary>
-            <p class="muted">Sélectionnez vos dates dans le calendrier (Tarifs &amp; Disponibilités) : 1er clic = arrivée, 2e clic = départ.</p>
+
+        <div class="booking-block" data-booking-block="dates">
+          <button type="button" class="booking-block-header" data-block-toggle>
+            <span>Dates du séjour et voyageurs</span>
+            <span class="booking-block-chevron" aria-hidden="true">▾</span>
+          </button>
+          <div class="booking-block-body" data-block-body>
+            <div class="stack-sm" data-booking-dates>
+              <span>Dates du séjour *</span>
+              <div class="booking-dates-summary" data-booking-dates-summary>
+                <p class="muted">Sélectionnez vos dates dans le calendrier (Tarifs &amp; Disponibilités) : 1er clic = arrivée, 2e clic = départ.</p>
+              </div>
+              <input type="hidden" name="checkin_date" data-booking-checkin>
+              <input type="hidden" name="checkout_date" data-booking-checkout>
+            </div>
+            <div class="form-grid cols-3">
+              <div class="guest-stepper" data-guest-stepper data-label="Adulte(s)">
+                <button type="button" class="guest-stepper-display" data-guest-display></button>
+                <div class="guest-stepper-control" data-guest-control hidden>
+                  <button type="button" class="stepper-btn" data-step="-1" aria-label="Diminuer le nombre d'adultes">−</button>
+                  <input class="input guest-stepper-input" type="number" name="adults" min="1" max="20" value="2" aria-label="Adultes" title="Adultes">
+                  <button type="button" class="stepper-btn" data-step="1" aria-label="Augmenter le nombre d'adultes">+</button>
+                </div>
+              </div>
+              <div class="guest-stepper" data-guest-stepper data-label="Enfant(s) -5 ans">
+                <button type="button" class="guest-stepper-display" data-guest-display></button>
+                <div class="guest-stepper-control" data-guest-control hidden>
+                  <button type="button" class="stepper-btn" data-step="-1" aria-label="Diminuer le nombre d'enfants de moins de 5 ans">−</button>
+                  <input class="input guest-stepper-input" type="number" name="children_under5" min="0" max="20" value="0" aria-label="Enfants (moins de 5 ans)" title="Enfants (moins de 5 ans)">
+                  <button type="button" class="stepper-btn" data-step="1" aria-label="Augmenter le nombre d'enfants de moins de 5 ans">+</button>
+                </div>
+              </div>
+              <div class="guest-stepper" data-guest-stepper data-label="Enfant(s) 5-12 ans">
+                <button type="button" class="guest-stepper-display" data-guest-display></button>
+                <div class="guest-stepper-control" data-guest-control hidden>
+                  <button type="button" class="stepper-btn" data-step="-1" aria-label="Diminuer le nombre d'enfants de 5 à 12 ans">−</button>
+                  <input class="input guest-stepper-input" type="number" name="children_5to12" min="0" max="20" value="0" aria-label="Enfants (5 à 12 ans)" title="Enfants (5 à 12 ans)">
+                  <button type="button" class="stepper-btn" data-step="1" aria-label="Augmenter le nombre d'enfants de 5 à 12 ans">+</button>
+                </div>
+              </div>
+              <input type="hidden" name="children" value="0">
+            </div>
           </div>
-          <input type="hidden" name="checkin_date" data-booking-checkin>
-          <input type="hidden" name="checkout_date" data-booking-checkout>
         </div>
-        <div class="form-grid cols-3">
-          <label class="guest-field"><span class="guest-field-label">Adultes</span><input class="input" type="number" name="adults" min="1" max="20" value="2" aria-label="Adultes" title="Adultes"></label>
-          <label class="guest-field"><span class="guest-field-label">Enfants -5 ans</span><input class="input" type="number" name="children_under5" min="0" max="20" value="0" aria-label="Enfants (moins de 5 ans)" title="Enfants (moins de 5 ans)"></label>
-          <label class="guest-field"><span class="guest-field-label">Enfants 5-12 ans</span><input class="input" type="number" name="children_5to12" min="0" max="20" value="0" aria-label="Enfants (5 à 12 ans)" title="Enfants (5 à 12 ans)"></label>
-          <input type="hidden" name="children" value="0">
-        </div>
-        <label><span>Nom et prénom complet *</span><input class="input" type="text" name="client_name" required></label>
-        <label><span>Email *</span><input class="input" type="email" name="client_email" required></label>
-        <?php require BASE_PATH . '/files/views/partials/phone-input.php'; ?>
-        <?php require BASE_PATH . '/files/views/partials/nationalities.php'; ?>
-        <label><span>Message (optionnel)</span><textarea class="input" rows="3" name="message"></textarea></label>
-        <div class="quote-box" data-quote-box hidden>
-          <div data-quote-result hidden>
-            <div class="quote-line"><span>Chambre (<span data-quote-nights></span> nuit(s))</span><span data-quote-room></span></div>
-            <div class="quote-line"><span>Ménage</span><span data-quote-cleaning></span></div>
-            <div class="quote-line quote-total"><span>Total</span><span data-quote-total></span></div>
-            <p class="quote-tax-note muted" data-quote-tax-line hidden>+ <span data-quote-tax-amount></span> Euros (A Calculer) de Taxe Touristique à régler à l'arrivée en Euros auprès de l'hébergeur</p>
+
+        <div class="booking-block" data-booking-block="traveler">
+          <button type="button" class="booking-block-header" data-block-toggle>
+            <span>Détails des Voyageurs</span>
+            <span class="booking-block-chevron" aria-hidden="true">▾</span>
+          </button>
+          <div class="booking-block-body stack-md" data-block-body hidden>
+            <label><span>Nom et prénom complet *</span><input class="input" type="text" name="client_name" required></label>
+            <label><span>Email *</span><input class="input" type="email" name="client_email" required></label>
+            <?php require BASE_PATH . '/files/views/partials/phone-input.php'; ?>
+            <?php require BASE_PATH . '/files/views/partials/nationalities.php'; ?>
+            <label><span>Message (optionnel)</span><textarea class="input" rows="3" name="message"></textarea></label>
           </div>
         </div>
-        <button class="btn-primary" type="submit">Envoyer ma demande</button>
-        <p class="form-feedback" data-form-feedback></p>
+
+        <div class="booking-block" data-booking-block="summary" hidden>
+          <div class="quote-box" data-quote-box hidden>
+            <div data-quote-result hidden>
+              <div class="quote-line"><span>Tarif pour <span data-quote-nights></span> nuit(s)</span><span data-quote-room></span></div>
+              <p class="quote-recap muted" data-quote-recap></p>
+              <div class="quote-line quote-total"><span>Total</span><span data-quote-total></span></div>
+              <p class="quote-tax-note muted" data-quote-tax-line hidden>+ <span data-quote-tax-amount></span> Euros (A Calculer) de Taxe Touristique à régler à l'arrivée en Euros auprès de l'hébergeur</p>
+            </div>
+          </div>
+          <button class="btn-primary" type="submit">Envoyer ma demande</button>
+          <p class="form-feedback" data-form-feedback></p>
+        </div>
       </form>
     </aside>
   </div>

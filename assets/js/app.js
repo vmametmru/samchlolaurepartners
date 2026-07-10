@@ -9,6 +9,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initDateRanges();
   initBookingCalendarSelection();
   initPhoneInputs();
+  initGuestSteppers();
+  initBookingAccordion();
   initBookingQuote();
 });
 
@@ -193,6 +195,96 @@ function buildFormPayload(form) {
   return data;
 }
 
+/**
+ * Turns each "adults"/"children_*" number input into a click-to-edit
+ * stepper: while idle it shows a plain-text button ("2 Adulte(s)"), and
+ * clicking it reveals the +/- stepper with the raw number input. Leaving
+ * the widget (focusout) collapses it back to the text display.
+ */
+function initGuestSteppers() {
+  document.querySelectorAll('[data-guest-stepper]').forEach((wrap) => {
+    const display = wrap.querySelector('[data-guest-display]');
+    const control = wrap.querySelector('[data-guest-control]');
+    const input = control ? control.querySelector('input') : null;
+    if (!display || !control || !input) return;
+    const label = wrap.dataset.label || '';
+    const min = Number(input.min || 0);
+    const max = Number(input.max || 99);
+
+    function updateDisplay() {
+      const value = Number(input.value || 0);
+      display.textContent = `${value} ${label}`.trim();
+    }
+
+    function openControl() {
+      display.hidden = true;
+      control.hidden = false;
+      input.focus();
+      input.select();
+    }
+
+    function closeControl() {
+      control.hidden = true;
+      display.hidden = false;
+      updateDisplay();
+    }
+
+    function setValue(newValue) {
+      const clamped = Math.min(max, Math.max(min, newValue));
+      input.value = String(clamped);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    display.addEventListener('click', openControl);
+    control.querySelectorAll('[data-step]').forEach((btn) => {
+      btn.addEventListener('click', () => setValue(Number(input.value || 0) + Number(btn.dataset.step)));
+    });
+    input.addEventListener('input', updateDisplay);
+    wrap.addEventListener('focusout', (event) => {
+      if (!wrap.contains(event.relatedTarget)) closeControl();
+    });
+    wrap.closest('form')?.addEventListener('reset', () => setTimeout(closeControl, 0));
+    updateDisplay();
+  });
+}
+
+/**
+ * Accordion behaviour between the booking form's "dates & voyageurs" block
+ * and the "détails des voyageurs" block: opening one collapses the other.
+ * The 3rd block (summary/submit) visibility is handled separately by
+ * initBookingQuote() once the required fields are filled in.
+ */
+function initBookingAccordion() {
+  document.querySelectorAll('[data-booking-form]').forEach((form) => {
+    const blocks = Array.from(form.querySelectorAll('[data-booking-block]')).filter(
+      (block) => block.dataset.bookingBlock !== 'summary'
+    );
+    if (blocks.length < 2) return;
+
+    function setOpen(block, open) {
+      const body = block.querySelector('[data-block-body]');
+      const header = block.querySelector('[data-block-toggle]');
+      if (body) body.hidden = !open;
+      if (header) header.classList.toggle('open', open);
+    }
+
+    blocks.forEach((block) => {
+      const header = block.querySelector('[data-block-toggle]');
+      if (!header) return;
+      header.addEventListener('click', () => {
+        blocks.forEach((other) => setOpen(other, other === block));
+      });
+    });
+
+    setOpen(blocks[0], true);
+    for (let i = 1; i < blocks.length; i += 1) setOpen(blocks[i], false);
+    form.addEventListener('reset', () => {
+      setOpen(blocks[0], true);
+      for (let i = 1; i < blocks.length; i += 1) setOpen(blocks[i], false);
+    });
+  });
+}
+
 function initNationalities() {
   document.querySelectorAll('[data-nationalities]').forEach((wrap) => {
     const list = wrap.querySelector('[data-nationality-list]');
@@ -369,14 +461,17 @@ function initPhoneInputs() {
 }
 
 /**
- * Fetches a live price estimate (room + cleaning fee, tourist tax shown as a
- * separate note) once the booking form has enough information (no page
- * reload, no visible loading indicator while the request is in flight).
+ * Fetches a live price estimate (room total, cleaning fee folded into the
+ * room line, tourist tax shown as a separate note) once the booking form
+ * has enough information (no page reload, no visible loading indicator
+ * while the request is in flight). Also reveals the summary block (Bloc 3)
+ * only once the required fields are filled in.
  */
 function initBookingQuote() {
   document.querySelectorAll('[data-booking-form]').forEach((form) => {
     const box = form.querySelector('[data-quote-box]');
     const result = form.querySelector('[data-quote-result]');
+    const summaryBlock = form.querySelector('[data-booking-block="summary"]');
     if (!box || !result) return;
 
     let requestId = 0;
@@ -392,7 +487,12 @@ function initBookingQuote() {
       return Boolean(checkin && checkout && adults >= 1 && clientName && clientEmail && clientPhone);
     }
 
+    function updateSummaryVisibility() {
+      if (summaryBlock) summaryBlock.hidden = !isReady();
+    }
+
     async function fetchQuote() {
+      updateSummaryVisibility();
       if (!isReady()) {
         box.hidden = true;
         return;
@@ -420,9 +520,21 @@ function initBookingQuote() {
     function renderQuote(quote, currency) {
       const formatMoney = (amount) => `${Number(amount).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
       form.querySelector('[data-quote-nights]').textContent = quote.nights;
-      form.querySelector('[data-quote-room]').textContent = formatMoney(quote.room_total);
-      form.querySelector('[data-quote-cleaning]').textContent = formatMoney(quote.cleaning_total);
+      // The cleaning fee is folded into the room line instead of shown
+      // separately, matching the amount already used to compute the total.
+      const roomWithCleaning = Number(quote.room_total) + Number(quote.cleaning_total);
+      form.querySelector('[data-quote-room]').textContent = formatMoney(roomWithCleaning);
       form.querySelector('[data-quote-total]').textContent = formatMoney(quote.total_without_tax);
+      const recap = form.querySelector('[data-quote-recap]');
+      if (recap) {
+        const adults = Number(form.querySelector('[name="adults"]')?.value || 0);
+        const under5 = Number(form.querySelector('[name="children_under5"]')?.value || 0);
+        const from5to12 = Number(form.querySelector('[name="children_5to12"]')?.value || 0);
+        const parts = [`${adults} Adulte(s)`];
+        if (under5 > 0) parts.push(`${under5} Enfant(s) -5 ans`);
+        if (from5to12 > 0) parts.push(`${from5to12} Enfant(s) 5-12 ans`);
+        recap.textContent = parts.join(' · ');
+      }
       const taxLine = form.querySelector('[data-quote-tax-line]');
       const taxApplies = Number(quote.tourist_tax_total) > 0;
       taxLine.hidden = !taxApplies;
@@ -441,8 +553,9 @@ function initBookingQuote() {
     }
 
     form.addEventListener('booking-dates-changed', scheduleQuote);
-    form.addEventListener('input', scheduleQuote);
-    form.addEventListener('change', scheduleQuote);
-    form.addEventListener('reset', () => { box.hidden = true; });
+    form.addEventListener('input', () => { updateSummaryVisibility(); scheduleQuote(); });
+    form.addEventListener('change', () => { updateSummaryVisibility(); scheduleQuote(); });
+    form.addEventListener('reset', () => { box.hidden = true; updateSummaryVisibility(); });
+    updateSummaryVisibility();
   });
 }
