@@ -352,11 +352,22 @@ final class PageController extends Controller
             $data = [];
 
             // Step 1 — .env file
-            $envPath = defined('BASE_PATH') ? BASE_PATH . '/.env' : '';
+            $envPath   = defined('BASE_PATH') ? BASE_PATH . '/.env' : '';
+            $envExists = $envPath !== '' && is_file($envPath);
+            $envIsLink = $envPath !== '' && is_link($envPath);
+            $envPerms  = ($envExists && function_exists('fileperms')) ? substr(sprintf('%o', fileperms($envPath)), -4) : null;
+            $envOwner  = ($envExists && function_exists('posix_getpwuid') && function_exists('fileowner'))
+                ? (posix_getpwuid(fileowner($envPath))['name'] ?? null) : null;
+            $phpUser   = function_exists('posix_getpwuid') && function_exists('posix_geteuid')
+                ? (posix_getpwuid(posix_geteuid())['name'] ?? null) : null;
             $data['env_file'] = [
                 'path'     => $envPath !== '' ? $envPath : '(BASE_PATH non défini)',
-                'exists'   => $envPath !== '' && is_file($envPath),
+                'exists'   => $envExists,
+                'is_link'  => $envIsLink,
                 'readable' => $envPath !== '' && is_readable($envPath),
+                'perms'    => $envPerms,
+                'owner'    => $envOwner,
+                'php_user' => $phpUser,
             ];
 
             // Step 2 — Environment variables

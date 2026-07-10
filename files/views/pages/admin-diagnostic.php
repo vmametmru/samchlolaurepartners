@@ -14,7 +14,9 @@ use App\View;
   <?php else: ?>
 
   <?php
-  $envFileOk = !empty($data['env_file']['exists']) && !empty($data['env_file']['readable']);
+  $envFileOk      = !empty($data['env_file']['exists']) && !empty($data['env_file']['readable']);
+  $envFileExists  = !empty($data['env_file']['exists']);
+  $envFileReadable = !empty($data['env_file']['readable']);
   $envVarsOk = !empty($data['env']['LODGIFY_API_KEY_SET']) && $data['env']['DB_HOST'] !== '(non défini)';
   $dbOk      = !empty($data['database']['ok']);
   $connOk    = !empty($data['lodgify_connectivity']['ok']);
@@ -35,14 +37,39 @@ use App\View;
       <div class="diag-step-header">
         <span class="diag-step-num">1</span>
         <span class="diag-step-title">Fichier <code>.env</code></span>
-        <?= diagStatus($envFileOk, '✓ Trouvé &amp; lisible', '✕ Absent ou illisible') ?>
+        <?php
+          if ($envFileOk) {
+              echo diagStatus(true, '✓ Trouvé &amp; lisible');
+          } elseif ($envFileExists) {
+              echo diagStatus(false, '', '✕ Non lisible par PHP');
+          } else {
+              echo diagStatus(false, '', '✕ Absent');
+          }
+        ?>
       </div>
       <div class="diag-row"><span>Chemin attendu</span><code><?= View::e($data['env_file']['path']) ?></code></div>
-      <div class="diag-row"><span>Fichier présent</span><code><?= !empty($data['env_file']['exists']) ? 'Oui' : 'Non' ?></code></div>
-      <div class="diag-row"><span>Lisible par PHP</span><code><?= !empty($data['env_file']['readable']) ? 'Oui' : 'Non' ?></code></div>
+      <div class="diag-row"><span>Fichier présent</span><code><?= $envFileExists ? 'Oui' : 'Non' ?></code></div>
+      <?php if (!empty($data['env_file']['is_link'])): ?>
+      <div class="diag-row"><span>Lien symbolique</span><code>Oui</code></div>
+      <?php endif; ?>
+      <div class="diag-row"><span>Lisible par PHP</span><code><?= $envFileReadable ? 'Oui' : 'Non' ?></code></div>
+      <?php if (!is_null($data['env_file']['perms'] ?? null)): ?>
+      <div class="diag-row"><span>Permissions</span><code><?= View::e((string) $data['env_file']['perms']) ?></code></div>
+      <?php endif; ?>
+      <?php if (!is_null($data['env_file']['owner'] ?? null)): ?>
+      <div class="diag-row"><span>Propriétaire du fichier</span><code><?= View::e((string) $data['env_file']['owner']) ?></code></div>
+      <?php endif; ?>
+      <?php if (!is_null($data['env_file']['php_user'] ?? null)): ?>
+      <div class="diag-row"><span>Utilisateur PHP</span><code><?= View::e((string) $data['env_file']['php_user']) ?></code></div>
+      <?php endif; ?>
       <?php if (!$envFileOk): ?>
-      <pre class="message-box" style="color:var(--red)">Le fichier .env est introuvable ou non lisible à ce chemin.
+      <?php if ($envFileExists && !$envFileReadable): ?>
+      <pre class="message-box" style="color:var(--red)">Le fichier .env existe mais PHP ne peut pas le lire.
+Vérifiez les permissions (chmod 640 .env) et que le propriétaire correspond à l'utilisateur PHP.</pre>
+      <?php else: ?>
+      <pre class="message-box" style="color:var(--red)">Le fichier .env est introuvable à ce chemin.
 Créez-le (cp .env.example .env) et remplissez les valeurs.</pre>
+      <?php endif; ?>
       <?php endif; ?>
     </div>
 
