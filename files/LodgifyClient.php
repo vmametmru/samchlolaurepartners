@@ -253,6 +253,14 @@ final class LodgifyClient
         }
         if ($bathrooms > 0) {
             $property['bathrooms'] = $bathrooms;
+        } elseif ($bedrooms > 0 || $maxGuests > 0) {
+            // Lodgify's per-room "bathrooms" field is optional and is very
+            // often left unset by hosts even though bedrooms/max_people are
+            // always filled in, which made the detail page permanently show
+            // "0 salle(s) de bain" for otherwise fully configured properties.
+            // Every bookable accommodation has at least one bathroom, so
+            // default to 1 instead of displaying an obviously wrong 0.
+            $property['bathrooms'] = 1;
         }
         if ($maxGuests > 0) {
             $property['max_guests'] = $maxGuests;

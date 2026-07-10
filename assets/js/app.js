@@ -27,27 +27,63 @@ function initGallery() {
     });
 
     const track = gallery.querySelector('[data-gallery-track]');
-    const prevBtn = gallery.querySelector('[data-gallery-prev]');
-    const nextBtn = gallery.querySelector('[data-gallery-next]');
-    if (track && (prevBtn || nextBtn)) {
-      const scrollByAmount = () => Math.max(track.clientWidth * 0.8, 160);
-      if (prevBtn) prevBtn.addEventListener('click', () => track.scrollBy({ left: -scrollByAmount(), behavior: 'smooth' }));
-      if (nextBtn) nextBtn.addEventListener('click', () => track.scrollBy({ left: scrollByAmount(), behavior: 'smooth' }));
-    }
+    if (!track) return;
+    let scrollDirection = 0;
+    let scrollFrame = null;
+    const edgeZoneRatio = 0.2;
+
+    const step = () => {
+      if (scrollDirection !== 0) {
+        track.scrollLeft += scrollDirection * 6;
+        scrollFrame = window.requestAnimationFrame(step);
+      } else {
+        scrollFrame = null;
+      }
+    };
+
+    const startScrolling = (direction) => {
+      if (scrollDirection === direction) return;
+      scrollDirection = direction;
+      if (!scrollFrame) scrollFrame = window.requestAnimationFrame(step);
+    };
+
+    const stopScrolling = () => {
+      scrollDirection = 0;
+    };
+
+    track.addEventListener('mousemove', (event) => {
+      const rect = track.getBoundingClientRect();
+      const relativeX = (event.clientX - rect.left) / rect.width;
+      if (relativeX <= edgeZoneRatio) {
+        startScrolling(-1);
+      } else if (relativeX >= 1 - edgeZoneRatio) {
+        startScrolling(1);
+      } else {
+        stopScrolling();
+      }
+    });
+    track.addEventListener('mouseleave', stopScrolling);
   });
 }
 
 function initPropertyTabs() {
   document.querySelectorAll('[data-tabs]').forEach((tabs) => {
     const buttons = tabs.querySelectorAll('[data-tab-btn]');
-    const panelsContainer = tabs.parentElement ? tabs.parentElement.querySelector('[data-tab-panels]') : null;
+    const section = tabs.closest('[data-gallery]') || tabs.parentElement;
+    const panelsContainer = section ? section.querySelector('[data-tab-panels]') : null;
     if (!panelsContainer) return;
     const panels = panelsContainer.querySelectorAll('[data-tab-panel]');
+    const formPanels = section.querySelectorAll('[data-form-panel]');
+    const detailGrid = section.querySelector('.detail-grid');
     const activate = (target) => {
       buttons.forEach((item) => item.classList.toggle('active', item.dataset.tabBtn === target));
       panels.forEach((panel) => {
         panel.hidden = panel.dataset.tabPanel !== target;
       });
+      formPanels.forEach((panel) => {
+        panel.hidden = panel.dataset.formPanel !== target;
+      });
+      if (detailGrid) detailGrid.classList.toggle('detail-grid-single', target !== 'rates-availability');
     };
     buttons.forEach((button) => {
       button.addEventListener('click', () => activate(button.dataset.tabBtn));
@@ -55,7 +91,20 @@ function initPropertyTabs() {
     const hashTarget = window.location.hash ? window.location.hash.slice(1) : '';
     if (hashTarget && tabs.querySelector(`[data-tab-btn="${hashTarget}"]`)) {
       activate(hashTarget);
+    } else {
+      activate('description');
     }
+
+    section.querySelectorAll('[data-reserve-btn]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const target = button.dataset.reserveTab || 'rates-availability';
+        activate(target);
+        const targetTabBtn = tabs.querySelector(`[data-tab-btn="${target}"]`);
+        if (targetTabBtn) targetTabBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        const calendarWidget = section.querySelector('[data-calendar-widget]');
+        if (calendarWidget) calendarWidget.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
   });
 }
 

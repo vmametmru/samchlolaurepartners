@@ -2,7 +2,6 @@
 $mainImage = $property['images'][0]['url'] ?? 'https://via.placeholder.com/800x450?text=No+Photo';
 $minRate = $rates ? min(array_column($rates, 'price_per_night')) : null;
 $currency = $rates[0]['currency'] ?? 'EUR';
-$photoRooms = $property['photo_rooms'] ?? [];
 $amenitiesByCategory = $property['amenities_by_category'] ?? [];
 $extraGuestFee = null;
 foreach (($property['fees'] ?? []) as $fee) {
@@ -22,26 +21,26 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
 ?>
 <section class="container section-lg" data-gallery>
   <div class="property-detail-header">
-    <h1><?= \App\View::e($property['name']) ?></h1>
-    <p><?= (int) $property['bedrooms'] ?> chambre(s) · <?= (int) $property['bathrooms'] ?> salle(s) de bain · <?= (int) $property['max_guests'] ?> personnes max</p>
+    <div>
+      <h1><?= \App\View::e($property['name']) ?></h1>
+      <p><?= (int) $property['bedrooms'] ?> chambre(s) · <?= (int) $property['bathrooms'] ?> salle(s) de bain · <?= (int) $property['max_guests'] ?> personnes max</p>
+    </div>
+    <button type="button" class="btn-primary" data-reserve-btn data-reserve-tab="rates-availability">Réserver</button>
   </div>
   <div class="gallery-main"><img src="<?= \App\View::e($mainImage) ?>" alt="<?= \App\View::e($property['name']) ?>" data-gallery-main></div>
 
   <?php if (!empty($property['images'])): ?>
-    <div class="gallery-carousel">
-      <button type="button" class="gallery-carousel-nav" data-gallery-prev aria-label="Photo précédente">‹</button>
+    <div class="gallery-carousel" data-gallery-carousel>
       <div class="gallery-carousel-track" data-gallery-track>
         <?php foreach ($property['images'] as $index => $image): ?>
           <button type="button" class="gallery-thumb<?= $index === 0 ? ' active' : '' ?>" data-gallery-thumb data-src="<?= \App\View::e($image['url']) ?>"><img src="<?= \App\View::e($image['url']) ?>" alt="Photo <?= $index + 1 ?>"></button>
         <?php endforeach; ?>
       </div>
-      <button type="button" class="gallery-carousel-nav" data-gallery-next aria-label="Photo suivante">›</button>
     </div>
   <?php endif; ?>
 
   <nav class="detail-tabs" data-tabs>
     <button type="button" class="tab-btn active" data-tab-btn="description">Description</button>
-    <button type="button" class="tab-btn" data-tab-btn="photos">Photos</button>
     <button type="button" class="tab-btn" data-tab-btn="amenities">Équipements</button>
     <button type="button" class="tab-btn" data-tab-btn="location">Emplacement</button>
     <button type="button" class="tab-btn" data-tab-btn="rates-availability">Tarifs &amp; Disponibilités</button>
@@ -57,30 +56,6 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
             <?php if ($checkinLabel !== null): ?><div><strong>Arrivée</strong><br><?= \App\View::e($checkinLabel) ?></div><?php endif; ?>
             <?php if ($checkoutLabel !== null): ?><div><strong>Départ</strong><br><?= \App\View::e($checkoutLabel) ?></div><?php endif; ?>
           </div>
-        <?php endif; ?>
-      </div>
-
-      <div data-tab-panel="photos" hidden>
-        <h2 class="section-title">Photos</h2>
-        <?php if (!empty($photoRooms)): ?>
-          <?php foreach ($photoRooms as $room): ?>
-            <div class="photo-room">
-              <?php if ($room['name'] !== ''): ?><h3 class="section-title"><?= \App\View::e($room['name']) ?></h3><?php endif; ?>
-              <div class="gallery-thumbs">
-                <?php foreach ($room['images'] as $image): ?>
-                  <button type="button" class="gallery-thumb" data-gallery-thumb data-src="<?= \App\View::e($image['url']) ?>"><img src="<?= \App\View::e($image['url']) ?>" alt=""></button>
-                <?php endforeach; ?>
-              </div>
-            </div>
-          <?php endforeach; ?>
-        <?php elseif (!empty($property['images'])): ?>
-          <div class="gallery-thumbs">
-            <?php foreach ($property['images'] as $image): ?>
-              <button type="button" class="gallery-thumb" data-gallery-thumb data-src="<?= \App\View::e($image['url']) ?>"><img src="<?= \App\View::e($image['url']) ?>" alt=""></button>
-            <?php endforeach; ?>
-          </div>
-        <?php else: ?>
-          <p class="muted">Aucune photo disponible pour le moment.</p>
         <?php endif; ?>
       </div>
 
@@ -126,7 +101,7 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
         <?php require BASE_PATH . '/files/views/partials/calendar.php'; ?>
       </div>
     </div>
-    <aside class="card card-body sticky-card">
+    <aside class="card card-body sticky-card" data-form-panel="rates-availability" hidden>
       <form class="stack-md" data-api-form data-booking-form data-property-id="<?= (int) $property['id'] ?>" data-currency="<?= \App\View::e($currency) ?>" data-max-guests="<?= (int) $property['max_guests'] ?>" data-success-message="Demande envoyée ! Vous recevrez un email de confirmation." method="post" action="/api/reservations/request">
         <input type="hidden" name="property_id" value="<?= (int) $property['id'] ?>">
         <input type="hidden" name="property_name" value="<?= \App\View::e($property['name']) ?>">
