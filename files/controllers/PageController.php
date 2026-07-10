@@ -661,6 +661,7 @@ final class PageController extends Controller
                 'price_per_night' => $markedUp,
                 'price_per_night_with_markup' => $markedUp,
                 'markup_percent' => $markup,
+                'min_stay' => $rate['min_stay'] ?? null,
             ];
         }, $rawRates);
     }

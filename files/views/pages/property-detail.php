@@ -23,7 +23,7 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
   <div class="property-detail-header">
     <div>
       <h1><?= \App\View::e($property['name']) ?></h1>
-      <p><?= (int) $property['bedrooms'] ?> chambre(s) · <?= (int) $property['bathrooms'] ?> salle(s) de bain · <?= (int) $property['max_guests'] ?> personnes max</p>
+      <p><?= (int) $property['bedrooms'] ?> chambre(s) · <?= (int) $property['max_guests'] ?> personnes max</p>
     </div>
     <button type="button" class="btn-primary" data-reserve-btn data-reserve-tab="rates-availability">Réserver</button>
   </div>
