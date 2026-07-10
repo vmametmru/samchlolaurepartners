@@ -65,7 +65,7 @@ final class Tenant
             return null;
         }
         $remoteAddr = $_SERVER['REMOTE_ADDR'] ?? '';
-        $trusted = array_filter(array_map('trim', explode(',', (string) Env::get('TRUSTED_PROXIES', ''))));
+        $trusted = array_filter(array_map('trim', explode(',', (string) Settings::get('TRUSTED_PROXIES', ''))));
         if ($remoteAddr === '' || !in_array($remoteAddr, $trusted, true)) {
             return null;
         }

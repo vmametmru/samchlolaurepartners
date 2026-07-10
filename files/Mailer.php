@@ -44,12 +44,12 @@ final class Mailer
         }
 
         $config = [
-            'host' => $partner['smtp_host'] ?? Env::get('SMTP_HOST', ''),
-            'port' => (int) ($partner['smtp_port'] ?? Env::int('SMTP_PORT', 25)),
-            'user' => $partner['smtp_user'] ?? Env::get('SMTP_USER', ''),
-            'pass' => $partner['smtp_pass'] ?? Env::get('SMTP_PASS', ''),
-            'from_email' => (string) ($partner['email'] ?? Env::get('SMTP_FROM_EMAIL', 'no-reply@example.com')),
-            'from_name' => (string) ($partner['name'] ?? Env::get('SMTP_FROM_NAME', 'samchlolaurepartners')),
+            'host' => $partner['smtp_host'] ?? Settings::get('SMTP_HOST', ''),
+            'port' => (int) ($partner['smtp_port'] ?? Settings::int('SMTP_PORT', 25)),
+            'user' => $partner['smtp_user'] ?? Settings::get('SMTP_USER', ''),
+            'pass' => $partner['smtp_pass'] ?? Settings::get('SMTP_PASS', ''),
+            'from_email' => (string) ($partner['email'] ?? Settings::get('SMTP_FROM_EMAIL', 'no-reply@example.com')),
+            'from_name' => (string) ($partner['name'] ?? Settings::get('SMTP_FROM_NAME', 'samchlolaurepartners')),
         ];
 
         if (!empty($config['host'])) {

@@ -13,8 +13,9 @@ final class LodgifyClient
 
     public function __construct()
     {
-        $this->baseUrl = rtrim(Env::get('LODGIFY_BASE_URL', 'https://api.lodgify.com/v2') ?? 'https://api.lodgify.com/v2', '/');
-        $this->apiKey = (string) Env::get('LODGIFY_API_KEY', '');
+        $baseUrl = trim((string) (Settings::get('LODGIFY_BASE_URL') ?? ''));
+        $this->baseUrl = rtrim($baseUrl !== '' ? $baseUrl : 'https://api.lodgify.com/v2', '/');
+        $this->apiKey = trim((string) (Settings::get('LODGIFY_API_KEY', '') ?? ''));
     }
 
     public function getProperties(): array
@@ -22,7 +23,9 @@ final class LodgifyClient
         return $this->remember('lodgify:v2:properties', 86400, function (): array {
             $data = $this->request('/properties');
             $items = is_array($data['items'] ?? null) ? $data['items'] : (is_array($data) ? $data : []);
-            return array_map([$this, 'mapProperty'], $items);
+            $properties = array_map([$this, 'mapProperty'], $items);
+            Settings::set('LODGIFY_LAST_SYNC_AT', gmdate('c'));
+            return $properties;
         });
     }
 
@@ -33,31 +36,163 @@ final class LodgifyClient
 
     public function getAvailability(int $propertyId, string $from, string $to): array
     {
-        $data = $this->request('/availability/' . $propertyId, ['startDate' => $from, 'endDate' => $to]);
+        // Lodgify's real v2 endpoint expects "start"/"end" query params (not
+        // "startDate"/"endDate") and returns an array of per-room-type calendars,
+        // each with a "periods" list of { start, end, available } — "available" is
+        // the number of bookable units for that period, not a per-day boolean.
+        // Using the wrong param names made Lodgify ignore the requested range
+        // (returning unrelated/empty data), which is why searches always showed
+        // "0 hébergements disponibles" regardless of real availability.
+        $data = $this->request('/availability/' . $propertyId, [
+            'start' => $from,
+            'end' => $to,
+            'includeDetails' => 'false',
+        ]);
         if (!is_array($data)) {
             return [];
         }
-        return array_map(static function ($day): array {
-            return [
-                'date' => (string) ($day['date'] ?? ''),
-                'available' => (bool) ($day['available'] ?? false),
-                'min_stay' => (int) ($day['min_nights'] ?? $day['minStay'] ?? 1),
-            ];
-        }, $data);
+
+        $days = [];
+        foreach ($data as $roomTypeCalendar) {
+            if (!is_array($roomTypeCalendar)) {
+                continue;
+            }
+            $periods = is_array($roomTypeCalendar['periods'] ?? null) ? $roomTypeCalendar['periods'] : [];
+            foreach ($periods as $period) {
+                if (!is_array($period)) {
+                    continue;
+                }
+                $start = (string) ($period['start'] ?? '');
+                $end = (string) ($period['end'] ?? '');
+                if ($start === '' || $end === '') {
+                    continue;
+                }
+                $available = (int) ($period['available'] ?? 0);
+                $minStay = (int) ($period['min_stay'] ?? $period['minStay'] ?? 1);
+                try {
+                    $cursor = new \DateTimeImmutable($start);
+                    $periodEnd = new \DateTimeImmutable($end);
+                } catch (\Throwable) {
+                    continue;
+                }
+                // A property is bookable for a given night if at least one of its
+                // room types reports available units for that night.
+                while ($cursor < $periodEnd) {
+                    $day = $cursor->format('Y-m-d');
+                    $wasAvailable = $days[$day]['available'] ?? false;
+                    $days[$day] = [
+                        'date' => $day,
+                        'available' => $wasAvailable || $available > 0,
+                        'min_stay' => $minStay,
+                    ];
+                    $cursor = $cursor->modify('+1 day');
+                }
+            }
+        }
+        ksort($days);
+        return array_values($days);
+    }
+
+    /**
+     * Whether the given property is available for every night of [$from, $to).
+     * Used to filter home-page search results down to properties genuinely
+     * bookable for the requested dates, instead of returning every property
+     * regardless of availability.
+     */
+    public function isAvailableForRange(int $propertyId, string $from, string $to): bool
+    {
+        try {
+            $days = $this->getAvailability($propertyId, $from, $to);
+        } catch (\Throwable $e) {
+            return false;
+        }
+        if ($days === []) {
+            return false;
+        }
+        $nights = [];
+        $cursor = new \DateTimeImmutable($from);
+        $end = new \DateTimeImmutable($to);
+        while ($cursor < $end) {
+            $nights[$cursor->format('Y-m-d')] = false;
+            $cursor = $cursor->modify('+1 day');
+        }
+        foreach ($days as $day) {
+            if (array_key_exists($day['date'], $nights) && $day['available']) {
+                $nights[$day['date']] = true;
+            }
+        }
+        return $nights !== [] && !in_array(false, $nights, true);
     }
 
     public function getRates(int $propertyId, string $from, string $to, int $guests): array
     {
-        $data = $this->request('/rates/' . $propertyId, ['startDate' => $from, 'endDate' => $to, 'numberOfGuests' => $guests]);
-        $periods = is_array($data['periods'] ?? null) ? $data['periods'] : (is_array($data) ? $data : []);
-        return array_map(static function ($rate) use ($from, $to): array {
-            return [
-                'date_from' => (string) ($rate['start_date'] ?? $rate['startDate'] ?? $from),
-                'date_to' => (string) ($rate['end_date'] ?? $rate['endDate'] ?? $to),
-                'price_per_night' => (float) ($rate['price_per_night'] ?? $rate['price'] ?? $rate['pricePerNight'] ?? 0),
-                'currency' => (string) ($rate['currency'] ?? 'EUR'),
+        // Lodgify's real endpoint for nightly rates is /v2/rates/calendar, keyed by
+        // houseId + roomTypeId (not /v2/rates/{propertyId} with numberOfGuests,
+        // which doesn't exist and previously made this call silently fail/return
+        // nothing usable).
+        $roomTypeId = $this->getPrimaryRoomTypeId($propertyId);
+        if ($roomTypeId === null) {
+            return [];
+        }
+        $data = $this->request('/rates/calendar', [
+            'houseId' => $propertyId,
+            'roomTypeId' => $roomTypeId,
+            'startDate' => $from,
+            'endDate' => $to,
+        ]);
+        $items = is_array($data['calendar_items'] ?? null) ? $data['calendar_items'] : [];
+        $currency = (string) ($data['rate_settings']['currency_code'] ?? 'EUR');
+
+        $rates = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $date = (string) ($item['date'] ?? '');
+            if ($date === '') {
+                continue;
+            }
+            $prices = is_array($item['prices'] ?? null) ? $item['prices'] : [];
+            $pricePerNight = 0.0;
+            foreach ($prices as $price) {
+                if (is_array($price) && isset($price['price_per_day'])) {
+                    $pricePerNight = (float) $price['price_per_day'];
+                    break;
+                }
+            }
+            $rates[] = [
+                'date_from' => $date,
+                'date_to' => $date,
+                'price_per_night' => $pricePerNight,
+                'currency' => $currency,
             ];
-        }, $periods);
+        }
+        return $rates;
+    }
+
+    /**
+     * Resolves the primary room type id for a property, required by the Lodgify
+     * rates/calendar endpoint. Most rentals on Lodgify have a single room type.
+     */
+    private function getPrimaryRoomTypeId(int $propertyId): ?int
+    {
+        $cached = $this->remember('lodgify:v2:roomtype:' . $propertyId, 86400, function () use ($propertyId): array {
+            $roomTypeId = null;
+            try {
+                $raw = $this->request('/properties/' . $propertyId);
+                $rooms = is_array($raw['rooms'] ?? null) ? $raw['rooms'] : [];
+                foreach ($rooms as $room) {
+                    if (is_array($room) && isset($room['id'])) {
+                        $roomTypeId = (int) $room['id'];
+                        break;
+                    }
+                }
+            } catch (\Throwable) {
+                $roomTypeId = null;
+            }
+            return ['room_type_id' => $roomTypeId];
+        });
+        return $cached['room_type_id'] ?? null;
     }
 
     public function invalidate(string $prefix = 'lodgify:'): void
@@ -170,7 +305,7 @@ final class LodgifyClient
         }
         $decoded = json_decode($body, true);
         if ($status >= 400) {
-            throw new RuntimeException('Lodgify API error ' . $status . ': ' . $body);
+            throw new LodgifyApiException($status, 'Lodgify API error ' . $status . ': ' . $body);
         }
         return is_array($decoded) ? $decoded : [];
     }

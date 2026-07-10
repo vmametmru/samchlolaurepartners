@@ -1,5 +1,6 @@
 .env
 .deploy_token
+db/config.php
 images/logo/*
 images/listings/*
 images/others/*

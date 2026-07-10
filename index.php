@@ -5,6 +5,7 @@ declare(strict_types=1);
 require __DIR__ . '/files/bootstrap.php';
 
 use App\HttpException;
+use App\Settings;
 use App\controllers\AuthController;
 use App\controllers\DiagnosticController;
 use App\controllers\EmailSchedulesController;
@@ -26,7 +27,7 @@ $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 
 if (str_starts_with($path, '/api/')) {
-    $allowedOrigins = array_filter(array_map('trim', explode(',', getenv('CORS_ORIGIN') ?: '')));
+    $allowedOrigins = array_filter(array_map('trim', explode(',', Settings::get('CORS_ORIGIN', '') ?? '')));
     $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
     if ($origin !== '' && ($allowedOrigins === [] || in_array($origin, $allowedOrigins, true))) {
         header('Access-Control-Allow-Origin: ' . $origin);
@@ -216,7 +217,11 @@ try {
         }
         http_response_code($e->statusCode);
         App\Flash::set($e->getMessage(), 'error');
-        PageController::notFound();
+        if ($e->statusCode === 404) {
+            PageController::notFound();
+        } else {
+            PageController::errorPage($e->statusCode, $e->getMessage());
+        }
     }
 } catch (Throwable $e) {
     error_log((string) $e);
@@ -225,8 +230,10 @@ try {
         header('Content-Type: application/json; charset=utf-8');
         echo json_encode(['error' => 'Internal Server Error', 'message' => $e->getMessage()], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     } else {
-        App\Flash::set('Une erreur est survenue : ' . $e->getMessage(), 'error');
-        PageController::notFound();
+        http_response_code(500);
+        $message = 'Une erreur est survenue : ' . $e->getMessage();
+        App\Flash::set($message, 'error');
+        PageController::errorPage(500, $message);
     }
 }
 

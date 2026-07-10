@@ -41,15 +41,39 @@ jobs:
         run: |
           rm -rf artifact-package deployment-package-*.zip
           mkdir -p artifact-package
-          cp index.php artifact-package/
-          cp .htaccess artifact-package/
-          cp -r assets artifact-package/
-          cp -r files artifact-package/
-          cp -r bin artifact-package/
-          cp -r db artifact-package/
-          cp -r install artifact-package/
-          cp .env.example artifact-package/
-          [ -f README.md ] && cp README.md artifact-package/ || true
+          tar \
+            --exclude='./.git' \
+            --exclude='./.github' \
+            --exclude='./artifact-package' \
+            --exclude='./deployment-package-*.zip' \
+            --exclude='./README.md' \
+            --exclude='./Dockerfile' \
+            --exclude='./docker-compose.yml' \
+            --exclude='./.gitignore' \
+            --exclude='./.gitattributes' \
+            -cf - . | tar -xf - -C artifact-package
+          # Runtime directories are gitignored (empty), but the app expects
+          # them to exist, so create them in the package.
+          mkdir -p artifact-package/files/storage/logs
+          mkdir -p artifact-package/files/storage/cache
+
+      - name: Verify package completeness
+        run: |
+          echo "=== Package contents ==="
+          (cd artifact-package && find . | sort)
+
+          required=".htaccess assets bin db files files/controllers files/views images index.php install"
+          missing=""
+          for path in $required; do
+            if [ ! -e "artifact-package/$path" ]; then
+              missing="$missing $path"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Deployment package is missing:$missing"
+            exit 1
+          fi
+          echo "All required runtime files present."
 
       - name: Create deployment zip
         env:
@@ -60,11 +84,11 @@ jobs:
             zip -r "../deployment-package-${BUILD_TS}.zip" .
           )
 
-      - name: Upload deployment zip
+      - name: Upload deployment artifact
         uses: actions/upload-artifact@v4
         with:
           name: deployment-package-${{ steps.ts.outputs.value }}
-          path: deployment-package-${{ steps.ts.outputs.value }}.zip
+          path: artifact-package/
           retention-days: 30
 
       - name: Attach zip to release

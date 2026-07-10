@@ -74,4 +74,22 @@ SQL;
 
         return ['checked' => count($rows), 'sent' => $sent, 'errors' => $errors];
     }
+
+    /**
+     * Refreshes the local Lodgify properties cache. Meant to be invoked from
+     * the same cron job as runOnce() (e.g. every 30 minutes) so the public
+     * listing/detail pages never rely on data older than the cron interval,
+     * instead of the 24h cache TTL used for on-demand (lazy) refreshes.
+     */
+    public static function syncLodgify(): array
+    {
+        try {
+            $client = new LodgifyClient();
+            $client->invalidate('lodgify:');
+            $properties = $client->getProperties();
+            return ['synced' => count($properties), 'error' => null];
+        } catch (\Throwable $e) {
+            return ['synced' => 0, 'error' => $e->getMessage()];
+        }
+    }
 }

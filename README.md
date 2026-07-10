@@ -12,14 +12,16 @@ Le webroot du projet est la **racine** du dépôt (pas de sous-dossier `public/`
 - `images/logo/`, `images/listings/`, `images/others/` — médias téléversés (logos, photos de logements, autres visuels)
 - `files/` — logique applicative PHP (contrôleurs, auth, vues, services, cache/logs internes). Accès web direct bloqué via `.htaccess`.
 - `db/migrations/` et `db/seeds/` — schéma SQL d'origine réutilisé tel quel. Accès web direct bloqué via `.htaccess`.
+- `db/config.php` — identifiants de connexion MySQL (à copier depuis `db/config.example.php`). C'est le **seul** réglage qui vit hors de la base de données : il faut bien pouvoir se connecter à MySQL avant de pouvoir y lire quoi que ce soit d'autre. Toute la configuration applicative (clés API, SMTP, JWT, etc.) est stockée dans la table `settings`.
 - `bin/migrate.php` — applique les migrations SQL existantes
-- `bin/run-scheduler.php` — traitement cron des emails planifiés
+- `bin/run-scheduler.php` — traitement cron des emails planifiés et rafraîchissement du cache des propriétés Lodgify (toutes les 30 min recommandé)
 - `install/install.php` — assistant d'installation pour hébergement mutualisé / cPanel (à supprimer après usage)
 
 ## Démarrage local
 
 ```bash
-cp .env.example .env
+cp db/config.example.php db/config.php
+# éditez db/config.php avec vos identifiants MySQL
 php bin/migrate.php
 php -S 127.0.0.1:8080
 ```
@@ -39,7 +41,7 @@ MailHog: `http://localhost:8025`
 
 1. Déployez l'ensemble des fichiers directement à la racine du webroot du domaine (ex. `home/mcherpco/grand-baie-maurice.com/`), sans sous-dossier `public/`.
 2. Le webroot du domaine reste la racine du projet : `index.php` et `.htaccess` doivent s'y trouver directement.
-3. Renseignez `.env` (ou lancez `install/install.php` via `https://votre-domaine/install/install.php`).
+3. Copiez `db/config.example.php` vers `db/config.php` et renseignez vos identifiants MySQL réels (ou lancez `install/install.php` via `https://votre-domaine/install/install.php`, qui le lit directement).
 4. Lancez `php bin/migrate.php` une première fois si l'assistant ne l'a pas déjà fait.
 5. Ajoutez une tâche cron pour `php /chemin/vers/bin/run-scheduler.php`.
 6. Supprimez le dossier `install/` une fois l'installation vérifiée.

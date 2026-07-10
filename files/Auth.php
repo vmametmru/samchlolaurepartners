@@ -40,8 +40,10 @@ final class Auth
 
     public static function logout(): void
     {
-        $options = self::cookieOptions(time() - 3600);
-        setcookie(self::COOKIE_NAME, '', $options);
+        self::expireCookie(null);
+        foreach (self::logoutCookieDomains() as $domain) {
+            self::expireCookie($domain);
+        }
         unset($_COOKIE[self::COOKIE_NAME]);
     }
 
@@ -193,10 +195,10 @@ final class Auth
 
     private static function secret(): string
     {
-        $secret = Env::get('JWT_SECRET', Env::get('AUTH_SECRET', null));
+        $secret = Settings::get('JWT_SECRET', Settings::get('AUTH_SECRET', null));
         if ($secret === null || $secret === '') {
             throw new \RuntimeException(
-                'JWT_SECRET (or AUTH_SECRET) must be set in the environment — refusing to sign/verify ' .
+                'JWT_SECRET (or AUTH_SECRET) must be set in the settings table — refusing to sign/verify ' .
                 'auth tokens with a fallback secret, as that would let anyone forge valid sessions.'
             );
         }
@@ -236,20 +238,12 @@ final class Auth
      */
     private static function cookieDomain(): ?string
     {
-        $configured = trim((string) (Env::get('APP_COOKIE_DOMAIN', Env::get('COOKIE_DOMAIN', '')) ?? ''));
+        $configured = trim((string) (Settings::get('APP_COOKIE_DOMAIN', Settings::get('COOKIE_DOMAIN', '')) ?? ''));
         if ($configured !== '') {
             return $configured;
         }
 
-        $host = $_SERVER['HTTP_HOST'] ?? '';
-        if (!is_string($host) || $host === '') {
-            $host = parse_url((string) (Env::get('APP_URL', '') ?? ''), PHP_URL_HOST) ?: '';
-        }
-        $host = strtolower(trim((string) $host));
-        if (str_contains($host, ':')) {
-            $host = explode(':', $host, 2)[0];
-        }
-        $host = trim($host, '.');
+        $host = self::requestHost();
 
         // Host-only (return null) for anything that can't legally carry a shared Domain:
         // empty, an IP literal, localhost, or a single-label host with no dot.
@@ -281,5 +275,70 @@ final class Auth
         // com.au, org.uk, ac.nz, com.br. In that case keep three labels; otherwise two.
         $keep = (strlen($tld) === 2 && strlen($sld) <= 3) ? 3 : 2;
         return implode('.', array_slice($labels, -$keep));
+    }
+
+    private static function requestHost(): string
+    {
+        $host = $_SERVER['HTTP_HOST'] ?? '';
+        if (!is_string($host) || $host === '') {
+            $host = parse_url((string) (Settings::get('APP_URL', '') ?? ''), PHP_URL_HOST) ?: '';
+        }
+        $host = strtolower(trim((string) $host));
+        if (str_contains($host, ':')) {
+            $host = explode(':', $host, 2)[0];
+        }
+        return trim($host, '.');
+    }
+
+    /**
+     * Logout must remove both the CURRENT cookie scope and any legacy variants that may still
+     * be stored by the browser (e.g. an older host-only cookie plus the newer shared-domain
+     * cookie). Otherwise the browser can keep sending one surviving auth_token and the navbar
+     * still resolves the user right after "Vous êtes déconnecté.".
+     *
+     * We therefore expire:
+     * - the host-only cookie (domain omitted)
+     * - the currently configured/shared domain
+     * - the current request host
+     * - dotted/non-dotted forms of those domains for compatibility with legacy Set-Cookie
+     */
+    private static function logoutCookieDomains(): array
+    {
+        $domains = [];
+        $host = self::requestHost();
+        $sharedDomain = self::cookieDomain();
+
+        foreach ([$sharedDomain, $host] as $candidate) {
+            if (!is_string($candidate)) {
+                continue;
+            }
+            $candidate = strtolower(trim($candidate));
+            if ($candidate === '') {
+                continue;
+            }
+            $candidate = trim($candidate, '.');
+            if ($candidate === '') {
+                continue;
+            }
+            $domains[] = $candidate;
+            $domains[] = '.' . $candidate;
+        }
+
+        return array_values(array_unique($domains));
+    }
+
+    private static function expireCookie(?string $domain): void
+    {
+        $options = [
+            'expires' => time() - 3600,
+            'path' => '/',
+            'httponly' => true,
+            'samesite' => 'Lax',
+            'secure' => self::isSecureRequest(),
+        ];
+        if ($domain !== null) {
+            $options['domain'] = $domain;
+        }
+        setcookie(self::COOKIE_NAME, '', $options);
     }
 }
