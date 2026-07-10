@@ -156,6 +156,15 @@ function initApiForms() {
           if (feedback) feedback.textContent = "Veuillez sélectionner vos dates d'arrivée et de départ dans le calendrier.";
           return;
         }
+        const maxGuests = Number(form.dataset.maxGuests || 0);
+        if (maxGuests > 0) {
+          const total = ['adults', 'children_under5', 'children_5to12']
+            .reduce((sum, name) => sum + Number(form.querySelector(`[name="${name}"]`)?.value || 0), 0);
+          if (total > maxGuests) {
+            if (feedback) feedback.textContent = `Ce logement peut accueillir au maximum ${maxGuests} personne(s). Veuillez réduire le nombre de voyageurs.`;
+            return;
+          }
+        }
       }
       const data = buildFormPayload(form);
       try {
@@ -196,63 +205,74 @@ function buildFormPayload(form) {
 }
 
 /**
- * Turns each "adults"/"children_*" number input into a click-to-edit
- * stepper: while idle it shows a plain-text button ("2 Adulte(s)"), and
- * clicking it reveals the +/- stepper with the raw number input. Leaving
- * the widget (focusout) collapses it back to the text display.
+ * Renders each "adults"/"children_*" number field as a row (label on the
+ * left, always-visible -/value/+ controls on the right) and enforces the
+ * property's maximum occupancy (data-max-guests on the booking form) across
+ * the combined adults + children count: the "+" buttons are disabled and a
+ * warning note is shown once the capacity is reached, and any attempt to go
+ * over it (typing a value directly, or clicking "+") is clamped back down.
  */
 function initGuestSteppers() {
-  document.querySelectorAll('[data-guest-stepper]').forEach((wrap) => {
-    const display = wrap.querySelector('[data-guest-display]');
-    const control = wrap.querySelector('[data-guest-control]');
-    const input = control ? control.querySelector('input') : null;
-    if (!display || !control || !input) return;
-    const label = wrap.dataset.label || '';
-    const min = Number(input.min || 0);
-    const max = Number(input.max || 99);
+  document.querySelectorAll('[data-booking-form]').forEach((form) => {
+    const rows = Array.from(form.querySelectorAll('[data-guest-stepper]'));
+    const inputs = rows.map((row) => row.querySelector('input')).filter(Boolean);
+    if (!inputs.length) return;
+    const maxGuests = Number(form.dataset.maxGuests || 0) || Infinity;
+    const note = form.querySelector('[data-guest-capacity-note]');
 
-    function updateDisplay() {
-      const value = Number(input.value || 0);
-      display.textContent = `${value} ${label}`.trim();
+    function totalGuests() {
+      return inputs.reduce((sum, item) => sum + Number(item.value || 0), 0);
     }
 
-    function openControl() {
-      display.hidden = true;
-      control.hidden = false;
-      input.focus();
-      input.select();
+    function updateCapacityState() {
+      const total = totalGuests();
+      const atCapacity = isFinite(maxGuests) && total >= maxGuests;
+      rows.forEach((row) => {
+        const incBtn = row.querySelector('[data-step="1"]');
+        if (incBtn) incBtn.disabled = atCapacity;
+      });
+      if (note) {
+        note.hidden = !isFinite(maxGuests) || total <= maxGuests;
+        if (!note.hidden) {
+          note.textContent = `Ce logement peut accueillir au maximum ${maxGuests} personne(s) (adultes + enfants).`;
+        }
+      }
     }
 
-    function closeControl() {
-      control.hidden = true;
-      display.hidden = false;
-      updateDisplay();
-    }
+    rows.forEach((row) => {
+      const input = row.querySelector('input');
+      if (!input) return;
+      const min = Number(input.min || 0);
+      const fieldMax = Number(input.max || 99);
 
-    function setValue(newValue) {
-      const clamped = Math.min(max, Math.max(min, newValue));
-      input.value = String(clamped);
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-    }
+      function setValue(newValue) {
+        let clamped = Math.min(fieldMax, Math.max(min, Number.isFinite(newValue) ? newValue : min));
+        if (isFinite(maxGuests)) {
+          const othersTotal = totalGuests() - Number(input.value || 0);
+          clamped = Math.min(clamped, Math.max(min, maxGuests - othersTotal));
+        }
+        input.value = String(clamped);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
 
-    display.addEventListener('click', openControl);
-    control.querySelectorAll('[data-step]').forEach((btn) => {
-      btn.addEventListener('click', () => setValue(Number(input.value || 0) + Number(btn.dataset.step)));
+      row.querySelectorAll('[data-step]').forEach((btn) => {
+        btn.addEventListener('click', () => setValue(Number(input.value || 0) + Number(btn.dataset.step)));
+      });
+      input.addEventListener('input', updateCapacityState);
+      input.addEventListener('change', () => setValue(Number(input.value || 0)));
     });
-    input.addEventListener('input', updateDisplay);
-    wrap.addEventListener('focusout', (event) => {
-      if (!wrap.contains(event.relatedTarget)) closeControl();
-    });
-    wrap.closest('form')?.addEventListener('reset', () => setTimeout(closeControl, 0));
-    updateDisplay();
+
+    form.addEventListener('reset', () => setTimeout(updateCapacityState, 0));
+    updateCapacityState();
   });
 }
 
 /**
- * Accordion behaviour between the booking form's "dates & voyageurs" block
- * and the "détails des voyageurs" block: opening one collapses the other.
- * The 3rd block (summary/submit) visibility is handled separately by
- * initBookingQuote() once the required fields are filled in.
+ * Accordion behaviour between the booking form's "Nombre de Voyageur(s)"
+ * block and the "détails des voyageurs" block: opening one collapses the
+ * other. The dates block above is always visible (not part of the
+ * accordion). The summary block (3rd, submit) visibility is handled
+ * separately by initBookingQuote() once the required fields are filled in.
  */
 function initBookingAccordion() {
   document.querySelectorAll('[data-booking-form]').forEach((form) => {

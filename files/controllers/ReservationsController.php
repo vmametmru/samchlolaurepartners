@@ -48,6 +48,24 @@ final class ReservationsController extends Controller
 
         $totalGuests = $adults + $childrenUnder5 + $children5to12;
         $client = new LodgifyClient();
+
+        // Every property has a maximum occupancy (Lodgify's max_guests); a
+        // reservation request must never exceed it, otherwise the property
+        // could be booked for more people than it can actually host.
+        $property = null;
+        try {
+            $property = $client->getProperty($propertyId);
+        } catch (Throwable $e) {
+            error_log('Lodgify: failed to fetch property ' . $propertyId . ': ' . $e->getMessage());
+        }
+        $maxGuests = (int) ($property['max_guests'] ?? 0);
+        if ($maxGuests > 0 && $totalGuests > $maxGuests) {
+            self::json([
+                'error' => 'Bad Request',
+                'message' => "Ce logement peut accueillir au maximum {$maxGuests} personne(s) (adultes + enfants).",
+            ], 400);
+        }
+
         try {
             $rates = PageController::publicRates($client, $propertyId, $checkin, $checkoutDate->modify('-1 day')->format('Y-m-d'));
         } catch (Throwable $e) {
@@ -69,16 +87,11 @@ final class ReservationsController extends Controller
         // the same page, falling back to the local cleaning_fees table only
         // when Lodgify doesn't return that fee.
         $cleaningRate = null;
-        try {
-            $property = $client->getProperty($propertyId);
-            foreach (($property['fees'] ?? []) as $fee) {
-                if (($fee['charge_type'] ?? '') === 'PerPerson' && $fee['amount'] !== null) {
-                    $cleaningRate = (float) $fee['amount'];
-                    break;
-                }
+        foreach (($property['fees'] ?? []) as $fee) {
+            if (($fee['charge_type'] ?? '') === 'PerPerson' && $fee['amount'] !== null) {
+                $cleaningRate = (float) $fee['amount'];
+                break;
             }
-        } catch (Throwable $e) {
-            error_log('Lodgify: failed to fetch property for cleaning fee ' . $propertyId . ': ' . $e->getMessage());
         }
 
         if ($cleaningRate === null) {
@@ -148,12 +161,35 @@ final class ReservationsController extends Controller
         $checkin = trim((string) ($input['checkin_date'] ?? ''));
         $checkout = trim((string) ($input['checkout_date'] ?? ''));
         $adults = (int) ($input['adults'] ?? 0);
+        $propertyId = (int) ($input['property_id'] ?? 0);
 
         if ($clientName === '' || $clientEmail === '' || $checkin === '' || $checkout === '' || $adults === 0) {
             self::json(['error' => 'Bad Request', 'message' => 'Required fields missing'], 400);
         }
         if (filter_var($clientEmail, FILTER_VALIDATE_EMAIL) === false) {
             self::json(['error' => 'Bad Request', 'message' => 'Invalid client_email'], 400);
+        }
+
+        // A property can only host a limited number of people (Lodgify's
+        // max_guests): reject the request if the requested party size
+        // exceeds it, so a visitor cannot book more guests than the
+        // property can actually accommodate.
+        if ($propertyId > 0) {
+            $childrenUnder5 = max(0, (int) ($input['children_under5'] ?? 0));
+            $children5to12 = max(0, (int) ($input['children_5to12'] ?? 0));
+            $totalGuests = $adults + $childrenUnder5 + $children5to12;
+            try {
+                $property = (new LodgifyClient())->getProperty($propertyId);
+                $maxGuests = (int) ($property['max_guests'] ?? 0);
+                if ($maxGuests > 0 && $totalGuests > $maxGuests) {
+                    self::json([
+                        'error' => 'Bad Request',
+                        'message' => "Ce logement peut accueillir au maximum {$maxGuests} personne(s) (adultes + enfants).",
+                    ], 400);
+                }
+            } catch (Throwable $e) {
+                error_log('Lodgify: failed to fetch property ' . $propertyId . ' for capacity check: ' . $e->getMessage());
+            }
         }
 
         $partner = self::requirePartnerContext();

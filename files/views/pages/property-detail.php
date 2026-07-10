@@ -115,51 +115,56 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
       </div>
     </div>
     <aside class="card card-body sticky-card">
-      <form class="stack-md" data-api-form data-booking-form data-property-id="<?= (int) $property['id'] ?>" data-currency="<?= \App\View::e($currency) ?>" data-success-message="Demande envoyée ! Vous recevrez un email de confirmation." method="post" action="/api/reservations/request">
+      <form class="stack-md" data-api-form data-booking-form data-property-id="<?= (int) $property['id'] ?>" data-currency="<?= \App\View::e($currency) ?>" data-max-guests="<?= (int) $property['max_guests'] ?>" data-success-message="Demande envoyée ! Vous recevrez un email de confirmation." method="post" action="/api/reservations/request">
         <input type="hidden" name="property_id" value="<?= (int) $property['id'] ?>">
         <input type="hidden" name="property_name" value="<?= \App\View::e($property['name']) ?>">
 
-        <div class="booking-block" data-booking-block="dates">
+        <div class="stack-sm booking-dates-always-visible" data-booking-dates>
+          <span>Dates du séjour *</span>
+          <div class="booking-dates-summary" data-booking-dates-summary>
+            <p class="muted">Sélectionnez vos dates dans le calendrier (Tarifs &amp; Disponibilités) : 1er clic = arrivée, 2e clic = départ.</p>
+          </div>
+          <input type="hidden" name="checkin_date" data-booking-checkin>
+          <input type="hidden" name="checkout_date" data-booking-checkout>
+        </div>
+
+        <div class="booking-block" data-booking-block="guests">
           <button type="button" class="booking-block-header" data-block-toggle>
-            <span>Dates du séjour et voyageurs</span>
+            <span>Nombre de Voyageur(s)</span>
             <span class="booking-block-chevron" aria-hidden="true">▾</span>
           </button>
           <div class="booking-block-body" data-block-body>
-            <div class="stack-sm" data-booking-dates>
-              <span>Dates du séjour *</span>
-              <div class="booking-dates-summary" data-booking-dates-summary>
-                <p class="muted">Sélectionnez vos dates dans le calendrier (Tarifs &amp; Disponibilités) : 1er clic = arrivée, 2e clic = départ.</p>
-              </div>
-              <input type="hidden" name="checkin_date" data-booking-checkin>
-              <input type="hidden" name="checkout_date" data-booking-checkout>
-            </div>
-            <div class="form-grid cols-3">
-              <div class="guest-stepper" data-guest-stepper data-label="Adulte(s)">
-                <button type="button" class="guest-stepper-display" data-guest-display></button>
-                <div class="guest-stepper-control" data-guest-control hidden>
+            <?php if ((int) $property['max_guests'] > 0): ?>
+              <p class="muted">Capacité maximum : <?= (int) $property['max_guests'] ?> personne(s).</p>
+            <?php endif; ?>
+            <div class="guest-count-list">
+              <div class="guest-count-row" data-guest-stepper>
+                <span class="guest-count-label">Adulte(s)</span>
+                <div class="guest-count-controls">
                   <button type="button" class="stepper-btn" data-step="-1" aria-label="Diminuer le nombre d'adultes">−</button>
                   <input class="input guest-stepper-input" type="number" name="adults" min="1" max="20" value="2" aria-label="Adultes" title="Adultes">
                   <button type="button" class="stepper-btn" data-step="1" aria-label="Augmenter le nombre d'adultes">+</button>
                 </div>
               </div>
-              <div class="guest-stepper" data-guest-stepper data-label="Enfant(s) -5 ans">
-                <button type="button" class="guest-stepper-display" data-guest-display></button>
-                <div class="guest-stepper-control" data-guest-control hidden>
+              <div class="guest-count-row" data-guest-stepper>
+                <span class="guest-count-label">Enfant(s) -5 ans</span>
+                <div class="guest-count-controls">
                   <button type="button" class="stepper-btn" data-step="-1" aria-label="Diminuer le nombre d'enfants de moins de 5 ans">−</button>
                   <input class="input guest-stepper-input" type="number" name="children_under5" min="0" max="20" value="0" aria-label="Enfants (moins de 5 ans)" title="Enfants (moins de 5 ans)">
                   <button type="button" class="stepper-btn" data-step="1" aria-label="Augmenter le nombre d'enfants de moins de 5 ans">+</button>
                 </div>
               </div>
-              <div class="guest-stepper" data-guest-stepper data-label="Enfant(s) 5-12 ans">
-                <button type="button" class="guest-stepper-display" data-guest-display></button>
-                <div class="guest-stepper-control" data-guest-control hidden>
+              <div class="guest-count-row" data-guest-stepper>
+                <span class="guest-count-label">Enfant(s) 5-12 ans</span>
+                <div class="guest-count-controls">
                   <button type="button" class="stepper-btn" data-step="-1" aria-label="Diminuer le nombre d'enfants de 5 à 12 ans">−</button>
                   <input class="input guest-stepper-input" type="number" name="children_5to12" min="0" max="20" value="0" aria-label="Enfants (5 à 12 ans)" title="Enfants (5 à 12 ans)">
                   <button type="button" class="stepper-btn" data-step="1" aria-label="Augmenter le nombre d'enfants de 5 à 12 ans">+</button>
                 </div>
               </div>
-              <input type="hidden" name="children" value="0">
             </div>
+            <input type="hidden" name="children" value="0">
+            <p class="muted guest-capacity-note" data-guest-capacity-note hidden></p>
           </div>
         </div>
 
