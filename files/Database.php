@@ -11,26 +11,46 @@ final class Database
 {
     private static ?PDO $instance = null;
 
+    /**
+     * Optional manual override: if "db/config.php" exists, it takes
+     * precedence over the ".env" values. See "db/config.example.php" for
+     * the expected format. The file is git-ignored and blocked from direct
+     * web access by "db/.htaccess".
+     *
+     * @return array<string, mixed>
+     */
+    private static function fileConfig(): array
+    {
+        $path = (defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__)) . '/db/config.php';
+        if (!is_file($path)) {
+            return [];
+        }
+        $config = require $path;
+        return is_array($config) ? $config : [];
+    }
+
     public static function connection(): PDO
     {
         if (self::$instance instanceof PDO) {
             return self::$instance;
         }
 
-        $host = trim((string) (Env::get('DB_HOST') ?? ''));
+        $config = self::fileConfig();
+
+        $host = trim((string) ($config['host'] ?? Env::get('DB_HOST') ?? ''));
         if ($host === '') {
             $host = 'localhost';
         }
-        $port = Env::int('DB_PORT', 3306);
-        $db = trim((string) (Env::get('DB_NAME') ?? ''));
+        $port = isset($config['port']) ? (int) $config['port'] : Env::int('DB_PORT', 3306);
+        $db = trim((string) ($config['name'] ?? Env::get('DB_NAME') ?? ''));
         if ($db === '') {
             $db = 'partners_db';
         }
-        $user = trim((string) (Env::get('DB_USER') ?? ''));
+        $user = trim((string) ($config['user'] ?? Env::get('DB_USER') ?? ''));
         if ($user === '') {
             $user = 'partners_user';
         }
-        $pass = Env::get('DB_PASSWORD', 'partners_pass');
+        $pass = (string) ($config['password'] ?? Env::get('DB_PASSWORD', 'partners_pass'));
 
         $dsn = sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', $host, $port, $db);
         self::$instance = new PDO($dsn, $user, $pass, [
