@@ -73,16 +73,22 @@ function initBookingCalendarSelection() {
       return `${d}/${m}/${y}`;
     }
 
+    function nightsBetween(startStr, endStr) {
+      const start = new Date(`${startStr}T00:00:00`);
+      const end = new Date(`${endStr}T00:00:00`);
+      return Math.round((end - start) / 86400000);
+    }
+
     function update() {
       checkinInput.value = checkin || '';
       checkoutInput.value = checkout || '';
       if (summary) {
         if (checkin && checkout) {
-          summary.textContent = `Arrivée : ${formatFr(checkin)} — Départ : ${formatFr(checkout)}`;
+          summary.innerHTML = `<p>Arrivée : ${formatFr(checkin)}</p><p>Départ : ${formatFr(checkout)}</p><p>Nuits : ${nightsBetween(checkin, checkout)}</p>`;
         } else if (checkin) {
-          summary.textContent = `Arrivée : ${formatFr(checkin)} — Cliquez sur une autre date du calendrier pour le départ.`;
+          summary.innerHTML = `<p>Arrivée : ${formatFr(checkin)}</p><p class="muted">Cliquez sur une autre date du calendrier pour le départ.</p>`;
         } else {
-          summary.textContent = "Sélectionnez vos dates dans le calendrier (Tarifs & Disponibilités) : 1er clic = arrivée, 2e clic = départ.";
+          summary.innerHTML = '<p class="muted">Sélectionnez vos dates dans le calendrier (Tarifs &amp; Disponibilités) : 1er clic = arrivée, 2e clic = départ.</p>';
         }
       }
       calendarWidget.querySelectorAll('[data-calendar-date]').forEach((cell) => {
@@ -343,13 +349,19 @@ function initPhoneInputs() {
     const number = wrap.querySelector('[data-phone-number]');
     const combined = wrap.querySelector('[data-phone-combined]');
     if (!dialCode || !number || !combined) return;
+    function normalizedCode() {
+      const raw = dialCode.value.trim();
+      if (!raw) return '';
+      return raw.startsWith('+') ? raw : `+${raw.replace(/\D/g, '')}`;
+    }
     function update() {
-      const code = dialCode.value.trim();
+      const code = normalizedCode();
       const value = number.value.trim();
       combined.value = code && value ? `${code} ${value}` : '';
       combined.dispatchEvent(new Event('change', { bubbles: true }));
     }
     dialCode.addEventListener('change', update);
+    dialCode.addEventListener('input', update);
     number.addEventListener('input', update);
     wrap.closest('form')?.addEventListener('reset', () => setTimeout(update, 0));
     update();
@@ -357,16 +369,15 @@ function initPhoneInputs() {
 }
 
 /**
- * Fetches a live price estimate (room + cleaning + tourist tax) once the
- * booking form has enough information, showing a small loading indicator
- * only while the request is in flight (no page reload).
+ * Fetches a live price estimate (room + cleaning fee, tourist tax shown as a
+ * separate note) once the booking form has enough information (no page
+ * reload, no visible loading indicator while the request is in flight).
  */
 function initBookingQuote() {
   document.querySelectorAll('[data-booking-form]').forEach((form) => {
     const box = form.querySelector('[data-quote-box]');
-    const loading = form.querySelector('[data-quote-loading]');
     const result = form.querySelector('[data-quote-result]');
-    if (!box || !loading || !result) return;
+    if (!box || !result) return;
 
     let requestId = 0;
     let debounceTimer = null;
@@ -386,9 +397,6 @@ function initBookingQuote() {
         box.hidden = true;
         return;
       }
-      box.hidden = false;
-      loading.hidden = false;
-      result.hidden = true;
       const currentRequest = ++requestId;
       try {
         const payload = buildFormPayload(form);
@@ -401,12 +409,11 @@ function initBookingQuote() {
         const data = await response.json();
         if (currentRequest !== requestId) return;
         if (!response.ok) throw new Error(data.message || 'Erreur');
+        box.hidden = false;
         renderQuote(data.data, form.dataset.currency || data.data.currency || 'EUR');
       } catch (error) {
         if (currentRequest !== requestId) return;
         box.hidden = true;
-      } finally {
-        if (currentRequest === requestId) loading.hidden = true;
       }
     }
 
@@ -415,14 +422,9 @@ function initBookingQuote() {
       form.querySelector('[data-quote-nights]').textContent = quote.nights;
       form.querySelector('[data-quote-room]').textContent = formatMoney(quote.room_total);
       form.querySelector('[data-quote-cleaning]').textContent = formatMoney(quote.cleaning_total);
+      form.querySelector('[data-quote-total]').textContent = formatMoney(quote.total_without_tax);
       const taxLine = form.querySelector('[data-quote-tax-line]');
-      if (quote.tourist_tax_total > 0) {
-        taxLine.hidden = false;
-        form.querySelector('[data-quote-tax]').textContent = formatMoney(quote.tourist_tax_total);
-      } else {
-        taxLine.hidden = true;
-      }
-      form.querySelector('[data-quote-total]').textContent = formatMoney(quote.grand_total);
+      taxLine.hidden = !(quote.tourist_tax_total > 0);
       result.hidden = false;
     }
 

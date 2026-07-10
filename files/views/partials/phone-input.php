@@ -18,10 +18,10 @@ $dialCodes = [
 <div class="stack-sm" data-phone-input>
   <span>Téléphone (avec indicatif pays) *</span>
   <div class="form-grid cols-2">
-    <select class="input" data-phone-dial-code required>
-      <option value="">Indicatif...</option>
-      <?php foreach ($dialCodes as $code => $label): ?><option value="<?= \App\View::e($code) ?>"><?= \App\View::e($label) ?></option><?php endforeach; ?>
-    </select>
+    <input class="input" type="text" list="dialCodesList" data-phone-dial-code placeholder="Indicatif (ex: +230)" required>
+    <datalist id="dialCodesList">
+      <?php foreach ($dialCodes as $code => $label): ?><option value="<?= \App\View::e($code) ?>" label="<?= \App\View::e($label) ?>"><?= \App\View::e($label) ?></option><?php endforeach; ?>
+    </datalist>
     <input class="input" type="tel" data-phone-number placeholder="Numéro (avec région)" required>
   </div>
   <input type="hidden" name="client_phone" data-phone-combined>

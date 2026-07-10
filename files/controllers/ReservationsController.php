@@ -105,6 +105,7 @@ final class ReservationsController extends Controller
         $touristTaxTotal = round($taxRate * $qualifyingGuests * $nights, 2);
 
         $grandTotal = round($roomTotal + $cleaningTotal + $touristTaxTotal, 2);
+        $totalWithoutTax = round($roomTotal + $cleaningTotal, 2);
 
         self::json(['data' => [
             'nights' => $nights,
@@ -112,6 +113,7 @@ final class ReservationsController extends Controller
             'room_total' => round($roomTotal, 2),
             'cleaning_total' => $cleaningTotal,
             'tourist_tax_total' => $touristTaxTotal,
+            'total_without_tax' => $totalWithoutTax,
             'grand_total' => $grandTotal,
         ]]);
     }
