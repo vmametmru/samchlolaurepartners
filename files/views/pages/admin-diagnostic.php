@@ -47,7 +47,10 @@ use App\View;
           }
         ?>
       </div>
-      <div class="diag-row"><span>Chemin attendu</span><code><?= View::e($data['env_file']['path']) ?></code></div>
+      <div class="diag-row"><span>Chemin attendu (résolu)</span><code><?= View::e($data['env_file']['path']) ?></code></div>
+      <?php if (!empty($data['env_file']['primary_path']) && $data['env_file']['primary_path'] !== $data['env_file']['path']): ?>
+      <div class="diag-row"><span>Chemin d'origine (BASE_PATH/.env)</span><code><?= View::e((string) $data['env_file']['primary_path']) ?></code></div>
+      <?php endif; ?>
       <div class="diag-row"><span>BASE_PATH (racine app)</span><code><?= View::e((string) $data['env_file']['base_path']) ?></code></div>
       <div class="diag-row"><span>BASE_PATH réel (realpath)</span><code><?= View::e((string) $data['env_file']['base_realpath']) ?></code></div>
       <?php if (!empty($data['env_file']['real_path']) && $data['env_file']['real_path'] !== $data['env_file']['path']): ?>
