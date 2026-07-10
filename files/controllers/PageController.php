@@ -26,8 +26,21 @@ final class PageController extends Controller
         $searched = false;
         if (!empty($_GET['checkin']) && !empty($_GET['checkout'])) {
             $searched = true;
+            $checkin = (string) $_GET['checkin'];
+            $checkout = (string) $_GET['checkout'];
+            $guests = max(1, (int) ($_GET['adults'] ?? 1)) + max(0, (int) ($_GET['children'] ?? 0));
             try {
-                $properties = (new LodgifyClient())->getProperties();
+                $client = new LodgifyClient();
+                $allProperties = $client->getProperties();
+                $properties = array_values(array_filter(
+                    $allProperties,
+                    static function (array $property) use ($client, $checkin, $checkout, $guests): bool {
+                        if ($property['max_guests'] > 0 && $property['max_guests'] < $guests) {
+                            return false;
+                        }
+                        return $client->isAvailableForRange((int) $property['id'], $checkin, $checkout);
+                    }
+                ));
             } catch (Throwable $e) {
                 Flash::set('Impossible de charger les hébergements pour le moment.', 'error');
             }
@@ -457,6 +470,17 @@ final class PageController extends Controller
     {
         http_response_code(404);
         View::render('pages/not-found', ['pageTitle' => 'Introuvable']);
+    }
+
+    /**
+     * Renders a distinct error page for non-404 failures (5xx, transient
+     * upstream API errors, ...) so genuine "resource does not exist" (404)
+     * is never confused with a temporary problem the user should just retry.
+     */
+    public static function errorPage(int $statusCode, string $message): void
+    {
+        http_response_code($statusCode);
+        View::render('pages/error', ['pageTitle' => 'Erreur', 'message' => $message]);
     }
 
     private static function requirePartnerUser(): array

@@ -49,6 +49,37 @@ final class LodgifyClient
         }, $data);
     }
 
+    /**
+     * Whether the given property is available for every night of [$from, $to).
+     * Used to filter home-page search results down to properties genuinely
+     * bookable for the requested dates, instead of returning every property
+     * regardless of availability.
+     */
+    public function isAvailableForRange(int $propertyId, string $from, string $to): bool
+    {
+        try {
+            $days = $this->getAvailability($propertyId, $from, $to);
+        } catch (\Throwable $e) {
+            return false;
+        }
+        if ($days === []) {
+            return false;
+        }
+        $nights = [];
+        $cursor = new \DateTimeImmutable($from);
+        $end = new \DateTimeImmutable($to);
+        while ($cursor < $end) {
+            $nights[$cursor->format('Y-m-d')] = false;
+            $cursor = $cursor->modify('+1 day');
+        }
+        foreach ($days as $day) {
+            if (array_key_exists($day['date'], $nights) && $day['available']) {
+                $nights[$day['date']] = true;
+            }
+        }
+        return $nights !== [] && !in_array(false, $nights, true);
+    }
+
     public function getRates(int $propertyId, string $from, string $to, int $guests): array
     {
         $data = $this->request('/rates/' . $propertyId, ['startDate' => $from, 'endDate' => $to, 'numberOfGuests' => $guests]);

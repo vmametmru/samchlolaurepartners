@@ -217,7 +217,11 @@ try {
         }
         http_response_code($e->statusCode);
         App\Flash::set($e->getMessage(), 'error');
-        PageController::notFound();
+        if ($e->statusCode === 404) {
+            PageController::notFound();
+        } else {
+            PageController::errorPage($e->statusCode, $e->getMessage());
+        }
     }
 } catch (Throwable $e) {
     error_log((string) $e);
@@ -226,8 +230,10 @@ try {
         header('Content-Type: application/json; charset=utf-8');
         echo json_encode(['error' => 'Internal Server Error', 'message' => $e->getMessage()], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     } else {
-        App\Flash::set('Une erreur est survenue : ' . $e->getMessage(), 'error');
-        PageController::notFound();
+        http_response_code(500);
+        $message = 'Une erreur est survenue : ' . $e->getMessage();
+        App\Flash::set($message, 'error');
+        PageController::errorPage(500, $message);
     }
 }
 
