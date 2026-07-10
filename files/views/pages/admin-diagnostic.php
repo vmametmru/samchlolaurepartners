@@ -48,6 +48,11 @@ use App\View;
         ?>
       </div>
       <div class="diag-row"><span>Chemin attendu</span><code><?= View::e($data['env_file']['path']) ?></code></div>
+      <div class="diag-row"><span>BASE_PATH (racine app)</span><code><?= View::e((string) $data['env_file']['base_path']) ?></code></div>
+      <div class="diag-row"><span>BASE_PATH réel (realpath)</span><code><?= View::e((string) $data['env_file']['base_realpath']) ?></code></div>
+      <?php if (!empty($data['env_file']['real_path']) && $data['env_file']['real_path'] !== $data['env_file']['path']): ?>
+      <div class="diag-row"><span>Chemin réel du fichier</span><code><?= View::e((string) $data['env_file']['real_path']) ?></code></div>
+      <?php endif; ?>
       <div class="diag-row"><span>Fichier présent</span><code><?= $envFileExists ? 'Oui' : 'Non' ?></code></div>
       <?php if (!empty($data['env_file']['is_link'])): ?>
       <div class="diag-row"><span>Lien symbolique</span><code>Oui</code></div>
@@ -62,13 +67,20 @@ use App\View;
       <?php if (!is_null($data['env_file']['php_user'] ?? null)): ?>
       <div class="diag-row"><span>Utilisateur PHP</span><code><?= View::e((string) $data['env_file']['php_user']) ?></code></div>
       <?php endif; ?>
+      <?php if (!is_null($data['env_file']['open_basedir'] ?? null)): ?>
+      <div class="diag-row"><span>open_basedir (PHP)</span><code><?= View::e((string) $data['env_file']['open_basedir']) ?></code></div>
+      <?php endif; ?>
       <?php if (!$envFileOk): ?>
       <?php if ($envFileExists && !$envFileReadable): ?>
       <pre class="message-box" style="color:var(--red)">Le fichier .env existe mais PHP ne peut pas le lire.
 Vérifiez les permissions (chmod 640 .env) et que le propriétaire correspond à l'utilisateur PHP.</pre>
       <?php else: ?>
       <pre class="message-box" style="color:var(--red)">Le fichier .env est introuvable à ce chemin.
-Créez-le (cp .env.example .env) et remplissez les valeurs.</pre>
+Créez-le (cp .env.example .env) et remplissez les valeurs.
+Si le fichier existe réellement à cet emplacement sur le serveur, vérifiez :
+- que "BASE_PATH réel (realpath)" ci-dessus correspond bien au dossier contenant votre .env (attention aux liens symboliques / docroot alias) ;
+- que "open_basedir" (si défini) inclut bien ce chemin ;
+- que le déploiement le plus récent a bien été appliqué sur le serveur (ce diagnostic reflète le code actuellement déployé).</pre>
       <?php endif; ?>
       <?php endif; ?>
     </div>

@@ -352,22 +352,32 @@ final class PageController extends Controller
             $data = [];
 
             // Step 1 — .env file
-            $envPath   = defined('BASE_PATH') ? BASE_PATH . '/.env' : '';
-            $envExists = $envPath !== '' && is_file($envPath);
-            $envIsLink = $envPath !== '' && is_link($envPath);
-            $envPerms  = ($envExists && function_exists('fileperms')) ? substr(sprintf('%o', fileperms($envPath)), -4) : null;
-            $envOwner  = ($envExists && function_exists('posix_getpwuid') && function_exists('fileowner'))
+            // Clear PHP's realpath/stat cache first: on long-running workers (FPM/opcache)
+            // a stale cache can keep reporting a file as missing after it was created.
+            clearstatcache(true);
+            $envPath     = defined('BASE_PATH') ? BASE_PATH . '/.env' : '';
+            $envRealBase = $envPath !== '' ? realpath(BASE_PATH) : false;
+            $envRealPath = $envPath !== '' ? realpath($envPath) : false;
+            $envExists   = $envPath !== '' && is_file($envPath);
+            $envIsLink   = $envPath !== '' && is_link($envPath);
+            $envPerms    = ($envExists && function_exists('fileperms')) ? substr(sprintf('%o', fileperms($envPath)), -4) : null;
+            $envOwner    = ($envExists && function_exists('posix_getpwuid') && function_exists('fileowner'))
                 ? (posix_getpwuid(fileowner($envPath))['name'] ?? null) : null;
-            $phpUser   = function_exists('posix_getpwuid') && function_exists('posix_geteuid')
+            $phpUser     = function_exists('posix_getpwuid') && function_exists('posix_geteuid')
                 ? (posix_getpwuid(posix_geteuid())['name'] ?? null) : null;
+            $openBasedir = ini_get('open_basedir');
             $data['env_file'] = [
-                'path'     => $envPath !== '' ? $envPath : '(BASE_PATH non défini)',
-                'exists'   => $envExists,
-                'is_link'  => $envIsLink,
-                'readable' => $envPath !== '' && is_readable($envPath),
-                'perms'    => $envPerms,
-                'owner'    => $envOwner,
-                'php_user' => $phpUser,
+                'path'          => $envPath !== '' ? $envPath : '(BASE_PATH non défini)',
+                'base_path'     => defined('BASE_PATH') ? BASE_PATH : '(non défini)',
+                'base_realpath' => $envRealBase !== false ? $envRealBase : '(introuvable — vérifiez les liens symboliques)',
+                'real_path'     => $envRealPath !== false ? $envRealPath : null,
+                'exists'        => $envExists,
+                'is_link'       => $envIsLink,
+                'readable'      => $envPath !== '' && is_readable($envPath),
+                'perms'         => $envPerms,
+                'owner'         => $envOwner,
+                'php_user'      => $phpUser,
+                'open_basedir'  => $openBasedir !== false && $openBasedir !== '' ? $openBasedir : null,
             ];
 
             // Step 2 — Environment variables
