@@ -33,18 +33,171 @@ final class LodgifyClient
     {
         return $this->remember('lodgify:v2:property:' . $propertyId, 86400, function () use ($propertyId): array {
             $property = $this->mapProperty($this->request('/properties/' . $propertyId));
-            // The detail page gallery must show every photo below the main
-            // picture from a local cache copy instead of hotlinking Lodgify's
-            // CDN, so each image is downloaded once and served from images/listings/.
-            $property['images'] = array_map(
-                static fn(array $image): array => [
-                    'url' => ImageCache::cache($image['url'], $propertyId),
-                    'text' => $image['text'],
-                ],
-                $property['images']
-            );
+
+            // Lodgify's "/properties/{id}" endpoint (PropertyDto) never returns an
+            // "images" array — only a single "image_url" string — so the previous
+            // code always fell back to one photo, no matter how many times the
+            // cache was refreshed. The real multi-photo galleries only exist per
+            // room type, via "/properties/{id}/rooms" (RoomDetailsDto.images), which
+            // is also how Lodgify itself groups photos by room in its own listing
+            // page. Fetch and cache those here so the detail page can show every
+            // photo, grouped by room, from local copies.
+            $rooms = $this->getPropertyRoomsDetails($propertyId);
+            $photoRooms = [];
+            $allImages = [];
+            foreach ($rooms as $room) {
+                $roomImages = array_map(
+                    static fn(array $image): array => [
+                        'url' => ImageCache::cache($image['url'], $propertyId),
+                        'text' => $image['text'],
+                    ],
+                    $room['images']
+                );
+                if ($roomImages !== []) {
+                    $photoRooms[] = ['id' => $room['id'], 'name' => $room['name'], 'images' => $roomImages];
+                    array_push($allImages, ...$roomImages);
+                }
+            }
+
+            if ($allImages === []) {
+                // No room photos available: fall back to the single property image
+                // (still cached locally) so the gallery is never completely empty.
+                $allImages = array_map(
+                    static fn(array $image): array => [
+                        'url' => ImageCache::cache($image['url'], $propertyId),
+                        'text' => $image['text'],
+                    ],
+                    $property['images']
+                );
+            }
+
+            $property['images'] = $allImages;
+            $property['photo_rooms'] = $photoRooms;
+            $property['room_details'] = $rooms;
+
+            $rateSettings = $this->getRateSettingsFor($propertyId);
+            $property['checkin_hour'] = $rateSettings['check_in_hour'];
+            $property['checkout_hour'] = $rateSettings['check_out_hour'];
+            $property['fees'] = $rateSettings['fees'];
+
+            // Merge per-room categorized amenities (e.g. "Cuisine et salle à manger" =>
+            // [...]) since the property-level "amenities" field doesn't exist on
+            // Lodgify's PropertyDto either; only rooms expose amenities, grouped by
+            // category, matching how Lodgify displays them on its own listing page.
+            $amenitiesByCategory = [];
+            foreach ($rooms as $room) {
+                foreach ($room['amenities_by_category'] as $category => $names) {
+                    $amenitiesByCategory[$category] = array_values(array_unique(array_merge($amenitiesByCategory[$category] ?? [], $names)));
+                }
+            }
+            $property['amenities_by_category'] = $amenitiesByCategory;
+            if ($property['amenities'] === [] && $amenitiesByCategory !== []) {
+                foreach ($amenitiesByCategory as $names) {
+                    foreach ($names as $name) {
+                        $property['amenities'][] = ['name' => $name];
+                    }
+                }
+            }
+
             return $property;
         });
+    }
+
+    /**
+     * Fetches and maps "/properties/{id}/rooms" (RoomDetailsDto[]), the only
+     * Lodgify v2 endpoint that actually returns per-room photo galleries and
+     * categorized amenities — none of which are present on the plain property
+     * detail response. Failures are swallowed (returns []) so a single Lodgify
+     * hiccup never breaks the whole property page.
+     */
+    private function getPropertyRoomsDetails(int $propertyId): array
+    {
+        try {
+            $raw = $this->request('/properties/' . $propertyId . '/rooms');
+        } catch (\Throwable $e) {
+            error_log('Lodgify: failed to fetch rooms for property ' . $propertyId . ': ' . $e->getMessage());
+            return [];
+        }
+        $items = is_array($raw) ? $raw : [];
+        $rooms = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $images = [];
+            foreach (($item['images'] ?? []) as $image) {
+                if (is_array($image)) {
+                    $url = (string) ($image['url'] ?? '');
+                    if ($url !== '') {
+                        $images[] = ['url' => $url, 'text' => isset($image['text']) ? (string) $image['text'] : null];
+                    }
+                }
+            }
+            $amenitiesByCategory = [];
+            foreach (($item['amenities'] ?? []) as $category => $amenityList) {
+                if (!is_array($amenityList)) {
+                    continue;
+                }
+                $names = [];
+                foreach ($amenityList as $amenity) {
+                    $name = is_array($amenity) ? (string) ($amenity['name'] ?? $amenity['text'] ?? '') : (string) $amenity;
+                    if ($name !== '') {
+                        $names[] = $name;
+                    }
+                }
+                if ($names !== []) {
+                    $amenitiesByCategory[(string) $category] = $names;
+                }
+            }
+            $rooms[] = [
+                'id' => (int) ($item['id'] ?? 0),
+                'name' => (string) ($item['name'] ?? ''),
+                'description' => (string) ($item['description'] ?? ''),
+                'images' => $images,
+                'bedrooms' => (int) ($item['bedrooms'] ?? 0),
+                'bathrooms' => (int) ($item['bathrooms'] ?? 0),
+                'max_people' => (int) ($item['max_people'] ?? 0),
+                'has_parking' => (bool) ($item['has_parking'] ?? false),
+                'has_wifi' => (bool) ($item['has_wifi'] ?? false),
+                'pets_allowed' => $item['pets_allowed'] ?? null,
+                'adults_only' => (bool) ($item['adults_only'] ?? false),
+                'amenities_by_category' => $amenitiesByCategory,
+            ];
+        }
+        return $rooms;
+    }
+
+    /**
+     * Fetches "/rates/settings" for a property's house id, which is the only
+     * place Lodgify exposes check-in/check-out hours and per-guest/per-stay fees
+     * (e.g. the extra-guest fee shown on Lodgify's own Tarifs tab).
+     */
+    private function getRateSettingsFor(int $propertyId): array
+    {
+        $default = ['check_in_hour' => null, 'check_out_hour' => null, 'fees' => []];
+        try {
+            $data = $this->request('/rates/settings', ['houseId' => $propertyId]);
+        } catch (\Throwable $e) {
+            error_log('Lodgify: failed to fetch rate settings for property ' . $propertyId . ': ' . $e->getMessage());
+            return $default;
+        }
+        $fees = [];
+        foreach (($data['fees'] ?? []) as $fee) {
+            if (!is_array($fee)) {
+                continue;
+            }
+            $fees[] = [
+                'name' => (string) ($fee['fee_name'] ?? ''),
+                'charge_type' => (string) ($fee['charge_type'] ?? ''),
+                'frequency' => (string) ($fee['frequency'] ?? ''),
+                'amount' => isset($fee['price']['amount']) ? (float) $fee['price']['amount'] : null,
+            ];
+        }
+        return [
+            'check_in_hour' => isset($data['check_in_hour']) ? (int) $data['check_in_hour'] : null,
+            'check_out_hour' => isset($data['check_out_hour']) ? (int) $data['check_out_hour'] : null,
+            'fees' => $fees,
+        ];
     }
 
     public function getAvailability(int $propertyId, string $from, string $to): array

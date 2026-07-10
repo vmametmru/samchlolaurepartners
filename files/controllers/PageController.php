@@ -601,13 +601,24 @@ final class PageController extends Controller
     private static function publicRates(LodgifyClient $client, int $propertyId, string $from, string $to): array
     {
         $rawRates = $client->getRates($propertyId, $from, $to, 2);
-        return array_map(static fn(array $rate): array => [
-            'date_from' => $rate['date_from'],
-            'date_to' => $rate['date_to'],
-            'currency' => $rate['currency'],
-            'price_per_night' => $rate['price_per_night'],
-            'price_per_night_with_markup' => $rate['price_per_night'],
-            'markup_percent' => 0,
-        ], $rawRates);
+        // The public property page must show the tenant's marked-up price, not
+        // the raw Lodgify price: markup_percent was previously hardcoded to 0
+        // here, so the margin configured for the current partner (resolved from
+        // the request subdomain) never showed up on the public detail page,
+        // even though the same markup was already applied correctly in the
+        // authenticated partner rates API (LodgifyController::rates).
+        $partner = Tenant::current();
+        $markup = $partner ? (float) ($partner['markup_percent'] ?? 0) : 0.0;
+        return array_map(static function (array $rate) use ($markup): array {
+            $markedUp = round(((float) $rate['price_per_night']) * (1 + $markup / 100), 2);
+            return [
+                'date_from' => $rate['date_from'],
+                'date_to' => $rate['date_to'],
+                'currency' => $rate['currency'],
+                'price_per_night' => $markedUp,
+                'price_per_night_with_markup' => $markedUp,
+                'markup_percent' => $markup,
+            ];
+        }, $rawRates);
     }
 }

@@ -1,5 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
   initGallery();
+  initPropertyTabs();
   initMaps();
   initApiForms();
   initNationalities();
@@ -17,6 +18,25 @@ function initGallery() {
         thumbs.forEach((item) => item.classList.remove('active'));
         thumb.classList.add('active');
         if (main) main.src = thumb.dataset.src || '';
+      });
+    });
+  });
+}
+
+function initPropertyTabs() {
+  document.querySelectorAll('[data-tabs]').forEach((tabs) => {
+    const buttons = tabs.querySelectorAll('[data-tab-btn]');
+    const panelsContainer = tabs.parentElement ? tabs.parentElement.querySelector('[data-tab-panels]') : null;
+    if (!panelsContainer) return;
+    const panels = panelsContainer.querySelectorAll('[data-tab-panel]');
+    buttons.forEach((button) => {
+      button.addEventListener('click', () => {
+        const target = button.dataset.tabBtn;
+        buttons.forEach((item) => item.classList.remove('active'));
+        button.classList.add('active');
+        panels.forEach((panel) => {
+          panel.hidden = panel.dataset.tabPanel !== target;
+        });
       });
     });
   });

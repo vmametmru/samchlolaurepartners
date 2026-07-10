@@ -2,47 +2,134 @@
 $mainImage = $property['images'][0]['url'] ?? 'https://via.placeholder.com/800x450?text=No+Photo';
 $minRate = $rates ? min(array_column($rates, 'price_per_night')) : null;
 $currency = $rates[0]['currency'] ?? 'EUR';
+$photoRooms = $property['photo_rooms'] ?? [];
+$amenitiesByCategory = $property['amenities_by_category'] ?? [];
+$extraGuestFee = null;
+foreach (($property['fees'] ?? []) as $fee) {
+    if ($fee['charge_type'] === 'PerPerson' && $fee['amount'] !== null) {
+        $extraGuestFee = $fee;
+        break;
+    }
+}
+$formatHour = static function (?int $hour): ?string {
+    if ($hour === null || $hour < 0) {
+        return null;
+    }
+    return sprintf('%02d:00', $hour);
+};
+$checkinLabel = $formatHour($property['checkin_hour'] ?? null);
+$checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
 ?>
-<section class="container section-lg">
+<section class="container section-lg" data-gallery>
   <div class="property-detail-header">
     <h1><?= \App\View::e($property['name']) ?></h1>
     <p><?= (int) $property['bedrooms'] ?> chambre(s) · <?= (int) $property['bathrooms'] ?> salle(s) de bain · <?= (int) $property['max_guests'] ?> personnes max<?php if ($minRate !== null): ?> · À partir de <?= number_format((float) $minRate, 2, ',', ' ') . ' ' . \App\View::e($currency) ?>/nuit<?php endif; ?></p>
   </div>
-  <div class="gallery" data-gallery>
-    <div class="gallery-main"><img src="<?= \App\View::e($mainImage) ?>" alt="<?= \App\View::e($property['name']) ?>" data-gallery-main></div>
-    <?php if (!empty($property['images'])): ?>
-      <div class="gallery-thumbs">
-        <?php foreach ($property['images'] as $index => $image): ?>
-          <button type="button" class="gallery-thumb<?= $index === 0 ? ' active' : '' ?>" data-gallery-thumb data-src="<?= \App\View::e($image['url']) ?>"><img src="<?= \App\View::e($image['url']) ?>" alt=""></button>
-        <?php endforeach; ?>
-      </div>
-    <?php endif; ?>
-  </div>
+  <div class="gallery-main"><img src="<?= \App\View::e($mainImage) ?>" alt="<?= \App\View::e($property['name']) ?>" data-gallery-main></div>
+
+  <nav class="detail-tabs" data-tabs>
+    <button type="button" class="tab-btn active" data-tab-btn="description">Description</button>
+    <button type="button" class="tab-btn" data-tab-btn="photos">Photos</button>
+    <button type="button" class="tab-btn" data-tab-btn="amenities">Équipements</button>
+    <button type="button" class="tab-btn" data-tab-btn="location">Emplacement</button>
+    <button type="button" class="tab-btn" data-tab-btn="rates">Tarifs</button>
+    <button type="button" class="tab-btn" data-tab-btn="availability">Disponibilités</button>
+  </nav>
+
   <div class="detail-grid">
-    <div class="stack-lg">
-      <div>
+    <div class="stack-lg" data-tab-panels>
+      <div data-tab-panel="description">
         <h2 class="section-title">Description</h2>
         <p class="prose"><?= nl2br(\App\View::e($property['description'])) ?></p>
+        <?php if ($checkinLabel !== null || $checkoutLabel !== null): ?>
+          <div class="form-grid cols-2">
+            <?php if ($checkinLabel !== null): ?><div><strong>Arrivée</strong><br><?= \App\View::e($checkinLabel) ?></div><?php endif; ?>
+            <?php if ($checkoutLabel !== null): ?><div><strong>Départ</strong><br><?= \App\View::e($checkoutLabel) ?></div><?php endif; ?>
+          </div>
+        <?php endif; ?>
       </div>
-      <?php if (!empty($property['amenities'])): ?>
-        <div>
-          <h2 class="section-title">Équipements</h2>
+
+      <div data-tab-panel="photos" hidden>
+        <h2 class="section-title">Photos</h2>
+        <?php if (!empty($photoRooms)): ?>
+          <?php foreach ($photoRooms as $room): ?>
+            <div class="photo-room">
+              <?php if ($room['name'] !== ''): ?><h3 class="section-title"><?= \App\View::e($room['name']) ?></h3><?php endif; ?>
+              <div class="gallery-thumbs">
+                <?php foreach ($room['images'] as $image): ?>
+                  <button type="button" class="gallery-thumb" data-gallery-thumb data-src="<?= \App\View::e($image['url']) ?>"><img src="<?= \App\View::e($image['url']) ?>" alt=""></button>
+                <?php endforeach; ?>
+              </div>
+            </div>
+          <?php endforeach; ?>
+        <?php elseif (!empty($property['images'])): ?>
+          <div class="gallery-thumbs">
+            <?php foreach ($property['images'] as $image): ?>
+              <button type="button" class="gallery-thumb" data-gallery-thumb data-src="<?= \App\View::e($image['url']) ?>"><img src="<?= \App\View::e($image['url']) ?>" alt=""></button>
+            <?php endforeach; ?>
+          </div>
+        <?php else: ?>
+          <p class="muted">Aucune photo disponible pour le moment.</p>
+        <?php endif; ?>
+      </div>
+
+      <div data-tab-panel="amenities" hidden>
+        <h2 class="section-title">Équipements</h2>
+        <?php if (!empty($amenitiesByCategory)): ?>
+          <?php foreach ($amenitiesByCategory as $category => $names): ?>
+            <div class="amenities-category">
+              <h3 class="section-title"><?= \App\View::e($category) ?></h3>
+              <div class="amenities-grid">
+                <?php foreach ($names as $name): ?><div>✓ <?= \App\View::e($name) ?></div><?php endforeach; ?>
+              </div>
+            </div>
+          <?php endforeach; ?>
+        <?php elseif (!empty($property['amenities'])): ?>
           <div class="amenities-grid">
             <?php foreach ($property['amenities'] as $amenity): ?><div>✓ <?= \App\View::e($amenity['name']) ?></div><?php endforeach; ?>
           </div>
-        </div>
-      <?php endif; ?>
-      <div>
+        <?php else: ?>
+          <p class="muted">Aucun équipement listé.</p>
+        <?php endif; ?>
+      </div>
+
+      <div data-tab-panel="location" hidden>
+        <h2 class="section-title">Emplacement</h2>
+        <?php if ($property['latitude'] !== null && $property['longitude'] !== null): ?>
+          <p>Latitude <?= \App\View::e((string) $property['latitude']) ?> · Longitude <?= \App\View::e((string) $property['longitude']) ?></p>
+          <p><a class="text-link" target="_blank" rel="noreferrer" href="https://www.openstreetmap.org/?mlat=<?= \App\View::e((string) $property['latitude']) ?>&mlon=<?= \App\View::e((string) $property['longitude']) ?>#map=14/<?= \App\View::e((string) $property['latitude']) ?>/<?= \App\View::e((string) $property['longitude']) ?>">Voir sur OpenStreetMap</a></p>
+        <?php else: ?>
+          <p class="muted">Emplacement non disponible.</p>
+        <?php endif; ?>
+      </div>
+
+      <div data-tab-panel="rates" hidden>
+        <h2 class="section-title">Tarifs</h2>
+        <?php if ($minRate !== null): ?>
+          <p class="price-big"><?= number_format((float) $minRate, 2, ',', ' ') . ' ' . \App\View::e($currency) ?><span>/nuit</span></p>
+          <?php if ($extraGuestFee !== null): ?>
+            <p class="muted">+ <?= number_format((float) $extraGuestFee['amount'], 2, ',', ' ') . ' ' . \App\View::e($currency) ?> par invité supplémentaire<?= $extraGuestFee['frequency'] === 'PerNight' ? '/nuit' : '' ?></p>
+          <?php endif; ?>
+          <table class="input" style="width:100%;border-collapse:collapse;">
+            <thead><tr><th style="text-align:left;">Date</th><th style="text-align:right;">Prix/nuit</th></tr></thead>
+            <tbody>
+              <?php foreach ($rates as $rate): ?>
+                <tr>
+                  <td><?= \App\View::e($rate['date_from']) ?></td>
+                  <td style="text-align:right;"><?= number_format((float) $rate['price_per_night'], 2, ',', ' ') . ' ' . \App\View::e($rate['currency']) ?></td>
+                </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+        <?php else: ?>
+          <p class="muted">Tarifs non disponibles pour le moment.</p>
+        <?php endif; ?>
+      </div>
+
+      <div data-tab-panel="availability" hidden>
         <h2 class="section-title">Disponibilités</h2>
         <?php require BASE_PATH . '/files/views/partials/calendar.php'; ?>
       </div>
-      <?php if ($property['latitude'] !== null && $property['longitude'] !== null): ?>
-        <div class="card card-body">
-          <h2 class="section-title">Localisation</h2>
-          <p>Latitude <?= \App\View::e((string) $property['latitude']) ?> · Longitude <?= \App\View::e((string) $property['longitude']) ?></p>
-          <p><a class="text-link" target="_blank" rel="noreferrer" href="https://www.openstreetmap.org/?mlat=<?= \App\View::e((string) $property['latitude']) ?>&mlon=<?= \App\View::e((string) $property['longitude']) ?>#map=14/<?= \App\View::e((string) $property['latitude']) ?>/<?= \App\View::e((string) $property['longitude']) ?>">Voir sur OpenStreetMap</a></p>
-        </div>
-      <?php endif; ?>
     </div>
     <aside class="card card-body sticky-card">
       <?php if ($minRate !== null): ?><p class="price-big"><?= number_format((float) $minRate, 2, ',', ' ') . ' ' . \App\View::e($currency) ?><span>/nuit</span></p><?php endif; ?>
