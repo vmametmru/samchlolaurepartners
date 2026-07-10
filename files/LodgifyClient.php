@@ -31,7 +31,20 @@ final class LodgifyClient
 
     public function getProperty(int $propertyId): array
     {
-        return $this->remember('lodgify:v2:property:' . $propertyId, 86400, fn(): array => $this->mapProperty($this->request('/properties/' . $propertyId)));
+        return $this->remember('lodgify:v2:property:' . $propertyId, 86400, function () use ($propertyId): array {
+            $property = $this->mapProperty($this->request('/properties/' . $propertyId));
+            // The detail page gallery must show every photo below the main
+            // picture from a local cache copy instead of hotlinking Lodgify's
+            // CDN, so each image is downloaded once and served from images/listings/.
+            $property['images'] = array_map(
+                static fn(array $image): array => [
+                    'url' => ImageCache::cache($image['url'], $propertyId),
+                    'text' => $image['text'],
+                ],
+                $property['images']
+            );
+            return $property;
+        });
     }
 
     public function getAvailability(int $propertyId, string $from, string $to): array
