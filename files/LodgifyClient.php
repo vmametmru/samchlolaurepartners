@@ -360,20 +360,36 @@ final class LodgifyClient
                 $available = (int) ($period['available'] ?? 0);
                 try {
                     $periodStart = new \DateTimeImmutable((string) ($period['start'] ?? ''));
-                    $periodEnd = new \DateTimeImmutable((string) ($period['end'] ?? ''));
+                    $periodEndRaw = new \DateTimeImmutable((string) ($period['end'] ?? ''));
                 } catch (\Throwable) {
                     continue;
                 }
-                if ($periodStart >= $periodEnd || $periodEnd <= $rangeStart || $periodStart >= $rangeEnd) {
-                    // Degenerate (zero-width) or entirely out-of-range period:
-                    // Lodgify uses this to convey "this status applies to the
-                    // whole request" rather than a specific sub-range, so apply
-                    // it across [rangeStart, rangeEnd) instead of skipping it.
+                if ($periodStart >= $periodEndRaw) {
+                    // Degenerate (zero-width) period: Lodgify uses this to convey
+                    // "this status applies to the whole request" rather than a
+                    // specific sub-range, so apply it across
+                    // [rangeStart, rangeEnd) instead of skipping it.
                     $cursor = $rangeStart;
                     $limit = $rangeEnd;
                 } else {
-                    $cursor = max($periodStart, $rangeStart);
-                    $limit = min($periodEnd, $rangeEnd);
+                    // For a genuine period, Lodgify's "end" is the last actually
+                    // unavailable night (inclusive), not an exclusive checkout
+                    // boundary: treating it as exclusive left the last blocked
+                    // night of every booking (e.g. the night before checkout)
+                    // showing as free, shrinking each booking's unavailable
+                    // range by one day and shifting the following free gap
+                    // one day earlier than reality. Extend by one day to get
+                    // the exclusive boundary our day-by-day loop expects.
+                    $periodEnd = $periodEndRaw->modify('+1 day');
+                    if ($periodEnd <= $rangeStart || $periodStart >= $rangeEnd) {
+                        // Entirely out-of-range period: same "applies to the
+                        // whole request" convention as the degenerate case.
+                        $cursor = $rangeStart;
+                        $limit = $rangeEnd;
+                    } else {
+                        $cursor = max($periodStart, $rangeStart);
+                        $limit = min($periodEnd, $rangeEnd);
+                    }
                 }
                 if ($available > 0) {
                     continue;
