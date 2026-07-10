@@ -1,9 +1,9 @@
 <?php declare(strict_types=1);
-// Renders only the calendar grids + legend, reused both for the initial
-// full-page render and for the AJAX fragment returned by
-// PageController::propertyCalendarFragment() when switching the 2/6/12
-// months tabs, so the tab switch never triggers a full page reload.
-$calendarMonths = in_array($calendarMonths ?? 2, [2, 6, 12], true) ? $calendarMonths : 2;
+// Renders the calendar grid (months + legend) for the property detail page.
+// Always shows 12 months; each available day is clickable to select the
+// booking form's arrival/departure dates (see initBookingCalendarSelection
+// in assets/js/app.js).
+$calendarMonths = 12;
 $calendarStartDate = isset($calendarStart) && $calendarStart !== ''
     ? new DateTimeImmutable((string) $calendarStart)
     : new DateTimeImmutable('first day of this month');
@@ -38,7 +38,7 @@ $frenchMonths = [1 => 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Ju
           $class = $state === true ? 'available' : ($state === false ? 'unavailable' : 'unknown');
           $rate = $rateMap[$date] ?? null;
         ?>
-          <div class="calendar-cell <?= $class ?>">
+          <div class="calendar-cell <?= $class ?>"<?php if ($state === true): ?> data-calendar-date="<?= $date ?>" data-calendar-selectable<?php endif; ?><?php if ($rate !== null): ?> data-calendar-rate="<?= (float) $rate['price_per_night'] ?>"<?php endif; ?>>
             <span class="calendar-day"><?= $dayNumber ?></span>
             <?php if ($state === true && $rate !== null): ?>
               <span class="calendar-price"><?= number_format((float) $rate['price_per_night'], 0, ',', ' ') ?> <?= \App\View::e($rate['currency']) ?></span>

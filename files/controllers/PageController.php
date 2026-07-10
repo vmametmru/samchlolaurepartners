@@ -82,10 +82,9 @@ final class PageController extends Controller
     {
         $client = new LodgifyClient();
         $today = date('Y-m-d');
-        // The detail page always loads with the default 2-month range (current
-        // month + next month). Switching to 6/12 months happens client-side via
-        // an AJAX call to propertyCalendarFragment(), so the page never reloads.
-        $calendarMonths = 2;
+        // The calendar always shows the next 12 months (no tab switching, no
+        // AJAX refresh needed), rendered once with the full page.
+        $calendarMonths = 12;
         [$rangeStart, $rangeEnd] = self::calendarRange($calendarMonths);
         try {
             $property = $client->getProperty($id);
@@ -111,34 +110,6 @@ final class PageController extends Controller
             'calendarMonths' => $calendarMonths,
             'calendarStart' => $rangeStart,
         ]);
-    }
-
-    /**
-     * Returns the calendar HTML fragment (months grid + legend) for the given
-     * number of months, used by the "2/6/12 prochains mois" tabs on the
-     * property detail page. Fetched via AJAX so switching tabs only refreshes
-     * this fragment instead of reloading the whole page.
-     */
-    public static function propertyCalendarFragment(int $id): never
-    {
-        $requestedMonths = (int) ($_GET['months'] ?? 2);
-        $calendarMonths = in_array($requestedMonths, [2, 6, 12], true) ? $requestedMonths : 2;
-        [$rangeStart, $rangeEnd] = self::calendarRange($calendarMonths);
-        $client = new LodgifyClient();
-        try {
-            $availability = $client->getAvailability($id, $rangeStart, $rangeEnd);
-            $rates = self::publicRates($client, $id, $rangeStart, $rangeEnd);
-        } catch (Throwable $e) {
-            error_log('Property calendar fragment load failed for id ' . $id . ': ' . $e->getMessage());
-            http_response_code(503);
-            header('Content-Type: text/html; charset=utf-8');
-            echo '<p class="muted">Calendrier temporairement indisponible. Veuillez réessayer.</p>';
-            exit;
-        }
-        $calendarStart = $rangeStart;
-        header('Content-Type: text/html; charset=utf-8');
-        require BASE_PATH . '/files/views/partials/calendar-body.php';
-        exit;
     }
 
     /**
@@ -645,7 +616,7 @@ final class PageController extends Controller
         return 'Mis à jour le ' . $date->format('d/m/Y') . ' à ' . $date->format('H:i') . ' (GMT+4)';
     }
 
-    private static function publicRates(LodgifyClient $client, int $propertyId, string $from, string $to): array
+    public static function publicRates(LodgifyClient $client, int $propertyId, string $from, string $to): array
     {
         $rawRates = $client->getRates($propertyId, $from, $to, 2);
         // The public property page must show the tenant's marked-up price, not

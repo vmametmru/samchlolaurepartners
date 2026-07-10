@@ -23,7 +23,7 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
 <section class="container section-lg" data-gallery>
   <div class="property-detail-header">
     <h1><?= \App\View::e($property['name']) ?></h1>
-    <p><?= (int) $property['bedrooms'] ?> chambre(s) · <?= (int) $property['bathrooms'] ?> salle(s) de bain · <?= (int) $property['max_guests'] ?> personnes max<?php if ($minRate !== null): ?> · À partir de <?= number_format((float) $minRate, 2, ',', ' ') . ' ' . \App\View::e($currency) ?>/nuit<?php endif; ?></p>
+    <p><?= (int) $property['bedrooms'] ?> chambre(s) · <?= (int) $property['bathrooms'] ?> salle(s) de bain · <?= (int) $property['max_guests'] ?> personnes max</p>
   </div>
   <div class="gallery-main"><img src="<?= \App\View::e($mainImage) ?>" alt="<?= \App\View::e($property['name']) ?>" data-gallery-main></div>
 
@@ -110,28 +110,42 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
         <?php if ($minRate === null): ?>
           <p class="muted">Tarifs non disponibles pour le moment.</p>
         <?php endif; ?>
+        <p class="muted">Cliquez sur une date disponible du calendrier pour renseigner votre date d'arrivée, puis cliquez sur une seconde date pour la date de départ.</p>
         <?php require BASE_PATH . '/files/views/partials/calendar.php'; ?>
       </div>
     </div>
     <aside class="card card-body sticky-card">
-      <?php if ($minRate !== null): ?><p class="price-big"><?= number_format((float) $minRate, 2, ',', ' ') . ' ' . \App\View::e($currency) ?><span>/nuit</span></p><?php endif; ?>
-      <p class="muted">Aucun paiement requis à ce stade.</p>
-      <form class="stack-md" data-api-form data-success-message="Demande envoyée ! Vous recevrez un email de confirmation." method="post" action="/api/reservations/request">
+      <form class="stack-md" data-api-form data-booking-form data-property-id="<?= (int) $property['id'] ?>" data-currency="<?= \App\View::e($currency) ?>" data-success-message="Demande envoyée ! Vous recevrez un email de confirmation." method="post" action="/api/reservations/request">
         <input type="hidden" name="property_id" value="<?= (int) $property['id'] ?>">
         <input type="hidden" name="property_name" value="<?= \App\View::e($property['name']) ?>">
-        <div data-date-range>
-          <label><span>Date d'arrivée</span><input class="input" type="date" name="checkin_date" min="<?= \App\View::e($today) ?>" required></label>
-          <label><span>Date de départ</span><input class="input" type="date" name="checkout_date" min="<?= \App\View::e($today) ?>" required></label>
+        <div class="stack-sm" data-booking-dates>
+          <span>Dates du séjour *</span>
+          <p class="muted" data-booking-dates-summary>Sélectionnez vos dates dans le calendrier (Tarifs &amp; Disponibilités) : 1er clic = arrivée, 2e clic = départ.</p>
+          <input type="hidden" name="checkin_date" data-booking-checkin>
+          <input type="hidden" name="checkout_date" data-booking-checkout>
         </div>
         <div class="form-grid cols-2">
           <label><span>Adultes</span><input class="input" type="number" name="adults" min="1" max="20" value="2"></label>
-          <label><span>Enfants (&lt;12)</span><input class="input" type="number" name="children" min="0" max="20" value="0"></label>
+          <label><span>Enfants (&lt; 5 ans)</span><input class="input" type="number" name="children_under5" min="0" max="20" value="0"></label>
         </div>
-        <label><span>Nom complet *</span><input class="input" type="text" name="client_name" required></label>
+        <div class="form-grid cols-2">
+          <label><span>Enfants (5 à 12 ans)</span><input class="input" type="number" name="children_5to12" min="0" max="20" value="0"></label>
+          <input type="hidden" name="children" value="0">
+        </div>
+        <label><span>Nom et prénom complet *</span><input class="input" type="text" name="client_name" required></label>
         <label><span>Email *</span><input class="input" type="email" name="client_email" required></label>
-        <label><span>Téléphone</span><input class="input" type="tel" name="client_phone"></label>
+        <?php require BASE_PATH . '/files/views/partials/phone-input.php'; ?>
         <?php require BASE_PATH . '/files/views/partials/nationalities.php'; ?>
         <label><span>Message (optionnel)</span><textarea class="input" rows="3" name="message"></textarea></label>
+        <div class="quote-box" data-quote-box hidden>
+          <div class="quote-loading" data-quote-loading hidden><span class="spinner" aria-hidden="true"></span> Calcul du tarif…</div>
+          <div data-quote-result hidden>
+            <div class="quote-line"><span>Chambre (<span data-quote-nights></span> nuit(s))</span><span data-quote-room></span></div>
+            <div class="quote-line"><span>Ménage</span><span data-quote-cleaning></span></div>
+            <div class="quote-line" data-quote-tax-line hidden><span>Taxe de séjour</span><span data-quote-tax></span></div>
+            <div class="quote-line quote-total"><span>Total</span><span data-quote-total></span></div>
+          </div>
+        </div>
         <button class="btn-primary" type="submit">Envoyer ma demande</button>
         <p class="form-feedback" data-form-feedback></p>
       </form>

@@ -1,13 +1,15 @@
 document.addEventListener('DOMContentLoaded', () => {
   initGallery();
   initPropertyTabs();
-  initCalendarWidgets();
   initMaps();
   initApiForms();
   initNationalities();
   initTemplateEditor();
   initColorSync();
   initDateRanges();
+  initBookingCalendarSelection();
+  initPhoneInputs();
+  initBookingQuote();
 });
 
 function initGallery() {
@@ -46,40 +48,69 @@ function initPropertyTabs() {
   });
 }
 
-function initCalendarWidgets() {
-  document.querySelectorAll('[data-calendar-widget]').forEach((widget) => {
-    const propertyId = widget.dataset.propertyId;
-    const tabsContainer = widget.querySelector('[data-calendar-tabs]');
-    const body = widget.querySelector('[data-calendar-body]');
-    const loading = widget.querySelector('[data-calendar-loading]');
-    if (!propertyId || !tabsContainer || !body) return;
-    const buttons = tabsContainer.querySelectorAll('[data-calendar-months]');
-    let currentRequest = 0;
-    buttons.forEach((button) => {
-      button.addEventListener('click', async () => {
-        const months = button.dataset.calendarMonths;
-        if (button.classList.contains('active')) return;
-        const requestId = ++currentRequest;
-        buttons.forEach((item) => {
-          item.classList.toggle('active', item === button);
-          item.setAttribute('aria-selected', item === button ? 'true' : 'false');
-        });
-        if (loading) loading.hidden = false;
-        try {
-          const response = await fetch(`/properties/${propertyId}/calendar?months=${encodeURIComponent(months)}`, {
-            headers: { 'Accept': 'text/html' },
-            credentials: 'same-origin'
-          });
-          const html = await response.text();
-          if (requestId !== currentRequest) return;
-          body.innerHTML = html;
-        } catch (error) {
-          if (requestId !== currentRequest) return;
-          body.innerHTML = '<p class="muted">Impossible de charger le calendrier. Veuillez réessayer.</p>';
-        } finally {
-          if (requestId === currentRequest && loading) loading.hidden = true;
+/**
+ * Wires the "Tarifs & Disponibilités" calendar to the booking form's hidden
+ * checkin/checkout fields: the 1st click on an available date sets the
+ * arrival date, the 2nd click sets the departure date (must be after
+ * arrival). Clicking again afterwards starts a new selection.
+ */
+function initBookingCalendarSelection() {
+  document.querySelectorAll('[data-booking-form]').forEach((form) => {
+    const propertyId = form.dataset.propertyId;
+    const checkinInput = form.querySelector('[data-booking-checkin]');
+    const checkoutInput = form.querySelector('[data-booking-checkout]');
+    const summary = form.querySelector('[data-booking-dates-summary]');
+    const calendarWidget = propertyId
+      ? document.querySelector(`[data-calendar-widget][data-property-id="${propertyId}"]`)
+      : null;
+    if (!calendarWidget || !checkinInput || !checkoutInput) return;
+
+    let checkin = null;
+    let checkout = null;
+
+    function formatFr(dateStr) {
+      const [y, m, d] = dateStr.split('-');
+      return `${d}/${m}/${y}`;
+    }
+
+    function update() {
+      checkinInput.value = checkin || '';
+      checkoutInput.value = checkout || '';
+      if (summary) {
+        if (checkin && checkout) {
+          summary.textContent = `Arrivée : ${formatFr(checkin)} — Départ : ${formatFr(checkout)}`;
+        } else if (checkin) {
+          summary.textContent = `Arrivée : ${formatFr(checkin)} — Cliquez sur une autre date du calendrier pour le départ.`;
+        } else {
+          summary.textContent = "Sélectionnez vos dates dans le calendrier (Tarifs & Disponibilités) : 1er clic = arrivée, 2e clic = départ.";
         }
+      }
+      calendarWidget.querySelectorAll('[data-calendar-date]').forEach((cell) => {
+        const date = cell.dataset.calendarDate;
+        cell.classList.toggle('selected', date === checkin || date === checkout);
+        cell.classList.toggle('in-range', Boolean(checkin && checkout && date > checkin && date < checkout));
       });
+      form.dispatchEvent(new CustomEvent('booking-dates-changed'));
+    }
+
+    calendarWidget.addEventListener('click', (event) => {
+      const cell = event.target.closest('[data-calendar-selectable]');
+      if (!cell) return;
+      const date = cell.dataset.calendarDate;
+      if (!date) return;
+      if (!checkin || checkout || date <= checkin) {
+        checkin = date;
+        checkout = null;
+      } else {
+        checkout = date;
+      }
+      update();
+    });
+
+    form.addEventListener('reset', () => {
+      checkin = null;
+      checkout = null;
+      update();
     });
   });
 }
@@ -110,6 +141,14 @@ function initApiForms() {
         feedback.textContent = '';
         feedback.classList.remove('success');
       }
+      if (form.hasAttribute('data-booking-form')) {
+        const checkin = form.querySelector('[data-booking-checkin]')?.value;
+        const checkout = form.querySelector('[data-booking-checkout]')?.value;
+        if (!checkin || !checkout) {
+          if (feedback) feedback.textContent = "Veuillez sélectionner vos dates d'arrivée et de départ dans le calendrier.";
+          return;
+        }
+      }
       const data = buildFormPayload(form);
       try {
         const response = await fetch(form.action, {
@@ -121,6 +160,8 @@ function initApiForms() {
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.message || 'Erreur');
         form.reset();
+        const quoteBox = form.querySelector('[data-quote-box]');
+        if (quoteBox) quoteBox.hidden = true;
         if (feedback) {
           feedback.textContent = form.dataset.successMessage || payload.message || 'Succès';
           feedback.classList.add('success');
@@ -156,10 +197,19 @@ function initNationalities() {
     const form = wrap.closest('form');
     const adultsInput = form.querySelector('[name="adults"]');
     const childrenInput = form.querySelector('[name="children"]');
+    const childrenUnder5Input = form.querySelector('[name="children_under5"]');
+    const children5to12Input = form.querySelector('[name="children_5to12"]');
+    // Some forms (property detail booking) split children into two age
+    // groups (< 5 ans / 5-12 ans) while others (contact form) only have a
+    // single "children" field. Both are supported here.
+    const hasSplitChildren = Boolean(childrenUnder5Input || children5to12Input);
 
     function render() {
       const adults = Number(adultsInput?.value || 0);
-      const children = Number(childrenInput?.value || 0);
+      const under5 = hasSplitChildren ? Number(childrenUnder5Input?.value || 0) : 0;
+      const from5to12 = hasSplitChildren ? Number(children5to12Input?.value || 0) : Number(childrenInput?.value || 0);
+      const children = under5 + from5to12;
+      if (hasSplitChildren && childrenInput) childrenInput.value = String(children);
       const total = adults + children;
       list.innerHTML = '';
       const same = sameCheckbox?.checked;
@@ -167,14 +217,32 @@ function initNationalities() {
       if (same) return;
       for (let i = 0; i < total; i += 1) {
         const node = template.content.firstElementChild.cloneNode(true);
-        node.querySelector('span').textContent = `${i < adults ? 'Adulte' : 'Enfant'} ${i < adults ? i + 1 : i - adults + 1} — Nationalité`;
+        let label;
+        let type;
+        if (i < adults) {
+          label = `Adulte ${i + 1} — Nationalité`;
+          type = 'adult';
+        } else if (hasSplitChildren && i < adults + under5) {
+          label = `Enfant (< 5 ans) ${i - adults + 1} — Nationalité`;
+          type = 'child_under5';
+        } else if (hasSplitChildren) {
+          label = `Enfant (5-12 ans) ${i - adults - under5 + 1} — Nationalité`;
+          type = 'child_5to12';
+        } else {
+          label = `Enfant ${i - adults + 1} — Nationalité`;
+          type = 'child';
+        }
+        node.querySelector('span').textContent = label;
         const select = node.querySelector('[data-nationality-select]');
-        select.dataset.type = i < adults ? 'adult' : 'child';
+        select.dataset.type = type;
         list.appendChild(node);
       }
     }
 
-    [adultsInput, childrenInput, sameCheckbox].forEach((input) => input?.addEventListener('change', render));
+    [adultsInput, childrenInput, childrenUnder5Input, children5to12Input, sameCheckbox].forEach((input) => {
+      input?.addEventListener('change', render);
+      input?.addEventListener('input', render);
+    });
     uniformSelect?.addEventListener('change', () => {});
     render();
   });
@@ -261,5 +329,111 @@ function initDateRanges() {
     });
 
     syncCheckoutMin();
+  });
+}
+
+/**
+ * Combines the dial code select + local number input of [data-phone-input]
+ * into a single hidden "client_phone" field (e.g. "+230 5xxx xxxx"),
+ * submitted with the booking/contact form.
+ */
+function initPhoneInputs() {
+  document.querySelectorAll('[data-phone-input]').forEach((wrap) => {
+    const dialCode = wrap.querySelector('[data-phone-dial-code]');
+    const number = wrap.querySelector('[data-phone-number]');
+    const combined = wrap.querySelector('[data-phone-combined]');
+    if (!dialCode || !number || !combined) return;
+    function update() {
+      const code = dialCode.value.trim();
+      const value = number.value.trim();
+      combined.value = code && value ? `${code} ${value}` : '';
+      combined.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    dialCode.addEventListener('change', update);
+    number.addEventListener('input', update);
+    wrap.closest('form')?.addEventListener('reset', () => setTimeout(update, 0));
+    update();
+  });
+}
+
+/**
+ * Fetches a live price estimate (room + cleaning + tourist tax) once the
+ * booking form has enough information, showing a small loading indicator
+ * only while the request is in flight (no page reload).
+ */
+function initBookingQuote() {
+  document.querySelectorAll('[data-booking-form]').forEach((form) => {
+    const box = form.querySelector('[data-quote-box]');
+    const loading = form.querySelector('[data-quote-loading]');
+    const result = form.querySelector('[data-quote-result]');
+    if (!box || !loading || !result) return;
+
+    let requestId = 0;
+    let debounceTimer = null;
+
+    function isReady() {
+      const checkin = form.querySelector('[data-booking-checkin]')?.value;
+      const checkout = form.querySelector('[data-booking-checkout]')?.value;
+      const adults = Number(form.querySelector('[name="adults"]')?.value || 0);
+      const clientName = form.querySelector('[name="client_name"]')?.value.trim();
+      const clientEmail = form.querySelector('[name="client_email"]')?.value.trim();
+      const clientPhone = form.querySelector('[name="client_phone"]')?.value.trim();
+      return Boolean(checkin && checkout && adults >= 1 && clientName && clientEmail && clientPhone);
+    }
+
+    async function fetchQuote() {
+      if (!isReady()) {
+        box.hidden = true;
+        return;
+      }
+      box.hidden = false;
+      loading.hidden = false;
+      result.hidden = true;
+      const currentRequest = ++requestId;
+      try {
+        const payload = buildFormPayload(form);
+        const response = await fetch('/api/reservations/quote', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify(payload),
+          credentials: 'same-origin'
+        });
+        const data = await response.json();
+        if (currentRequest !== requestId) return;
+        if (!response.ok) throw new Error(data.message || 'Erreur');
+        renderQuote(data.data, form.dataset.currency || data.data.currency || 'EUR');
+      } catch (error) {
+        if (currentRequest !== requestId) return;
+        box.hidden = true;
+      } finally {
+        if (currentRequest === requestId) loading.hidden = true;
+      }
+    }
+
+    function renderQuote(quote, currency) {
+      const formatMoney = (amount) => `${Number(amount).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+      form.querySelector('[data-quote-nights]').textContent = quote.nights;
+      form.querySelector('[data-quote-room]').textContent = formatMoney(quote.room_total);
+      form.querySelector('[data-quote-cleaning]').textContent = formatMoney(quote.cleaning_total);
+      const taxLine = form.querySelector('[data-quote-tax-line]');
+      if (quote.tourist_tax_total > 0) {
+        taxLine.hidden = false;
+        form.querySelector('[data-quote-tax]').textContent = formatMoney(quote.tourist_tax_total);
+      } else {
+        taxLine.hidden = true;
+      }
+      form.querySelector('[data-quote-total]').textContent = formatMoney(quote.grand_total);
+      result.hidden = false;
+    }
+
+    function scheduleQuote() {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(fetchQuote, 400);
+    }
+
+    form.addEventListener('booking-dates-changed', scheduleQuote);
+    form.addEventListener('input', scheduleQuote);
+    form.addEventListener('change', scheduleQuote);
+    form.addEventListener('reset', () => { box.hidden = true; });
   });
 }
