@@ -50,8 +50,10 @@ $currency = $rates[0]['currency'] ?? 'EUR';
       <form class="stack-md" data-api-form data-success-message="Demande envoyée ! Vous recevrez un email de confirmation." method="post" action="/api/reservations/request">
         <input type="hidden" name="property_id" value="<?= (int) $property['id'] ?>">
         <input type="hidden" name="property_name" value="<?= \App\View::e($property['name']) ?>">
-        <label><span>Date d'arrivée</span><input class="input" type="date" name="checkin_date" min="<?= \App\View::e($today) ?>" required></label>
-        <label><span>Date de départ</span><input class="input" type="date" name="checkout_date" min="<?= \App\View::e($today) ?>" required></label>
+        <div data-date-range>
+          <label><span>Date d'arrivée</span><input class="input" type="date" name="checkin_date" min="<?= \App\View::e($today) ?>" required></label>
+          <label><span>Date de départ</span><input class="input" type="date" name="checkout_date" min="<?= \App\View::e($today) ?>" required></label>
+        </div>
         <div class="form-grid cols-2">
           <label><span>Adultes</span><input class="input" type="number" name="adults" min="1" max="20" value="2"></label>
           <label><span>Enfants (&lt;12)</span><input class="input" type="number" name="children" min="0" max="20" value="0"></label>
