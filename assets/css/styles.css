@@ -44,6 +44,7 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .form-grid { display: grid; gap: 1rem; }
 .cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .col-span-2 { grid-column: span 2; }
 .search-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); align-items: end; }
 .search-button { height: 3rem; }
@@ -145,7 +146,7 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
   .map-board-wrapper, .sticky-card { position: static; }
 }
 @media (max-width: 760px) {
-  .cols-2, .cols-3, .stats-grid, .quick-grid { grid-template-columns: 1fr; }
+  .cols-2, .cols-3, .cols-4, .stats-grid, .quick-grid { grid-template-columns: 1fr; }
   .navbar-inner, .section-header { align-items: flex-start; flex-direction: column; }
   .navbar-links { width: 100%; justify-content: flex-start; }
 }

@@ -193,4 +193,50 @@ pouvoir y lire quoi que ce soit d'autre.</pre>
 
   </div><!-- /.stack-md -->
   <?php endif; ?>
+
+  <!-- ─── Test en direct : requête Lodgify (dates + voyageurs) ─── -->
+  <div class="card card-body stack-sm" style="margin-top:2rem;">
+    <h2 class="section-title">Test en direct — requête Lodgify</h2>
+    <p class="muted" style="margin:0 0 .5rem;">Choisissez des dates d'arrivée/départ et un nombre de voyageurs, puis cliquez sur « Tester » pour interroger Lodgify en temps réel et afficher exactement ce que l'API retourne pour chaque hébergement.</p>
+    <form method="get" action="/admin/diagnostic" class="form-grid cols-4">
+      <label><span>Arrivée</span><input class="input" type="date" name="test_checkin" value="<?= View::e($queryTestInput['checkin']) ?>" required></label>
+      <label><span>Départ</span><input class="input" type="date" name="test_checkout" value="<?= View::e($queryTestInput['checkout']) ?>" required></label>
+      <label><span>Adultes</span><input class="input" type="number" min="1" name="test_adults" value="<?= View::e($queryTestInput['adults']) ?>" required></label>
+      <label><span>Enfants</span><input class="input" type="number" min="0" name="test_children" value="<?= View::e($queryTestInput['children']) ?>"></label>
+      <input type="hidden" name="test_query" value="1">
+      <button class="btn-primary" type="submit">▶ Tester</button>
+    </form>
+
+    <?php if (is_array($queryTest)): ?>
+      <?php if (empty($queryTest['ok'])): ?>
+        <pre class="message-box" style="color:var(--red)"><?= View::e((string) ($queryTest['error'] ?? 'Erreur inconnue')) ?></pre>
+      <?php else: ?>
+        <?php $rows = $queryTest['rows'] ?? []; ?>
+        <p class="muted" style="margin:.5rem 0;">
+          <?= count($rows) ?> hébergement(s) au total —
+          <?= count(array_filter($rows, static fn(array $r): bool => $r['available'] && $r['meets_capacity'])) ?> disponible(s) pour ces critères.
+        </p>
+        <div class="overflow-hidden">
+          <table class="table">
+            <thead><tr><th>Nom</th><th>Description</th><th>Capacité max</th><th>Disponible</th><th>Prix / nuit</th><th>Erreur</th></tr></thead>
+            <tbody>
+            <?php foreach ($rows as $row): ?>
+              <tr class="<?= ($row['available'] && $row['meets_capacity']) ? '' : 'row-muted' ?>">
+                <td><?= View::e((string) $row['name']) ?></td>
+                <td><?= View::e(mb_strimwidth((string) $row['description'], 0, 140, '…')) ?></td>
+                <td><?= (int) $row['max_guests'] ?></td>
+                <td><?= $row['available'] ? '✓ Oui' : '✕ Non' ?></td>
+                <td><?= $row['price_per_night'] !== null ? number_format((float) $row['price_per_night'], 2) . ' ' . View::e((string) $row['currency']) : '—' ?></td>
+                <td><?= $row['error'] !== null ? '<span style="color:var(--red)">' . View::e((string) $row['error']) . '</span>' : '' ?></td>
+              </tr>
+            <?php endforeach; ?>
+            <?php if ($rows === []): ?>
+              <tr><td colspan="6" class="muted" style="text-align:center;">Aucun hébergement retourné par Lodgify.</td></tr>
+            <?php endif; ?>
+            </tbody>
+          </table>
+        </div>
+      <?php endif; ?>
+    <?php endif; ?>
+  </div>
 </section>

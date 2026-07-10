@@ -463,7 +463,83 @@ final class PageController extends Controller
             }
             $data['cache'] = ['properties_cached' => $cacheState];
         }
-        View::render('pages/admin-diagnostic', ['pageTitle' => 'Diagnostic', 'diagnostic' => $data]);
+
+        // Live Lodgify query test — lets an admin pick real dates/guests and see
+        // exactly what Lodgify returns for each property (name, description,
+        // availability, price/night), to diagnose why a public search might show
+        // "0 hébergements disponibles" even though availability exists upstream.
+        $queryTest = null;
+        $queryTestInput = [
+            'checkin' => (string) ($_GET['test_checkin'] ?? ''),
+            'checkout' => (string) ($_GET['test_checkout'] ?? ''),
+            'adults' => (string) ($_GET['test_adults'] ?? '2'),
+            'children' => (string) ($_GET['test_children'] ?? '0'),
+        ];
+        if (isset($_GET['test_query']) && $queryTestInput['checkin'] !== '' && $queryTestInput['checkout'] !== '') {
+            $queryTest = self::runLodgifyQueryTest(
+                $queryTestInput['checkin'],
+                $queryTestInput['checkout'],
+                max(1, (int) $queryTestInput['adults']),
+                max(0, (int) $queryTestInput['children'])
+            );
+        }
+
+        View::render('pages/admin-diagnostic', [
+            'pageTitle' => 'Diagnostic',
+            'diagnostic' => $data,
+            'queryTestInput' => $queryTestInput,
+            'queryTest' => $queryTest,
+        ]);
+    }
+
+    /**
+     * Queries Lodgify in real time for the given dates/guests and returns raw
+     * per-property results (name, description, availability, price/night) so an
+     * admin can see exactly what the API returns, independent of the home-page
+     * search filtering logic.
+     *
+     * @return array{ok:bool,error?:string,rows?:array<int,array<string,mixed>>}
+     */
+    private static function runLodgifyQueryTest(string $checkin, string $checkout, int $adults, int $children): array
+    {
+        try {
+            $client = new LodgifyClient();
+            $guests = $adults + $children;
+            $properties = $client->getProperties();
+            $rows = [];
+            foreach ($properties as $property) {
+                $propertyId = (int) $property['id'];
+                $row = [
+                    'id' => $propertyId,
+                    'name' => (string) $property['name'],
+                    'description' => (string) $property['description'],
+                    'max_guests' => (int) $property['max_guests'],
+                    'meets_capacity' => $property['max_guests'] <= 0 || $property['max_guests'] >= $guests,
+                    'available' => false,
+                    'price_per_night' => null,
+                    'currency' => null,
+                    'error' => null,
+                ];
+                try {
+                    $row['available'] = $client->isAvailableForRange($propertyId, $checkin, $checkout);
+                } catch (Throwable $e) {
+                    $row['error'] = $e->getMessage();
+                }
+                try {
+                    $rates = $client->getRates($propertyId, $checkin, $checkout, $guests);
+                    if ($rates !== []) {
+                        $row['price_per_night'] = (float) $rates[0]['price_per_night'];
+                        $row['currency'] = (string) $rates[0]['currency'];
+                    }
+                } catch (Throwable $e) {
+                    $row['error'] = $row['error'] !== null ? $row['error'] . ' / ' . $e->getMessage() : $e->getMessage();
+                }
+                $rows[] = $row;
+            }
+            return ['ok' => true, 'rows' => $rows];
+        } catch (Throwable $e) {
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
     }
 
     public static function notFound(): void
