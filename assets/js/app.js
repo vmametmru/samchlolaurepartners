@@ -25,6 +25,15 @@ function initGallery() {
         if (main) main.src = thumb.dataset.src || '';
       });
     });
+
+    const track = gallery.querySelector('[data-gallery-track]');
+    const prevBtn = gallery.querySelector('[data-gallery-prev]');
+    const nextBtn = gallery.querySelector('[data-gallery-next]');
+    if (track && (prevBtn || nextBtn)) {
+      const scrollByAmount = () => Math.max(track.clientWidth * 0.8, 160);
+      if (prevBtn) prevBtn.addEventListener('click', () => track.scrollBy({ left: -scrollByAmount(), behavior: 'smooth' }));
+      if (nextBtn) nextBtn.addEventListener('click', () => track.scrollBy({ left: scrollByAmount(), behavior: 'smooth' }));
+    }
   });
 }
 

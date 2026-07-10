@@ -27,6 +27,18 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
   </div>
   <div class="gallery-main"><img src="<?= \App\View::e($mainImage) ?>" alt="<?= \App\View::e($property['name']) ?>" data-gallery-main></div>
 
+  <?php if (!empty($property['images'])): ?>
+    <div class="gallery-carousel">
+      <button type="button" class="gallery-carousel-nav" data-gallery-prev aria-label="Photo précédente">‹</button>
+      <div class="gallery-carousel-track" data-gallery-track>
+        <?php foreach ($property['images'] as $index => $image): ?>
+          <button type="button" class="gallery-thumb<?= $index === 0 ? ' active' : '' ?>" data-gallery-thumb data-src="<?= \App\View::e($image['url']) ?>"><img src="<?= \App\View::e($image['url']) ?>" alt="Photo <?= $index + 1 ?>"></button>
+        <?php endforeach; ?>
+      </div>
+      <button type="button" class="gallery-carousel-nav" data-gallery-next aria-label="Photo suivante">›</button>
+    </div>
+  <?php endif; ?>
+
   <nav class="detail-tabs" data-tabs>
     <button type="button" class="tab-btn active" data-tab-btn="description">Description</button>
     <button type="button" class="tab-btn" data-tab-btn="photos">Photos</button>
