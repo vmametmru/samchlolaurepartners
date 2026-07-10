@@ -424,7 +424,14 @@ function initBookingQuote() {
       form.querySelector('[data-quote-cleaning]').textContent = formatMoney(quote.cleaning_total);
       form.querySelector('[data-quote-total]').textContent = formatMoney(quote.total_without_tax);
       const taxLine = form.querySelector('[data-quote-tax-line]');
-      taxLine.hidden = !(quote.tourist_tax_total > 0);
+      const taxApplies = Number(quote.tourist_tax_total) > 0;
+      taxLine.hidden = !taxApplies;
+      if (taxApplies) {
+        const taxAmount = form.querySelector('[data-quote-tax-amount]');
+        if (taxAmount) {
+          taxAmount.textContent = Number(quote.tourist_tax_total).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+      }
       result.hidden = false;
     }
 

@@ -61,17 +61,39 @@ final class ReservationsController extends Controller
         }
 
         $pdo = Database::connection();
-        $cleaningStmt = $pdo->prepare(
-            'SELECT per_person_per_night FROM cleaning_fees WHERE property_id = ? LIMIT 1'
-        );
-        $cleaningStmt->execute([(string) $propertyId]);
-        $cleaningRate = $cleaningStmt->fetchColumn();
-        if ($cleaningRate === false) {
-            $defaultStmt = $pdo->prepare('SELECT per_person_per_night FROM cleaning_fees WHERE property_id IS NULL LIMIT 1');
-            $defaultStmt->execute();
-            $cleaningRate = $defaultStmt->fetchColumn();
+
+        // Lodgify exposes the real per-guest/per-night cleaning fee (shown on
+        // the "Tarifs & Disponibilités" tab, e.g. "+ 2,00 EUR par invité /
+        // nuit pour le ménage") via the property's rate settings. Use it as
+        // the authoritative rate so the quote matches what is displayed on
+        // the same page, falling back to the local cleaning_fees table only
+        // when Lodgify doesn't return that fee.
+        $cleaningRate = null;
+        try {
+            $property = $client->getProperty($propertyId);
+            foreach (($property['fees'] ?? []) as $fee) {
+                if (($fee['charge_type'] ?? '') === 'PerPerson' && $fee['amount'] !== null) {
+                    $cleaningRate = (float) $fee['amount'];
+                    break;
+                }
+            }
+        } catch (Throwable $e) {
+            error_log('Lodgify: failed to fetch property for cleaning fee ' . $propertyId . ': ' . $e->getMessage());
         }
-        $cleaningRate = $cleaningRate !== false ? (float) $cleaningRate : 0.0;
+
+        if ($cleaningRate === null) {
+            $cleaningStmt = $pdo->prepare(
+                'SELECT per_person_per_night FROM cleaning_fees WHERE property_id = ? LIMIT 1'
+            );
+            $cleaningStmt->execute([(string) $propertyId]);
+            $cleaningRate = $cleaningStmt->fetchColumn();
+            if ($cleaningRate === false) {
+                $defaultStmt = $pdo->prepare('SELECT per_person_per_night FROM cleaning_fees WHERE property_id IS NULL LIMIT 1');
+                $defaultStmt->execute();
+                $cleaningRate = $defaultStmt->fetchColumn();
+            }
+            $cleaningRate = $cleaningRate !== false ? (float) $cleaningRate : 0.0;
+        }
         $cleaningTotal = round($cleaningRate * $totalGuests * $nights, 2);
 
         $taxRow = $pdo->query('SELECT * FROM tourist_tax LIMIT 1')->fetch(PDO::FETCH_ASSOC) ?: [
