@@ -218,22 +218,23 @@ pouvoir y lire quoi que ce soit d'autre.</pre>
         </p>
         <div class="overflow-hidden">
           <table class="table">
-            <thead><tr><th>Nom</th><th>Description</th><th>Capacité max</th><th>Disponible</th><th>Prix / nuit</th><th>Erreur</th></tr></thead>
+          <thead><tr><th>Nom</th><th>Description</th><th>Capacité max</th><th>Minimum de nuits</th><th>Disponible</th><th>Prix / nuit</th><th>Erreur</th></tr></thead>
             <tbody>
             <?php foreach ($rows as $row): ?>
               <tr class="<?= ($row['available'] && $row['meets_capacity']) ? '' : 'row-muted' ?>">
                 <td><?= View::e((string) $row['name']) ?></td>
                 <td><?= View::e(mb_strimwidth((string) $row['description'], 0, 140, '…')) ?></td>
                 <td><?= (int) $row['max_guests'] ?></td>
-                <td><?= $row['available'] ? '✓ Oui' : '✕ Non' ?></td>
-                <td><?= $row['price_per_night'] !== null ? number_format((float) $row['price_per_night'], 2) . ' ' . View::e((string) $row['currency']) : '—' ?></td>
-                <td><?= $row['error'] !== null ? '<span style="color:var(--red)">' . View::e((string) $row['error']) . '</span>' : '' ?></td>
-              </tr>
-            <?php endforeach; ?>
-            <?php if ($rows === []): ?>
-              <tr><td colspan="6" class="muted" style="text-align:center;">Aucun hébergement retourné par Lodgify.</td></tr>
-            <?php endif; ?>
-            </tbody>
+              <td><?= $row['min_stay'] !== null ? (int) $row['min_stay'] : '—' ?></td>
+              <td><?= $row['available'] ? '✓ Oui' : '✕ Non' ?></td>
+              <td><?= $row['price_per_night'] !== null ? number_format((float) $row['price_per_night'], 2) . ' ' . View::e((string) $row['currency']) : '—' ?></td>
+              <td><?= $row['error'] !== null ? '<span style="color:var(--red)">' . View::e((string) $row['error']) . '</span>' : '' ?></td>
+            </tr>
+          <?php endforeach; ?>
+          <?php if ($rows === []): ?>
+            <tr><td colspan="7" class="muted" style="text-align:center;">Aucun hébergement retourné par Lodgify.</td></tr>
+          <?php endif; ?>
+          </tbody>
           </table>
         </div>
       <?php endif; ?>

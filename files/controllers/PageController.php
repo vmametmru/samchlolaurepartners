@@ -539,12 +539,21 @@ final class PageController extends Controller
                     'max_guests' => (int) $property['max_guests'],
                     'meets_capacity' => $property['max_guests'] <= 0 || $property['max_guests'] >= $guests,
                     'available' => false,
+                    'min_stay' => null,
                     'price_per_night' => null,
                     'currency' => null,
                     'error' => null,
                 ];
                 try {
+                    $days = $client->getAvailability($propertyId, $checkin, $checkout);
                     $row['available'] = $client->isAvailableForRange($propertyId, $checkin, $checkout);
+                    $minStays = array_filter(array_map(
+                        static fn(array $day): ?int => isset($day['min_stay']) ? (int) $day['min_stay'] : null,
+                        $days
+                    ), static fn(?int $v): bool => $v !== null);
+                    if ($minStays !== []) {
+                        $row['min_stay'] = min($minStays);
+                    }
                 } catch (Throwable $e) {
                     $row['error'] = $e->getMessage();
                 }

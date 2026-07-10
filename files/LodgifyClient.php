@@ -24,6 +24,18 @@ final class LodgifyClient
             $data = $this->request('/properties');
             $items = is_array($data['items'] ?? null) ? $data['items'] : (is_array($data) ? $data : []);
             $properties = array_map([$this, 'mapProperty'], $items);
+            // Neither "/properties" nor "/properties/{id}" ever populate bedrooms/
+            // bathrooms/max_guests: their "rooms" array is only a RoomSummaryDto
+            // (id + name), never the RoomDetailsDto that carries those numbers.
+            // Without this, capacity always mapped to 0, which let the booking
+            // form and server-side quote/request checks accept any party size.
+            foreach ($properties as &$property) {
+                $propertyId = (int) ($property['id'] ?? 0);
+                if ($propertyId > 0) {
+                    $property = $this->applyRoomCapacity($property, $propertyId);
+                }
+            }
+            unset($property);
             Settings::set('LODGIFY_LAST_SYNC_AT', gmdate('c'));
             return $properties;
         });
@@ -75,6 +87,11 @@ final class LodgifyClient
             $property['photo_rooms'] = $photoRooms;
             $property['room_details'] = $rooms;
 
+            // As with getProperties(), the plain property payload's "rooms" only
+            // carries id/name (RoomSummaryDto), never capacity — aggregate the
+            // real numbers from the RoomDetailsDto rooms already fetched above.
+            $property = $this->sumRoomCapacity($property, $rooms);
+
             $rateSettings = $this->getRateSettingsFor($propertyId);
             $property['checkin_hour'] = $rateSettings['check_in_hour'];
             $property['checkout_hour'] = $rateSettings['check_out_hour'];
@@ -111,6 +128,13 @@ final class LodgifyClient
      * hiccup never breaks the whole property page.
      */
     private function getPropertyRoomsDetails(int $propertyId): array
+    {
+        return $this->remember('lodgify:v2:rooms:' . $propertyId, 86400, function () use ($propertyId): array {
+            return $this->fetchPropertyRoomsDetails($propertyId);
+        });
+    }
+
+    private function fetchPropertyRoomsDetails(int $propertyId): array
     {
         try {
             $raw = $this->request('/properties/' . $propertyId . '/rooms');
@@ -165,6 +189,55 @@ final class LodgifyClient
             ];
         }
         return $rooms;
+    }
+
+    /**
+     * Fetches "/properties/{id}/rooms" for the given property and overwrites
+     * bedrooms/bathrooms/max_guests on the mapped property with the sum of
+     * each room's real capacity (see sumRoomCapacity()). Used by getProperties()
+     * where room details haven't already been fetched.
+     */
+    private function applyRoomCapacity(array $property, int $propertyId): array
+    {
+        try {
+            $rooms = $this->getPropertyRoomsDetails($propertyId);
+        } catch (\Throwable $e) {
+            error_log('Lodgify: failed to compute room capacity for property ' . $propertyId . ': ' . $e->getMessage());
+            return $property;
+        }
+        return $this->sumRoomCapacity($property, $rooms);
+    }
+
+    /**
+     * Aggregates bedrooms/bathrooms/max_guests from a property's room details
+     * (RoomDetailsDto[], from "/properties/{id}/rooms"). This is the only
+     * Lodgify v2 endpoint that actually exposes these numbers: the "rooms"
+     * array embedded in "/properties" and "/properties/{id}" (RoomSummaryDto)
+     * only ever contains "id" and "name".
+     */
+    private function sumRoomCapacity(array $property, array $rooms): array
+    {
+        $bedrooms = 0;
+        $bathrooms = 0;
+        $maxGuests = 0;
+        foreach ($rooms as $room) {
+            if (!is_array($room)) {
+                continue;
+            }
+            $bedrooms += (int) ($room['bedrooms'] ?? 0);
+            $bathrooms += (int) ($room['bathrooms'] ?? 0);
+            $maxGuests += (int) ($room['max_people'] ?? 0);
+        }
+        if ($bedrooms > 0) {
+            $property['bedrooms'] = $bedrooms;
+        }
+        if ($bathrooms > 0) {
+            $property['bathrooms'] = $bathrooms;
+        }
+        if ($maxGuests > 0) {
+            $property['max_guests'] = $maxGuests;
+        }
+        return $property;
     }
 
     /**
@@ -557,21 +630,13 @@ final class LodgifyClient
             $amenities[] = ['name' => is_array($amenity) ? (string) ($amenity['name'] ?? '') : (string) $amenity];
         }
 
-        // The Lodgify API does not expose bedrooms/bathrooms/capacity as root-level
-        // fields: they are only available per room-type inside the "rooms" array, so
-        // we aggregate them from there when the root-level fields are absent.
-        $roomsBedrooms = 0;
-        $roomsBathrooms = 0;
-        $roomsMaxPeople = 0;
-        foreach (($item['rooms'] ?? []) as $room) {
-            if (!is_array($room)) {
-                continue;
-            }
-            $roomsBedrooms += (int) ($room['bedrooms'] ?? 0);
-            $roomsBathrooms += (int) ($room['bathrooms'] ?? 0);
-            $roomsMaxPeople += (int) ($room['max_people'] ?? $room['maxPeople'] ?? 0);
-        }
-
+        // Lodgify's PropertyDto ("/properties" and "/properties/{id}") never
+        // exposes bedrooms/bathrooms/capacity as root-level fields, and its
+        // embedded "rooms" array is only a RoomSummaryDto (id + name) — the real
+        // numbers only exist per room-type via "/properties/{id}/rooms"
+        // (RoomDetailsDto), aggregated afterwards in applyRoomCapacity()/
+        // sumRoomCapacity(). These root-level fallbacks are kept in case Lodgify
+        // ever starts returning them directly.
         return [
             'id' => (int) ($item['id'] ?? 0),
             'name' => (string) ($item['name'] ?? ''),
@@ -580,9 +645,9 @@ final class LodgifyClient
             'amenities' => $amenities,
             'latitude' => isset($item['latitude']) ? (float) $item['latitude'] : null,
             'longitude' => isset($item['longitude']) ? (float) $item['longitude'] : null,
-            'max_guests' => (int) ($item['people_capacity'] ?? $item['max_guests'] ?? $item['maxGuests'] ?? $roomsMaxPeople),
-            'bedrooms' => (int) ($item['rooms_count'] ?? $item['bedrooms'] ?? $roomsBedrooms),
-            'bathrooms' => (int) ($item['bathrooms_count'] ?? $item['bathrooms'] ?? $roomsBathrooms),
+            'max_guests' => (int) ($item['people_capacity'] ?? $item['max_guests'] ?? $item['maxGuests'] ?? 0),
+            'bedrooms' => (int) ($item['rooms_count'] ?? $item['bedrooms'] ?? 0),
+            'bathrooms' => (int) ($item['bathrooms_count'] ?? $item['bathrooms'] ?? 0),
         ];
     }
 }
