@@ -7,7 +7,7 @@ namespace App\controllers;
 use App\Auth;
 use App\Controller;
 use App\Database;
-use App\Env;
+use App\Settings;
 use App\LodgifyClient;
 use Throwable;
 
@@ -20,8 +20,8 @@ final class DiagnosticController extends Controller
         $results['database'] = Database::test();
 
         $client = new LodgifyClient();
-        $key = trim((string) (Env::get('LODGIFY_API_KEY', '') ?? ''));
-        $base = trim((string) (Env::get('LODGIFY_BASE_URL') ?? ''));
+        $key = trim((string) (Settings::get('LODGIFY_API_KEY', '') ?? ''));
+        $base = trim((string) (Settings::get('LODGIFY_BASE_URL') ?? ''));
         if ($base === '') {
             $base = 'https://api.lodgify.com/v2';
         }
@@ -46,14 +46,12 @@ final class DiagnosticController extends Controller
             'properties_cached' => Database::connection()->query("SELECT COUNT(*) FROM lodgify_cache WHERE cache_key = 'lodgify:properties' AND expires_at > NOW()")->fetchColumn() > 0,
             'keys_checked' => ['lodgify:properties'],
         ];
-        $results['env'] = [
-            'NODE_ENV' => ($v = trim((string) (Env::get('APP_ENV') ?? ''))) !== '' ? $v : 'production',
-            'PORT' => ($v = trim((string) (Env::get('PORT') ?? ''))) !== '' ? $v : '(not set)',
+        $results['settings'] = [
+            'NODE_ENV' => ($v = trim((string) (Settings::get('APP_ENV') ?? ''))) !== '' ? $v : 'production',
+            'PORT' => ($v = trim((string) (Settings::get('PORT') ?? ''))) !== '' ? $v : '(not set)',
             'LODGIFY_BASE_URL' => $base,
             'LODGIFY_API_KEY_SET' => $key !== '',
-            'CORS_ORIGIN' => ($v = trim((string) (Env::get('CORS_ORIGIN') ?? ''))) !== '' ? $v : '(not set)',
-            'DB_HOST' => ($v = trim((string) (Env::get('DB_HOST') ?? ''))) !== '' ? $v : 'localhost',
-            'DB_NAME' => ($v = trim((string) (Env::get('DB_NAME') ?? ''))) !== '' ? $v : 'partners_db',
+            'CORS_ORIGIN' => ($v = trim((string) (Settings::get('CORS_ORIGIN') ?? ''))) !== '' ? $v : '(not set)',
         ];
 
         self::json(['data' => $results]);

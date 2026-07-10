@@ -13,9 +13,9 @@ final class LodgifyClient
 
     public function __construct()
     {
-        $baseUrl = trim((string) (Env::get('LODGIFY_BASE_URL') ?? ''));
+        $baseUrl = trim((string) (Settings::get('LODGIFY_BASE_URL') ?? ''));
         $this->baseUrl = rtrim($baseUrl !== '' ? $baseUrl : 'https://api.lodgify.com/v2', '/');
-        $this->apiKey = trim((string) (Env::get('LODGIFY_API_KEY', '') ?? ''));
+        $this->apiKey = trim((string) (Settings::get('LODGIFY_API_KEY', '') ?? ''));
     }
 
     public function getProperties(): array

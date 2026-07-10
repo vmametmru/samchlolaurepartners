@@ -51,7 +51,6 @@ jobs:
             --exclude='./docker-compose.yml' \
             --exclude='./.gitignore' \
             --exclude='./.gitattributes' \
-            --exclude='./.env.example' \
             -cf - . | tar -xf - -C artifact-package
           # Runtime directories are gitignored (empty), but the app expects
           # them to exist, so create them in the package.

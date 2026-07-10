@@ -195,10 +195,10 @@ final class Auth
 
     private static function secret(): string
     {
-        $secret = Env::get('JWT_SECRET', Env::get('AUTH_SECRET', null));
+        $secret = Settings::get('JWT_SECRET', Settings::get('AUTH_SECRET', null));
         if ($secret === null || $secret === '') {
             throw new \RuntimeException(
-                'JWT_SECRET (or AUTH_SECRET) must be set in the environment — refusing to sign/verify ' .
+                'JWT_SECRET (or AUTH_SECRET) must be set in the settings table — refusing to sign/verify ' .
                 'auth tokens with a fallback secret, as that would let anyone forge valid sessions.'
             );
         }
@@ -238,7 +238,7 @@ final class Auth
      */
     private static function cookieDomain(): ?string
     {
-        $configured = trim((string) (Env::get('APP_COOKIE_DOMAIN', Env::get('COOKIE_DOMAIN', '')) ?? ''));
+        $configured = trim((string) (Settings::get('APP_COOKIE_DOMAIN', Settings::get('COOKIE_DOMAIN', '')) ?? ''));
         if ($configured !== '') {
             return $configured;
         }
@@ -281,7 +281,7 @@ final class Auth
     {
         $host = $_SERVER['HTTP_HOST'] ?? '';
         if (!is_string($host) || $host === '') {
-            $host = parse_url((string) (Env::get('APP_URL', '') ?? ''), PHP_URL_HOST) ?: '';
+            $host = parse_url((string) (Settings::get('APP_URL', '') ?? ''), PHP_URL_HOST) ?: '';
         }
         $host = strtolower(trim((string) $host));
         if (str_contains($host, ':')) {

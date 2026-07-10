@@ -7,7 +7,7 @@ namespace App\controllers;
 use App\Auth;
 use App\Controller;
 use App\Database;
-use App\Env;
+use App\Settings;
 use App\Flash;
 use App\HttpException;
 use App\LodgifyClient;
@@ -351,85 +351,58 @@ final class PageController extends Controller
         if (isset($_GET['run'])) {
             $data = [];
 
-            // Step 1 — .env file
+            // Step 1 — db/config.php (DB connection credentials)
             // Clear PHP's realpath/stat cache first: on long-running workers (FPM/opcache)
             // a stale cache can keep reporting a file as missing after it was created.
             clearstatcache(true);
-            $envPrimaryPath = defined('BASE_PATH') ? BASE_PATH . '/.env' : '';
-            // Mirror the same resolution bootstrap.php uses: if BASE_PATH/.env is absent
-            // (e.g. the app is deployed under a subfolder like /admin while a shared .env
-            // sits at the domain root, one or two levels up), look upward for it.
-            $envPath     = $envPrimaryPath !== '' ? Env::resolvePath($envPrimaryPath) : '';
-            $envRealBase = $envPath !== '' ? realpath(BASE_PATH) : false;
-            $envRealPath = $envPath !== '' ? realpath($envPath) : false;
-            $envExists   = $envPath !== '' && is_file($envPath);
-            $envIsLink   = $envPath !== '' && is_link($envPath);
-            $envPerms    = ($envExists && function_exists('fileperms')) ? substr(sprintf('%o', fileperms($envPath)), -4) : null;
-            $envOwner    = ($envExists && function_exists('posix_getpwuid') && function_exists('fileowner'))
-                ? (posix_getpwuid(fileowner($envPath))['name'] ?? null) : null;
+            $configPath  = defined('BASE_PATH') ? BASE_PATH . '/db/config.php' : '';
+            $configRealBase = $configPath !== '' ? realpath(BASE_PATH) : false;
+            $configRealPath = $configPath !== '' ? realpath($configPath) : false;
+            $configExists   = $configPath !== '' && is_file($configPath);
+            $configIsLink   = $configPath !== '' && is_link($configPath);
+            $configPerms    = ($configExists && function_exists('fileperms')) ? substr(sprintf('%o', fileperms($configPath)), -4) : null;
+            $configOwner    = ($configExists && function_exists('posix_getpwuid') && function_exists('fileowner'))
+                ? (posix_getpwuid(fileowner($configPath))['name'] ?? null) : null;
             $phpUser     = function_exists('posix_getpwuid') && function_exists('posix_geteuid')
                 ? (posix_getpwuid(posix_geteuid())['name'] ?? null) : null;
             $openBasedir = ini_get('open_basedir');
 
-            // Directory listing of BASE_PATH exactly as PHP sees it on disk, so we can
-            // prove — without guessing — whether ".env" is really there or the app is
-            // simply looking in the wrong folder (wrong BASE_PATH / docroot alias / stale deploy).
-            $baseDirListing = null;
-            if (defined('BASE_PATH') && is_dir(BASE_PATH)) {
-                $entries = @scandir(BASE_PATH);
+            // Directory listing of BASE_PATH/db exactly as PHP sees it on disk, so we can
+            // prove — without guessing — whether "config.php" is really there or the app
+            // is simply looking in the wrong folder (wrong BASE_PATH / stale deploy).
+            $dbDirListing = null;
+            if (defined('BASE_PATH') && is_dir(BASE_PATH . '/db')) {
+                $entries = @scandir(BASE_PATH . '/db');
                 if ($entries !== false) {
-                    $baseDirListing = array_values(array_diff($entries, ['.', '..']));
-                    sort($baseDirListing);
+                    $dbDirListing = array_values(array_diff($entries, ['.', '..']));
+                    sort($dbDirListing);
                 }
             }
 
-            // Also probe a few alternate locations a misconfigured docroot could resolve to,
-            // so we can tell the user exactly where PHP found (or didn't find) a .env file.
-            $altCandidates = array_unique(array_filter([
-                $_SERVER['DOCUMENT_ROOT'] ?? null,
-                isset($_SERVER['DOCUMENT_ROOT']) ? dirname((string) $_SERVER['DOCUMENT_ROOT']) : null,
-                isset($_SERVER['SCRIPT_FILENAME']) ? dirname((string) $_SERVER['SCRIPT_FILENAME']) : null,
-                defined('BASE_PATH') ? dirname(BASE_PATH) : null,
-                defined('BASE_PATH') ? dirname(dirname(BASE_PATH)) : null,
-            ]));
-            $altScan = [];
-            foreach ($altCandidates as $dir) {
-                if ($dir === '' || !is_dir($dir)) {
-                    continue;
-                }
-                $candidate = rtrim($dir, '/') . '/.env';
-                $altScan[$dir] = is_file($candidate);
-            }
-
-            $data['env_file'] = [
-                'primary_path'     => $envPrimaryPath !== '' ? $envPrimaryPath : '(BASE_PATH non défini)',
-                'path'             => $envPath !== '' ? $envPath : '(BASE_PATH non défini)',
-                'runtime_loaded_path' => Env::getResolvedPath(),
+            $data['config_file'] = [
+                'path'             => $configPath !== '' ? $configPath : '(BASE_PATH non défini)',
                 'base_path'        => defined('BASE_PATH') ? BASE_PATH : '(non défini)',
-                'base_realpath'    => $envRealBase !== false ? $envRealBase : '(introuvable — vérifiez les liens symboliques)',
-                'real_path'        => $envRealPath !== false ? $envRealPath : null,
-                'exists'           => $envExists,
-                'is_link'          => $envIsLink,
-                'readable'         => $envPath !== '' && is_readable($envPath),
-                'perms'            => $envPerms,
-                'owner'            => $envOwner,
+                'base_realpath'    => $configRealBase !== false ? $configRealBase : '(introuvable — vérifiez les liens symboliques)',
+                'real_path'        => $configRealPath !== false ? $configRealPath : null,
+                'exists'           => $configExists,
+                'is_link'          => $configIsLink,
+                'readable'         => $configPath !== '' && is_readable($configPath),
+                'perms'            => $configPerms,
+                'owner'            => $configOwner,
                 'php_user'         => $phpUser,
                 'open_basedir'     => $openBasedir !== false && $openBasedir !== '' ? $openBasedir : null,
                 'document_root'    => $_SERVER['DOCUMENT_ROOT'] ?? null,
                 'script_filename'  => $_SERVER['SCRIPT_FILENAME'] ?? null,
-                'base_dir_listing' => $baseDirListing,
-                'alt_scan'         => $altScan,
+                'db_dir_listing'   => $dbDirListing,
             ];
 
-            // Step 2 — Environment variables
+            // Step 2 — Settings (stored in MySQL, not .env)
             $data['env'] = [
-                'APP_ENV'          => ($v = trim((string) (Env::get('APP_ENV') ?? ''))) !== '' ? $v : '(non défini)',
-                'PORT'             => ($v = trim((string) (Env::get('PORT') ?? ''))) !== '' ? $v : '(non défini)',
-                'LODGIFY_BASE_URL' => ($v = trim((string) (Env::get('LODGIFY_BASE_URL') ?? ''))) !== '' ? $v : 'https://api.lodgify.com/v2',
-                'LODGIFY_API_KEY_SET' => trim((string) (Env::get('LODGIFY_API_KEY', '') ?? '')) !== '',
-                'CORS_ORIGIN'      => ($v = trim((string) (Env::get('CORS_ORIGIN') ?? ''))) !== '' ? $v : '(non défini)',
-                'DB_HOST'          => ($v = trim((string) (Env::get('DB_HOST') ?? ''))) !== '' ? $v : 'localhost',
-                'DB_NAME'          => ($v = trim((string) (Env::get('DB_NAME') ?? ''))) !== '' ? $v : 'partners_db',
+                'APP_ENV'          => ($v = trim((string) (Settings::get('APP_ENV') ?? ''))) !== '' ? $v : '(non défini)',
+                'PORT'             => ($v = trim((string) (Settings::get('PORT') ?? ''))) !== '' ? $v : '(non défini)',
+                'LODGIFY_BASE_URL' => ($v = trim((string) (Settings::get('LODGIFY_BASE_URL') ?? ''))) !== '' ? $v : 'https://api.lodgify.com/v2',
+                'LODGIFY_API_KEY_SET' => trim((string) (Settings::get('LODGIFY_API_KEY', '') ?? '')) !== '',
+                'CORS_ORIGIN'      => ($v = trim((string) (Settings::get('CORS_ORIGIN') ?? ''))) !== '' ? $v : '(non défini)',
             ];
 
             // Step 3 — Database
@@ -466,7 +439,7 @@ final class PageController extends Controller
             }
             $data['cache'] = ['properties_cached' => $cacheState];
         }
-        View::render('pages/admin-diagnostic', ['pageTitle' => 'Diagnostic', 'data' => $data]);
+        View::render('pages/admin-diagnostic', ['pageTitle' => 'Diagnostic', 'diagnostic' => $data]);
     }
 
     public static function notFound(): void

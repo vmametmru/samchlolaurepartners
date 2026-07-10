@@ -11,12 +11,25 @@ declare(strict_types=1);
 session_start();
 
 define('BASE_DIR', dirname(__DIR__));
-define('ENV_FILE', BASE_DIR . '/.env');
+define('DB_CONFIG_FILE', BASE_DIR . '/db/config.php');
 define('MIGRATIONS_DIR', BASE_DIR . '/db/migrations');
 define('LOGO_UPLOAD_DIR', BASE_DIR . '/images/logo');
 
-if (is_file(ENV_FILE) && !isset($_GET['reinstall'])) {
-    renderPage('Installation déjà effectuée', '<p>Le fichier <code>.env</code> existe déjà.</p><p><a class="btn" href="?reinstall=1">Relancer l\'installation</a></p>');
+if (!is_file(DB_CONFIG_FILE)) {
+    renderPage(
+        'Configuration requise',
+        '<p><code>db/config.php</code> est introuvable.</p>' .
+        '<p>Copiez <code>db/config.example.php</code> vers <code>db/config.php</code> et renseignez vos ' .
+        'identifiants MySQL (hôte, port, nom de base, utilisateur, mot de passe), puis relancez cette page. ' .
+        'Toute la configuration de l\'application (clés API, SMTP, etc.) est ensuite stockée en base de ' .
+        'données — <code>db/config.php</code> reste le seul réglage hors base, car il faut bien pouvoir ' .
+        'se connecter à MySQL avant de pouvoir y lire quoi que ce soit d\'autre.</p>'
+    );
+    exit;
+}
+
+if (alreadyInstalled() && !isset($_GET['reinstall'])) {
+    renderPage('Installation déjà effectuée', '<p>Un compte administrateur existe déjà.</p><p><a class="btn" href="?reinstall=1">Relancer l\'installation</a></p>');
     exit;
 }
 
@@ -34,14 +47,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 renderForm($errors);
 
+/**
+ * @return array<string, mixed>
+ */
+function dbConfig(): array
+{
+    $config = require DB_CONFIG_FILE;
+    if (!is_array($config)) {
+        throw new RuntimeException('db/config.php doit retourner un tableau (host, port, name, user, password).');
+    }
+    return $config;
+}
+
+function alreadyInstalled(): bool
+{
+    try {
+        $config = dbConfig();
+        $pdo = new PDO(
+            sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', $config['host'] ?? 'localhost', (int) ($config['port'] ?? 3306), $config['name'] ?? 'partners_db'),
+            (string) ($config['user'] ?? ''),
+            (string) ($config['password'] ?? ''),
+            [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+        );
+        $exists = $pdo->query("SHOW TABLES LIKE 'users'")->fetchColumn();
+        if (!$exists) {
+            return false;
+        }
+        return (int) $pdo->query('SELECT COUNT(*) FROM users WHERE role = "admin"')->fetchColumn() > 0;
+    } catch (Throwable) {
+        return false;
+    }
+}
+
 function runInstallation(): void
 {
+    $dbCfg = dbConfig();
     $db = [
-        'host' => trim((string) ($_POST['db_host'] ?? 'localhost')),
-        'port' => (int) ($_POST['db_port'] ?? 3306),
-        'user' => trim((string) ($_POST['db_user'] ?? '')),
-        'password' => (string) ($_POST['db_password'] ?? ''),
-        'name' => trim((string) ($_POST['db_name'] ?? '')),
+        'host' => trim((string) ($dbCfg['host'] ?? 'localhost')),
+        'port' => (int) ($dbCfg['port'] ?? 3306),
+        'user' => trim((string) ($dbCfg['user'] ?? '')),
+        'password' => (string) ($dbCfg['password'] ?? ''),
+        'name' => trim((string) ($dbCfg['name'] ?? '')),
     ];
     $site = [
         'name' => trim((string) ($_POST['site_name'] ?? '')),
@@ -119,16 +165,13 @@ function runInstallation(): void
     }
     $pdo->prepare('INSERT INTO app_versions (version, deployed_by, notes) VALUES ("1.0.0", ?, "Installation initiale via install.php")')->execute([$admin['email']]);
 
-    $env = buildEnv($db, $site, $admin, $smtp);
-    if (file_put_contents(ENV_FILE, $env) === false) {
-        throw new RuntimeException('Impossible d\'écrire le fichier .env. Vérifiez les permissions.');
-    }
+    saveSettings($pdo, buildSettings($site, $admin, $smtp));
 }
 
 function validateInput(array $db, array $site, array $admin): void
 {
     $errors = [];
-    if ($db['host'] === '' || $db['user'] === '' || $db['name'] === '') $errors[] = 'Hôte, utilisateur et nom de base obligatoires.';
+    if ($db['host'] === '' || $db['user'] === '' || $db['name'] === '') $errors[] = 'db/config.php doit renseigner host, user et name.';
     if ($site['name'] === '') $errors[] = 'Le nom du site est obligatoire.';
     if (!filter_var($site['email'], FILTER_VALIDATE_EMAIL)) $errors[] = 'Une adresse email valide est obligatoire.';
     if (!preg_match('/^#[0-9a-fA-F]{6}$/', $site['primary_color'])) $errors[] = 'Couleur principale invalide.';
@@ -153,43 +196,43 @@ function handleLogoUpload(array $file): string
     return '/images/logo/' . $filename;
 }
 
-function buildEnv(array $db, array $site, array $admin, array $smtp): string
+/**
+ * All app settings (API keys, mail defaults, JWT secret, etc.) are stored in the
+ * "settings" table rather than a ".env" file. Only the DB connection itself
+ * (host/user/password) stays in "db/config.php" — see the comment at the top
+ * of this file for why that can't be avoided.
+ *
+ * @return array<string, string>
+ */
+function buildSettings(array $site, array $admin, array $smtp): array
 {
-    $secret = bin2hex(random_bytes(32));
-    return implode("\n", [
-        '# Generated by install.php on ' . date('Y-m-d H:i:s'),
-        'APP_ENV=production',
-        'PORT=8080',
-        'APP_URL=' . quoteEnv($site['app_url']),
-        '',
-        'DB_HOST=' . quoteEnv($db['host']),
-        'DB_PORT=' . $db['port'],
-        'DB_USER=' . quoteEnv($db['user']),
-        'DB_PASSWORD=' . quoteEnv($db['password']),
-        'DB_NAME=' . quoteEnv($db['name']),
-        '',
-        'JWT_SECRET=' . $secret,
-        'LODGIFY_API_KEY=' . quoteEnv($site['lodgify_key']),
-        'LODGIFY_BASE_URL=' . quoteEnv($site['lodgify_url']),
-        '',
-        'SMTP_HOST=' . quoteEnv($smtp['host']),
-        'SMTP_PORT=' . $smtp['port'],
-        'SMTP_USER=' . quoteEnv($smtp['user']),
-        'SMTP_PASS=' . quoteEnv($smtp['password']),
-        'SMTP_FROM_EMAIL=' . quoteEnv($site['email']),
-        'SMTP_FROM_NAME=' . quoteEnv($site['name']),
-        '',
-        'ADMIN_EMAIL=' . quoteEnv($admin['email']),
-        'CORS_ORIGIN=' . quoteEnv($site['cors_origin']),
-        '',
-    ]) . "\n";
+    return [
+        'APP_ENV' => 'production',
+        'PORT' => '8080',
+        'APP_URL' => $site['app_url'],
+        'JWT_SECRET' => bin2hex(random_bytes(32)),
+        'LODGIFY_API_KEY' => $site['lodgify_key'],
+        'LODGIFY_BASE_URL' => $site['lodgify_url'],
+        'SMTP_HOST' => $smtp['host'],
+        'SMTP_PORT' => (string) $smtp['port'],
+        'SMTP_USER' => $smtp['user'],
+        'SMTP_PASS' => $smtp['password'],
+        'SMTP_FROM_EMAIL' => $site['email'],
+        'SMTP_FROM_NAME' => $site['name'],
+        'ADMIN_EMAIL' => $admin['email'],
+        'CORS_ORIGIN' => $site['cors_origin'],
+    ];
 }
 
-function quoteEnv(string $value): string
+/**
+ * @param array<string, string> $settings
+ */
+function saveSettings(PDO $pdo, array $settings): void
 {
-    if ($value === '') return '';
-    if (preg_match('/[\s#"\'\\\\]/', $value)) return '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], $value) . '"';
-    return $value;
+    $stmt = $pdo->prepare('INSERT INTO settings (`key`, `value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)');
+    foreach ($settings as $key => $value) {
+        $stmt->execute([$key, $value]);
+    }
 }
 
 function defaultTemplates(int $partnerId, string $partnerName): array
@@ -207,8 +250,8 @@ function renderForm(array $errors): void
 {
     ob_start(); ?>
     <?php if ($errors): ?><div class="errors"><?php foreach ($errors as $error): ?><p>• <?= htmlspecialchars($error, ENT_QUOTES) ?></p><?php endforeach; ?></div><?php endif; ?>
+    <p class="muted" style="margin:0 0 1rem;">La connexion à la base de données est déjà configurée via <code>db/config.php</code>.</p>
     <form method="post" enctype="multipart/form-data" class="install-grid">
-      <fieldset><legend>Base de données</legend><label>Hôte<input name="db_host" value="<?= htmlspecialchars((string) ($_POST['db_host'] ?? 'localhost'), ENT_QUOTES) ?>"></label><label>Port<input name="db_port" type="number" value="<?= htmlspecialchars((string) ($_POST['db_port'] ?? '3306'), ENT_QUOTES) ?>"></label><label>Utilisateur<input name="db_user" value="<?= htmlspecialchars((string) ($_POST['db_user'] ?? ''), ENT_QUOTES) ?>"></label><label>Mot de passe<input name="db_password" type="password"></label><label>Nom de la base<input name="db_name" value="<?= htmlspecialchars((string) ($_POST['db_name'] ?? 'partners_db'), ENT_QUOTES) ?>"></label></fieldset>
       <fieldset><legend>Site / partenaire</legend><label>Nom du site<input name="site_name" value="<?= htmlspecialchars((string) ($_POST['site_name'] ?? ''), ENT_QUOTES) ?>"></label><label>Sous-domaine<input name="subdomain" value="<?= htmlspecialchars((string) ($_POST['subdomain'] ?? 'default'), ENT_QUOTES) ?>"></label><label>Email de contact<input name="site_email" type="email" value="<?= htmlspecialchars((string) ($_POST['site_email'] ?? ''), ENT_QUOTES) ?>"></label><label>URL logo<input name="logo_url" value="<?= htmlspecialchars((string) ($_POST['logo_url'] ?? ''), ENT_QUOTES) ?>"></label><label>Logo à téléverser<input name="logo_file" type="file"></label><label>Couleur principale<input name="primary_color" type="color" value="<?= htmlspecialchars((string) ($_POST['primary_color'] ?? '#E61E4D'), ENT_QUOTES) ?>"></label><label>Markup %<input name="markup" type="number" step="0.5" value="<?= htmlspecialchars((string) ($_POST['markup'] ?? '0'), ENT_QUOTES) ?>"></label><label>Clé Lodgify<input name="lodgify_key" value="<?= htmlspecialchars((string) ($_POST['lodgify_key'] ?? ''), ENT_QUOTES) ?>"></label><label>URL Lodgify<input name="lodgify_url" value="<?= htmlspecialchars((string) ($_POST['lodgify_url'] ?? 'https://api.lodgify.com/v2'), ENT_QUOTES) ?>"></label><label>Origines CORS<input name="cors_origin" value="<?= htmlspecialchars((string) ($_POST['cors_origin'] ?? 'http://localhost:8080'), ENT_QUOTES) ?>"></label><label>URL de l'application<input name="app_url" value="<?= htmlspecialchars((string) ($_POST['app_url'] ?? 'http://localhost:8080'), ENT_QUOTES) ?>"></label></fieldset>
       <fieldset><legend>Administrateur</legend><label>Email admin<input name="admin_email" type="email" value="<?= htmlspecialchars((string) ($_POST['admin_email'] ?? ''), ENT_QUOTES) ?>"></label><label>Mot de passe<input name="admin_password" type="password"></label><label>Confirmation<input name="admin_confirm" type="password"></label></fieldset>
       <fieldset><legend>SMTP</legend><label>Hôte SMTP<input name="smtp_host" value="<?= htmlspecialchars((string) ($_POST['smtp_host'] ?? 'localhost'), ENT_QUOTES) ?>"></label><label>Port SMTP<input name="smtp_port" type="number" value="<?= htmlspecialchars((string) ($_POST['smtp_port'] ?? '1025'), ENT_QUOTES) ?>"></label><label>Utilisateur SMTP<input name="smtp_user" value="<?= htmlspecialchars((string) ($_POST['smtp_user'] ?? ''), ENT_QUOTES) ?>"></label><label>Mot de passe SMTP<input name="smtp_password" type="password"></label></fieldset>

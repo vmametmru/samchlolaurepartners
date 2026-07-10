@@ -1,13 +1,14 @@
 <?php
 
 /**
- * Manual database connection override.
+ * Database connection configuration.
  *
  * Copy this file to "config.php" (same folder) and fill in your real
- * credentials to make the app read the DB connection from here instead of
- * the ".env" file. This is entirely optional: if "db/config.php" does not
- * exist, the app falls back to the DB_HOST / DB_PORT / DB_NAME / DB_USER /
- * DB_PASSWORD values from ".env".
+ * credentials. This is the only setting that lives outside the database:
+ * every other setting (API keys, SMTP, JWT secret, etc.) is stored in the
+ * "settings" MySQL table, but the DB connection itself obviously can't be —
+ * no database-stored config can be read before the app can connect to the
+ * database in the first place.
  *
  * "db/config.php" is git-ignored and directly denied by "db/.htaccess", so
  * it is never committed to the repository nor reachable over HTTP.

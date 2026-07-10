@@ -1,5 +1,10 @@
 version: '3.9'
 
+# Before starting: copy db/config.example.php to db/config.php and set
+# host => 'db', user => 'partners_user', password => 'partners_pass',
+# name => 'partners_db' to match the "db" service below. All other app
+# settings (API keys, SMTP, etc.) are stored in the "settings" MySQL table.
+
 services:
   db:
     image: mysql:8.0
@@ -26,11 +31,6 @@ services:
     restart: unless-stopped
     depends_on:
       - db
-    env_file: .env
-    environment:
-      DB_HOST: db
-      APP_URL: http://localhost:8080
-      PORT: 80
     ports:
       - '8080:80'
     volumes:
