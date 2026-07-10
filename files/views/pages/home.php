@@ -4,12 +4,11 @@
     <h1><?= \App\View::e($partner ? 'Bienvenue chez ' . ($partner['name'] ?? '') : 'Trouvez votre hébergement idéal') ?></h1>
     <p>Séjours exceptionnels à l'île Maurice</p>
     <form class="search-card" method="get" action="/">
-      <div class="form-grid search-grid">
+      <div class="form-grid search-grid" data-date-range>
         <label><span>Arrivée</span><input class="input" type="date" name="checkin" value="<?= \App\View::e($search['checkin']) ?>" required></label>
         <label><span>Départ</span><input class="input" type="date" name="checkout" value="<?= \App\View::e($search['checkout']) ?>" required></label>
         <label><span>Adultes</span><input class="input" type="number" min="1" max="20" name="adults" value="<?= \App\View::e((string) $search['adults']) ?>"></label>
         <label><span>Enfants (&lt;12)</span><input class="input" type="number" min="0" max="20" name="children" value="<?= \App\View::e((string) $search['children']) ?>"></label>
-        <label><span>Nationalité</span><input class="input" type="text" name="nationality" value="<?= \App\View::e($search['nationality']) ?>" placeholder="Française, Mauricienne..."></label>
         <button class="btn-primary search-button" type="submit">Rechercher</button>
       </div>
     </form>

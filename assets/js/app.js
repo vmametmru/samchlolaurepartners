@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initNationalities();
   initTemplateEditor();
   initColorSync();
+  initDateRanges();
 });
 
 function initGallery() {
@@ -159,5 +160,44 @@ function initColorSync() {
     textInput.addEventListener('input', () => {
       if (/^#[0-9a-fA-F]{6}$/.test(textInput.value) && colorInput) colorInput.value = textInput.value;
     });
+  });
+}
+
+/**
+ * Wires an "Arrivée"/"Départ" date pair so they behave like a single range
+ * picker: choosing the arrival date automatically opens the departure date
+ * picker and prevents picking a departure date on or before the arrival.
+ */
+function initDateRanges() {
+  document.querySelectorAll('[data-date-range]').forEach((wrap) => {
+    const checkin = wrap.querySelector('input[name="checkin"], input[name="checkin_date"]');
+    const checkout = wrap.querySelector('input[name="checkout"], input[name="checkout_date"]');
+    if (!checkin || !checkout) return;
+
+    function addDays(dateStr, days) {
+      const date = new Date(`${dateStr}T00:00:00`);
+      date.setDate(date.getDate() + days);
+      return date.toISOString().slice(0, 10);
+    }
+
+    function syncCheckoutMin() {
+      if (!checkin.value) return;
+      const minCheckout = addDays(checkin.value, 1);
+      checkout.min = minCheckout;
+      if (checkout.value && checkout.value <= checkin.value) {
+        checkout.value = minCheckout;
+      }
+    }
+
+    checkin.addEventListener('change', () => {
+      syncCheckoutMin();
+      if (typeof checkout.showPicker === 'function') {
+        try { checkout.showPicker(); } catch (e) { checkout.focus(); }
+      } else {
+        checkout.focus();
+      }
+    });
+
+    syncCheckoutMin();
   });
 }

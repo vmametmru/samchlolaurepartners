@@ -46,7 +46,7 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .col-span-2 { grid-column: span 2; }
-.search-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); align-items: end; }
+.search-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); align-items: end; }
 .search-button { height: 3rem; }
 .content-with-sidebar { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 1.5rem; }
 .property-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 1rem; }
