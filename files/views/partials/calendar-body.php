@@ -1,8 +1,10 @@
 <?php declare(strict_types=1);
 // Renders the calendar grid (months + legend) for the property detail page.
-// Always shows 12 months; each available day is clickable to select the
-// booking form's arrival/departure dates (see initBookingCalendarSelection
-// in assets/js/app.js).
+// Always shows 12 months; every day renders its date/availability/min-stay
+// as data attributes so the client-side script (initBookingCalendarSelection
+// in assets/js/app.js) can decide which dates are clickable as arrival vs.
+// departure (a departure date can reuse a date another guest arrives on,
+// and vice versa).
 $calendarMonths = 12;
 $calendarStartDate = isset($calendarStart) && $calendarStart !== ''
     ? new DateTimeImmutable((string) $calendarStart)
@@ -37,8 +39,9 @@ $frenchMonths = [1 => 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Ju
           $state = $availabilityMap[$date] ?? null;
           $class = $state === true ? 'available' : ($state === false ? 'unavailable' : 'unknown');
           $rate = $rateMap[$date] ?? null;
+          $minStay = isset($rate['min_stay']) && $rate['min_stay'] !== null ? (int) $rate['min_stay'] : 1;
         ?>
-          <div class="calendar-cell <?= $class ?>"<?php if ($state === true): ?> data-calendar-date="<?= $date ?>" data-calendar-selectable<?php endif; ?><?php if ($rate !== null): ?> data-calendar-rate="<?= (float) $rate['price_per_night'] ?>"<?php endif; ?>>
+          <div class="calendar-cell <?= $class ?>" data-calendar-date="<?= $date ?>" data-calendar-available="<?= $state === true ? '1' : '0' ?>" data-calendar-minstay="<?= $minStay > 0 ? $minStay : 1 ?>"<?php if ($rate !== null): ?> data-calendar-rate="<?= (float) $rate['price_per_night'] ?>"<?php endif; ?>>
             <span class="calendar-day"><?= $dayNumber ?></span>
             <?php if ($state === true && $rate !== null): ?>
               <span class="calendar-price"><?= number_format((float) $rate['price_per_night'], 0, ',', ' ') ?> <?= \App\View::e($rate['currency']) ?></span>

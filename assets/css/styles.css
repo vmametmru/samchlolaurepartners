@@ -124,7 +124,7 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .calendar-cell.available:hover { outline: 2px solid var(--brand); }
 .calendar-cell.selected { outline: 2px solid var(--brand); background: var(--brand); color: white; }
 .calendar-cell.in-range { background: var(--brand); color: white; }
-.calendar-cell.unavailable { background: #fee2e2; color: #b91c1c; }
+.calendar-cell.unavailable { background: #fee2e2; color: #b91c1c; cursor: pointer; }
 .calendar-cell.unavailable .calendar-day { text-decoration: line-through; }
 .calendar-day { font-size: .85rem; }
 .calendar-price { font-size: .7rem; font-weight: 700; opacity: .85; }

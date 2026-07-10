@@ -110,9 +110,20 @@ function initPropertyTabs() {
 
 /**
  * Wires the "Tarifs & Disponibilités" calendar to the booking form's hidden
- * checkin/checkout fields: the 1st click on an available date sets the
- * arrival date, the 2nd click sets the departure date (must be after
- * arrival). Clicking again afterwards starts a new selection.
+ * checkin/checkout fields.
+ *
+ * Selection rules:
+ * - 1st click sets the arrival date. It is only accepted if the date starts
+ *   a run of at least "min stay" consecutive available nights (a date with
+ *   fewer available nights ahead of it is not clickable/reservable).
+ * - 2nd click sets the departure date, as long as every night between the
+ *   arrival and that date is available. A departure date does not need to be
+ *   "available" itself (it's just the day the guest leaves), so a date on
+ *   which another guest is arriving can still be picked as someone else's
+ *   departure date, and vice versa.
+ * - If the 2nd click lands on a date that is before/equal to the arrival, or
+ *   with an unavailable night in between, that click becomes the new arrival
+ *   date and the widget waits for a new departure click.
  */
 function initBookingCalendarSelection() {
   document.querySelectorAll('[data-booking-form]').forEach((form) => {
@@ -139,6 +150,51 @@ function initBookingCalendarSelection() {
       return Math.round((end - start) / 86400000);
     }
 
+    function addDaysStr(dateStr, days) {
+      const date = new Date(`${dateStr}T00:00:00`);
+      date.setDate(date.getDate() + days);
+      return date.toISOString().slice(0, 10);
+    }
+
+    // Map<date, { available: boolean, minStay: number }> built once from the
+    // server-rendered cells (the calendar is not re-rendered client-side).
+    const nightInfo = new Map();
+    calendarWidget.querySelectorAll('[data-calendar-date]').forEach((cell) => {
+      const date = cell.dataset.calendarDate;
+      if (!date) return;
+      nightInfo.set(date, {
+        available: cell.dataset.calendarAvailable === '1',
+        minStay: Math.max(1, parseInt(cell.dataset.calendarMinstay || '1', 10) || 1),
+      });
+    });
+
+    function isNightAvailable(date) {
+      const info = nightInfo.get(date);
+      return Boolean(info && info.available);
+    }
+
+    // Whether a stay can start on this date: the date and the following
+    // (min stay - 1) nights must all be available.
+    function canStartStayAt(date) {
+      const info = nightInfo.get(date);
+      if (!info || !info.available) return false;
+      for (let i = 0; i < info.minStay; i++) {
+        if (!isNightAvailable(addDaysStr(date, i))) return false;
+      }
+      return true;
+    }
+
+    // Whether every night from startDate (inclusive) to endDate (exclusive)
+    // is available, i.e. a valid stay with no gap in between.
+    function isRangeFullyAvailable(startDate, endDate) {
+      let cursor = startDate;
+      while (cursor < endDate) {
+        if (!isNightAvailable(cursor)) return false;
+        cursor = addDaysStr(cursor, 1);
+      }
+      return true;
+    }
+
     function update() {
       checkinInput.value = checkin || '';
       checkoutInput.value = checkout || '';
@@ -160,12 +216,20 @@ function initBookingCalendarSelection() {
     }
 
     calendarWidget.addEventListener('click', (event) => {
-      const cell = event.target.closest('[data-calendar-selectable]');
+      const cell = event.target.closest('[data-calendar-date]');
       if (!cell) return;
       const date = cell.dataset.calendarDate;
       if (!date) return;
-      if (!checkin || checkout || date <= checkin) {
+
+      if (!checkin || checkout) {
+        // Fresh selection (arrival click).
+        if (!canStartStayAt(date)) return;
         checkin = date;
+        checkout = null;
+      } else if (date <= checkin || !isRangeFullyAvailable(checkin, date)) {
+        // Invalid departure (before/same as arrival, or a gap in between):
+        // this click becomes the new arrival date instead.
+        checkin = canStartStayAt(date) ? date : null;
         checkout = null;
       } else {
         checkout = date;
