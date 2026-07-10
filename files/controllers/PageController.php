@@ -362,9 +362,14 @@ final class PageController extends Controller
     public static function adminRunSync(): never
     {
         self::requireAdminUser();
+        // Refreshing every property's detail cache (photos included) can take
+        // a while; avoid the request being killed by PHP's default execution
+        // time limit before it finishes, same as the deployment script does
+        // for its own long-running operations.
+        @set_time_limit(0);
         $client = new LodgifyClient();
         $client->invalidate('lodgify:');
-        $client->getProperties();
+        $client->refreshAllPropertyDetails();
         self::redirect('/admin/sync', 'Synchronisation Lodgify terminée.');
     }
 

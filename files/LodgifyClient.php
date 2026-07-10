@@ -214,6 +214,33 @@ final class LodgifyClient
         $stmt->execute([$prefix . '%']);
     }
 
+    /**
+     * Refreshes the per-property detail cache (name, description, full images
+     * gallery, ...) for every known property. getProperties() only fetches the
+     * compact list endpoint, which Lodgify limits to a single image per
+     * property, so the "sync" action needs this extra pass to actually reload
+     * and re-cache all the gallery photos shown on each property detail page —
+     * otherwise a resync only refreshes property cards and leaves stale/empty
+     * detail-page photos until someone happens to open that property's page.
+     */
+    public function refreshAllPropertyDetails(): int
+    {
+        $refreshed = 0;
+        foreach ($this->getProperties() as $property) {
+            $propertyId = (int) ($property['id'] ?? 0);
+            if ($propertyId <= 0) {
+                continue;
+            }
+            try {
+                $this->getProperty($propertyId);
+                $refreshed++;
+            } catch (\Throwable $e) {
+                error_log('Lodgify sync: failed to refresh property ' . $propertyId . ': ' . $e->getMessage());
+            }
+        }
+        return $refreshed;
+    }
+
     public function getRawProperties(): array
     {
         $data = $this->request('/properties');

@@ -38,20 +38,24 @@ final class ImageCache
         }
 
         if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+            error_log('ImageCache: could not create directory ' . $dir . ', falling back to remote URL');
             return $remoteUrl;
         }
 
         $data = self::download($remoteUrl);
         if ($data === null || $data === '') {
+            error_log('ImageCache: download failed for ' . $remoteUrl . ', falling back to remote URL');
             return $remoteUrl;
         }
 
         $tmpPath = $localPath . '.tmp-' . bin2hex(random_bytes(6));
         if (@file_put_contents($tmpPath, $data) === false) {
+            error_log('ImageCache: could not write ' . $tmpPath . ', falling back to remote URL');
             return $remoteUrl;
         }
         if (!@rename($tmpPath, $localPath)) {
             @unlink($tmpPath);
+            error_log('ImageCache: could not rename ' . $tmpPath . ' to ' . $localPath . ', falling back to remote URL');
             return $remoteUrl;
         }
 
