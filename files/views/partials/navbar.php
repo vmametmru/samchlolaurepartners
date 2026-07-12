@@ -10,6 +10,7 @@
     </a>
     <div class="navbar-links">
       <a href="/properties">Hébergements</a>
+      <a href="/calendrier">Calendrier</a>
       <a href="/contact">Contact</a>
       <?php if (is_array($user)): ?>
         <?php if (($user['role'] ?? '') === 'admin'): ?><a href="/admin/partners">Admin</a><a href="/admin/sync">Synchronisation</a><a href="/admin/fees">Frais</a><a href="/admin/versions">Versions</a><a href="/admin/diagnostic">Diagnostic</a><?php endif; ?>

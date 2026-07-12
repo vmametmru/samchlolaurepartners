@@ -112,6 +112,134 @@ final class PageController extends Controller
         ]);
     }
 
+    public static function calendar(): void
+    {
+        // Standalone "Calendrier" overview: one row per property, showing the
+        // same availability/price colouring as the detail-page calendars, but
+        // laid out horizontally so every property can be scanned day by day.
+        // By default only the next 30 days are loaded; a month filter lets the
+        // user pick one or more months to load and display instead. Only ~31
+        // days are visible at once and the dates scroll when the mouse
+        // approaches the left/right edge.
+        $client = new LodgifyClient();
+        $start = new \DateTimeImmutable('today');
+        $today = $start->format('Y-m-d');
+
+        // Build the list of selectable months (current month + the next 11).
+        $frenchMonthsAbbr = [
+            1 => 'Jan', 'Fev', 'Mar', 'Avr', 'Mai', 'Jun',
+            'Jul', 'Aou', 'Sep', 'Oct', 'Nov', 'Dec',
+        ];
+        $firstOfThisMonth = new \DateTimeImmutable('first day of this month');
+        $monthOptions = [];
+        for ($i = 0; $i < 12; $i++) {
+            $month = $firstOfThisMonth->modify('+' . $i . ' months');
+            $monthOptions[] = [
+                'value' => $month->format('Y-m'),
+                'label' => $frenchMonthsAbbr[(int) $month->format('n')] . ' ' . $month->format('y'),
+            ];
+        }
+        $validMonths = array_column($monthOptions, 'value');
+
+        // Read the month filter from the query string (?months[]=YYYY-MM), keep
+        // only recognised values, and sort them chronologically.
+        $requestedMonths = $_GET['months'] ?? [];
+        if (!is_array($requestedMonths)) {
+            $requestedMonths = [$requestedMonths];
+        }
+        $selectedMonths = array_values(array_intersect(
+            $validMonths,
+            array_map('strval', array_filter($requestedMonths, 'is_scalar'))
+        ));
+        sort($selectedMonths);
+
+        // Build the ordered list of dates to display.
+        $dates = [];
+        if ($selectedMonths === []) {
+            // Default view: only the next 30 days.
+            for ($i = 0; $i < 30; $i++) {
+                $dates[] = $start->modify('+' . $i . ' days');
+            }
+        } else {
+            foreach ($selectedMonths as $ym) {
+                $monthStart = (new \DateTimeImmutable($ym . '-01'))->setTime(0, 0);
+                $daysInMonth = (int) $monthStart->format('t');
+                for ($d = 0; $d < $daysInMonth; $d++) {
+                    $dates[] = $monthStart->modify('+' . $d . ' days');
+                }
+            }
+        }
+
+        $rangeStart = $dates[0]->format('Y-m-d');
+        // The rates/availability windows are inclusive of the last day shown, so
+        // the end of the request window is one day after the final visible date.
+        $rangeEnd = end($dates)->modify('+1 day')->format('Y-m-d');
+        reset($dates);
+
+        // To reserve several properties in a few clicks, the visitor must
+        // first tell us the party size (adults + children under 5 + children
+        // 5-12). The properties table is only loaded/shown once at least one
+        // adult is provided, so a property's capacity can be compared against
+        // that party size before any date is even clickable.
+        $adults = max(0, (int) ($_GET['adults'] ?? 0));
+        $childrenUnder5 = max(0, (int) ($_GET['children_under5'] ?? 0));
+        $children5to12 = max(0, (int) ($_GET['children_5to12'] ?? 0));
+        $totalGuests = $adults + $childrenUnder5 + $children5to12;
+
+        $rows = [];
+        if ($totalGuests > 0) {
+            $properties = [];
+            try {
+                $properties = $client->getProperties();
+            } catch (Throwable $e) {
+                Flash::set('Impossible de charger les hébergements pour le moment.', 'error');
+            }
+
+            foreach ($properties as $property) {
+                $id = (int) ($property['id'] ?? 0);
+                if ($id <= 0) {
+                    continue;
+                }
+                $availabilityMap = [];
+                $singleNightMap = [];
+                $rateMap = [];
+                try {
+                    foreach ($client->getAvailability($id, $rangeStart, $rangeEnd) as $day) {
+                        $availabilityMap[$day['date']] = $day['available'];
+                        $singleNightMap[$day['date']] = !empty($day['single_night']);
+                    }
+                    foreach (self::publicRates($client, $id, $rangeStart, $rangeEnd) as $rate) {
+                        $rateMap[$rate['date_from']] = $rate;
+                    }
+                } catch (Throwable $e) {
+                    error_log('Calendar board load failed for property ' . $id . ': ' . $e->getMessage());
+                }
+                $maxGuests = (int) ($property['max_guests'] ?? 0);
+                $rows[] = [
+                    'property' => $property,
+                    'availability' => $availabilityMap,
+                    'single_night' => $singleNightMap,
+                    'rates' => $rateMap,
+                    'capacity_ok' => $maxGuests <= 0 || $maxGuests >= $totalGuests,
+                ];
+            }
+        }
+
+        View::render('pages/calendar', [
+            'pageTitle' => 'Calendrier',
+            'rows' => $rows,
+            'dates' => $dates,
+            'visibleDays' => min(count($dates), 31),
+            'monthOptions' => $monthOptions,
+            'selectedMonths' => $selectedMonths,
+            'adults' => $adults,
+            'childrenUnder5' => $childrenUnder5,
+            'children5to12' => $children5to12,
+            'totalGuests' => $totalGuests,
+            'today' => $today,
+        ]);
+    }
+
     /**
      * @return array{0: string, 1: string} [rangeStart, rangeEnd] in Y-m-d format
      */

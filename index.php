@@ -68,6 +68,8 @@ try {
             PartnersController::delete((int) $matches[1]);
         case route($method, $path, 'POST', '#^/api/reservations/request$#'):
             ReservationsController::requestReservation();
+        case route($method, $path, 'POST', '#^/api/reservations/request-multiple$#'):
+            ReservationsController::requestMultiple();
         case route($method, $path, 'POST', '#^/api/reservations/quote$#'):
             ReservationsController::quote();
         case route($method, $path, 'GET', '#^/api/reservations$#'):
@@ -131,6 +133,9 @@ try {
             break;
         case route($method, $path, 'GET', '#^/properties$#'):
             PageController::properties();
+            break;
+        case route($method, $path, 'GET', '#^/calendrier$#'):
+            PageController::calendar();
             break;
         case route($method, $path, 'GET', '#^/properties/(\d+)$#', $matches):
             PageController::propertyDetail((int) $matches[1]);

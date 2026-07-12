@@ -129,6 +129,8 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .calendar-cell.unavailable .calendar-day { text-decoration: line-through; }
 .calendar-cell.single-night { background: #fef9c3; color: #854d0e; cursor: pointer; }
 .calendar-cell.single-night:hover { outline: 2px solid var(--brand); }
+.calendar-cell.past { background: #f3f4f6; color: #9ca3af; cursor: not-allowed; opacity: .7; }
+.calendar-cell.past .calendar-day { text-decoration: none; }
 .calendar-day { font-size: .85rem; }
 .calendar-price { font-size: .7rem; font-weight: 700; opacity: .85; }
 .calendar-legend { margin-top: 1rem; font-size: .85rem; color: var(--muted); display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
@@ -137,6 +139,67 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .dot-red { background: #fee2e2; border: 1px solid #fecaca; }
 .dot-yellow { background: #fef9c3; border: 1px solid #fde047; }
 .dot-gray { background: #f3f4f6; border: 1px solid #d1d5db; }
+
+/* Calendrier board: one row per property, dates scroll horizontally. */
+.calendar-board { --cal-day-w: 46px; --cal-photo-w: 56px; --cal-name-w: 200px; --cal-num-w: 70px; overflow-x: auto; overflow-y: hidden; margin-top: 1.25rem; border: 1px solid var(--border, #e5e7eb); border-radius: .8rem; max-width: 100%; width: calc(var(--cal-photo-w) + var(--cal-name-w) + (2 * var(--cal-num-w)) + (var(--cal-visible-days, 31) * var(--cal-day-w))); }
+.calendar-board-table { border-collapse: separate; border-spacing: 0; table-layout: fixed; font-size: .8rem; font-weight: 600; line-height: 1.15; }
+.calendar-board-table th, .calendar-board-table td { border-bottom: 1px solid var(--border, #e5e7eb); border-right: 1px solid var(--border, #e5e7eb); font-size: inherit; font-weight: inherit; }
+.calendar-board-table thead th { position: sticky; top: 0; z-index: 3; background: #f9fafb; }
+.calendar-board-table .cal-fixed { position: sticky; z-index: 2; background: #fff; }
+.calendar-board-table thead .cal-fixed { z-index: 4; background: #f9fafb; }
+.cal-col-photo { left: 0; width: var(--cal-photo-w); min-width: var(--cal-photo-w); }
+.cal-col-name { left: var(--cal-photo-w); width: var(--cal-name-w); min-width: var(--cal-name-w); text-align: left; padding: 0 .5rem; }
+.cal-col-num { width: var(--cal-num-w); min-width: var(--cal-num-w); text-align: center; }
+.cal-col-capacity { left: calc(var(--cal-photo-w) + var(--cal-name-w)); }
+.cal-col-rooms { left: calc(var(--cal-photo-w) + var(--cal-name-w) + var(--cal-num-w)); }
+.cal-icon { font-size: 1.1rem; line-height: 1; }
+.cal-col-name.cal-fixed { left: var(--cal-photo-w); }
+.calendar-board-table tbody tr { height: 40px; }
+.calendar-board-table tbody td { height: 40px; }
+.cal-thumb { width: var(--cal-photo-w); height: 40px; object-fit: cover; display: block; }
+.cal-day-head { width: var(--cal-day-w); min-width: var(--cal-day-w); padding: .2rem 0; text-align: center; line-height: 1.05; color: var(--muted); }
+.cal-day-head .cal-day-dow, .cal-day-head .cal-day-mon { display: block; font-size: .72rem; }
+.cal-day-head .cal-day-num { display: block; color: var(--text, #111827); }
+.cal-day-head.cal-weekend { background: #eef2ff; }
+.cal-cell { width: var(--cal-day-w); min-width: var(--cal-day-w); text-align: center; padding: 0; }
+.cal-available { background: #dcfce7; color: #166534; }
+.cal-unavailable { background: #fee2e2; color: #b91c1c; }
+.cal-single-night { background: #fef9c3; color: #854d0e; }
+.cal-unknown { background: #f3f4f6; color: #6b7280; }
+.cal-past { background: #f3f4f6; color: #9ca3af; cursor: not-allowed; opacity: .7; }
+.cal-cell.cal-clickable { cursor: pointer; }
+.cal-cell.cal-clickable:hover { outline: 2px solid var(--brand); outline-offset: -2px; }
+.cal-cell.selected { outline: 2px solid var(--brand); background: var(--brand); color: #fff; }
+.cal-cell.in-range { background: var(--brand); color: #fff; }
+.cal-capacity-note { margin: .15rem 0 0; font-size: .72rem; color: #b91c1c; }
+.cal-capacity-note .cal-warning-icon { margin-right: .25rem; }
+
+.calendar-filter { margin-top: 1.25rem; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; }
+.calendar-filter-label { font-weight: 700; }
+.calendar-filter-months { display: flex; flex-wrap: wrap; gap: .4rem .9rem; }
+.calendar-filter-month { display: inline-flex; align-items: center; gap: .3rem; font-size: .85rem; cursor: pointer; }
+.calendar-guest-form { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; flex-basis: 100%; }
+.calendar-guest-field { display: inline-flex; align-items: center; gap: .4rem; font-size: .85rem; }
+.calendar-guest-field .input { width: 4.5rem; padding: .35rem .5rem; }
+.calendar-filter-actions { display: inline-flex; align-items: center; gap: .75rem; }
+.calendar-filter-submit { padding: .45rem .9rem; border-radius: .6rem; font-size: .85rem; }
+.calendar-filter-hint { flex-basis: 100%; margin: 0; font-size: .8rem; }
+.calendar-guest-required-hint, .calendar-capacity-warning { margin-top: 1rem; }
+
+.multi-booking-cart { margin-top: 1.25rem; border: 1px solid var(--border, #e5e7eb); border-radius: .9rem; padding: 1rem; background: #f9fafb; }
+.multi-cart-list { list-style: none; margin: 0 0 .75rem; padding: 0; display: flex; flex-wrap: wrap; gap: .5rem; }
+.multi-cart-item { display: flex; align-items: center; gap: .6rem; background: #fee2e2; border: 1px solid #fca5a5; border-radius: .6rem; padding: .4rem .5rem; font-size: .85rem; color: #7f1d1d; }
+.multi-cart-item-thumb { width: 2.5rem; height: 2.5rem; object-fit: cover; border-radius: .4rem; flex-shrink: 0; }
+.multi-cart-item-info { display: flex; flex-direction: column; gap: .1rem; }
+.multi-cart-item-name { font-weight: 700; }
+.multi-cart-item-dates { font-size: .8rem; }
+.multi-cart-remove { border: 0; background: rgba(127, 29, 29, .12); color: #7f1d1d; width: 1.4rem; height: 1.4rem; border-radius: 50%; font-size: .95rem; line-height: 1; font-weight: 700; cursor: pointer; flex-shrink: 0; }
+.multi-cart-remove:hover { background: rgba(127, 29, 29, .22); }
+.multi-cart-summary { margin: 0 0 .75rem; padding: .6rem .75rem; border-radius: .6rem; background: #fff; border: 1px solid var(--border, #e5e7eb); font-size: .9rem; }
+.multi-cart-summary p { margin: .2rem 0; }
+.multi-cart-checkout { margin-top: .75rem; }
+
+
 .badge { display: inline-flex; align-items: center; padding: .25rem .55rem; border-radius: 999px; font-size: .78rem; font-weight: 700; }
 .badge-pending { background: #fef3c7; color: #92400e; }
 .badge-confirmed { background: #dcfce7; color: #166534; }
