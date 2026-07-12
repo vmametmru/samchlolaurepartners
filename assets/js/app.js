@@ -27,14 +27,31 @@ document.addEventListener('DOMContentLoaded', () => {
  * the code from the fragment whenever it doesn't match the partner currently
  * active for this browser (tracked via [data-partner-code] on <body>), so
  * that opening/editing a "#/CODE" link always switches to that partner.
+ *
+ * Conversely, opening the bare root URL (no "#/code" fragment at all) must
+ * always show the "enter your code" gate, even if a partner cookie is still
+ * active from earlier in the same browser session: since a URL fragment is
+ * never sent to the server, PageController::home() cannot tell the two cases
+ * apart on its own, so this clears the cookie and reloads whenever "/" is
+ * visited without a fragment.
  */
 function initPartnerCodeFromHash() {
+  const isRoot = window.location.pathname === '/';
+
   const applyHash = () => {
     const match = /^#\/(.+)$/.exec(window.location.hash);
-    if (!match) return;
-    const hashCode = decodeURIComponent(match[1]).trim();
-    if (!hashCode) return;
     const activeCode = (document.body.dataset.partnerCode || '').trim();
+
+    if (!match || !match[1] || !decodeURIComponent(match[1]).trim()) {
+      if (isRoot && activeCode) {
+        fetch('/partner-code/clear', { method: 'POST', credentials: 'same-origin' })
+          .catch(() => {})
+          .then(() => window.location.reload());
+      }
+      return;
+    }
+
+    const hashCode = decodeURIComponent(match[1]).trim();
     if (hashCode === activeCode) return;
 
     const form = document.createElement('form');

@@ -57,6 +57,25 @@ final class Tenant
         $_COOKIE[self::CODE_COOKIE] = $code;
     }
 
+    /**
+     * Removes the partner code cookie so the next request to "/" (with no
+     * "#/code" fragment) shows the "enter your code" gate again, even within
+     * the same browser session. Called by PageController::clearPartnerCode(),
+     * itself triggered client-side by assets/js/app.js when the homepage is
+     * loaded with an empty URL fragment.
+     */
+    public static function clearCodeCookie(): void
+    {
+        setcookie(self::CODE_COOKIE, '', [
+            'expires' => time() - 3600,
+            'path' => '/',
+            'httponly' => true,
+            'samesite' => 'Lax',
+            'secure' => self::isSecureRequest(),
+        ]);
+        unset($_COOKIE[self::CODE_COOKIE]);
+    }
+
     private static function fromCode(): ?array
     {
         $code = $_COOKIE[self::CODE_COOKIE] ?? '';

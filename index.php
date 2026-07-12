@@ -155,6 +155,8 @@ try {
             break;
         case route($method, $path, 'POST', '#^/partner-code$#'):
             PageController::submitPartnerCode();
+        case route($method, $path, 'POST', '#^/partner-code/clear$#'):
+            PageController::clearPartnerCode();
         case route($method, $path, 'GET', '#^/login$#'):
             PageController::login();
             break;
