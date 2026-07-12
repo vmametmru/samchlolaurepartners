@@ -40,10 +40,15 @@ final class Tenant
         return self::lookupByCode($code);
     }
 
+    /**
+     * Sets the partner code cookie for the current browser session only (no
+     * "expires"): the code must be re-entered (or re-asserted via the "#/code"
+     * URL fragment, see assets/js/app.js) the next time the visitor opens the
+     * site, instead of the partner staying "remembered" for weeks.
+     */
     public static function setCodeCookie(string $code): void
     {
         setcookie(self::CODE_COOKIE, $code, [
-            'expires' => time() + 60 * 60 * 24 * 30,
             'path' => '/',
             'httponly' => true,
             'samesite' => 'Lax',

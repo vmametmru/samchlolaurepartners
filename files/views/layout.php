@@ -7,7 +7,7 @@
   <title><?= \App\View::e($pageTitle) ?> · samchlolaurepartners</title>
   <link rel="stylesheet" href="/assets/css/styles.css">
 </head>
-<body>
+<body data-partner-code="<?= \App\View::e($partner['subdomain'] ?? '') ?>">
   <?php require BASE_PATH . '/files/views/partials/navbar.php'; ?>
   <main class="page-shell">
     <?php if (is_array($flash)): ?>
