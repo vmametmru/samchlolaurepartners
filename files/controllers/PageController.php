@@ -89,6 +89,7 @@ final class PageController extends Controller
         try {
             $property = $client->getProperty($id);
             $availability = $client->getAvailability($id, $rangeStart, $rangeEnd);
+            $reservations = $client->getReservations($id, $rangeStart, $rangeEnd);
             $rates = self::publicRates($client, $id, $rangeStart, $rangeEnd);
         } catch (Throwable $e) {
             error_log('Property detail load failed for id ' . $id . ': ' . $e->getMessage());
@@ -105,6 +106,7 @@ final class PageController extends Controller
             'pageTitle' => (string) $property['name'],
             'property' => $property,
             'availability' => $availability,
+            'reservations' => $reservations,
             'rates' => $rates,
             'today' => $today,
             'calendarMonths' => $calendarMonths,

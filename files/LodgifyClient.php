@@ -496,6 +496,91 @@ final class LodgifyClient
     }
 
     /**
+     * Returns the raw "active" reservations (real bookings / closed periods)
+     * that overlap the requested [$from, $to) window, so they can be listed in
+     * a table under the calendar for verification. Unlike getAvailability(),
+     * which collapses everything down to a per-day available/blocked flag, this
+     * keeps each booking as its own row with its real arrival ("start") and
+     * departure ("end") dates plus the room type it belongs to.
+     *
+     * Only real, overlapping, occupied periods are returned: Lodgify's
+     * degenerate sentinel period ("0001-01-01", start === end) that stands for
+     * "nothing booked" is skipped, as is any real period whose dates fall
+     * entirely outside the window, and any period still reporting available
+     * units (> 0), which isn't a full reservation.
+     *
+     * @return list<array{start:string,end:string,nights:int,room_type_id:int,room_type_name:string,single_night:bool}>
+     */
+    public function getReservations(int $propertyId, string $from, string $to): array
+    {
+        $data = $this->request('/availability/' . $propertyId, [
+            'start' => $from,
+            'end' => $to,
+            'includeDetails' => 'false',
+        ]);
+        if (!is_array($data)) {
+            return [];
+        }
+
+        try {
+            $rangeStart = new \DateTimeImmutable($from);
+            $rangeEnd = new \DateTimeImmutable($to);
+        } catch (\Throwable) {
+            return [];
+        }
+        if ($rangeStart >= $rangeEnd) {
+            return [];
+        }
+
+        $reservations = [];
+        $roomTypeCalendars = array_values(array_filter($data, static fn($item): bool => is_array($item)));
+        foreach ($roomTypeCalendars as $roomTypeCalendar) {
+            $roomTypeId = (int) ($roomTypeCalendar['room_type_id'] ?? $roomTypeCalendar['id'] ?? 0);
+            $roomTypeName = (string) ($roomTypeCalendar['name'] ?? '');
+            $periods = is_array($roomTypeCalendar['periods'] ?? null) ? $roomTypeCalendar['periods'] : [];
+            foreach ($periods as $period) {
+                if (!is_array($period)) {
+                    continue;
+                }
+                $available = (int) ($period['available'] ?? 0);
+                if ($available > 0) {
+                    // Still bookable units left: not a full reservation.
+                    continue;
+                }
+                try {
+                    $periodStart = new \DateTimeImmutable((string) ($period['start'] ?? ''));
+                    $periodEnd = new \DateTimeImmutable((string) ($period['end'] ?? ''));
+                } catch (\Throwable) {
+                    continue;
+                }
+                if ($periodStart >= $periodEnd) {
+                    // Degenerate sentinel period = "nothing booked".
+                    continue;
+                }
+                if ($periodEnd <= $rangeStart || $periodStart >= $rangeEnd) {
+                    // Real booking entirely outside the requested window.
+                    continue;
+                }
+                $nights = (int) $periodStart->diff($periodEnd)->days;
+                $reservations[] = [
+                    'start' => $periodStart->format('Y-m-d'),
+                    'end' => $periodEnd->format('Y-m-d'),
+                    'nights' => $nights,
+                    'room_type_id' => $roomTypeId,
+                    'room_type_name' => $roomTypeName,
+                    'single_night' => $nights === 1,
+                ];
+            }
+        }
+
+        usort($reservations, static function (array $a, array $b): int {
+            return [$a['start'], $a['end']] <=> [$b['start'], $b['end']];
+        });
+
+        return $reservations;
+    }
+
+    /**
      * Whether the given property is available for every night of [$from, $to).
      * Used to filter home-page search results down to properties genuinely
      * bookable for the requested dates, instead of returning every property
