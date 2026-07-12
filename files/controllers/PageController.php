@@ -289,20 +289,6 @@ final class PageController extends Controller
         exit;
     }
 
-    /**
-     * Called via a fetch() from assets/js/app.js whenever "/" is loaded with
-     * no "#/code" URL fragment: clears the partner cookie so the homepage
-     * always falls back to the "enter your code" gate on a bare visit,
-     * instead of silently staying on whichever partner was last active in
-     * this browser session.
-     */
-    public static function clearPartnerCode(): never
-    {
-        Tenant::clearCodeCookie();
-        http_response_code(204);
-        exit;
-    }
-
     public static function submitContact(): never
     {
         ob_start();

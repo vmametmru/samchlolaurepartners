@@ -1,7 +1,7 @@
-<?php declare(strict_types=1); $primaryColor = $partner['primary_color'] ?? '#E61E4D'; $brandHref = $partner ? '/#/' . rawurlencode((string) ($partner['subdomain'] ?? '')) : '/'; ?>
+<?php declare(strict_types=1); $primaryColor = $partner['primary_color'] ?? '#E61E4D'; ?>
 <nav class="navbar">
   <div class="container navbar-inner">
-    <a href="<?= \App\View::e($brandHref) ?>" class="brand">
+    <a href="/" class="brand">
       <?php if (!empty($partner['logo_url'])): ?>
         <img src="<?= \App\View::e($partner['logo_url']) ?>" alt="<?= \App\View::e($partner['name'] ?? 'Partner') ?>" class="brand-logo">
       <?php else: ?>
