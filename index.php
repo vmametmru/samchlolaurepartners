@@ -141,6 +141,9 @@ try {
         case route($method, $path, 'GET', '#^/$#'):
             PageController::home();
             break;
+        case route($method, $path, 'GET', '#^/accueil$#'):
+            PageController::accueil();
+            break;
         case route($method, $path, 'GET', '#^/properties$#'):
             PageController::properties();
             break;

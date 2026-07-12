@@ -3,7 +3,7 @@
   <div class="container hero-inner">
     <h1><?= \App\View::e($partner ? 'Bienvenue chez ' . ($partner['name'] ?? '') : 'Trouvez votre hébergement idéal') ?></h1>
     <p>Séjours exceptionnels à l'île Maurice</p>
-    <form class="search-card" method="get" action="/">
+    <form class="search-card" method="get" action="/accueil">
       <div class="form-grid search-grid" data-date-range>
         <label><span>Arrivée</span><input class="input" type="date" name="checkin" value="<?= \App\View::e($search['checkin']) ?>" required></label>
         <label><span>Départ</span><input class="input" type="date" name="checkout" value="<?= \App\View::e($search['checkout']) ?>" required></label>

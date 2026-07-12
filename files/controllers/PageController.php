@@ -20,11 +20,25 @@ use Throwable;
 
 final class PageController extends Controller
 {
+    /**
+     * The root URL is hardcoded to always show the "enter your partner code"
+     * gate, regardless of whether a partner_code cookie is already active:
+     * the search-form home page now lives at /accueil (see self::accueil()).
+     */
     public static function home(): void
     {
+        View::render('pages/enter-code', ['pageTitle' => 'Bienvenue']);
+    }
+
+    /**
+     * The search-form home page, formerly served at "/". Requires a valid
+     * partner context (partner_code cookie); visitors without one are sent
+     * back to "/" to enter their code.
+     */
+    public static function accueil(): void
+    {
         if (Tenant::current() === null) {
-            View::render('pages/enter-code', ['pageTitle' => 'Bienvenue']);
-            return;
+            self::redirect('/');
         }
 
         $properties = [];
@@ -285,8 +299,7 @@ final class PageController extends Controller
         }
 
         Tenant::setCodeCookie((string) $partner['subdomain']);
-        header('Location: /#/' . rawurlencode($code));
-        exit;
+        self::redirect('/accueil');
     }
 
     public static function submitContact(): never

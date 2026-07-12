@@ -1,5 +1,4 @@
 document.addEventListener('DOMContentLoaded', () => {
-  initPartnerCodeFromHash();
   initGallery();
   initShareButton();
   initPropertyTabs();
@@ -17,41 +16,6 @@ document.addEventListener('DOMContentLoaded', () => {
   initCalendarBoard();
   initMultiPropertyCart();
 });
-
-/**
- * The "Code Partenaire" typed on the homepage is echoed back into the URL as
- * a "#/CODE" fragment (see PageController::submitPartnerCode), but a
- * fragment is never sent to the server: browsers can even change it (e.g. a
- * visitor manually editing the address bar) without reloading the page, so
- * the server-side cookie-based tenant never saw the new code. This re-submits
- * the code from the fragment whenever it doesn't match the partner currently
- * active for this browser (tracked via [data-partner-code] on <body>), so
- * that opening/editing a "#/CODE" link always switches to that partner.
- */
-function initPartnerCodeFromHash() {
-  const applyHash = () => {
-    const match = /^#\/(.+)$/.exec(window.location.hash);
-    if (!match) return;
-    const hashCode = decodeURIComponent(match[1]).trim();
-    if (!hashCode) return;
-    const activeCode = (document.body.dataset.partnerCode || '').trim();
-    if (hashCode === activeCode) return;
-
-    const form = document.createElement('form');
-    form.method = 'post';
-    form.action = '/partner-code';
-    const input = document.createElement('input');
-    input.type = 'hidden';
-    input.name = 'code';
-    input.value = hashCode;
-    form.appendChild(input);
-    document.body.appendChild(form);
-    form.submit();
-  };
-
-  applyHash();
-  window.addEventListener('hashchange', applyHash);
-}
 
 function initGallery() {
   document.querySelectorAll('[data-gallery]').forEach((gallery) => {
