@@ -285,7 +285,7 @@ final class PageController extends Controller
         }
 
         Tenant::setCodeCookie((string) $partner['subdomain']);
-        header('Location: /#/codesecret');
+        header('Location: /#/' . rawurlencode($code));
         exit;
     }
 
