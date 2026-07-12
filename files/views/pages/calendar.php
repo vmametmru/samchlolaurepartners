@@ -62,6 +62,12 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
     <div class="multi-booking-cart" data-multi-cart hidden>
       <h2 class="section-title">Votre sélection</h2>
       <ul class="multi-cart-list" data-multi-cart-list></ul>
+      <div class="multi-cart-summary" data-multi-cart-summary>
+        <p><span data-multi-cart-summary-count>0</span> bien(s) sélectionné(s)</p>
+        <p><span data-multi-cart-summary-nights>0</span> nuit(s) sélectionnée(s)</p>
+        <p>Capacité : <span data-multi-cart-summary-capacity>0</span> personne(s) max sélectionnée(s) sur <?= (int) $totalGuests ?></p>
+        <p>Montant Total : <span data-multi-cart-summary-total>0</span> Euros</p>
+      </div>
       <p class="form-feedback" data-multi-cart-feedback></p>
       <form class="stack-md multi-cart-checkout" data-multi-cart-form data-api-form data-success-message="Vos demandes de réservation ont été envoyées ! Vous recevrez un email de confirmation." method="post" action="/api/reservations/request-multiple" hidden>
         <input type="hidden" name="adults" value="<?= (int) $adults ?>">
@@ -117,7 +123,7 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
             $propertyName = (string) ($property['name'] ?? '');
             $maxGuests = (int) ($property['max_guests'] ?? 0);
           ?>
-            <tr data-property-row data-property-id="<?= $propertyId ?>" data-property-name="<?= \App\View::e($propertyName) ?>" data-max-guests="<?= $maxGuests ?>" data-capacity-ok="<?= $capacityOk ? '1' : '0' ?>"<?= $capacityOk ? '' : ' class="cal-row-disabled"' ?>>
+            <tr data-property-row data-property-id="<?= $propertyId ?>" data-property-name="<?= \App\View::e($propertyName) ?>" data-property-photo="<?= \App\View::e($photo) ?>" data-max-guests="<?= $maxGuests ?>" data-capacity-ok="<?= $capacityOk ? '1' : '0' ?>"<?= $capacityOk ? '' : ' class="cal-row-disabled"' ?>>
               <td class="cal-fixed cal-col-photo">
                 <a href="/properties/<?= $propertyId ?>"><img class="cal-thumb" src="<?= \App\View::e($photo) ?>" alt="<?= \App\View::e($propertyName) ?>"></a>
               </td>
@@ -144,7 +150,7 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
                 // departure date, exactly like the property detail calendar.
                 $clickable = $capacityOk;
               ?>
-                <td class="cal-cell cal-<?= $class ?><?= $clickable && $state === true ? ' cal-clickable' : '' ?>" title="<?= \App\View::e($key) ?>"<?php if ($clickable): ?> data-calendar-date="<?= $key ?>" data-calendar-available="<?= $state === true ? '1' : '0' ?>" data-calendar-minstay="<?= $minStay > 0 ? $minStay : 1 ?>"<?php endif; ?>>
+                <td class="cal-cell cal-<?= $class ?><?= $clickable && $state === true ? ' cal-clickable' : '' ?>" title="<?= \App\View::e($key) ?>"<?php if ($clickable): ?> data-calendar-date="<?= $key ?>" data-calendar-available="<?= $state === true ? '1' : '0' ?>" data-calendar-minstay="<?= $minStay > 0 ? $minStay : 1 ?>" data-calendar-price="<?= $state === true && $rate !== null ? (float) $rate['price_per_night'] : '0' ?>"<?php endif; ?>>
                   <?php if ($state === true && $rate !== null): ?>
                     <span class="cal-price"><?= number_format((float) $rate['price_per_night'], 0, ',', ' ') ?></span>
                   <?php endif; ?>

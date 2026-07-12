@@ -803,6 +803,11 @@ function initMultiPropertyCart() {
   const feedbackEl = cartRoot.querySelector('[data-multi-cart-feedback]');
   const checkoutForm = cartRoot.querySelector('[data-multi-cart-form]');
   const itemsInput = checkoutForm ? checkoutForm.querySelector('[data-multi-cart-items]') : null;
+  const summaryEl = cartRoot.querySelector('[data-multi-cart-summary]');
+  const summaryCountEl = cartRoot.querySelector('[data-multi-cart-summary-count]');
+  const summaryNightsEl = cartRoot.querySelector('[data-multi-cart-summary-nights]');
+  const summaryCapacityEl = cartRoot.querySelector('[data-multi-cart-summary-capacity]');
+  const summaryTotalEl = cartRoot.querySelector('[data-multi-cart-summary-total]');
   if (!listEl || !checkoutForm || !itemsInput) return;
 
   const cart = [];
@@ -825,34 +830,73 @@ function initMultiPropertyCart() {
     return date.toISOString().slice(0, 10);
   }
 
+  function formatEuros(amount) {
+    return amount.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  }
+
   function renderCart() {
     listEl.innerHTML = '';
     if (cart.length === 0) {
       cartRoot.hidden = true;
       checkoutForm.hidden = true;
+      if (summaryEl) summaryEl.hidden = true;
       itemsInput.value = '';
       return;
     }
     cartRoot.hidden = false;
     checkoutForm.hidden = false;
+    if (summaryEl) summaryEl.hidden = false;
+
+    let totalNights = 0;
+    let totalAmount = 0;
+    let minCapacity = null;
+
     cart.forEach((item, index) => {
+      const nights = nightsBetween(item.checkin, item.checkout);
+      totalNights += nights;
+      totalAmount += item.roomTotal;
+      if (minCapacity === null || item.maxGuests < minCapacity) minCapacity = item.maxGuests;
+
       const li = document.createElement('li');
       li.className = 'multi-cart-item';
-      const label = document.createElement('span');
-      label.className = 'multi-cart-item-label';
-      label.textContent = `${item.propertyName} : ${formatFr(item.checkin)} → ${formatFr(item.checkout)} (${nightsBetween(item.checkin, item.checkout)} nuit(s))`;
+
+      const thumb = document.createElement('img');
+      thumb.className = 'multi-cart-item-thumb';
+      thumb.src = item.propertyPhoto;
+      thumb.alt = item.propertyName;
+      li.appendChild(thumb);
+
+      const info = document.createElement('span');
+      info.className = 'multi-cart-item-info';
+      const nameEl = document.createElement('span');
+      nameEl.className = 'multi-cart-item-name';
+      nameEl.textContent = item.propertyName;
+      const datesEl = document.createElement('span');
+      datesEl.className = 'multi-cart-item-dates';
+      datesEl.textContent = `${formatFr(item.checkin)} -> ${formatFr(item.checkout)}`;
+      info.appendChild(nameEl);
+      info.appendChild(datesEl);
+      li.appendChild(info);
+
       const removeBtn = document.createElement('button');
       removeBtn.type = 'button';
       removeBtn.className = 'multi-cart-remove';
-      removeBtn.textContent = 'Retirer';
+      removeBtn.setAttribute('aria-label', `Retirer ${item.propertyName}`);
+      removeBtn.textContent = '×';
       removeBtn.addEventListener('click', () => {
         cart.splice(index, 1);
         renderCart();
       });
-      li.appendChild(label);
       li.appendChild(removeBtn);
+
       listEl.appendChild(li);
     });
+
+    if (summaryCountEl) summaryCountEl.textContent = String(cart.length);
+    if (summaryNightsEl) summaryNightsEl.textContent = String(totalNights);
+    if (summaryCapacityEl) summaryCapacityEl.textContent = String(minCapacity ?? 0);
+    if (summaryTotalEl) summaryTotalEl.textContent = formatEuros(totalAmount);
+
     itemsInput.value = JSON.stringify(cart.map((item) => ({
       property_id: item.propertyId,
       property_name: item.propertyName,
@@ -866,6 +910,8 @@ function initMultiPropertyCart() {
     if (row.dataset.capacityOk !== '1') return;
     const propertyId = row.dataset.propertyId || '';
     const propertyName = row.dataset.propertyName || '';
+    const propertyPhoto = row.dataset.propertyPhoto || '';
+    const maxGuests = parseInt(row.dataset.maxGuests || '0', 10) || 0;
 
     const nightInfo = new Map();
     row.querySelectorAll('[data-calendar-date]').forEach((cell) => {
@@ -874,6 +920,7 @@ function initMultiPropertyCart() {
       nightInfo.set(date, {
         available: cell.dataset.calendarAvailable === '1',
         minStay: Math.max(1, parseInt(cell.dataset.calendarMinstay || '1', 10) || 1),
+        price: parseFloat(cell.dataset.calendarPrice || '0') || 0,
       });
     });
 
@@ -896,8 +943,20 @@ function initMultiPropertyCart() {
       return true;
     }
 
+    function roomTotalFor(startDate, endDate) {
+      let cursor = startDate;
+      let total = 0;
+      while (cursor < endDate) {
+        const info = nightInfo.get(cursor);
+        total += info ? info.price : 0;
+        cursor = addDaysStr(cursor, 1);
+      }
+      return total;
+    }
+
     let checkin = null;
     let checkout = null;
+
 
     function updateRowSelection() {
       row.querySelectorAll('[data-calendar-date]').forEach((cell) => {
@@ -928,7 +987,15 @@ function initMultiPropertyCart() {
       updateRowSelection();
 
       if (checkin && checkout) {
-        cart.push({ propertyId, propertyName, checkin, checkout });
+        cart.push({
+          propertyId,
+          propertyName,
+          propertyPhoto,
+          maxGuests,
+          checkin,
+          checkout,
+          roomTotal: roomTotalFor(checkin, checkout),
+        });
         checkin = null;
         checkout = null;
         updateRowSelection();
