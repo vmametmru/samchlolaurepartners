@@ -117,14 +117,63 @@ final class PageController extends Controller
         // Standalone "Calendrier" overview: one row per property, showing the
         // same availability/price colouring as the detail-page calendars, but
         // laid out horizontally so every property can be scanned day by day.
-        // The board loads a wide window of days; only ~31 are visible at once
-        // and the dates scroll when the mouse approaches the left/right edge.
+        // By default only the next 30 days are loaded; a month filter lets the
+        // user pick one or more months to load and display instead. Only ~31
+        // days are visible at once and the dates scroll when the mouse
+        // approaches the left/right edge.
         $client = new LodgifyClient();
-        $totalDays = 180;
         $start = new \DateTimeImmutable('today');
-        $rangeStart = $start->format('Y-m-d');
-        // The rates/availability windows are inclusive of the last day shown.
-        $rangeEnd = $start->modify('+' . $totalDays . ' days')->format('Y-m-d');
+
+        // Build the list of selectable months (current month + the next 11).
+        $frenchMonths = [
+            1 => 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+            'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre',
+        ];
+        $firstOfThisMonth = new \DateTimeImmutable('first day of this month');
+        $monthOptions = [];
+        for ($i = 0; $i < 12; $i++) {
+            $month = $firstOfThisMonth->modify('+' . $i . ' months');
+            $monthOptions[] = [
+                'value' => $month->format('Y-m'),
+                'label' => $frenchMonths[(int) $month->format('n')] . ' ' . $month->format('Y'),
+            ];
+        }
+        $validMonths = array_column($monthOptions, 'value');
+
+        // Read the month filter from the query string (?months[]=YYYY-MM), keep
+        // only recognised values, and sort them chronologically.
+        $requestedMonths = $_GET['months'] ?? [];
+        if (!is_array($requestedMonths)) {
+            $requestedMonths = [$requestedMonths];
+        }
+        $selectedMonths = array_values(array_intersect(
+            $validMonths,
+            array_map('strval', array_filter($requestedMonths, 'is_scalar'))
+        ));
+        sort($selectedMonths);
+
+        // Build the ordered list of dates to display.
+        $dates = [];
+        if ($selectedMonths === []) {
+            // Default view: only the next 30 days.
+            for ($i = 0; $i < 30; $i++) {
+                $dates[] = $start->modify('+' . $i . ' days');
+            }
+        } else {
+            foreach ($selectedMonths as $ym) {
+                $monthStart = (new \DateTimeImmutable($ym . '-01'))->setTime(0, 0);
+                $daysInMonth = (int) $monthStart->format('t');
+                for ($d = 0; $d < $daysInMonth; $d++) {
+                    $dates[] = $monthStart->modify('+' . $d . ' days');
+                }
+            }
+        }
+
+        $rangeStart = $dates[0]->format('Y-m-d');
+        // The rates/availability windows are inclusive of the last day shown, so
+        // the end of the request window is one day after the final visible date.
+        $rangeEnd = end($dates)->modify('+1 day')->format('Y-m-d');
+        reset($dates);
 
         $properties = [];
         try {
@@ -161,16 +210,13 @@ final class PageController extends Controller
             ];
         }
 
-        $dates = [];
-        for ($i = 0; $i < $totalDays; $i++) {
-            $dates[] = $start->modify('+' . $i . ' days');
-        }
-
         View::render('pages/calendar', [
             'pageTitle' => 'Calendrier',
             'rows' => $rows,
             'dates' => $dates,
-            'visibleDays' => 31,
+            'visibleDays' => min(count($dates), 31),
+            'monthOptions' => $monthOptions,
+            'selectedMonths' => $selectedMonths,
         ]);
     }
 
