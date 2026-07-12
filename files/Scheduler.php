@@ -80,6 +80,13 @@ SQL;
      * the same cron job as runOnce() (e.g. every 30 minutes) so the public
      * listing/detail pages never rely on data older than the cron interval,
      * instead of the 24h cache TTL used for on-demand (lazy) refreshes.
+     *
+     * getProperties() alone only refreshes the compact property list (cards),
+     * which Lodgify limits to a single image per property, so this also calls
+     * refreshAllPropertyDetails() to reload every property's full detail data
+     * — including its complete photo gallery — and keep the local image cache
+     * (images/listings/) up to date, instead of only refreshing on the rare
+     * occasion someone happens to open that specific property page.
      */
     public static function syncLodgify(): array
     {
@@ -87,6 +94,7 @@ SQL;
             $client = new LodgifyClient();
             $client->invalidate('lodgify:');
             $properties = $client->getProperties();
+            $client->refreshAllPropertyDetails();
             return ['synced' => count($properties), 'error' => null];
         } catch (\Throwable $e) {
             return ['synced' => 0, 'error' => $e->getMessage()];

@@ -68,6 +68,8 @@ try {
             PartnersController::delete((int) $matches[1]);
         case route($method, $path, 'POST', '#^/api/reservations/request$#'):
             ReservationsController::requestReservation();
+        case route($method, $path, 'POST', '#^/api/reservations/quote$#'):
+            ReservationsController::quote();
         case route($method, $path, 'GET', '#^/api/reservations$#'):
             ReservationsController::index();
         case route($method, $path, 'GET', '#^/api/reservations/(\d+)$#', $matches):

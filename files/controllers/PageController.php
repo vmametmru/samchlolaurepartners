@@ -82,11 +82,14 @@ final class PageController extends Controller
     {
         $client = new LodgifyClient();
         $today = date('Y-m-d');
-        $nextMonth = date('Y-m-d', strtotime('+30 days'));
+        // The calendar always shows the next 12 months (no tab switching, no
+        // AJAX refresh needed), rendered once with the full page.
+        $calendarMonths = 12;
+        [$rangeStart, $rangeEnd] = self::calendarRange($calendarMonths);
         try {
             $property = $client->getProperty($id);
-            $availability = $client->getAvailability($id, $today, $nextMonth);
-            $rates = self::publicRates($client, $id, $today, $nextMonth);
+            $availability = $client->getAvailability($id, $rangeStart, $rangeEnd);
+            $rates = self::publicRates($client, $id, $rangeStart, $rangeEnd);
         } catch (Throwable $e) {
             error_log('Property detail load failed for id ' . $id . ': ' . $e->getMessage());
             // Only a genuine 404 from Lodgify means the property truly doesn't
@@ -104,7 +107,22 @@ final class PageController extends Controller
             'availability' => $availability,
             'rates' => $rates,
             'today' => $today,
+            'calendarMonths' => $calendarMonths,
+            'calendarStart' => $rangeStart,
         ]);
+    }
+
+    /**
+     * @return array{0: string, 1: string} [rangeStart, rangeEnd] in Y-m-d format
+     */
+    private static function calendarRange(int $months): array
+    {
+        $rangeStart = (new \DateTimeImmutable('first day of this month'))->format('Y-m-d');
+        $rangeEnd = (new \DateTimeImmutable('first day of this month'))
+            ->modify('+' . $months . ' months')
+            ->modify('-1 day')
+            ->format('Y-m-d');
+        return [$rangeStart, $rangeEnd];
     }
 
     public static function submitBooking(int $propertyId): never
@@ -362,9 +380,14 @@ final class PageController extends Controller
     public static function adminRunSync(): never
     {
         self::requireAdminUser();
+        // Refreshing every property's detail cache (photos included) can take
+        // a while; avoid the request being killed by PHP's default execution
+        // time limit before it finishes, same as the deployment script does
+        // for its own long-running operations.
+        @set_time_limit(0);
         $client = new LodgifyClient();
         $client->invalidate('lodgify:');
-        $client->getProperties();
+        $client->refreshAllPropertyDetails();
         self::redirect('/admin/sync', 'Synchronisation Lodgify terminée.');
     }
 
@@ -504,6 +527,10 @@ final class PageController extends Controller
     {
         try {
             $client = new LodgifyClient();
+            // This test claims to query Lodgify "in real time" — clear any cached
+            // properties/rooms/rates first so it never silently shows stale numbers
+            // (e.g. capacity/min-stay cached before a mapping fix was deployed).
+            $client->invalidate('lodgify:');
             $guests = $adults + $children;
             $properties = $client->getProperties();
             $rows = [];
@@ -516,20 +543,41 @@ final class PageController extends Controller
                     'max_guests' => (int) $property['max_guests'],
                     'meets_capacity' => $property['max_guests'] <= 0 || $property['max_guests'] >= $guests,
                     'available' => false,
+                    'min_stay' => null,
                     'price_per_night' => null,
                     'currency' => null,
                     'error' => null,
                 ];
+                // A "Capacité max" of 0 can mean either the room really has no
+                // configured capacity in Lodgify, or the "/properties/{id}/rooms"
+                // call (the only source of that number) failed and was silently
+                // swallowed — surface which one it is instead of just showing 0.
+                if ((int) $property['max_guests'] <= 0) {
+                    $capacityDebug = $client->getRoomCapacityDebug($propertyId);
+                    if ($capacityDebug['error'] !== null) {
+                        $row['error'] = 'Capacité max = 0 : échec de /properties/{id}/rooms — ' . $capacityDebug['error'];
+                    }
+                }
                 try {
                     $row['available'] = $client->isAvailableForRange($propertyId, $checkin, $checkout);
                 } catch (Throwable $e) {
-                    $row['error'] = $e->getMessage();
+                    $row['error'] = $row['error'] !== null ? $row['error'] . ' / ' . $e->getMessage() : $e->getMessage();
                 }
                 try {
+                    // Minimum-stay restrictions are only exposed by the Rates
+                    // calendar (CalendarPrice.min_stay), never by the Availability
+                    // endpoint, which is why this used to always read back 1.
                     $rates = $client->getRates($propertyId, $checkin, $checkout, $guests);
                     if ($rates !== []) {
                         $row['price_per_night'] = (float) $rates[0]['price_per_night'];
                         $row['currency'] = (string) $rates[0]['currency'];
+                        $minStays = array_filter(array_map(
+                            static fn(array $rate): ?int => isset($rate['min_stay']) ? (int) $rate['min_stay'] : null,
+                            $rates
+                        ), static fn(?int $v): bool => $v !== null);
+                        if ($minStays !== []) {
+                            $row['min_stay'] = min($minStays);
+                        }
                     }
                 } catch (Throwable $e) {
                     $row['error'] = $row['error'] !== null ? $row['error'] . ' / ' . $e->getMessage() : $e->getMessage();
@@ -593,16 +641,28 @@ final class PageController extends Controller
         return 'Mis à jour le ' . $date->format('d/m/Y') . ' à ' . $date->format('H:i') . ' (GMT+4)';
     }
 
-    private static function publicRates(LodgifyClient $client, int $propertyId, string $from, string $to): array
+    public static function publicRates(LodgifyClient $client, int $propertyId, string $from, string $to): array
     {
         $rawRates = $client->getRates($propertyId, $from, $to, 2);
-        return array_map(static fn(array $rate): array => [
-            'date_from' => $rate['date_from'],
-            'date_to' => $rate['date_to'],
-            'currency' => $rate['currency'],
-            'price_per_night' => $rate['price_per_night'],
-            'price_per_night_with_markup' => $rate['price_per_night'],
-            'markup_percent' => 0,
-        ], $rawRates);
+        // The public property page must show the tenant's marked-up price, not
+        // the raw Lodgify price: markup_percent was previously hardcoded to 0
+        // here, so the margin configured for the current partner (resolved from
+        // the request subdomain) never showed up on the public detail page,
+        // even though the same markup was already applied correctly in the
+        // authenticated partner rates API (LodgifyController::rates).
+        $partner = Tenant::current();
+        $markup = $partner ? (float) ($partner['markup_percent'] ?? 0) : 0.0;
+        return array_map(static function (array $rate) use ($markup): array {
+            $markedUp = round(((float) $rate['price_per_night']) * (1 + $markup / 100), 2);
+            return [
+                'date_from' => $rate['date_from'],
+                'date_to' => $rate['date_to'],
+                'currency' => $rate['currency'],
+                'price_per_night' => $markedUp,
+                'price_per_night_with_markup' => $markedUp,
+                'markup_percent' => $markup,
+                'min_stay' => $rate['min_stay'] ?? null,
+            ];
+        }, $rawRates);
     }
 }
