@@ -180,6 +180,13 @@ function initBookingCalendarSelection() {
       return Boolean(info && info.available);
     }
 
+    // Property minimum-stay (in nights) that applies to a stay starting on
+    // this arrival date. Defaults to 1 when the date is unknown.
+    function minStayFor(date) {
+      const info = nightInfo.get(date);
+      return info ? info.minStay : 1;
+    }
+
     // Whether a stay can start on this date: the date and the following
     // (min stay - 1) nights must all be available.
     function canStartStayAt(date) {
@@ -230,7 +237,9 @@ function initBookingCalendarSelection() {
         if (checkin && checkout) {
           summary.innerHTML = `<p>Arrivée : ${formatFr(checkin)}</p><p>Départ : ${formatFr(checkout)}</p><p>Nuits : ${nightsBetween(checkin, checkout)}</p>`;
         } else if (checkin) {
-          summary.innerHTML = `<p>Arrivée : ${formatFr(checkin)}</p><p class="muted">Cliquez sur une autre date du calendrier pour le départ.</p>`;
+          const minStay = minStayFor(checkin);
+          const minHint = minStay > 1 ? ` (séjour minimum : ${minStay} nuits)` : '';
+          summary.innerHTML = `<p>Arrivée : ${formatFr(checkin)}</p><p class="muted">Cliquez sur une autre date du calendrier pour le départ${minHint}.</p>`;
         } else {
           summary.innerHTML = '<p class="muted">Sélectionnez vos dates dans le calendrier (Tarifs &amp; Disponibilités) : 1er clic = arrivée, 2e clic = départ.</p>';
         }
@@ -255,10 +264,16 @@ function initBookingCalendarSelection() {
         checkin = date;
         checkout = null;
       } else if (date <= checkin || !isRangeFullyAvailable(checkin, date)) {
-        // Invalid departure (before/same as arrival, or a gap in between):
+        // Invalid departure (before/same as arrival, or a booking in between):
         // this click becomes the new arrival date instead.
         checkin = canStartStayAt(date) ? date : null;
         checkout = null;
+      } else if (nightsBetween(checkin, date) < minStayFor(checkin)) {
+        // Valid, fully-free range but shorter than the property's minimum
+        // stay: keep the arrival selected and wait for a later departure
+        // rather than accepting a too-short booking (nights, not days: e.g.
+        // 10→17 July is 7 nights). Ignore this click.
+        return;
       } else {
         checkout = date;
       }
