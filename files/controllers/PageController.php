@@ -125,9 +125,9 @@ final class PageController extends Controller
         $start = new \DateTimeImmutable('today');
 
         // Build the list of selectable months (current month + the next 11).
-        $frenchMonths = [
-            1 => 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
-            'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre',
+        $frenchMonthsAbbr = [
+            1 => 'Jan', 'Fev', 'Mar', 'Avr', 'Mai', 'Jun',
+            'Jul', 'Aou', 'Sep', 'Oct', 'Nov', 'Dec',
         ];
         $firstOfThisMonth = new \DateTimeImmutable('first day of this month');
         $monthOptions = [];
@@ -135,7 +135,7 @@ final class PageController extends Controller
             $month = $firstOfThisMonth->modify('+' . $i . ' months');
             $monthOptions[] = [
                 'value' => $month->format('Y-m'),
-                'label' => $frenchMonths[(int) $month->format('n')] . ' ' . $month->format('Y'),
+                'label' => $frenchMonthsAbbr[(int) $month->format('n')] . ' ' . $month->format('y'),
             ];
         }
         $validMonths = array_column($monthOptions, 'value');

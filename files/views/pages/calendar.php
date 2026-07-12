@@ -42,8 +42,14 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
           <tr>
             <th class="cal-fixed cal-col-photo">Photo</th>
             <th class="cal-fixed cal-col-name">Bien</th>
-            <th class="cal-fixed cal-col-num">Pers. max</th>
-            <th class="cal-fixed cal-col-num">Chambres</th>
+            <th class="cal-fixed cal-col-num" title="Pers. max">
+              <span class="cal-icon" aria-hidden="true">👤</span>
+              <span class="sr-only">Pers. max</span>
+            </th>
+            <th class="cal-fixed cal-col-num" title="Chambres">
+              <span class="cal-icon" aria-hidden="true">🛏️</span>
+              <span class="sr-only">Chambres</span>
+            </th>
             <?php foreach ($dates as $date):
               $dow = (int) $date->format('w');
               $isWeekend = $dow === 0 || $dow === 6;

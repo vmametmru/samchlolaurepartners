@@ -148,6 +148,7 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .cal-col-photo { left: 0; width: var(--cal-photo-w); min-width: var(--cal-photo-w); }
 .cal-col-name { left: var(--cal-photo-w); width: var(--cal-name-w); min-width: var(--cal-name-w); text-align: left; padding: 0 .5rem; }
 .cal-col-num { width: var(--cal-num-w); min-width: var(--cal-num-w); text-align: center; }
+.cal-icon { font-size: 1.1rem; line-height: 1; }
 .cal-col-name.cal-fixed { left: var(--cal-photo-w); }
 .calendar-board-table tbody tr { height: 40px; }
 .calendar-board-table tbody td { height: 40px; }
