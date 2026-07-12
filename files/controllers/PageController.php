@@ -22,6 +22,11 @@ final class PageController extends Controller
 {
     public static function home(): void
     {
+        if (Tenant::current() === null) {
+            View::render('pages/enter-code', ['pageTitle' => 'Bienvenue']);
+            return;
+        }
+
         $properties = [];
         $searched = false;
         if (!empty($_GET['checkin']) && !empty($_GET['checkout'])) {
@@ -267,6 +272,23 @@ final class PageController extends Controller
         View::render('pages/contact', ['pageTitle' => 'Contact']);
     }
 
+    public static function submitPartnerCode(): never
+    {
+        $code = trim((string) ($_POST['code'] ?? ''));
+        if ($code === '') {
+            self::redirect('/', 'Merci de saisir un code partenaire.', 'error');
+        }
+
+        $partner = Tenant::resolveByCode($code);
+        if (!$partner) {
+            self::redirect('/', 'Code partenaire invalide.', 'error');
+        }
+
+        Tenant::setCodeCookie((string) $partner['subdomain']);
+        header('Location: /#/codesecret');
+        exit;
+    }
+
     public static function submitContact(): never
     {
         ob_start();
@@ -401,7 +423,7 @@ final class PageController extends Controller
     public static function adminPartnerForm(?int $id = null): void
     {
         self::requireAdminUser();
-        $partner = $id ? PartnersController::formData($id) : ['primary_color' => '#E61E4D', 'markup_percent' => 0, 'active' => 1];
+        $partner = $id ? PartnersController::formData($id) : ['primary_color' => '#E61E4D', 'markup_percent' => 0, 'cleaning_fee_per_person_per_night' => 0, 'active' => 1];
         View::render('pages/admin-partner-form', ['pageTitle' => $id ? 'Modifier partenaire' : 'Nouveau partenaire', 'partnerData' => $partner, 'editing' => $id !== null]);
     }
 
@@ -409,13 +431,14 @@ final class PageController extends Controller
     {
         self::requireAdminUser();
         if ($id === null) {
-            Database::connection()->prepare('INSERT INTO partners (subdomain, name, logo_url, primary_color, email, markup_percent, smtp_host, smtp_port, smtp_user, smtp_pass, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([
+            Database::connection()->prepare('INSERT INTO partners (subdomain, name, logo_url, primary_color, email, markup_percent, cleaning_fee_per_person_per_night, smtp_host, smtp_port, smtp_user, smtp_pass, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([
                 trim((string) ($_POST['subdomain'] ?? '')),
                 trim((string) ($_POST['name'] ?? '')),
                 trim((string) ($_POST['logo_url'] ?? '')) ?: null,
                 trim((string) ($_POST['primary_color'] ?? '#E61E4D')),
                 trim((string) ($_POST['email'] ?? '')),
                 (float) ($_POST['markup_percent'] ?? 0),
+                (float) ($_POST['cleaning_fee_per_person_per_night'] ?? 0),
                 trim((string) ($_POST['smtp_host'] ?? '')) ?: null,
                 ($_POST['smtp_port'] ?? '') !== '' ? (int) $_POST['smtp_port'] : null,
                 trim((string) ($_POST['smtp_user'] ?? '')) ?: null,
@@ -423,12 +446,13 @@ final class PageController extends Controller
                 isset($_POST['active']) ? 1 : 0,
             ]);
         } else {
-            Database::connection()->prepare('UPDATE partners SET name = ?, logo_url = ?, primary_color = ?, email = ?, markup_percent = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?')->execute([
+            Database::connection()->prepare('UPDATE partners SET name = ?, logo_url = ?, primary_color = ?, email = ?, markup_percent = ?, cleaning_fee_per_person_per_night = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?')->execute([
                 trim((string) ($_POST['name'] ?? '')),
                 trim((string) ($_POST['logo_url'] ?? '')) ?: null,
                 trim((string) ($_POST['primary_color'] ?? '#E61E4D')),
                 trim((string) ($_POST['email'] ?? '')),
                 (float) ($_POST['markup_percent'] ?? 0),
+                (float) ($_POST['cleaning_fee_per_person_per_night'] ?? 0),
                 trim((string) ($_POST['smtp_host'] ?? '')) ?: null,
                 ($_POST['smtp_port'] ?? '') !== '' ? (int) $_POST['smtp_port'] : null,
                 trim((string) ($_POST['smtp_user'] ?? '')) ?: null,

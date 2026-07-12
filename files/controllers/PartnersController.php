@@ -16,7 +16,7 @@ final class PartnersController extends Controller
     public static function index(): never
     {
         Auth::requireUser(true);
-        $rows = Database::connection()->query('SELECT id, subdomain, name, logo_url, primary_color, email, markup_percent, active, created_at, updated_at FROM partners ORDER BY name')->fetchAll(PDO::FETCH_ASSOC);
+        $rows = Database::connection()->query('SELECT id, subdomain, name, logo_url, primary_color, email, markup_percent, cleaning_fee_per_person_per_night, active, created_at, updated_at FROM partners ORDER BY name')->fetchAll(PDO::FETCH_ASSOC);
         self::json(['data' => $rows]);
     }
 
@@ -51,8 +51,8 @@ final class PartnersController extends Controller
 
         try {
             $stmt = Database::connection()->prepare(
-                'INSERT INTO partners (subdomain, name, logo_url, primary_color, email, markup_percent, smtp_host, smtp_port, smtp_user, smtp_pass)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO partners (subdomain, name, logo_url, primary_color, email, markup_percent, cleaning_fee_per_person_per_night, smtp_host, smtp_port, smtp_user, smtp_pass)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
             $stmt->execute([
                 (string) $input['subdomain'],
@@ -61,6 +61,7 @@ final class PartnersController extends Controller
                 self::nullableString($input['primary_color'] ?? '#E61E4D') ?? '#E61E4D',
                 (string) $input['email'],
                 self::decimal($input['markup_percent'] ?? 0),
+                self::decimal($input['cleaning_fee_per_person_per_night'] ?? 0),
                 self::nullableString($input['smtp_host'] ?? null),
                 self::nullableInt($input['smtp_port'] ?? null),
                 self::nullableString($input['smtp_user'] ?? null),
@@ -78,7 +79,7 @@ final class PartnersController extends Controller
         $input = self::input();
         try {
             $stmt = Database::connection()->prepare(
-                'UPDATE partners SET name = ?, logo_url = ?, primary_color = ?, email = ?, markup_percent = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?'
+                'UPDATE partners SET name = ?, logo_url = ?, primary_color = ?, email = ?, markup_percent = ?, cleaning_fee_per_person_per_night = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?'
             );
             $stmt->execute([
                 self::nullableString($input['name'] ?? null),
@@ -86,6 +87,7 @@ final class PartnersController extends Controller
                 self::nullableString($input['primary_color'] ?? null),
                 self::nullableString($input['email'] ?? null),
                 self::decimal($input['markup_percent'] ?? 0),
+                self::decimal($input['cleaning_fee_per_person_per_night'] ?? 0),
                 self::nullableString($input['smtp_host'] ?? null),
                 self::nullableInt($input['smtp_port'] ?? null),
                 self::nullableString($input['smtp_user'] ?? null),
