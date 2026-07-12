@@ -227,12 +227,13 @@ final class ReservationsController extends Controller
     /**
      * Lets a visitor request several properties in one go (built from the
      * "Calendrier" board where a date range can be picked per property row).
-     * All items share the same party size and client info. Every item's
-     * property capacity is checked against that party size before anything
-     * is inserted: if any selected property/date pair cannot host the party,
-     * the whole request is rejected with a message listing the offending
-     * items, so the visitor knows their selection cannot be booked as-is
-     * rather than silently dropping some of the properties.
+     * All items share the same party size and client info. Distinct
+     * properties can be combined to reach the requested party size, so no
+     * single item is rejected for having an individually insufficient
+     * capacity; instead the *combined* max capacity of every distinct
+     * selected property is checked once against the total party size before
+     * anything is inserted, and the whole request is rejected only if that
+     * combined capacity is still insufficient.
      */
     public static function requestMultiple(): never
     {

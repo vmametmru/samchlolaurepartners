@@ -791,8 +791,10 @@ function initBookingQuote() {
  * pair is added to a selection "cart"; the visitor can then click on another
  * property row (same dates or different dates) to add it too, building a
  * multi-property booking in a single request. Rows whose maximum occupancy
- * is insufficient for the party size entered above the table are rendered
- * disabled server-side and are simply not wired here.
+ * is insufficient for the party size entered above the table stay fully
+ * selectable here (only the sum of every distinct selected property's
+ * capacity is checked, cumulatively, both client-side and server-side), so
+ * several under-capacity properties can be combined to reach the party size.
  */
 function initMultiPropertyCart() {
   const board = document.querySelector('[data-multi-calendar-board]');
