@@ -9,6 +9,10 @@ $calendarMonths = 12;
 $calendarStartDate = isset($calendarStart) && $calendarStart !== ''
     ? new DateTimeImmutable((string) $calendarStart)
     : new DateTimeImmutable('first day of this month');
+// The calendar range always starts on the 1st of the current month (so the
+// whole month is visible), so any day before today (already elapsed) must be
+// greyed out and non-selectable rather than shown as a bookable date.
+$today = isset($today) && $today !== '' ? (string) $today : (new DateTimeImmutable('today'))->format('Y-m-d');
 
 $availabilityMap = [];
 $singleNightMap = [];
@@ -38,17 +42,22 @@ $frenchMonths = [1 => 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Ju
         <?php for ($i = 0; $i < $firstDay; $i++): ?><div></div><?php endfor; ?>
         <?php for ($dayNumber = 1; $dayNumber <= $daysInMonth; $dayNumber++):
           $date = sprintf('%04d-%02d-%02d', $year, $monthIndex, $dayNumber);
+          $isPast = $date < $today;
           $state = $availabilityMap[$date] ?? null;
           $isSingleNight = $singleNightMap[$date] ?? false;
-          $class = $isSingleNight
-            ? 'single-night'
-            : ($state === true ? 'available' : ($state === false ? 'unavailable' : 'unknown'));
+          $class = $isPast
+            ? 'past'
+            : ($isSingleNight
+              ? 'single-night'
+              : ($state === true ? 'available' : ($state === false ? 'unavailable' : 'unknown')));
+          // A past date is never bookable regardless of what Lodgify reports.
+          $isAvailable = !$isPast && $state === true;
           $rate = $rateMap[$date] ?? null;
           $minStay = isset($rate['min_stay']) && $rate['min_stay'] !== null ? (int) $rate['min_stay'] : 1;
         ?>
-          <div class="calendar-cell <?= $class ?>" data-calendar-date="<?= $date ?>" data-calendar-available="<?= $state === true ? '1' : '0' ?>" data-calendar-minstay="<?= $minStay > 0 ? $minStay : 1 ?>"<?php if ($rate !== null): ?> data-calendar-rate="<?= (float) $rate['price_per_night'] ?>"<?php endif; ?>>
+          <div class="calendar-cell <?= $class ?>" data-calendar-date="<?= $date ?>" data-calendar-available="<?= $isAvailable ? '1' : '0' ?>" data-calendar-minstay="<?= $minStay > 0 ? $minStay : 1 ?>"<?php if ($rate !== null && !$isPast): ?> data-calendar-rate="<?= (float) $rate['price_per_night'] ?>"<?php endif; ?>>
             <span class="calendar-day"><?= $dayNumber ?></span>
-            <?php if ($state === true && $rate !== null): ?>
+            <?php if ($isAvailable && $rate !== null): ?>
               <span class="calendar-price"><?= number_format((float) $rate['price_per_night'], 0, ',', ' ') ?> <?= \App\View::e($rate['currency']) ?></span>
             <?php endif; ?>
           </div>
@@ -61,5 +70,5 @@ $frenchMonths = [1 => 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Ju
   <span class="dot dot-green"></span> Disponible
   <span class="dot dot-red"></span> Indisponible
   <span class="dot dot-yellow"></span> Réservation d'1 nuit (arrivée ou départ uniquement)
-  <span class="dot dot-gray"></span> Non réservable (séjour minimum non atteint) / Non renseigné
+  <span class="dot dot-gray"></span> Non réservable (séjour minimum non atteint) / Non renseigné / Date passée
 </div>

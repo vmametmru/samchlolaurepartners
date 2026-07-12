@@ -123,6 +123,7 @@ final class PageController extends Controller
         // approaches the left/right edge.
         $client = new LodgifyClient();
         $start = new \DateTimeImmutable('today');
+        $today = $start->format('Y-m-d');
 
         // Build the list of selectable months (current month + the next 11).
         $frenchMonthsAbbr = [
@@ -235,6 +236,7 @@ final class PageController extends Controller
             'childrenUnder5' => $childrenUnder5,
             'children5to12' => $children5to12,
             'totalGuests' => $totalGuests,
+            'today' => $today,
         ]);
     }
 

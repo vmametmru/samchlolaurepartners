@@ -15,6 +15,7 @@ $adults = $adults ?? 0;
 $childrenUnder5 = $childrenUnder5 ?? 0;
 $children5to12 = $children5to12 ?? 0;
 $totalGuests = $totalGuests ?? 0;
+$today = isset($today) && $today !== '' ? (string) $today : date('Y-m-d');
 $frenchDays = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
 $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'];
 ?>
@@ -111,11 +112,17 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
               <td class="cal-fixed cal-col-num"><?= (int) ($property['bedrooms'] ?? 0) ?></td>
               <?php foreach ($dates as $date):
                 $key = $date->format('Y-m-d');
+                $isPast = $key < $today;
                 $state = $availabilityMap[$key] ?? null;
                 $isSingleNight = $singleNightMap[$key] ?? false;
-                $class = $isSingleNight
-                  ? 'single-night'
-                  : ($state === true ? 'available' : ($state === false ? 'unavailable' : 'unknown'));
+                $class = $isPast
+                  ? 'past'
+                  : ($isSingleNight
+                    ? 'single-night'
+                    : ($state === true ? 'available' : ($state === false ? 'unavailable' : 'unknown')));
+                // A past date is never bookable regardless of what Lodgify
+                // reports, so it is never treated as available/clickable here.
+                $isAvailable = !$isPast && $state === true;
                 $rate = $rateMap[$key] ?? null;
                 $minStay = isset($rate['min_stay']) && $rate['min_stay'] !== null ? (int) $rate['min_stay'] : 1;
                 // Every row is selectable regardless of its individual
@@ -125,8 +132,8 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
                 // can reuse an unavailable/single-night day as a valid
                 // departure date, exactly like the property detail calendar.
               ?>
-                <td class="cal-cell cal-<?= $class ?><?= $state === true ? ' cal-clickable' : '' ?>" title="<?= \App\View::e($key) ?>" data-calendar-date="<?= $key ?>" data-calendar-available="<?= $state === true ? '1' : '0' ?>" data-calendar-minstay="<?= $minStay > 0 ? $minStay : 1 ?>" data-calendar-price="<?= $state === true && $rate !== null ? (float) $rate['price_per_night'] : '0' ?>">
-                  <?php if ($state === true && $rate !== null): ?>
+                <td class="cal-cell cal-<?= $class ?><?= $isAvailable ? ' cal-clickable' : '' ?>" title="<?= \App\View::e($key) ?>" data-calendar-date="<?= $key ?>" data-calendar-available="<?= $isAvailable ? '1' : '0' ?>" data-calendar-minstay="<?= $minStay > 0 ? $minStay : 1 ?>" data-calendar-price="<?= $isAvailable && $rate !== null ? (float) $rate['price_per_night'] : '0' ?>">
+                  <?php if ($isAvailable && $rate !== null): ?>
                     <span class="cal-price"><?= number_format((float) $rate['price_per_night'], 0, ',', ' ') ?></span>
                   <?php endif; ?>
                 </td>
