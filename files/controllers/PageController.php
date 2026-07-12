@@ -112,6 +112,68 @@ final class PageController extends Controller
         ]);
     }
 
+    public static function calendar(): void
+    {
+        // Standalone "Calendrier" overview: one row per property, showing the
+        // same availability/price colouring as the detail-page calendars, but
+        // laid out horizontally so every property can be scanned day by day.
+        // The board loads a wide window of days; only ~31 are visible at once
+        // and the dates scroll when the mouse approaches the left/right edge.
+        $client = new LodgifyClient();
+        $totalDays = 180;
+        $start = new \DateTimeImmutable('today');
+        $rangeStart = $start->format('Y-m-d');
+        // The rates/availability windows are inclusive of the last day shown.
+        $rangeEnd = $start->modify('+' . $totalDays . ' days')->format('Y-m-d');
+
+        $properties = [];
+        try {
+            $properties = $client->getProperties();
+        } catch (Throwable $e) {
+            Flash::set('Impossible de charger les hébergements pour le moment.', 'error');
+        }
+
+        $rows = [];
+        foreach ($properties as $property) {
+            $id = (int) ($property['id'] ?? 0);
+            if ($id <= 0) {
+                continue;
+            }
+            $availabilityMap = [];
+            $singleNightMap = [];
+            $rateMap = [];
+            try {
+                foreach ($client->getAvailability($id, $rangeStart, $rangeEnd) as $day) {
+                    $availabilityMap[$day['date']] = $day['available'];
+                    $singleNightMap[$day['date']] = !empty($day['single_night']);
+                }
+                foreach (self::publicRates($client, $id, $rangeStart, $rangeEnd) as $rate) {
+                    $rateMap[$rate['date_from']] = $rate;
+                }
+            } catch (Throwable $e) {
+                error_log('Calendar board load failed for property ' . $id . ': ' . $e->getMessage());
+            }
+            $rows[] = [
+                'property' => $property,
+                'availability' => $availabilityMap,
+                'single_night' => $singleNightMap,
+                'rates' => $rateMap,
+            ];
+        }
+
+        $dates = [];
+        for ($i = 0; $i < $totalDays; $i++) {
+            $dates[] = $start->modify('+' . $i . ' days');
+        }
+
+        View::render('pages/calendar', [
+            'pageTitle' => 'Calendrier',
+            'rows' => $rows,
+            'dates' => $dates,
+            'visibleDays' => 31,
+        ]);
+    }
+
     /**
      * @return array{0: string, 1: string} [rangeStart, rangeEnd] in Y-m-d format
      */

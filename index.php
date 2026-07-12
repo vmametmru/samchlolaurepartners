@@ -132,6 +132,9 @@ try {
         case route($method, $path, 'GET', '#^/properties$#'):
             PageController::properties();
             break;
+        case route($method, $path, 'GET', '#^/calendrier$#'):
+            PageController::calendar();
+            break;
         case route($method, $path, 'GET', '#^/properties/(\d+)$#', $matches):
             PageController::propertyDetail((int) $matches[1]);
             break;

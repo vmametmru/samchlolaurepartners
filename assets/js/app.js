@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initGuestSteppers();
   initBookingAccordion();
   initBookingQuote();
+  initCalendarBoard();
 });
 
 function initGallery() {
@@ -63,6 +64,47 @@ function initGallery() {
       }
     });
     track.addEventListener('mouseleave', stopScrolling);
+  });
+}
+
+function initCalendarBoard() {
+  document.querySelectorAll('[data-calendar-board]').forEach((board) => {
+    let scrollDirection = 0;
+    let scrollFrame = null;
+    const edgeZoneRatio = 0.12;
+    const speed = 10;
+
+    const step = () => {
+      if (scrollDirection !== 0) {
+        board.scrollLeft += scrollDirection * speed;
+        scrollFrame = window.requestAnimationFrame(step);
+      } else {
+        scrollFrame = null;
+      }
+    };
+
+    const startScrolling = (direction) => {
+      if (scrollDirection === direction) return;
+      scrollDirection = direction;
+      if (!scrollFrame) scrollFrame = window.requestAnimationFrame(step);
+    };
+
+    const stopScrolling = () => {
+      scrollDirection = 0;
+    };
+
+    board.addEventListener('mousemove', (event) => {
+      const rect = board.getBoundingClientRect();
+      const relativeX = (event.clientX - rect.left) / rect.width;
+      if (relativeX <= edgeZoneRatio) {
+        startScrolling(-1);
+      } else if (relativeX >= 1 - edgeZoneRatio) {
+        startScrolling(1);
+      } else {
+        stopScrolling();
+      }
+    });
+    board.addEventListener('mouseleave', stopScrolling);
   });
 }
 
