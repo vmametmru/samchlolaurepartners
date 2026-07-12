@@ -99,7 +99,6 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
         <?php endif; ?>
         <p class="muted">Cliquez sur une date disponible du calendrier pour renseigner votre date d'arrivée, puis cliquez sur une seconde date pour la date de départ.</p>
         <?php require BASE_PATH . '/files/views/partials/calendar.php'; ?>
-        <?php require BASE_PATH . '/files/views/partials/reservations-table.php'; ?>
       </div>
     </div>
     <aside class="card card-body sticky-card" data-form-panel="rates-availability" hidden>
