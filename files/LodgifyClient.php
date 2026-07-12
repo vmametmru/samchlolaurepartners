@@ -362,16 +362,27 @@ final class LodgifyClient
             }
             $days = [];
             foreach ($merged as $day => $isAvailable) {
-                $days[] = ['date' => $day, 'available' => $isAvailable];
+                $days[] = ['date' => $day, 'available' => $isAvailable, 'single_night' => false];
             }
             ksort($days);
             return array_values($days);
         }
 
+        // Days occupied by an isolated 1-night reservation. Such a booking has
+        // no interior night (both its arrival and departure day are turnover
+        // days), so under the "free turnover day" rule it would leave no
+        // occupied day at all and the night would silently look bookable. We
+        // therefore keep the single booked night visible ("jaune pâle" in the
+        // calendar) and unbookable, while the surrounding days stay free.
+        $singleAny = array_fill_keys(array_keys($merged), false);
+        $multiAny = array_fill_keys(array_keys($merged), false);
+
         foreach ($roomTypeCalendars as $roomTypeCalendar) {
             // Per room type, days default to available=true and only flip to
             // false where a period explicitly reports zero available units.
             $roomDays = array_fill_keys(array_keys($merged), true);
+            $roomSingle = array_fill_keys(array_keys($merged), false);
+            $roomMulti = array_fill_keys(array_keys($merged), false);
             $periods = is_array($roomTypeCalendar['periods'] ?? null) ? $roomTypeCalendar['periods'] : [];
             foreach ($periods as $period) {
                 if (!is_array($period)) {
@@ -411,8 +422,21 @@ final class LodgifyClient
                     // (25/07 and 27/07 free).
                     $occupiedStart = $periodStart->modify('+1 day');
                     if ($occupiedStart >= $periodEnd) {
-                        // 1-night (or shorter) period: no interior night left
-                        // to block once both turnover days are excluded.
+                        // 1-night reservation: no interior night remains once
+                        // both turnover days are excluded. Rather than leaving
+                        // the whole thing invisible/bookable, keep the single
+                        // booked night (the arrival day) occupied and flag it as
+                        // a "single night" so the calendar can paint it pale
+                        // yellow. On that day a guest may only arrive or depart
+                        // (never sleep the booked night), so it must not be
+                        // bookable as an arrival/interior night.
+                        if ($available <= 0) {
+                            $day = $periodStart->format('Y-m-d');
+                            if (array_key_exists($day, $roomDays)) {
+                                $roomDays[$day] = false;
+                                $roomSingle[$day] = true;
+                            }
+                        }
                         continue;
                     }
                     if ($periodEnd <= $rangeStart || $occupiedStart >= $rangeEnd) {
@@ -438,6 +462,7 @@ final class LodgifyClient
                 }
                 while ($cursor < $limit) {
                     $roomDays[$cursor->format('Y-m-d')] = false;
+                    $roomMulti[$cursor->format('Y-m-d')] = true;
                     $cursor = $cursor->modify('+1 day');
                 }
             }
@@ -446,11 +471,25 @@ final class LodgifyClient
             foreach ($roomDays as $day => $isAvailable) {
                 $merged[$day] = $merged[$day] || $isAvailable;
             }
+            foreach ($roomSingle as $day => $isSingle) {
+                if ($isSingle) {
+                    $singleAny[$day] = true;
+                }
+            }
+            foreach ($roomMulti as $day => $isMulti) {
+                if ($isMulti) {
+                    $multiAny[$day] = true;
+                }
+            }
         }
 
         $days = [];
         foreach ($merged as $day => $isAvailable) {
-            $days[] = ['date' => $day, 'available' => $isAvailable];
+            // A day is "single night" (pale yellow) only when the property is
+            // fully booked that night solely because of 1-night reservations
+            // (no room free, and no multi-night interior block on that day).
+            $single = !$isAvailable && ($singleAny[$day] ?? false) && !($multiAny[$day] ?? false);
+            $days[] = ['date' => $day, 'available' => $isAvailable, 'single_night' => $single];
         }
         ksort($days);
         return array_values($days);

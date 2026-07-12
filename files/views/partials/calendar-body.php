@@ -11,8 +11,10 @@ $calendarStartDate = isset($calendarStart) && $calendarStart !== ''
     : new DateTimeImmutable('first day of this month');
 
 $availabilityMap = [];
+$singleNightMap = [];
 foreach ($availability as $day) {
     $availabilityMap[$day['date']] = $day['available'];
+    $singleNightMap[$day['date']] = !empty($day['single_night']);
 }
 $rateMap = [];
 foreach (($rates ?? []) as $rate) {
@@ -37,7 +39,10 @@ $frenchMonths = [1 => 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Ju
         <?php for ($dayNumber = 1; $dayNumber <= $daysInMonth; $dayNumber++):
           $date = sprintf('%04d-%02d-%02d', $year, $monthIndex, $dayNumber);
           $state = $availabilityMap[$date] ?? null;
-          $class = $state === true ? 'available' : ($state === false ? 'unavailable' : 'unknown');
+          $isSingleNight = $singleNightMap[$date] ?? false;
+          $class = $isSingleNight
+            ? 'single-night'
+            : ($state === true ? 'available' : ($state === false ? 'unavailable' : 'unknown'));
           $rate = $rateMap[$date] ?? null;
           $minStay = isset($rate['min_stay']) && $rate['min_stay'] !== null ? (int) $rate['min_stay'] : 1;
         ?>
@@ -55,5 +60,6 @@ $frenchMonths = [1 => 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Ju
 <div class="calendar-legend">
   <span class="dot dot-green"></span> Disponible
   <span class="dot dot-red"></span> Indisponible
+  <span class="dot dot-yellow"></span> Réservation d'1 nuit (arrivée ou départ uniquement)
   <span class="dot dot-gray"></span> Non réservable (séjour minimum non atteint) / Non renseigné
 </div>
