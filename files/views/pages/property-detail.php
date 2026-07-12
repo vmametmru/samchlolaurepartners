@@ -27,7 +27,21 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
     </div>
     <button type="button" class="btn-primary" data-reserve-btn data-reserve-tab="rates-availability">Réserver</button>
   </div>
-  <div class="gallery-main"><img src="<?= \App\View::e($mainImage) ?>" alt="<?= \App\View::e($property['name']) ?>" data-gallery-main></div>
+  <div class="gallery-main">
+    <img src="<?= \App\View::e($mainImage) ?>" alt="<?= \App\View::e($property['name']) ?>" data-gallery-main>
+    <div class="gallery-share">
+      <span class="gallery-share-toast" data-share-toast>Lien copié</span>
+      <button type="button" class="gallery-share-btn" data-share-btn aria-label="Partager" title="Partager">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="18" cy="5" r="3"></circle>
+          <circle cx="6" cy="12" r="3"></circle>
+          <circle cx="18" cy="19" r="3"></circle>
+          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+          <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+        </svg>
+      </button>
+    </div>
+  </div>
 
   <?php if (!empty($property['images'])): ?>
     <div class="gallery-carousel" data-gallery-carousel>
