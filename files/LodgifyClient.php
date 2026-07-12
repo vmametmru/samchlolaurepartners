@@ -345,7 +345,27 @@ final class LodgifyClient
 
         $roomTypeCalendars = array_values(array_filter($data, static fn($item): bool => is_array($item)));
         if ($roomTypeCalendars === []) {
-            return [];
+            // No calendar entries at all for this property (no room type
+            // returned any data, e.g. it has never had a single booking and
+            // Lodgify omitted even the usual degenerate sentinel period).
+            // Returning an empty result here used to leave every day of
+            // $merged at its "false" default with nothing to OR it against,
+            // so the whole property rendered as "unknown"/unbookable —
+            // functionally identical to fully blocked in the booking widget
+            // — which is why most properties (having no calendar data
+            // returned at all) looked entirely unavailable while only the
+            // rare property with real periods displayed correctly. Fall back
+            // to the same "default to available" policy used per room type
+            // below instead of leaving it blocked.
+            foreach ($merged as $day => $isAvailable) {
+                $merged[$day] = true;
+            }
+            $days = [];
+            foreach ($merged as $day => $isAvailable) {
+                $days[] = ['date' => $day, 'available' => $isAvailable];
+            }
+            ksort($days);
+            return array_values($days);
         }
 
         foreach ($roomTypeCalendars as $roomTypeCalendar) {
@@ -360,11 +380,11 @@ final class LodgifyClient
                 $available = (int) ($period['available'] ?? 0);
                 try {
                     $periodStart = new \DateTimeImmutable((string) ($period['start'] ?? ''));
-                    $periodEndRaw = new \DateTimeImmutable((string) ($period['end'] ?? ''));
+                    $periodEnd = new \DateTimeImmutable((string) ($period['end'] ?? ''));
                 } catch (\Throwable) {
                     continue;
                 }
-                if ($periodStart >= $periodEndRaw) {
+                if ($periodStart >= $periodEnd) {
                     // Degenerate (zero-width) period: Lodgify uses this to convey
                     // "this status applies to the whole request" rather than a
                     // specific sub-range, so apply it across
@@ -372,17 +392,24 @@ final class LodgifyClient
                     $cursor = $rangeStart;
                     $limit = $rangeEnd;
                 } else {
-                    // For a real booking/closed-period, this Lodgify account's
-                    // "end" is the last actually unavailable night INCLUSIVE,
-                    // not an exclusive checkout boundary (confirmed against
-                    // production: a 25/07-27/07 reservation, meaning checkout
-                    // on the 27th, comes back with period end "26/07" — the
-                    // last occupied night). Treating it as exclusive left the
-                    // last blocked night of every booking (the night before
-                    // checkout) showing as free. Extend by one day to get the
-                    // exclusive boundary our day-by-day loop expects.
-                    $periodEnd = $periodEndRaw->modify('+1 day');
-                    if ($periodEnd <= $rangeStart || $periodStart >= $rangeEnd) {
+                    // A real booking/closed-period's "start"/"end" are the
+                    // literal arrival/departure dates. Both boundary days are
+                    // turnover days that must stay bookable (a new guest can
+                    // arrive the same day another one departs), so the truly
+                    // occupied nights only run from (arrival + 1 day) up to,
+                    // but excluding, the departure date itself — "end" is
+                    // already the exclusive checkout boundary, so only the
+                    // start needs to be pushed forward by one day to free up
+                    // the arrival date too. E.g. arrival 25/07, departure
+                    // 27/07 blocks only the night of 26/07, leaving both
+                    // 25/07 and 27/07 free for another guest's arrival/departure.
+                    $occupiedStart = $periodStart->modify('+1 day');
+                    if ($occupiedStart >= $periodEnd) {
+                        // 1-night (or shorter) period: no interior night left
+                        // to block once both boundary days are excluded.
+                        continue;
+                    }
+                    if ($periodEnd <= $rangeStart || $occupiedStart >= $rangeEnd) {
                         // Entirely out-of-range real period (e.g. a past
                         // booking that already checked out, or a future one
                         // beyond the visible calendar window): unlike the
@@ -397,7 +424,7 @@ final class LodgifyClient
                         // with zero out-of-range bookings displayed correctly.
                         continue;
                     }
-                    $cursor = max($periodStart, $rangeStart);
+                    $cursor = max($occupiedStart, $rangeStart);
                     $limit = min($periodEnd, $rangeEnd);
                 }
                 if ($available > 0) {
