@@ -399,24 +399,20 @@ final class LodgifyClient
                     // correctly.
                     continue;
                 } else {
-                    // A real booking/closed-period's "start"/"end" are the
-                    // literal arrival/departure dates. Both boundary days are
-                    // turnover days that must stay bookable (a new guest can
-                    // arrive the same day another one departs), so the truly
-                    // occupied nights only run from (arrival + 1 day) up to,
-                    // but excluding, the departure date itself — "end" is
-                    // already the exclusive checkout boundary, so only the
-                    // start needs to be pushed forward by one day to free up
-                    // the arrival date too. E.g. arrival 25/07, departure
-                    // 27/07 blocks only the night of 26/07, leaving both
-                    // 25/07 and 27/07 free for another guest's arrival/departure.
-                    $occupiedStart = $periodStart->modify('+1 day');
-                    if ($occupiedStart >= $periodEnd) {
-                        // 1-night (or shorter) period: no interior night left
-                        // to block once both boundary days are excluded.
-                        continue;
-                    }
-                    if ($periodEnd <= $rangeStart || $occupiedStart >= $rangeEnd) {
+                    // A real booking/closed-period spans the half-open range
+                    // [start, end): "start" is the first occupied night (the
+                    // guest sleeps there) and "end" is Lodgify's exclusive
+                    // checkout boundary, so every night from the arrival date up
+                    // to — but excluding — the departure date is occupied. Only
+                    // the checkout day itself stays free as a turnover day. E.g.
+                    // arrival 14/07, departure 23/07 blocks the nights 14–22 and
+                    // leaves 23/07 free; a 1-night booking 25/07→26/07 blocks the
+                    // night of 25/07. Shifting the start forward by a day (an
+                    // earlier heuristic) freed the arrival night, which is
+                    // actually occupied, and made 1-night bookings disappear
+                    // entirely — that is why some reservations were not showing
+                    // up as blocked on the calendar.
+                    if ($periodEnd <= $rangeStart || $periodStart >= $rangeEnd) {
                         // Entirely out-of-range real period (e.g. a past
                         // booking that already checked out, or a future one
                         // beyond the visible calendar window): unlike the
@@ -431,7 +427,7 @@ final class LodgifyClient
                         // with zero out-of-range bookings displayed correctly.
                         continue;
                     }
-                    $cursor = max($occupiedStart, $rangeStart);
+                    $cursor = max($periodStart, $rangeStart);
                     $limit = min($periodEnd, $rangeEnd);
                 }
                 if ($available > 0) {
