@@ -66,11 +66,11 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
           <tr>
             <th class="cal-fixed cal-col-photo">Photo</th>
             <th class="cal-fixed cal-col-name">Bien</th>
-            <th class="cal-fixed cal-col-num" title="Pers. max">
+            <th class="cal-fixed cal-col-num cal-col-capacity" title="Pers. max">
               <span class="cal-icon" aria-hidden="true">👤</span>
               <span class="sr-only">Pers. max</span>
             </th>
-            <th class="cal-fixed cal-col-num" title="Chambres">
+            <th class="cal-fixed cal-col-num cal-col-rooms" title="Chambres">
               <span class="cal-icon" aria-hidden="true">🛏️</span>
               <span class="sr-only">Chambres</span>
             </th>
@@ -105,11 +105,11 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
               <td class="cal-fixed cal-col-name">
                 <a class="text-link" href="/properties/<?= $propertyId ?>"><?= \App\View::e($propertyName) ?></a>
                 <?php if (!$capacityOk): ?>
-                  <p class="muted cal-capacity-note">Capacité max <?= $maxGuests ?> pers. — combinez avec un autre bien pour atteindre <?= (int) $totalGuests ?> personne(s).</p>
+                  <p class="muted cal-capacity-note"><span class="cal-warning-icon" aria-hidden="true">⚠️</span>Capacité max <?= $maxGuests ?> pers. — combinez avec un autre bien pour atteindre <?= (int) $totalGuests ?> personne(s).</p>
                 <?php endif; ?>
               </td>
-              <td class="cal-fixed cal-col-num"><?= (int) ($property['max_guests'] ?? 0) ?></td>
-              <td class="cal-fixed cal-col-num"><?= (int) ($property['bedrooms'] ?? 0) ?></td>
+              <td class="cal-fixed cal-col-num cal-col-capacity"><?= (int) ($property['max_guests'] ?? 0) ?></td>
+              <td class="cal-fixed cal-col-num cal-col-rooms"><?= (int) ($property['bedrooms'] ?? 0) ?></td>
               <?php foreach ($dates as $date):
                 $key = $date->format('Y-m-d');
                 $isPast = $key < $today;
