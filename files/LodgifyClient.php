@@ -385,12 +385,19 @@ final class LodgifyClient
                     continue;
                 }
                 if ($periodStart >= $periodEnd) {
-                    // Degenerate (zero-width) period: Lodgify uses this to convey
-                    // "this status applies to the whole request" rather than a
-                    // specific sub-range, so apply it across
-                    // [rangeStart, rangeEnd) instead of skipping it.
-                    $cursor = $rangeStart;
-                    $limit = $rangeEnd;
+                    // Degenerate (zero-width) period, e.g. Lodgify's sentinel
+                    // {"start":"0001-01-01","end":"0001-01-01"} returned when a
+                    // room type has nothing booked in the window. It carries no
+                    // real occupied nights, so it must be ignored: days default
+                    // to available and only ever flip to unavailable via a real
+                    // overlapping period reporting available<=0. Previously this
+                    // was applied across the whole [rangeStart, rangeEnd) window,
+                    // which — whenever the sentinel's "available" was 0 — wrongly
+                    // marked every single night unavailable, so every property
+                    // without real booking periods rendered as entirely blocked
+                    // while only the rare property with actual periods displayed
+                    // correctly.
+                    continue;
                 } else {
                     // A real booking/closed-period's "start"/"end" are the
                     // literal arrival/departure dates. Both boundary days are
