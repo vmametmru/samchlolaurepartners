@@ -59,32 +59,6 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
     <?php if ($insufficientCount > 0): ?>
       <p class="muted calendar-capacity-warning"><?= $insufficientCount ?> bien(s) grisé(s) ci-dessous ne peuvent pas être réservés pour <?= (int) $totalGuests ?> personne(s) : leur capacité maximum est insuffisante.</p>
     <?php endif; ?>
-    <div class="multi-booking-cart" data-multi-cart hidden>
-      <h2 class="section-title">Votre sélection</h2>
-      <ul class="multi-cart-list" data-multi-cart-list></ul>
-      <div class="multi-cart-summary" data-multi-cart-summary>
-        <p><span data-multi-cart-summary-count>0</span> bien(s) sélectionné(s)</p>
-        <p><span data-multi-cart-summary-nights>0</span> nuit(s) sélectionnée(s)</p>
-        <p>Capacité : <span data-multi-cart-summary-capacity>0</span> personne(s) max sélectionnée(s) sur <?= (int) $totalGuests ?></p>
-        <p>Montant Total : <span data-multi-cart-summary-total>0</span> Euros</p>
-      </div>
-      <p class="form-feedback" data-multi-cart-feedback></p>
-      <form class="stack-md multi-cart-checkout" data-multi-cart-form data-api-form data-success-message="Vos demandes de réservation ont été envoyées ! Vous recevrez un email de confirmation." method="post" action="/api/reservations/request-multiple" hidden>
-        <input type="hidden" name="adults" value="<?= (int) $adults ?>">
-        <input type="hidden" name="children_under5" value="<?= (int) $childrenUnder5 ?>">
-        <input type="hidden" name="children_5to12" value="<?= (int) $children5to12 ?>">
-        <input type="hidden" name="items" data-multi-cart-items>
-        <div class="form-grid cols-2">
-          <label><span>Nom et prénom complet *</span><input class="input" type="text" name="client_name" required></label>
-          <label><span>Email *</span><input class="input" type="email" name="client_email" required></label>
-          <label><span>Téléphone</span><input class="input" type="tel" name="client_phone"></label>
-        </div>
-        <label><span>Message (optionnel)</span><textarea class="input" rows="3" name="message"></textarea></label>
-        <button class="btn-primary" type="submit">Envoyer mes demandes de réservation</button>
-        <p class="form-feedback" data-form-feedback></p>
-      </form>
-    </div>
-
     <div class="calendar-board" data-calendar-board data-multi-calendar-board data-total-guests="<?= (int) $totalGuests ?>" style="--cal-visible-days: <?= (int) $visibleDays ?>;">
       <table class="calendar-board-table">
         <thead>
@@ -161,6 +135,33 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
         </tbody>
       </table>
     </div>
+
+    <div class="multi-booking-cart" data-multi-cart hidden>
+      <h2 class="section-title">Votre sélection</h2>
+      <ul class="multi-cart-list" data-multi-cart-list></ul>
+      <div class="multi-cart-summary" data-multi-cart-summary>
+        <p><span data-multi-cart-summary-count>0</span> bien(s) sélectionné(s)</p>
+        <p><span data-multi-cart-summary-nights>0</span> nuit(s) sélectionnée(s)</p>
+        <p>Capacité : <span data-multi-cart-summary-capacity>0</span> personne(s) max sélectionnée(s) sur <?= (int) $totalGuests ?></p>
+        <p>Montant Total : <span data-multi-cart-summary-total>0</span> Euros</p>
+      </div>
+      <p class="form-feedback" data-multi-cart-feedback></p>
+      <form class="stack-md multi-cart-checkout" data-multi-cart-form data-api-form data-success-message="Vos demandes de réservation ont été envoyées ! Vous recevrez un email de confirmation." method="post" action="/api/reservations/request-multiple" hidden>
+        <input type="hidden" name="adults" value="<?= (int) $adults ?>">
+        <input type="hidden" name="children_under5" value="<?= (int) $childrenUnder5 ?>">
+        <input type="hidden" name="children_5to12" value="<?= (int) $children5to12 ?>">
+        <input type="hidden" name="items" data-multi-cart-items>
+        <div class="form-grid cols-2">
+          <label><span>Nom et prénom complet *</span><input class="input" type="text" name="client_name" required></label>
+          <label><span>Email *</span><input class="input" type="email" name="client_email" required></label>
+          <label><span>Téléphone</span><input class="input" type="tel" name="client_phone"></label>
+        </div>
+        <label><span>Message (optionnel)</span><textarea class="input" rows="3" name="message"></textarea></label>
+        <button class="btn-primary" type="submit">Envoyer mes demandes de réservation</button>
+        <p class="form-feedback" data-form-feedback></p>
+      </form>
+    </div>
+
     <div class="calendar-legend">
       <span class="dot dot-green"></span> Disponible
       <span class="dot dot-red"></span> Indisponible
