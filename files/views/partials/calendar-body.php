@@ -55,5 +55,5 @@ $frenchMonths = [1 => 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Ju
 <div class="calendar-legend">
   <span class="dot dot-green"></span> Disponible
   <span class="dot dot-red"></span> Indisponible
-  <span class="dot dot-gray"></span> Non renseigné
+  <span class="dot dot-gray"></span> Non réservable (séjour minimum non atteint) / Non renseigné
 </div>

@@ -195,6 +195,27 @@ function initBookingCalendarSelection() {
       return true;
     }
 
+    // A night can be genuinely free (available) yet still unbookable as an
+    // arrival date because the gap before the next occupied/blocked night is
+    // shorter than the property's minimum stay (e.g. a single free night
+    // between two reservations on a 2-night-minimum property). Those dates
+    // are shown as "restricted" (greyed out) instead of bookable (green), so
+    // guests don't try to start a stay there only to have it rejected.
+    // Arrival/departure (turnover) days of existing reservations are left
+    // untouched here: they either are genuinely occupied nights (marked
+    // unavailable already) or genuinely free nights that this same check
+    // applies to like any other date.
+    function markMinStayRestrictedCells() {
+      calendarWidget.querySelectorAll('[data-calendar-date].available').forEach((cell) => {
+        const date = cell.dataset.calendarDate;
+        if (date && !canStartStayAt(date)) {
+          cell.classList.remove('available');
+          cell.classList.add('restricted');
+        }
+      });
+    }
+    markMinStayRestrictedCells();
+
     function update() {
       checkinInput.value = checkin || '';
       checkoutInput.value = checkout || '';

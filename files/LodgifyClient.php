@@ -383,14 +383,22 @@ final class LodgifyClient
                     // exclusive boundary our day-by-day loop expects.
                     $periodEnd = $periodEndRaw->modify('+1 day');
                     if ($periodEnd <= $rangeStart || $periodStart >= $rangeEnd) {
-                        // Entirely out-of-range period: same "applies to the
-                        // whole request" convention as the degenerate case.
-                        $cursor = $rangeStart;
-                        $limit = $rangeEnd;
-                    } else {
-                        $cursor = max($periodStart, $rangeStart);
-                        $limit = min($periodEnd, $rangeEnd);
+                        // Entirely out-of-range real period (e.g. a past
+                        // booking that already checked out, or a future one
+                        // beyond the visible calendar window): unlike the
+                        // degenerate sentinel period, this has real dates
+                        // that simply don't overlap what was requested, so it
+                        // must be ignored rather than blocking the whole
+                        // range. Treating it like the degenerate case wrongly
+                        // marked every day unavailable for any property that
+                        // had so much as one booking outside the requested
+                        // window, which is why almost every property showed
+                        // "no dates available" while only the rare property
+                        // with zero out-of-range bookings displayed correctly.
+                        continue;
                     }
+                    $cursor = max($periodStart, $rangeStart);
+                    $limit = min($periodEnd, $rangeEnd);
                 }
                 if ($available > 0) {
                     continue;
