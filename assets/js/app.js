@@ -807,8 +807,11 @@ function initMultiPropertyCart() {
   const summaryCountEl = cartRoot.querySelector('[data-multi-cart-summary-count]');
   const summaryNightsEl = cartRoot.querySelector('[data-multi-cart-summary-nights]');
   const summaryCapacityEl = cartRoot.querySelector('[data-multi-cart-summary-capacity]');
+  const capacityHintEl = cartRoot.querySelector('[data-multi-cart-capacity-hint]');
   const summaryTotalEl = cartRoot.querySelector('[data-multi-cart-summary-total]');
   if (!listEl || !checkoutForm || !itemsInput) return;
+
+  const requestedGuests = parseInt(board.dataset.totalGuests || '0', 10) || 0;
 
   const cart = [];
   const rowUpdaters = [];
@@ -854,13 +857,16 @@ function initMultiPropertyCart() {
 
     let totalNights = 0;
     let totalAmount = 0;
-    let minCapacity = null;
+    const capacityByProperty = new Map();
 
     cart.forEach((item, index) => {
       const nights = nightsBetween(item.checkin, item.checkout);
       totalNights += nights;
       totalAmount += item.roomTotal;
-      if (minCapacity === null || item.maxGuests < minCapacity) minCapacity = item.maxGuests;
+      // Several properties, each with a capacity below the requested party
+      // size, can be combined: the relevant figure is the sum of the max
+      // capacity of every *distinct* selected property, not the smallest one.
+      capacityByProperty.set(item.propertyId, item.maxGuests);
 
       const li = document.createElement('li');
       li.className = 'multi-cart-item';
@@ -898,10 +904,18 @@ function initMultiPropertyCart() {
       listEl.appendChild(li);
     });
 
+    const totalCapacity = Array.from(capacityByProperty.values()).reduce((sum, guests) => sum + guests, 0);
+    const capacitySufficient = requestedGuests <= 0 || totalCapacity >= requestedGuests;
+
     if (summaryCountEl) summaryCountEl.textContent = String(cart.length);
     if (summaryNightsEl) summaryNightsEl.textContent = String(totalNights);
-    if (summaryCapacityEl) summaryCapacityEl.textContent = String(minCapacity ?? 0);
+    if (summaryCapacityEl) summaryCapacityEl.textContent = String(totalCapacity);
     if (summaryTotalEl) summaryTotalEl.textContent = formatEuros(totalAmount);
+    if (capacityHintEl) {
+      capacityHintEl.textContent = capacitySufficient
+        ? ''
+        : `Capacité insuffisante pour ${requestedGuests} personne(s) : sélectionnez un ou plusieurs biens supplémentaires.`;
+    }
 
     itemsInput.value = JSON.stringify(cart.map((item) => ({
       property_id: item.propertyId,
@@ -913,7 +927,9 @@ function initMultiPropertyCart() {
   }
 
   board.querySelectorAll('[data-property-row]').forEach((row) => {
-    if (row.dataset.capacityOk !== '1') return;
+    // Every row stays selectable, even if its own capacity is below the
+    // requested party size: several properties can be combined to reach the
+    // desired total capacity (checked cumulatively above and on the server).
     const propertyId = row.dataset.propertyId || '';
     const propertyName = row.dataset.propertyName || '';
     const propertyPhoto = row.dataset.propertyPhoto || '';

@@ -263,7 +263,12 @@ final class ReservationsController extends Controller
 
         $client = new LodgifyClient();
         $normalizedItems = [];
-        $capacityErrors = [];
+        // Distinct properties can be combined to reach the requested party
+        // size (e.g. 8 guests split across two 4-person properties), so
+        // capacity is no longer rejected per item; instead the *combined*
+        // max capacity of every distinct selected property is checked once
+        // all items have been read.
+        $capacityByProperty = [];
         foreach ($items as $item) {
             if (!is_array($item)) {
                 self::json(['error' => 'Bad Request', 'message' => 'Invalid item in selection'], 400);
@@ -296,8 +301,8 @@ final class ReservationsController extends Controller
                 $propertyName = (string) ($property['name'] ?? ('Bien #' . $propertyId));
             }
             $maxGuests = (int) ($property['max_guests'] ?? 0);
-            if ($maxGuests > 0 && $totalGuests > $maxGuests) {
-                $capacityErrors[] = "{$propertyName} ({$checkin} → {$checkout}) : capacité maximum de {$maxGuests} personne(s), insuffisante pour {$totalGuests} personne(s).";
+            if (!isset($capacityByProperty[$propertyId])) {
+                $capacityByProperty[$propertyId] = $maxGuests;
             }
 
             $normalizedItems[] = [
@@ -308,11 +313,15 @@ final class ReservationsController extends Controller
             ];
         }
 
-        if ($capacityErrors !== []) {
+        // A property with an unknown/zero max_guests is treated as having no
+        // capacity limit (consistent with the capacity_ok display logic), so
+        // it never blocks the combined total below.
+        $combinedCapacity = array_sum($capacityByProperty);
+        $hasUnlimitedProperty = in_array(0, $capacityByProperty, true);
+        if (!$hasUnlimitedProperty && $totalGuests > $combinedCapacity) {
             self::json([
                 'error' => 'Bad Request',
-                'message' => "Les biens sélectionnés à ces dates ne peuvent pas être réservés en raison du nombre de places disponibles dans votre sélection :\n" . implode("\n", $capacityErrors),
-                'details' => $capacityErrors,
+                'message' => "La capacité maximum cumulée des biens sélectionnés ({$combinedCapacity} personne(s)) est insuffisante pour {$totalGuests} personne(s). Ajoutez un ou plusieurs biens supplémentaires à votre sélection.",
             ], 400);
         }
 

@@ -57,7 +57,7 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
   <?php else: ?>
     <?php $insufficientCount = count(array_filter($rows, static fn (array $row): bool => !($row['capacity_ok'] ?? true))); ?>
     <?php if ($insufficientCount > 0): ?>
-      <p class="muted calendar-capacity-warning"><?= $insufficientCount ?> bien(s) grisé(s) ci-dessous ne peuvent pas être réservés pour <?= (int) $totalGuests ?> personne(s) : leur capacité maximum est insuffisante.</p>
+      <p class="muted calendar-capacity-warning"><?= $insufficientCount ?> bien(s) ci-dessous ont une capacité individuelle insuffisante pour <?= (int) $totalGuests ?> personne(s), mais restent sélectionnables : combinez-les avec d'autres biens pour atteindre le nombre de personnes voulu.</p>
     <?php endif; ?>
     <div class="calendar-board" data-calendar-board data-multi-calendar-board data-total-guests="<?= (int) $totalGuests ?>" style="--cal-visible-days: <?= (int) $visibleDays ?>;">
       <table class="calendar-board-table">
@@ -97,14 +97,14 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
             $propertyName = (string) ($property['name'] ?? '');
             $maxGuests = (int) ($property['max_guests'] ?? 0);
           ?>
-            <tr data-property-row data-property-id="<?= $propertyId ?>" data-property-name="<?= \App\View::e($propertyName) ?>" data-property-photo="<?= \App\View::e($photo) ?>" data-max-guests="<?= $maxGuests ?>" data-capacity-ok="<?= $capacityOk ? '1' : '0' ?>"<?= $capacityOk ? '' : ' class="cal-row-disabled"' ?>>
+            <tr data-property-row data-property-id="<?= $propertyId ?>" data-property-name="<?= \App\View::e($propertyName) ?>" data-property-photo="<?= \App\View::e($photo) ?>" data-max-guests="<?= $maxGuests ?>" data-capacity-ok="<?= $capacityOk ? '1' : '0' ?>">
               <td class="cal-fixed cal-col-photo">
                 <a href="/properties/<?= $propertyId ?>"><img class="cal-thumb" src="<?= \App\View::e($photo) ?>" alt="<?= \App\View::e($propertyName) ?>"></a>
               </td>
               <td class="cal-fixed cal-col-name">
                 <a class="text-link" href="/properties/<?= $propertyId ?>"><?= \App\View::e($propertyName) ?></a>
                 <?php if (!$capacityOk): ?>
-                  <p class="muted cal-capacity-note">Capacité max <?= $maxGuests ?> pers. — insuffisante pour <?= (int) $totalGuests ?> personne(s).</p>
+                  <p class="muted cal-capacity-note">Capacité max <?= $maxGuests ?> pers. — combinez avec un autre bien pour atteindre <?= (int) $totalGuests ?> personne(s).</p>
                 <?php endif; ?>
               </td>
               <td class="cal-fixed cal-col-num"><?= (int) ($property['max_guests'] ?? 0) ?></td>
@@ -118,13 +118,14 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
                   : ($state === true ? 'available' : ($state === false ? 'unavailable' : 'unknown'));
                 $rate = $rateMap[$key] ?? null;
                 $minStay = isset($rate['min_stay']) && $rate['min_stay'] !== null ? (int) $rate['min_stay'] : 1;
-                // Every cell of a row whose capacity is sufficient carries the
-                // date data attributes (even unavailable ones), so the client
-                // script can reuse an unavailable/single-night day as a valid
+                // Every row is selectable regardless of its individual
+                // capacity: several properties can be combined to reach the
+                // requested party size, so every cell carries the date data
+                // attributes (even unavailable ones), so the client script
+                // can reuse an unavailable/single-night day as a valid
                 // departure date, exactly like the property detail calendar.
-                $clickable = $capacityOk;
               ?>
-                <td class="cal-cell cal-<?= $class ?><?= $clickable && $state === true ? ' cal-clickable' : '' ?>" title="<?= \App\View::e($key) ?>"<?php if ($clickable): ?> data-calendar-date="<?= $key ?>" data-calendar-available="<?= $state === true ? '1' : '0' ?>" data-calendar-minstay="<?= $minStay > 0 ? $minStay : 1 ?>" data-calendar-price="<?= $state === true && $rate !== null ? (float) $rate['price_per_night'] : '0' ?>"<?php endif; ?>>
+                <td class="cal-cell cal-<?= $class ?><?= $state === true ? ' cal-clickable' : '' ?>" title="<?= \App\View::e($key) ?>" data-calendar-date="<?= $key ?>" data-calendar-available="<?= $state === true ? '1' : '0' ?>" data-calendar-minstay="<?= $minStay > 0 ? $minStay : 1 ?>" data-calendar-price="<?= $state === true && $rate !== null ? (float) $rate['price_per_night'] : '0' ?>">
                   <?php if ($state === true && $rate !== null): ?>
                     <span class="cal-price"><?= number_format((float) $rate['price_per_night'], 0, ',', ' ') ?></span>
                   <?php endif; ?>
@@ -142,7 +143,8 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
       <div class="multi-cart-summary" data-multi-cart-summary>
         <p><span data-multi-cart-summary-count>0</span> bien(s) sélectionné(s)</p>
         <p><span data-multi-cart-summary-nights>0</span> nuit(s) sélectionnée(s)</p>
-        <p>Capacité : <span data-multi-cart-summary-capacity>0</span> personne(s) max sélectionnée(s) sur <?= (int) $totalGuests ?></p>
+        <p data-multi-cart-summary-capacity-row>Capacité cumulée des biens sélectionnés : <span data-multi-cart-summary-capacity>0</span> / <?= (int) $totalGuests ?> personne(s)</p>
+        <p class="form-feedback" data-multi-cart-capacity-hint></p>
         <p>Montant Total : <span data-multi-cart-summary-total>0</span> Euros</p>
       </div>
       <p class="form-feedback" data-multi-cart-feedback></p>

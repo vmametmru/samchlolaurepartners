@@ -166,8 +166,6 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .cal-cell.cal-clickable:hover { outline: 2px solid var(--brand); outline-offset: -2px; }
 .cal-cell.selected { outline: 2px solid var(--brand); background: var(--brand); color: #fff; }
 .cal-cell.in-range { background: var(--brand); color: #fff; }
-tr.cal-row-disabled { opacity: .55; }
-tr.cal-row-disabled .cal-cell { cursor: not-allowed; }
 .cal-capacity-note { margin: .15rem 0 0; font-size: .72rem; color: #b91c1c; }
 
 .calendar-filter { margin-top: 1.25rem; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; }
