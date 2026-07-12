@@ -1,5 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
   initGallery();
+  initShareButton();
   initPropertyTabs();
   initMaps();
   initApiForms();
@@ -106,6 +107,38 @@ function initCalendarBoard() {
       }
     });
     board.addEventListener('mouseleave', stopScrolling);
+  });
+}
+
+function initShareButton() {
+  document.querySelectorAll('[data-share-btn]').forEach((btn) => {
+    const toast = btn.closest('.gallery-share')?.querySelector('[data-share-toast]');
+    let hideTimeout = null;
+    btn.addEventListener('click', async () => {
+      const url = window.location.href;
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(url);
+        } else {
+          const textarea = document.createElement('textarea');
+          textarea.value = url;
+          textarea.style.position = 'fixed';
+          textarea.style.opacity = '0';
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textarea);
+        }
+      } catch (error) {
+        return;
+      }
+      if (!toast) return;
+      toast.classList.add('visible');
+      if (hideTimeout) window.clearTimeout(hideTimeout);
+      hideTimeout = window.setTimeout(() => {
+        toast.classList.remove('visible');
+      }, 3000);
+    });
   });
 }
 
