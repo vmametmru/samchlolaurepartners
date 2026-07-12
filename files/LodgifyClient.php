@@ -395,71 +395,58 @@ final class LodgifyClient
                 } catch (\Throwable) {
                     continue;
                 }
-                if ($periodStart >= $periodEnd) {
-                    // Degenerate (zero-width) period, e.g. Lodgify's sentinel
-                    // {"start":"0001-01-01","end":"0001-01-01"} returned when a
-                    // room type has nothing booked in the window. It carries no
-                    // real occupied nights, so it must be ignored: days default
-                    // to available and only ever flip to unavailable via a real
-                    // overlapping period reporting available<=0. Previously this
-                    // was applied across the whole [rangeStart, rangeEnd) window,
-                    // which — whenever the sentinel's "available" was 0 — wrongly
-                    // marked every single night unavailable, so every property
-                    // without real booking periods rendered as entirely blocked
-                    // while only the rare property with actual periods displayed
-                    // correctly.
-                    continue;
-                } else {
-                    // A real booking/closed-period's occupied nights run over the
-                    // half-open range [start + 1 day, end): "start" is the
-                    // arrival date and "end" is Lodgify's exclusive checkout
-                    // boundary. Both turnover days stay free/bookable — the
-                    // arrival day (a new guest can check in the same day the
-                    // previous one leaves) and the checkout day — so only the
-                    // interior nights are blocked. E.g. arrival 14/07, departure
-                    // 23/07 blocks the nights 15–22 (14/07 and 23/07 free); a
-                    // reservation 25/07→27/07 blocks only the night of 26/07
-                    // (25/07 and 27/07 free).
-                    $occupiedStart = $periodStart->modify('+1 day');
-                    if ($occupiedStart >= $periodEnd) {
-                        // 1-night reservation: no interior night remains once
-                        // both turnover days are excluded. Rather than leaving
-                        // the whole thing invisible/bookable, keep the single
-                        // booked night (the arrival day) occupied and flag it as
-                        // a "single night" so the calendar can paint it pale
-                        // yellow. On that day a guest may only arrive or depart
-                        // (never sleep the booked night), so it must not be
-                        // bookable as an arrival/interior night.
-                        if ($available <= 0) {
-                            $day = $periodStart->format('Y-m-d');
-                            if (array_key_exists($day, $roomDays)) {
-                                $roomDays[$day] = false;
-                                $roomSingle[$day] = true;
-                            }
-                        }
-                        continue;
-                    }
-                    if ($periodEnd <= $rangeStart || $occupiedStart >= $rangeEnd) {
-                        // Entirely out-of-range real period (e.g. a past
-                        // booking that already checked out, or a future one
-                        // beyond the visible calendar window): unlike the
-                        // degenerate sentinel period, this has real dates
-                        // that simply don't overlap what was requested, so it
-                        // must be ignored rather than blocking the whole
-                        // range. Treating it like the degenerate case wrongly
-                        // marked every day unavailable for any property that
-                        // had so much as one booking outside the requested
-                        // window, which is why almost every property showed
-                        // "no dates available" while only the rare property
-                        // with zero out-of-range bookings displayed correctly.
-                        continue;
-                    }
-                    $cursor = max($occupiedStart, $rangeStart);
-                    $limit = min($periodEnd, $rangeEnd);
-                }
                 if ($available > 0) {
+                    // Still bookable units left for this period: not a
+                    // reservation/closed-period, so it blocks nothing.
                     continue;
                 }
+                if ((int) $periodStart->format('Y') <= 1 || $periodEnd < $periodStart) {
+                    // Lodgify's sentinel "nothing booked" period
+                    // ({"start":"0001-01-01","end":"0001-01-01"}) or a malformed
+                    // inverted period. It carries no real occupied nights, so it
+                    // must be ignored: days default to available and only ever
+                    // flip to unavailable via a real overlapping period below.
+                    continue;
+                }
+                // Lodgify availability periods report their occupied nights as an
+                // INCLUSIVE [start, end] range: "start" is the reservation's
+                // arrival date and "end" is the last occupied night, i.e. the
+                // departure date minus one day (NOT the exclusive checkout). The
+                // exclusive checkout boundary is therefore end + 1 day. Both
+                // turnover days stay free/bookable — the arrival day (a new guest
+                // can check in the same day the previous one leaves) and the
+                // checkout day — so only the interior nights are blocked. E.g.
+                // arrival 25/07, departure 27/07 arrives as start=25/07 end=26/07
+                // and blocks only the night of 26/07 (25/07 and 27/07 free);
+                // arrival 14/07, departure 23/07 arrives as start=14/07 end=22/07
+                // and blocks the nights 15–22.
+                $checkoutExclusive = $periodEnd->modify('+1 day');
+                $occupiedStart = $periodStart->modify('+1 day');
+                if ($occupiedStart > $periodEnd) {
+                    // 1-night reservation (start === end): no interior night
+                    // remains once both turnover days are excluded. Rather than
+                    // leaving the whole thing invisible/bookable, keep the single
+                    // booked night (the arrival day) occupied and flag it as a
+                    // "single night" so the calendar can paint it pale yellow. On
+                    // that day a guest may only arrive or depart (never sleep the
+                    // booked night), so it must not be bookable.
+                    $day = $periodStart->format('Y-m-d');
+                    if (array_key_exists($day, $roomDays)) {
+                        $roomDays[$day] = false;
+                        $roomSingle[$day] = true;
+                    }
+                    continue;
+                }
+                if ($checkoutExclusive <= $rangeStart || $occupiedStart >= $rangeEnd) {
+                    // Entirely out-of-range real period (a past booking that
+                    // already checked out, or a future one beyond the visible
+                    // calendar window): it has real dates that simply don't
+                    // overlap what was requested, so it must be ignored rather
+                    // than blocking the whole range.
+                    continue;
+                }
+                $cursor = max($occupiedStart, $rangeStart);
+                $limit = min($checkoutExclusive, $rangeEnd);
                 while ($cursor < $limit) {
                     $roomDays[$cursor->format('Y-m-d')] = false;
                     $roomMulti[$cursor->format('Y-m-d')] = true;
@@ -553,18 +540,23 @@ final class LodgifyClient
                 } catch (\Throwable) {
                     continue;
                 }
-                if ($periodStart >= $periodEnd) {
-                    // Degenerate sentinel period = "nothing booked".
+                if ((int) $periodStart->format('Y') <= 1 || $periodEnd < $periodStart) {
+                    // Sentinel "nothing booked" period (0001-01-01) or malformed.
                     continue;
                 }
-                if ($periodEnd <= $rangeStart || $periodStart >= $rangeEnd) {
+                // Lodgify reports occupied nights as an inclusive [start, end]
+                // range where "end" is the last occupied night (departure minus
+                // one). Recover the real (exclusive) checkout date as end + 1 so
+                // the table shows the actual departure and night count.
+                $checkoutExclusive = $periodEnd->modify('+1 day');
+                if ($checkoutExclusive <= $rangeStart || $periodStart >= $rangeEnd) {
                     // Real booking entirely outside the requested window.
                     continue;
                 }
-                $nights = (int) $periodStart->diff($periodEnd)->days;
+                $nights = (int) $periodStart->diff($checkoutExclusive)->days;
                 $reservations[] = [
                     'start' => $periodStart->format('Y-m-d'),
-                    'end' => $periodEnd->format('Y-m-d'),
+                    'end' => $checkoutExclusive->format('Y-m-d'),
                     'nights' => $nights,
                     'room_type_id' => $roomTypeId,
                     'room_type_name' => $roomTypeName,
