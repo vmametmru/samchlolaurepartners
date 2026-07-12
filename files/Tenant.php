@@ -31,7 +31,7 @@ final class Tenant
         }
 
         $parts = explode('.', $host);
-        if (count($parts) < 2) {
+        if (count($parts) < 2 || $host === self::registrableDomain($host)) {
             return $partner = self::fromCode();
         }
 
@@ -42,6 +42,30 @@ final class Tenant
 
         $partner = self::lookupByCode($subdomain);
         return $partner;
+    }
+
+    /**
+     * Best-effort registrable ("eTLD+1") domain for the given host, used to tell apart the
+     * bare apex/www domain (e.g. "grand-baie-maurice.com") from an actual partner subdomain
+     * (e.g. "partner.grand-baie-maurice.com"). Without this check, a request to the naked
+     * apex domain would wrongly treat its own first label as a subdomain/partner code, fail
+     * to find a matching partner, and never fall back to the "Code Partenaire" cookie — so a
+     * visitor who entered a valid code would keep seeing the code entry form forever.
+     */
+    private static function registrableDomain(string $host): string
+    {
+        $labels = explode('.', $host);
+        $count = count($labels);
+        if ($count <= 2) {
+            return $host;
+        }
+
+        $tld = $labels[$count - 1];
+        $sld = $labels[$count - 2];
+        // Two-level public suffixes look like "<=3 char SLD>.<2 char ccTLD>", e.g. co.uk,
+        // com.au, org.uk, ac.nz, com.br. In that case keep three labels; otherwise two.
+        $keep = (strlen($tld) === 2 && strlen($sld) <= 3) ? 3 : 2;
+        return implode('.', array_slice($labels, -$keep));
     }
 
     /**
