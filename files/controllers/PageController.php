@@ -423,7 +423,7 @@ final class PageController extends Controller
     public static function adminPartnerForm(?int $id = null): void
     {
         self::requireAdminUser();
-        $partner = $id ? PartnersController::formData($id) : ['primary_color' => '#E61E4D', 'markup_percent' => 0, 'cleaning_fee_per_person_per_night' => 0, 'active' => 1];
+        $partner = $id ? PartnersController::formData($id) : ['primary_color' => '#E61E4D', 'markup_percent' => 0, 'cleaning_fee_per_person_per_night' => 0, 'tourist_tax_per_person_per_night' => 0, 'active' => 1];
         View::render('pages/admin-partner-form', ['pageTitle' => $id ? 'Modifier partenaire' : 'Nouveau partenaire', 'partnerData' => $partner, 'editing' => $id !== null]);
     }
 
@@ -431,7 +431,7 @@ final class PageController extends Controller
     {
         self::requireAdminUser();
         if ($id === null) {
-            Database::connection()->prepare('INSERT INTO partners (subdomain, name, logo_url, primary_color, email, markup_percent, cleaning_fee_per_person_per_night, smtp_host, smtp_port, smtp_user, smtp_pass, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([
+            Database::connection()->prepare('INSERT INTO partners (subdomain, name, logo_url, primary_color, email, markup_percent, cleaning_fee_per_person_per_night, tourist_tax_per_person_per_night, smtp_host, smtp_port, smtp_user, smtp_pass, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([
                 trim((string) ($_POST['subdomain'] ?? '')),
                 trim((string) ($_POST['name'] ?? '')),
                 trim((string) ($_POST['logo_url'] ?? '')) ?: null,
@@ -439,6 +439,7 @@ final class PageController extends Controller
                 trim((string) ($_POST['email'] ?? '')),
                 (float) ($_POST['markup_percent'] ?? 0),
                 (float) ($_POST['cleaning_fee_per_person_per_night'] ?? 0),
+                (float) ($_POST['tourist_tax_per_person_per_night'] ?? 0),
                 trim((string) ($_POST['smtp_host'] ?? '')) ?: null,
                 ($_POST['smtp_port'] ?? '') !== '' ? (int) $_POST['smtp_port'] : null,
                 trim((string) ($_POST['smtp_user'] ?? '')) ?: null,
@@ -446,13 +447,14 @@ final class PageController extends Controller
                 isset($_POST['active']) ? 1 : 0,
             ]);
         } else {
-            Database::connection()->prepare('UPDATE partners SET name = ?, logo_url = ?, primary_color = ?, email = ?, markup_percent = ?, cleaning_fee_per_person_per_night = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?')->execute([
+            Database::connection()->prepare('UPDATE partners SET name = ?, logo_url = ?, primary_color = ?, email = ?, markup_percent = ?, cleaning_fee_per_person_per_night = ?, tourist_tax_per_person_per_night = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?')->execute([
                 trim((string) ($_POST['name'] ?? '')),
                 trim((string) ($_POST['logo_url'] ?? '')) ?: null,
                 trim((string) ($_POST['primary_color'] ?? '#E61E4D')),
                 trim((string) ($_POST['email'] ?? '')),
                 (float) ($_POST['markup_percent'] ?? 0),
                 (float) ($_POST['cleaning_fee_per_person_per_night'] ?? 0),
+                (float) ($_POST['tourist_tax_per_person_per_night'] ?? 0),
                 trim((string) ($_POST['smtp_host'] ?? '')) ?: null,
                 ($_POST['smtp_port'] ?? '') !== '' ? (int) $_POST['smtp_port'] : null,
                 trim((string) ($_POST['smtp_user'] ?? '')) ?: null,
@@ -467,8 +469,8 @@ final class PageController extends Controller
     public static function adminDeletePartner(int $id): never
     {
         self::requireAdminUser();
-        Database::connection()->prepare('UPDATE partners SET active = 0, updated_at = NOW() WHERE id = ?')->execute([$id]);
-        self::redirect('/admin/partners', 'Partenaire désactivé.', 'info');
+        Database::connection()->prepare('DELETE FROM partners WHERE id = ?')->execute([$id]);
+        self::redirect('/admin/partners', 'Partenaire supprimé.');
     }
 
     public static function adminFees(): void

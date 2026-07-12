@@ -8,6 +8,29 @@ use PDO;
 
 final class Migrator
 {
+    /**
+     * Automatically applies any pending SQL migration on every request so the
+     * live site never breaks with "Column not found" / "Table doesn't exist"
+     * errors just because a deploy forgot (or was unable, on shared hosting
+     * without shell access) to run `php bin/migrate.php` after new migration
+     * files were uploaded. Each migration is only ever applied once (tracked
+     * in the db_migrations table), and the check itself is throttled with a
+     * small on-disk marker so it doesn't hit the database on every single
+     * request.
+     */
+    public static function autoRun(int $throttleSeconds = 60): array
+    {
+        $marker = BASE_PATH . '/files/storage/cache/migrations-last-check.txt';
+        $lastCheck = is_file($marker) ? (int) file_get_contents($marker) : 0;
+        if ($lastCheck > 0 && (time() - $lastCheck) < $throttleSeconds) {
+            return ['applied' => [], 'skipped' => []];
+        }
+
+        @file_put_contents($marker, (string) time());
+
+        return self::run();
+    }
+
     public static function run(): array
     {
         $pdo = Database::connection();

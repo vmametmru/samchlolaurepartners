@@ -23,6 +23,16 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 
 date_default_timezone_set('UTC');
 
+// Keep the live database schema in sync with the codebase automatically:
+// on shared hosting there is often no shell access to run `bin/migrate.php`
+// after a deploy, so any pending migration (new column/table) is applied
+// here on the fly. Failures are logged but never break the page.
+try {
+    App\Migrator::autoRun();
+} catch (\Throwable $e) {
+    error_log('[migrator] ' . $e->getMessage());
+}
+
 $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 
