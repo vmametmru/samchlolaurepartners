@@ -187,15 +187,13 @@ function initBookingCalendarSelection() {
       return info ? info.minStay : 1;
     }
 
-    // Whether a stay can start on this date: the date and the following
-    // (min stay - 1) nights must all be available.
+    // Whether a stay can start on this date. Any available (green) day is a
+    // valid arrival date, including the turnover/arrival days of existing
+    // reservations: the guest simply picks a departure date afterwards. The
+    // minimum-stay is not enforced here (it would grey out otherwise bookable
+    // arrival days); it is checked when the departure date is clicked instead.
     function canStartStayAt(date) {
-      const info = nightInfo.get(date);
-      if (!info || !info.available) return false;
-      for (let i = 0; i < info.minStay; i++) {
-        if (!isNightAvailable(addDaysStr(date, i))) return false;
-      }
-      return true;
+      return isNightAvailable(date);
     }
 
     // Whether every night from startDate (inclusive) to endDate (exclusive)
@@ -209,26 +207,9 @@ function initBookingCalendarSelection() {
       return true;
     }
 
-    // A night can be genuinely free (available) yet still unbookable as an
-    // arrival date because the gap before the next occupied/blocked night is
-    // shorter than the property's minimum stay (e.g. a single free night
-    // between two reservations on a 2-night-minimum property). Those dates
-    // are shown as "restricted" (greyed out) instead of bookable (green), so
-    // guests don't try to start a stay there only to have it rejected.
-    // Arrival/departure (turnover) days of existing reservations are left
-    // untouched here: they either are genuinely occupied nights (marked
-    // unavailable already) or genuinely free nights that this same check
-    // applies to like any other date.
-    function markMinStayRestrictedCells() {
-      calendarWidget.querySelectorAll('[data-calendar-date].available').forEach((cell) => {
-        const date = cell.dataset.calendarDate;
-        if (date && !canStartStayAt(date)) {
-          cell.classList.remove('available');
-          cell.classList.add('restricted');
-        }
-      });
-    }
-    markMinStayRestrictedCells();
+    // Every available day stays green and clickable as an arrival date; the
+    // minimum-stay is enforced only when the departure date is chosen, so no
+    // bookable arrival day is greyed out.
 
     function update() {
       checkinInput.value = checkin || '';
