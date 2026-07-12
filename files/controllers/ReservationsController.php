@@ -224,6 +224,152 @@ final class ReservationsController extends Controller
         }
     }
 
+    /**
+     * Lets a visitor request several properties in one go (built from the
+     * "Calendrier" board where a date range can be picked per property row).
+     * All items share the same party size and client info. Every item's
+     * property capacity is checked against that party size before anything
+     * is inserted: if any selected property/date pair cannot host the party,
+     * the whole request is rejected with a message listing the offending
+     * items, so the visitor knows their selection cannot be booked as-is
+     * rather than silently dropping some of the properties.
+     */
+    public static function requestMultiple(): never
+    {
+        $input = self::input();
+        $clientName = trim((string) ($input['client_name'] ?? ''));
+        $clientEmail = trim((string) ($input['client_email'] ?? ''));
+        $adults = max(0, (int) ($input['adults'] ?? 0));
+        $childrenUnder5 = max(0, (int) ($input['children_under5'] ?? 0));
+        $children5to12 = max(0, (int) ($input['children_5to12'] ?? 0));
+        $totalGuests = $adults + $childrenUnder5 + $children5to12;
+        $children = $childrenUnder5 + $children5to12;
+
+        $items = $input['items'] ?? [];
+        if (is_string($items)) {
+            $decoded = json_decode($items, true);
+            $items = is_array($decoded) ? $decoded : [];
+        }
+        if (!is_array($items)) {
+            $items = [];
+        }
+
+        if ($clientName === '' || $clientEmail === '' || $adults < 1 || $items === []) {
+            self::json(['error' => 'Bad Request', 'message' => 'Required fields missing'], 400);
+        }
+        if (filter_var($clientEmail, FILTER_VALIDATE_EMAIL) === false) {
+            self::json(['error' => 'Bad Request', 'message' => 'Invalid client_email'], 400);
+        }
+
+        $client = new LodgifyClient();
+        $normalizedItems = [];
+        $capacityErrors = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                self::json(['error' => 'Bad Request', 'message' => 'Invalid item in selection'], 400);
+            }
+            $propertyId = (int) ($item['property_id'] ?? 0);
+            $checkin = trim((string) ($item['checkin_date'] ?? ''));
+            $checkout = trim((string) ($item['checkout_date'] ?? ''));
+            $propertyName = trim((string) ($item['property_name'] ?? ''));
+
+            if ($propertyId <= 0 || $checkin === '' || $checkout === '') {
+                self::json(['error' => 'Bad Request', 'message' => 'Chaque bien sélectionné doit avoir un identifiant et des dates valides'], 400);
+            }
+            try {
+                $checkinDate = new \DateTimeImmutable($checkin);
+                $checkoutDate = new \DateTimeImmutable($checkout);
+            } catch (Throwable $e) {
+                self::json(['error' => 'Bad Request', 'message' => 'Dates invalides pour ' . ($propertyName !== '' ? $propertyName : 'un bien sélectionné')], 400);
+            }
+            if ($checkoutDate <= $checkinDate) {
+                self::json(['error' => 'Bad Request', 'message' => "La date de départ doit être après la date d'arrivée pour " . ($propertyName !== '' ? $propertyName : 'un bien sélectionné')], 400);
+            }
+
+            $property = null;
+            try {
+                $property = $client->getProperty($propertyId);
+            } catch (Throwable $e) {
+                error_log('Lodgify: failed to fetch property ' . $propertyId . ' for multi-booking capacity check: ' . $e->getMessage());
+            }
+            if ($propertyName === '') {
+                $propertyName = (string) ($property['name'] ?? ('Bien #' . $propertyId));
+            }
+            $maxGuests = (int) ($property['max_guests'] ?? 0);
+            if ($maxGuests > 0 && $totalGuests > $maxGuests) {
+                $capacityErrors[] = "{$propertyName} ({$checkin} → {$checkout}) : capacité maximum de {$maxGuests} personne(s), insuffisante pour {$totalGuests} personne(s).";
+            }
+
+            $normalizedItems[] = [
+                'property_id' => $propertyId,
+                'property_name' => $propertyName,
+                'checkin_date' => $checkinDate->format('Y-m-d'),
+                'checkout_date' => $checkoutDate->format('Y-m-d'),
+            ];
+        }
+
+        if ($capacityErrors !== []) {
+            self::json([
+                'error' => 'Bad Request',
+                'message' => "Les biens sélectionnés à ces dates ne peuvent pas être réservés en raison du nombre de places disponibles dans votre sélection :\n" . implode("\n", $capacityErrors),
+                'details' => $capacityErrors,
+            ], 400);
+        }
+
+        $partner = self::requirePartnerContext();
+        $pdo = Database::connection();
+        $createdIds = [];
+        $guestsJson = json_encode($input['guests'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $clientPhone = self::nullableString($input['client_phone'] ?? null);
+        $message = self::nullableString($input['message'] ?? null);
+
+        try {
+            $pdo->beginTransaction();
+            $stmt = $pdo->prepare(
+                'INSERT INTO reservation_requests (partner_id, property_id, property_name, client_name, client_email, client_phone, checkin_date, checkout_date, adults, children, guests, message)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            );
+            foreach ($normalizedItems as $item) {
+                $stmt->execute([
+                    (int) $partner['id'],
+                    (string) $item['property_id'],
+                    $item['property_name'],
+                    $clientName,
+                    $clientEmail,
+                    $clientPhone,
+                    $item['checkin_date'],
+                    $item['checkout_date'],
+                    $adults,
+                    $children,
+                    $guestsJson,
+                    $message,
+                ]);
+                $createdIds[] = (int) $pdo->lastInsertId();
+            }
+            $pdo->commit();
+        } catch (Throwable $e) {
+            $pdo->rollBack();
+            error_log((string) $e);
+            self::json(['error' => 'Internal Server Error', 'message' => 'Failed to submit requests'], 500);
+        }
+
+        foreach ($normalizedItems as $item) {
+            self::sendRequestEmails($partner, [
+                'client_name' => $clientName,
+                'client_email' => $clientEmail,
+                'client_phone' => $clientPhone,
+                'checkin_date' => $item['checkin_date'],
+                'checkout_date' => $item['checkout_date'],
+                'adults' => $adults,
+                'children' => $children,
+                'property_name' => $item['property_name'],
+                'message' => $message,
+            ]);
+        }
+
+        self::json(['data' => ['ids' => $createdIds], 'message' => 'Reservation requests submitted'], 201);
+    }
+
     public static function index(): never
     {
         $user = Auth::requireUser();

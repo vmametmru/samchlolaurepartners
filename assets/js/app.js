@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initBookingAccordion();
   initBookingQuote();
   initCalendarBoard();
+  initMultiPropertyCart();
 });
 
 function initGallery() {
@@ -353,6 +354,11 @@ function initApiForms() {
             return;
           }
         }
+      }
+      const multiCartItemsField = form.querySelector('[data-multi-cart-items]');
+      if (multiCartItemsField && !multiCartItemsField.value) {
+        if (feedback) feedback.textContent = 'Veuillez sélectionner au moins un bien et des dates avant de continuer.';
+        return;
       }
       const data = buildFormPayload(form);
       try {
@@ -773,5 +779,166 @@ function initBookingQuote() {
     form.addEventListener('change', () => { updateSummaryVisibility(); scheduleQuote(); });
     form.addEventListener('reset', () => { box.hidden = true; updateSummaryVisibility(); });
     updateSummaryVisibility();
+  });
+}
+
+/**
+ * Lets a visitor reserve several properties in a few clicks from the
+ * "Calendrier" board (/calendrier): clicking an available date on a property
+ * row sets its arrival date, and a second click on the same row sets the
+ * departure date (reusing the same arrival/departure rules as the property
+ * detail calendar). Once a valid range is picked, that property/date-range
+ * pair is added to a selection "cart"; the visitor can then click on another
+ * property row (same dates or different dates) to add it too, building a
+ * multi-property booking in a single request. Rows whose maximum occupancy
+ * is insufficient for the party size entered above the table are rendered
+ * disabled server-side and are simply not wired here.
+ */
+function initMultiPropertyCart() {
+  const board = document.querySelector('[data-multi-calendar-board]');
+  const cartRoot = document.querySelector('[data-multi-cart]');
+  if (!board || !cartRoot) return;
+
+  const listEl = cartRoot.querySelector('[data-multi-cart-list]');
+  const feedbackEl = cartRoot.querySelector('[data-multi-cart-feedback]');
+  const checkoutForm = cartRoot.querySelector('[data-multi-cart-form]');
+  const itemsInput = checkoutForm ? checkoutForm.querySelector('[data-multi-cart-items]') : null;
+  if (!listEl || !checkoutForm || !itemsInput) return;
+
+  const cart = [];
+
+  function formatFr(dateStr) {
+    const [y, m, d] = dateStr.split('-');
+    return `${d}/${m}/${y}`;
+  }
+
+  function nightsBetween(startStr, endStr) {
+    const start = new Date(`${startStr}T00:00:00`);
+    const end = new Date(`${endStr}T00:00:00`);
+    return Math.round((end - start) / 86400000);
+  }
+
+  function addDaysStr(dateStr, days) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const date = new Date(Date.UTC(y, m - 1, d));
+    date.setUTCDate(date.getUTCDate() + days);
+    return date.toISOString().slice(0, 10);
+  }
+
+  function renderCart() {
+    listEl.innerHTML = '';
+    if (cart.length === 0) {
+      cartRoot.hidden = true;
+      checkoutForm.hidden = true;
+      itemsInput.value = '';
+      return;
+    }
+    cartRoot.hidden = false;
+    checkoutForm.hidden = false;
+    cart.forEach((item, index) => {
+      const li = document.createElement('li');
+      li.className = 'multi-cart-item';
+      const label = document.createElement('span');
+      label.className = 'multi-cart-item-label';
+      label.textContent = `${item.propertyName} : ${formatFr(item.checkin)} → ${formatFr(item.checkout)} (${nightsBetween(item.checkin, item.checkout)} nuit(s))`;
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'multi-cart-remove';
+      removeBtn.textContent = 'Retirer';
+      removeBtn.addEventListener('click', () => {
+        cart.splice(index, 1);
+        renderCart();
+      });
+      li.appendChild(label);
+      li.appendChild(removeBtn);
+      listEl.appendChild(li);
+    });
+    itemsInput.value = JSON.stringify(cart.map((item) => ({
+      property_id: item.propertyId,
+      property_name: item.propertyName,
+      checkin_date: item.checkin,
+      checkout_date: item.checkout,
+    })));
+    if (feedbackEl) feedbackEl.textContent = '';
+  }
+
+  board.querySelectorAll('[data-property-row]').forEach((row) => {
+    if (row.dataset.capacityOk !== '1') return;
+    const propertyId = row.dataset.propertyId || '';
+    const propertyName = row.dataset.propertyName || '';
+
+    const nightInfo = new Map();
+    row.querySelectorAll('[data-calendar-date]').forEach((cell) => {
+      const date = cell.dataset.calendarDate;
+      if (!date) return;
+      nightInfo.set(date, {
+        available: cell.dataset.calendarAvailable === '1',
+        minStay: Math.max(1, parseInt(cell.dataset.calendarMinstay || '1', 10) || 1),
+      });
+    });
+
+    function isNightAvailable(date) {
+      const info = nightInfo.get(date);
+      return Boolean(info && info.available);
+    }
+
+    function minStayFor(date) {
+      const info = nightInfo.get(date);
+      return info ? info.minStay : 1;
+    }
+
+    function isRangeFullyAvailable(startDate, endDate) {
+      let cursor = startDate;
+      while (cursor < endDate) {
+        if (!isNightAvailable(cursor)) return false;
+        cursor = addDaysStr(cursor, 1);
+      }
+      return true;
+    }
+
+    let checkin = null;
+    let checkout = null;
+
+    function updateRowSelection() {
+      row.querySelectorAll('[data-calendar-date]').forEach((cell) => {
+        const date = cell.dataset.calendarDate;
+        cell.classList.toggle('selected', date === checkin || date === checkout);
+        cell.classList.toggle('in-range', Boolean(checkin && checkout && date > checkin && date < checkout));
+      });
+    }
+
+    row.addEventListener('click', (event) => {
+      const cell = event.target.closest('[data-calendar-date]');
+      if (!cell) return;
+      const date = cell.dataset.calendarDate;
+      if (!date) return;
+
+      if (!checkin || checkout) {
+        if (!isNightAvailable(date)) return;
+        checkin = date;
+        checkout = null;
+      } else if (date <= checkin || !isRangeFullyAvailable(checkin, date)) {
+        checkin = isNightAvailable(date) ? date : null;
+        checkout = null;
+      } else if (nightsBetween(checkin, date) < minStayFor(checkin)) {
+        return;
+      } else {
+        checkout = date;
+      }
+      updateRowSelection();
+
+      if (checkin && checkout) {
+        cart.push({ propertyId, propertyName, checkin, checkout });
+        checkin = null;
+        checkout = null;
+        updateRowSelection();
+        renderCart();
+      }
+    });
+  });
+
+  checkoutForm.addEventListener('reset', () => {
+    cart.length = 0;
+    renderCart();
   });
 }

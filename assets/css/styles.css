@@ -162,14 +162,32 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .cal-unavailable { background: #fee2e2; color: #b91c1c; }
 .cal-single-night { background: #fef9c3; color: #854d0e; }
 .cal-unknown { background: #f3f4f6; color: #6b7280; }
+.cal-cell.cal-clickable { cursor: pointer; }
+.cal-cell.cal-clickable:hover { outline: 2px solid var(--brand); outline-offset: -2px; }
+.cal-cell.selected { outline: 2px solid var(--brand); background: var(--brand); color: #fff; }
+.cal-cell.in-range { background: var(--brand); color: #fff; }
+tr.cal-row-disabled { opacity: .55; }
+tr.cal-row-disabled .cal-cell { cursor: not-allowed; }
+.cal-capacity-note { margin: .15rem 0 0; font-size: .72rem; color: #b91c1c; }
 
 .calendar-filter { margin-top: 1.25rem; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; }
 .calendar-filter-label { font-weight: 700; }
 .calendar-filter-months { display: flex; flex-wrap: wrap; gap: .4rem .9rem; }
 .calendar-filter-month { display: inline-flex; align-items: center; gap: .3rem; font-size: .85rem; cursor: pointer; }
+.calendar-guest-form { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; flex-basis: 100%; }
+.calendar-guest-field { display: inline-flex; align-items: center; gap: .4rem; font-size: .85rem; }
+.calendar-guest-field .input { width: 4.5rem; padding: .35rem .5rem; }
 .calendar-filter-actions { display: inline-flex; align-items: center; gap: .75rem; }
 .calendar-filter-submit { padding: .45rem .9rem; border-radius: .6rem; font-size: .85rem; }
 .calendar-filter-hint { flex-basis: 100%; margin: 0; font-size: .8rem; }
+.calendar-guest-required-hint, .calendar-capacity-warning { margin-top: 1rem; }
+
+.multi-booking-cart { margin-top: 1.25rem; border: 1px solid var(--border, #e5e7eb); border-radius: .9rem; padding: 1rem; background: #f9fafb; }
+.multi-cart-list { list-style: none; margin: 0 0 .75rem; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
+.multi-cart-item { display: flex; align-items: center; justify-content: space-between; gap: .75rem; background: #fff; border: 1px solid var(--border, #e5e7eb); border-radius: .6rem; padding: .5rem .75rem; font-size: .9rem; }
+.multi-cart-item-label { flex: 1; }
+.multi-cart-remove { border: 0; background: none; color: #b91c1c; font-size: .8rem; font-weight: 700; cursor: pointer; }
+.multi-cart-checkout { margin-top: .75rem; }
 
 
 .badge { display: inline-flex; align-items: center; padding: .25rem .55rem; border-radius: 999px; font-size: .78rem; font-weight: 700; }

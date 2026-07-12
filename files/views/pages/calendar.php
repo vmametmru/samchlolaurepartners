@@ -1,18 +1,27 @@
 <?php declare(strict_types=1);
-/** @var array<int, array{property: array, availability: array, single_night: array, rates: array}> $rows */
+/** @var array<int, array{property: array, availability: array, single_night: array, rates: array, capacity_ok: bool}> $rows */
 /** @var array<int, DateTimeImmutable> $dates */
 /** @var int $visibleDays */
 /** @var array<int, array{value: string, label: string}> $monthOptions */
 /** @var array<int, string> $selectedMonths */
+/** @var int $adults */
+/** @var int $childrenUnder5 */
+/** @var int $children5to12 */
+/** @var int $totalGuests */
 $visibleDays = $visibleDays ?? 31;
 $monthOptions = $monthOptions ?? [];
 $selectedMonths = $selectedMonths ?? [];
+$adults = $adults ?? 0;
+$childrenUnder5 = $childrenUnder5 ?? 0;
+$children5to12 = $children5to12 ?? 0;
+$totalGuests = $totalGuests ?? 0;
 $frenchDays = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
 $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'];
 ?>
 <section class="container section-lg">
   <h1>Calendrier</h1>
   <p class="muted">Vue d'ensemble des disponibilités et tarifs de tous les biens. Approchez la souris du bord gauche ou droit du tableau pour faire défiler les dates.</p>
+  <p class="muted">Réservez plusieurs biens en quelques clics : cliquez une date d'arrivée puis une date de départ sur un bien, puis recommencez sur un autre bien (mêmes dates ou dates différentes) pour l'ajouter à votre sélection.</p>
 
   <form class="calendar-filter" method="get" action="/calendrier">
     <span class="calendar-filter-label">Mois à afficher&nbsp;:</span>
@@ -24,19 +33,53 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
         </label>
       <?php endforeach; ?>
     </div>
+
+    <div class="calendar-guest-form" data-calendar-guest-form>
+      <span class="calendar-filter-label">Nombre de personnes&nbsp;:</span>
+      <label class="calendar-guest-field"><span>Adulte(s)</span><input class="input" type="number" name="adults" min="1" max="20" value="<?= $adults > 0 ? (int) $adults : 2 ?>"></label>
+      <label class="calendar-guest-field"><span>Enfant(s) -5 ans</span><input class="input" type="number" name="children_under5" min="0" max="20" value="<?= (int) $childrenUnder5 ?>"></label>
+      <label class="calendar-guest-field"><span>Enfant(s) 5-12 ans</span><input class="input" type="number" name="children_5to12" min="0" max="20" value="<?= (int) $children5to12 ?>"></label>
+    </div>
+
     <div class="calendar-filter-actions">
-      <button type="submit" class="btn-primary calendar-filter-submit">Afficher</button>
+      <button type="submit" class="btn-primary calendar-filter-submit">Afficher les disponibilités</button>
       <?php if ($selectedMonths !== []): ?>
         <a class="text-link" href="/calendrier">30 prochains jours</a>
       <?php endif; ?>
     </div>
-    <p class="muted calendar-filter-hint">Sans sélection, seuls les 30 prochains jours sont chargés.</p>
+    <p class="muted calendar-filter-hint">Renseignez le nombre de personnes pour afficher les biens disponibles. Sans sélection de mois, seuls les 30 prochains jours sont chargés.</p>
   </form>
 
-  <?php if ($rows === []): ?>
+  <?php if ($totalGuests < 1): ?>
+    <p class="muted calendar-guest-required-hint">Veuillez renseigner le nombre de personnes ci-dessus puis cliquer sur « Afficher les disponibilités » pour voir les biens et leurs dates disponibles.</p>
+  <?php elseif ($rows === []): ?>
     <p class="muted">Aucun hébergement à afficher.</p>
   <?php else: ?>
-    <div class="calendar-board" data-calendar-board style="--cal-visible-days: <?= (int) $visibleDays ?>;">
+    <?php $insufficientCount = count(array_filter($rows, static fn (array $row): bool => !($row['capacity_ok'] ?? true))); ?>
+    <?php if ($insufficientCount > 0): ?>
+      <p class="muted calendar-capacity-warning"><?= $insufficientCount ?> bien(s) grisé(s) ci-dessous ne peuvent pas être réservés pour <?= (int) $totalGuests ?> personne(s) : leur capacité maximum est insuffisante.</p>
+    <?php endif; ?>
+    <div class="multi-booking-cart" data-multi-cart hidden>
+      <h2 class="section-title">Votre sélection</h2>
+      <ul class="multi-cart-list" data-multi-cart-list></ul>
+      <p class="form-feedback" data-multi-cart-feedback></p>
+      <form class="stack-md multi-cart-checkout" data-multi-cart-form data-api-form data-success-message="Vos demandes de réservation ont été envoyées ! Vous recevrez un email de confirmation." method="post" action="/api/reservations/request-multiple" hidden>
+        <input type="hidden" name="adults" value="<?= (int) $adults ?>">
+        <input type="hidden" name="children_under5" value="<?= (int) $childrenUnder5 ?>">
+        <input type="hidden" name="children_5to12" value="<?= (int) $children5to12 ?>">
+        <input type="hidden" name="items" data-multi-cart-items>
+        <div class="form-grid cols-2">
+          <label><span>Nom et prénom complet *</span><input class="input" type="text" name="client_name" required></label>
+          <label><span>Email *</span><input class="input" type="email" name="client_email" required></label>
+          <label><span>Téléphone</span><input class="input" type="tel" name="client_phone"></label>
+        </div>
+        <label><span>Message (optionnel)</span><textarea class="input" rows="3" name="message"></textarea></label>
+        <button class="btn-primary" type="submit">Envoyer mes demandes de réservation</button>
+        <p class="form-feedback" data-form-feedback></p>
+      </form>
+    </div>
+
+    <div class="calendar-board" data-calendar-board data-multi-calendar-board data-total-guests="<?= (int) $totalGuests ?>" style="--cal-visible-days: <?= (int) $visibleDays ?>;">
       <table class="calendar-board-table">
         <thead>
           <tr>
@@ -68,15 +111,21 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
             $availabilityMap = $row['availability'];
             $singleNightMap = $row['single_night'];
             $rateMap = $row['rates'];
+            $capacityOk = $row['capacity_ok'] ?? true;
             $photo = $property['images'][0]['url'] ?? 'https://via.placeholder.com/56x40?text=%20';
             $propertyId = (int) ($property['id'] ?? 0);
+            $propertyName = (string) ($property['name'] ?? '');
+            $maxGuests = (int) ($property['max_guests'] ?? 0);
           ?>
-            <tr>
+            <tr data-property-row data-property-id="<?= $propertyId ?>" data-property-name="<?= \App\View::e($propertyName) ?>" data-max-guests="<?= $maxGuests ?>" data-capacity-ok="<?= $capacityOk ? '1' : '0' ?>"<?= $capacityOk ? '' : ' class="cal-row-disabled"' ?>>
               <td class="cal-fixed cal-col-photo">
-                <a href="/properties/<?= $propertyId ?>"><img class="cal-thumb" src="<?= \App\View::e($photo) ?>" alt="<?= \App\View::e($property['name'] ?? '') ?>"></a>
+                <a href="/properties/<?= $propertyId ?>"><img class="cal-thumb" src="<?= \App\View::e($photo) ?>" alt="<?= \App\View::e($propertyName) ?>"></a>
               </td>
               <td class="cal-fixed cal-col-name">
-                <a class="text-link" href="/properties/<?= $propertyId ?>"><?= \App\View::e($property['name'] ?? '') ?></a>
+                <a class="text-link" href="/properties/<?= $propertyId ?>"><?= \App\View::e($propertyName) ?></a>
+                <?php if (!$capacityOk): ?>
+                  <p class="muted cal-capacity-note">Capacité max <?= $maxGuests ?> pers. — insuffisante pour <?= (int) $totalGuests ?> personne(s).</p>
+                <?php endif; ?>
               </td>
               <td class="cal-fixed cal-col-num"><?= (int) ($property['max_guests'] ?? 0) ?></td>
               <td class="cal-fixed cal-col-num"><?= (int) ($property['bedrooms'] ?? 0) ?></td>
@@ -88,8 +137,14 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
                   ? 'single-night'
                   : ($state === true ? 'available' : ($state === false ? 'unavailable' : 'unknown'));
                 $rate = $rateMap[$key] ?? null;
+                $minStay = isset($rate['min_stay']) && $rate['min_stay'] !== null ? (int) $rate['min_stay'] : 1;
+                // Every cell of a row whose capacity is sufficient carries the
+                // date data attributes (even unavailable ones), so the client
+                // script can reuse an unavailable/single-night day as a valid
+                // departure date, exactly like the property detail calendar.
+                $clickable = $capacityOk;
               ?>
-                <td class="cal-cell cal-<?= $class ?>" title="<?= \App\View::e($key) ?>">
+                <td class="cal-cell cal-<?= $class ?><?= $clickable && $state === true ? ' cal-clickable' : '' ?>" title="<?= \App\View::e($key) ?>"<?php if ($clickable): ?> data-calendar-date="<?= $key ?>" data-calendar-available="<?= $state === true ? '1' : '0' ?>" data-calendar-minstay="<?= $minStay > 0 ? $minStay : 1 ?>"<?php endif; ?>>
                   <?php if ($state === true && $rate !== null): ?>
                     <span class="cal-price"><?= number_format((float) $rate['price_per_night'], 0, ',', ' ') ?></span>
                   <?php endif; ?>

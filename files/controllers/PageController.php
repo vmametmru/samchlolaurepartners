@@ -175,39 +175,53 @@ final class PageController extends Controller
         $rangeEnd = end($dates)->modify('+1 day')->format('Y-m-d');
         reset($dates);
 
-        $properties = [];
-        try {
-            $properties = $client->getProperties();
-        } catch (Throwable $e) {
-            Flash::set('Impossible de charger les hébergements pour le moment.', 'error');
-        }
+        // To reserve several properties in a few clicks, the visitor must
+        // first tell us the party size (adults + children under 5 + children
+        // 5-12). The properties table is only loaded/shown once at least one
+        // adult is provided, so a property's capacity can be compared against
+        // that party size before any date is even clickable.
+        $adults = max(0, (int) ($_GET['adults'] ?? 0));
+        $childrenUnder5 = max(0, (int) ($_GET['children_under5'] ?? 0));
+        $children5to12 = max(0, (int) ($_GET['children_5to12'] ?? 0));
+        $totalGuests = $adults + $childrenUnder5 + $children5to12;
 
         $rows = [];
-        foreach ($properties as $property) {
-            $id = (int) ($property['id'] ?? 0);
-            if ($id <= 0) {
-                continue;
-            }
-            $availabilityMap = [];
-            $singleNightMap = [];
-            $rateMap = [];
+        if ($totalGuests > 0) {
+            $properties = [];
             try {
-                foreach ($client->getAvailability($id, $rangeStart, $rangeEnd) as $day) {
-                    $availabilityMap[$day['date']] = $day['available'];
-                    $singleNightMap[$day['date']] = !empty($day['single_night']);
-                }
-                foreach (self::publicRates($client, $id, $rangeStart, $rangeEnd) as $rate) {
-                    $rateMap[$rate['date_from']] = $rate;
-                }
+                $properties = $client->getProperties();
             } catch (Throwable $e) {
-                error_log('Calendar board load failed for property ' . $id . ': ' . $e->getMessage());
+                Flash::set('Impossible de charger les hébergements pour le moment.', 'error');
             }
-            $rows[] = [
-                'property' => $property,
-                'availability' => $availabilityMap,
-                'single_night' => $singleNightMap,
-                'rates' => $rateMap,
-            ];
+
+            foreach ($properties as $property) {
+                $id = (int) ($property['id'] ?? 0);
+                if ($id <= 0) {
+                    continue;
+                }
+                $availabilityMap = [];
+                $singleNightMap = [];
+                $rateMap = [];
+                try {
+                    foreach ($client->getAvailability($id, $rangeStart, $rangeEnd) as $day) {
+                        $availabilityMap[$day['date']] = $day['available'];
+                        $singleNightMap[$day['date']] = !empty($day['single_night']);
+                    }
+                    foreach (self::publicRates($client, $id, $rangeStart, $rangeEnd) as $rate) {
+                        $rateMap[$rate['date_from']] = $rate;
+                    }
+                } catch (Throwable $e) {
+                    error_log('Calendar board load failed for property ' . $id . ': ' . $e->getMessage());
+                }
+                $maxGuests = (int) ($property['max_guests'] ?? 0);
+                $rows[] = [
+                    'property' => $property,
+                    'availability' => $availabilityMap,
+                    'single_night' => $singleNightMap,
+                    'rates' => $rateMap,
+                    'capacity_ok' => $maxGuests <= 0 || $maxGuests >= $totalGuests,
+                ];
+            }
         }
 
         View::render('pages/calendar', [
@@ -217,6 +231,10 @@ final class PageController extends Controller
             'visibleDays' => min(count($dates), 31),
             'monthOptions' => $monthOptions,
             'selectedMonths' => $selectedMonths,
+            'adults' => $adults,
+            'childrenUnder5' => $childrenUnder5,
+            'children5to12' => $children5to12,
+            'totalGuests' => $totalGuests,
         ]);
     }
 
