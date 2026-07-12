@@ -811,6 +811,11 @@ function initMultiPropertyCart() {
   if (!listEl || !checkoutForm || !itemsInput) return;
 
   const cart = [];
+  const rowUpdaters = [];
+
+  function refreshAllRowHighlights() {
+    rowUpdaters.forEach((updateRowSelection) => updateRowSelection());
+  }
 
   function formatFr(dateStr) {
     const [y, m, d] = dateStr.split('-');
@@ -886,6 +891,7 @@ function initMultiPropertyCart() {
       removeBtn.addEventListener('click', () => {
         cart.splice(index, 1);
         renderCart();
+        refreshAllRowHighlights();
       });
       li.appendChild(removeBtn);
 
@@ -957,14 +963,28 @@ function initMultiPropertyCart() {
     let checkin = null;
     let checkout = null;
 
-
+    // Once a range has been added to the cart, it must keep showing as
+    // selected (red) on the board calendar, exactly like the property detail
+    // calendar keeps the chosen dates highlighted: cart items are not reset
+    // to the free-to-select state.
     function updateRowSelection() {
       row.querySelectorAll('[data-calendar-date]').forEach((cell) => {
         const date = cell.dataset.calendarDate;
-        cell.classList.toggle('selected', date === checkin || date === checkout);
-        cell.classList.toggle('in-range', Boolean(checkin && checkout && date > checkin && date < checkout));
+        let selected = date === checkin || date === checkout;
+        let inRange = Boolean(checkin && checkout && date > checkin && date < checkout);
+        cart.forEach((item) => {
+          if (item.propertyId !== propertyId) return;
+          if (date === item.checkin || date === item.checkout) {
+            selected = true;
+          } else if (date > item.checkin && date < item.checkout) {
+            inRange = true;
+          }
+        });
+        cell.classList.toggle('selected', selected);
+        cell.classList.toggle('in-range', inRange);
       });
     }
+    rowUpdaters.push(updateRowSelection);
 
     row.addEventListener('click', (event) => {
       const cell = event.target.closest('[data-calendar-date]');
