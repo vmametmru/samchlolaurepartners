@@ -151,8 +151,15 @@ function initBookingCalendarSelection() {
     }
 
     function addDaysStr(dateStr, days) {
-      const date = new Date(`${dateStr}T00:00:00`);
-      date.setDate(date.getDate() + days);
+      // Use UTC arithmetic so the result is independent of the visitor's
+      // timezone: building the date in local time and reading it back with
+      // toISOString() shifts it by a day in timezones ahead of UTC (e.g.
+      // Mauritius, UTC+4), which broke availability checks (turnover day
+      // wrongly greyed out) and caused an infinite loop when selecting the
+      // departure date.
+      const [y, m, d] = dateStr.split('-').map(Number);
+      const date = new Date(Date.UTC(y, m - 1, d));
+      date.setUTCDate(date.getUTCDate() + days);
       return date.toISOString().slice(0, 10);
     }
 
@@ -566,8 +573,12 @@ function initDateRanges() {
     if (!checkin || !checkout) return;
 
     function addDays(dateStr, days) {
-      const date = new Date(`${dateStr}T00:00:00`);
-      date.setDate(date.getDate() + days);
+      // UTC arithmetic to stay timezone-independent (see addDaysStr in
+      // initBookingCalendarSelection): local-time + toISOString() shifts the
+      // result by a day in timezones ahead of UTC.
+      const [y, m, d] = dateStr.split('-').map(Number);
+      const date = new Date(Date.UTC(y, m - 1, d));
+      date.setUTCDate(date.getUTCDate() + days);
       return date.toISOString().slice(0, 10);
     }
 
