@@ -120,6 +120,14 @@ final class PageController extends Controller
             }
             throw new HttpException(503, 'Service Unavailable', 'Le service de réservation est temporairement indisponible. Veuillez réessayer dans quelques instants.');
         }
+        // The nightly price shown in the "Tarifs & Disponibilités" calendar
+        // must include the cleaning fee configured for the active partner
+        // (partners.cleaning_fee_per_person_per_night), just like the
+        // /calendrier board. The booking form defaults to 2 adults, so that
+        // is the guest count used for the initial render; the price note is
+        // then kept in sync client-side as the visitor adjusts guest counts.
+        $partner = Tenant::current();
+        $cleaningFeePerPerson = $partner ? (float) ($partner['cleaning_fee_per_person_per_night'] ?? 0) : 0.0;
         View::render('pages/property-detail', [
             'pageTitle' => (string) $property['name'],
             'property' => $property,
@@ -128,6 +136,8 @@ final class PageController extends Controller
             'today' => $today,
             'calendarMonths' => $calendarMonths,
             'calendarStart' => $rangeStart,
+            'cleaningFeePerPerson' => $cleaningFeePerPerson,
+            'calendarGuests' => 2,
         ]);
     }
 
@@ -205,6 +215,13 @@ final class PageController extends Controller
         $children5to12 = max(0, (int) ($_GET['children_5to12'] ?? 0));
         $totalGuests = $adults + $childrenUnder5 + $children5to12;
 
+        // The nightly price shown must include the cleaning fee configured for
+        // the active partner (partners.cleaning_fee_per_person_per_night),
+        // multiplied by the number of guests entered above the table.
+        $partner = Tenant::current();
+        $cleaningFeePerPerson = $partner ? (float) ($partner['cleaning_fee_per_person_per_night'] ?? 0) : 0.0;
+        $cleaningFeePerNight = $cleaningFeePerPerson * $totalGuests;
+
         $rows = [];
         if ($totalGuests > 0) {
             $properties = [];
@@ -228,6 +245,9 @@ final class PageController extends Controller
                         $singleNightMap[$day['date']] = !empty($day['single_night']);
                     }
                     foreach (self::publicRates($client, $id, $rangeStart, $rangeEnd) as $rate) {
+                        if ($cleaningFeePerNight > 0) {
+                            $rate['price_per_night'] = round($rate['price_per_night'] + $cleaningFeePerNight, 2);
+                        }
                         $rateMap[$rate['date_from']] = $rate;
                     }
                 } catch (Throwable $e) {
