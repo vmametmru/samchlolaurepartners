@@ -25,6 +25,15 @@ foreach (($rates ?? []) as $rate) {
     $rateMap[$rate['date_from']] = $rate;
 }
 
+// The nightly price shown must include the cleaning fee configured for the
+// active partner (partners.cleaning_fee_per_person_per_night), just like the
+// /calendrier board. $calendarGuests is the guest count used for this
+// server-side render (the client keeps the displayed price in sync as the
+// visitor adjusts guest counts, see initCalendarGuestPricing in app.js).
+$cleaningFeePerPerson = isset($cleaningFeePerPerson) ? (float) $cleaningFeePerPerson : 0.0;
+$calendarGuests = isset($calendarGuests) ? (int) $calendarGuests : 0;
+$cleaningFeePerNight = $cleaningFeePerPerson * $calendarGuests;
+
 $frenchMonths = [1 => 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
 ?>
 <div class="calendar-months">
@@ -54,11 +63,12 @@ $frenchMonths = [1 => 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Ju
           $isAvailable = !$isPast && $state === true;
           $rate = $rateMap[$date] ?? null;
           $minStay = isset($rate['min_stay']) && $rate['min_stay'] !== null ? (int) $rate['min_stay'] : 1;
+          $displayPrice = $rate !== null ? round((float) $rate['price_per_night'] + $cleaningFeePerNight, 2) : null;
         ?>
-          <div class="calendar-cell <?= $class ?>" data-calendar-date="<?= $date ?>" data-calendar-available="<?= $isAvailable ? '1' : '0' ?>" data-calendar-minstay="<?= $minStay > 0 ? $minStay : 1 ?>"<?php if ($rate !== null && !$isPast): ?> data-calendar-rate="<?= (float) $rate['price_per_night'] ?>"<?php endif; ?>>
+          <div class="calendar-cell <?= $class ?>" data-calendar-date="<?= $date ?>" data-calendar-available="<?= $isAvailable ? '1' : '0' ?>" data-calendar-minstay="<?= $minStay > 0 ? $minStay : 1 ?>"<?php if ($rate !== null && !$isPast): ?> data-calendar-rate="<?= (float) $rate['price_per_night'] ?>" data-calendar-currency="<?= \App\View::e($rate['currency']) ?>"<?php endif; ?>>
             <span class="calendar-day"><?= $dayNumber ?></span>
             <?php if ($isAvailable && $rate !== null): ?>
-              <span class="calendar-price"><?= number_format((float) $rate['price_per_night'], 0, ',', ' ') ?> <?= \App\View::e($rate['currency']) ?></span>
+              <span class="calendar-price"><?= number_format((float) $displayPrice, 0, ',', ' ') ?> <?= \App\View::e($rate['currency']) ?></span>
             <?php endif; ?>
           </div>
         <?php endfor; ?>

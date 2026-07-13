@@ -110,6 +110,8 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
         <?php endif; ?>
         <?php if ($minRate === null): ?>
           <p class="muted">Tarifs non disponibles pour le moment.</p>
+        <?php else: ?>
+          <p class="muted calendar-price-note">Prix de la nuité en Euros. Le prix inclus les frais de nettoyage 2 fois par semaine.</p>
         <?php endif; ?>
         <p class="muted">Cliquez sur une date disponible du calendrier pour renseigner votre date d'arrivée, puis cliquez sur une seconde date pour la date de départ.</p>
         <?php require BASE_PATH . '/files/views/partials/calendar.php'; ?>

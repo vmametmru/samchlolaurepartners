@@ -120,6 +120,14 @@ final class PageController extends Controller
             }
             throw new HttpException(503, 'Service Unavailable', 'Le service de réservation est temporairement indisponible. Veuillez réessayer dans quelques instants.');
         }
+        // The nightly price shown in the "Tarifs & Disponibilités" calendar
+        // must include the cleaning fee configured for the active partner
+        // (partners.cleaning_fee_per_person_per_night), just like the
+        // /calendrier board. The booking form defaults to 2 adults, so that
+        // is the guest count used for the initial render; the price note is
+        // then kept in sync client-side as the visitor adjusts guest counts.
+        $partner = Tenant::current();
+        $cleaningFeePerPerson = $partner ? (float) ($partner['cleaning_fee_per_person_per_night'] ?? 0) : 0.0;
         View::render('pages/property-detail', [
             'pageTitle' => (string) $property['name'],
             'property' => $property,
@@ -128,6 +136,8 @@ final class PageController extends Controller
             'today' => $today,
             'calendarMonths' => $calendarMonths,
             'calendarStart' => $rangeStart,
+            'cleaningFeePerPerson' => $cleaningFeePerPerson,
+            'calendarGuests' => 2,
         ]);
     }
 

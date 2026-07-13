@@ -6,8 +6,9 @@ $calendarStart = isset($calendarStart) && $calendarStart !== ''
     ? (string) $calendarStart
     : (new DateTimeImmutable('first day of this month'))->format('Y-m-d');
 $propertyId = (int) ($property['id'] ?? 0);
+$cleaningFeePerPerson = isset($cleaningFeePerPerson) ? (float) $cleaningFeePerPerson : 0.0;
 ?>
-<div class="calendar-widget" data-calendar-widget data-property-id="<?= $propertyId ?>">
+<div class="calendar-widget" data-calendar-widget data-property-id="<?= $propertyId ?>" data-cleaning-fee-per-person="<?= $cleaningFeePerPerson ?>">
   <div data-calendar-body>
     <?php require BASE_PATH . '/files/views/partials/calendar-body.php'; ?>
   </div>
