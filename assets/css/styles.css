@@ -124,17 +124,23 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .calendar-months { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1.25rem; }
 .calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: .35rem; }
 .calendar-grid.header div { text-align: center; font-size: .8rem; color: var(--muted); font-weight: 700; }
-.calendar-cell { padding: .4rem 0 .5rem; border-radius: .7rem; text-align: center; background: #f3f4f6; display: flex; flex-direction: column; align-items: center; gap: .1rem; }
+.calendar-cell { padding: .4rem 0 .5rem; border-radius: .7rem; text-align: center; background: #f3f4f6; display: flex; flex-direction: column; align-items: center; gap: .1rem; touch-action: manipulation; }
 .calendar-cell.available { background: #dcfce7; color: #166534; cursor: pointer; }
-.calendar-cell.available:hover { outline: 2px solid var(--brand); }
 .calendar-cell.restricted { background: #f3f4f6; color: #6b7280; cursor: default; }
 .calendar-cell.selected { outline: 2px solid var(--brand); background: var(--brand); color: white; }
 .calendar-cell.in-range { background: var(--brand); color: white; }
 .calendar-cell.unavailable { background: #fee2e2; color: #b91c1c; cursor: pointer; }
 .calendar-cell.unavailable .calendar-day { text-decoration: line-through; }
 .calendar-cell.single-night { background: #fef9c3; color: #854d0e; cursor: pointer; }
-.calendar-cell.single-night:hover { outline: 2px solid var(--brand); }
 .calendar-cell.past { background: #f3f4f6; color: #9ca3af; cursor: not-allowed; opacity: .7; }
+/* :hover is scoped to devices that actually support hovering (mouse/trackpad).
+   Without this, iOS Safari treats a div with a plain :hover rule as needing a
+   first tap to enter the "hover" state and only a second tap to register the
+   click, so arrival/departure dates silently failed to select on iPhone. */
+@media (hover: hover) and (pointer: fine) {
+  .calendar-cell.available:hover { outline: 2px solid var(--brand); }
+  .calendar-cell.single-night:hover { outline: 2px solid var(--brand); }
+}
 .calendar-cell.past .calendar-day { text-decoration: none; }
 .calendar-day { font-size: .85rem; }
 .calendar-price { font-size: .7rem; font-weight: 700; opacity: .85; }
@@ -166,14 +172,16 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .cal-day-head .cal-day-dow, .cal-day-head .cal-day-mon { display: block; font-size: .72rem; }
 .cal-day-head .cal-day-num { display: block; color: var(--text, #111827); }
 .cal-day-head.cal-weekend { background: #eef2ff; }
-.cal-cell { width: var(--cal-day-w); min-width: var(--cal-day-w); text-align: center; padding: 0; }
+.cal-cell { width: var(--cal-day-w); min-width: var(--cal-day-w); text-align: center; padding: 0; touch-action: manipulation; }
 .cal-available { background: #dcfce7; color: #166534; }
 .cal-unavailable { background: #fee2e2; color: #b91c1c; }
 .cal-single-night { background: #fef9c3; color: #854d0e; }
 .cal-unknown { background: #f3f4f6; color: #6b7280; }
 .cal-past { background: #f3f4f6; color: #9ca3af; cursor: not-allowed; opacity: .7; }
 .cal-cell.cal-clickable { cursor: pointer; }
-.cal-cell.cal-clickable:hover { outline: 2px solid var(--brand); outline-offset: -2px; }
+@media (hover: hover) and (pointer: fine) {
+  .cal-cell.cal-clickable:hover { outline: 2px solid var(--brand); outline-offset: -2px; }
+}
 .cal-cell.selected { outline: 2px solid var(--brand); background: var(--brand); color: #fff; }
 .cal-cell.in-range { background: var(--brand); color: #fff; }
 .cal-capacity-note { margin: .15rem 0 0; font-size: .72rem; color: #b91c1c; }
@@ -272,4 +280,11 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
   .cols-2, .cols-3, .cols-4, .stats-grid, .quick-grid { grid-template-columns: 1fr; }
   .navbar-inner, .section-header { align-items: flex-start; flex-direction: column; }
   .navbar-links { width: 100%; justify-content: flex-start; }
+  /* Larger, easier-to-tap arrival/departure calendar cells on phones (Apple's
+     minimum recommended touch target is ~44px); desktop sizing is untouched. */
+  .calendar-months { grid-template-columns: 1fr; gap: 1rem; }
+  .calendar-grid { gap: .3rem; }
+  .calendar-cell { min-height: 44px; padding: .55rem 0 .6rem; border-radius: .6rem; justify-content: center; }
+  .calendar-day { font-size: .95rem; }
+  .calendar-price { font-size: .68rem; }
 }
