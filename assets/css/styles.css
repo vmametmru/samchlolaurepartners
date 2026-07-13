@@ -191,6 +191,7 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .calendar-filter-hint { flex-basis: 100%; margin: 0; font-size: .8rem; }
 .calendar-guest-required-hint, .calendar-capacity-warning { margin-top: 1rem; }
 .calendar-loading-message { margin-top: 1rem; display: flex; align-items: center; gap: .5rem; }
+.calendar-loading-message[hidden] { display: none; }
 .calendar-price-note { margin-top: 1rem; }
 
 .multi-booking-cart { margin-top: 1.25rem; border: 1px solid var(--border, #e5e7eb); border-radius: .9rem; padding: 1rem; background: #f9fafb; }
