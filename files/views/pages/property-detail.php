@@ -105,9 +105,6 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
 
       <div data-tab-panel="rates-availability" hidden>
         <h2 class="section-title">Tarifs &amp; Disponibilités</h2>
-        <?php if ($extraGuestFee !== null): ?>
-          <p class="muted">Frais de ménage inclus (2 fois par semaine selon la durée de votre séjour).</p>
-        <?php endif; ?>
         <?php if ($minRate === null): ?>
           <p class="muted">Tarifs non disponibles pour le moment.</p>
         <?php else: ?>
