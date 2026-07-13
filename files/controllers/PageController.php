@@ -20,8 +20,27 @@ use Throwable;
 
 final class PageController extends Controller
 {
+    /**
+     * The root URL is hardcoded to always show the "enter your partner code"
+     * gate, regardless of whether a partner_code cookie is already active:
+     * the search-form home page now lives at /accueil (see self::accueil()).
+     */
     public static function home(): void
     {
+        View::render('pages/enter-code', ['pageTitle' => 'Bienvenue']);
+    }
+
+    /**
+     * The search-form home page, formerly served at "/". Requires a valid
+     * partner context (partner_code cookie); visitors without one are sent
+     * back to "/" to enter their code.
+     */
+    public static function accueil(): void
+    {
+        if (Tenant::current() === null) {
+            self::redirect('/');
+        }
+
         $properties = [];
         $searched = false;
         if (!empty($_GET['checkin']) && !empty($_GET['checkout'])) {
@@ -267,6 +286,22 @@ final class PageController extends Controller
         View::render('pages/contact', ['pageTitle' => 'Contact']);
     }
 
+    public static function submitPartnerCode(): never
+    {
+        $code = trim((string) ($_POST['code'] ?? ''));
+        if ($code === '') {
+            self::redirect('/', 'Merci de saisir un code partenaire.', 'error');
+        }
+
+        $partner = Tenant::resolveByCode($code);
+        if (!$partner) {
+            self::redirect('/', 'Code partenaire invalide.', 'error');
+        }
+
+        Tenant::setCodeCookie((string) $partner['subdomain']);
+        self::redirect('/accueil');
+    }
+
     public static function submitContact(): never
     {
         ob_start();
@@ -401,7 +436,7 @@ final class PageController extends Controller
     public static function adminPartnerForm(?int $id = null): void
     {
         self::requireAdminUser();
-        $partner = $id ? PartnersController::formData($id) : ['primary_color' => '#E61E4D', 'markup_percent' => 0, 'active' => 1];
+        $partner = $id ? PartnersController::formData($id) : ['primary_color' => '#E61E4D', 'markup_percent' => 0, 'cleaning_fee_per_person_per_night' => 0, 'tourist_tax_per_person_per_night' => 0, 'active' => 1];
         View::render('pages/admin-partner-form', ['pageTitle' => $id ? 'Modifier partenaire' : 'Nouveau partenaire', 'partnerData' => $partner, 'editing' => $id !== null]);
     }
 
@@ -409,13 +444,15 @@ final class PageController extends Controller
     {
         self::requireAdminUser();
         if ($id === null) {
-            Database::connection()->prepare('INSERT INTO partners (subdomain, name, logo_url, primary_color, email, markup_percent, smtp_host, smtp_port, smtp_user, smtp_pass, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([
+            Database::connection()->prepare('INSERT INTO partners (subdomain, name, logo_url, primary_color, email, markup_percent, cleaning_fee_per_person_per_night, tourist_tax_per_person_per_night, smtp_host, smtp_port, smtp_user, smtp_pass, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([
                 trim((string) ($_POST['subdomain'] ?? '')),
                 trim((string) ($_POST['name'] ?? '')),
                 trim((string) ($_POST['logo_url'] ?? '')) ?: null,
                 trim((string) ($_POST['primary_color'] ?? '#E61E4D')),
                 trim((string) ($_POST['email'] ?? '')),
                 (float) ($_POST['markup_percent'] ?? 0),
+                (float) ($_POST['cleaning_fee_per_person_per_night'] ?? 0),
+                (float) ($_POST['tourist_tax_per_person_per_night'] ?? 0),
                 trim((string) ($_POST['smtp_host'] ?? '')) ?: null,
                 ($_POST['smtp_port'] ?? '') !== '' ? (int) $_POST['smtp_port'] : null,
                 trim((string) ($_POST['smtp_user'] ?? '')) ?: null,
@@ -423,12 +460,14 @@ final class PageController extends Controller
                 isset($_POST['active']) ? 1 : 0,
             ]);
         } else {
-            Database::connection()->prepare('UPDATE partners SET name = ?, logo_url = ?, primary_color = ?, email = ?, markup_percent = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?')->execute([
+            Database::connection()->prepare('UPDATE partners SET name = ?, logo_url = ?, primary_color = ?, email = ?, markup_percent = ?, cleaning_fee_per_person_per_night = ?, tourist_tax_per_person_per_night = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?')->execute([
                 trim((string) ($_POST['name'] ?? '')),
                 trim((string) ($_POST['logo_url'] ?? '')) ?: null,
                 trim((string) ($_POST['primary_color'] ?? '#E61E4D')),
                 trim((string) ($_POST['email'] ?? '')),
                 (float) ($_POST['markup_percent'] ?? 0),
+                (float) ($_POST['cleaning_fee_per_person_per_night'] ?? 0),
+                (float) ($_POST['tourist_tax_per_person_per_night'] ?? 0),
                 trim((string) ($_POST['smtp_host'] ?? '')) ?: null,
                 ($_POST['smtp_port'] ?? '') !== '' ? (int) $_POST['smtp_port'] : null,
                 trim((string) ($_POST['smtp_user'] ?? '')) ?: null,
@@ -443,8 +482,8 @@ final class PageController extends Controller
     public static function adminDeletePartner(int $id): never
     {
         self::requireAdminUser();
-        Database::connection()->prepare('UPDATE partners SET active = 0, updated_at = NOW() WHERE id = ?')->execute([$id]);
-        self::redirect('/admin/partners', 'Partenaire désactivé.', 'info');
+        Database::connection()->prepare('DELETE FROM partners WHERE id = ?')->execute([$id]);
+        self::redirect('/admin/partners', 'Partenaire supprimé.');
     }
 
     public static function adminFees(): void
