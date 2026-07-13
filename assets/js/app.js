@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initBookingAccordion();
   initBookingQuote();
   initCalendarBoard();
+  initCalendarFilterLoading();
   initMultiPropertyCart();
 });
 
@@ -107,6 +108,15 @@ function initCalendarBoard() {
       }
     });
     board.addEventListener('mouseleave', stopScrolling);
+  });
+}
+
+function initCalendarFilterLoading() {
+  const form = document.querySelector('.calendar-filter');
+  const loading = document.querySelector('[data-calendar-loading]');
+  if (!form || !loading) return;
+  form.addEventListener('submit', () => {
+    loading.hidden = false;
   });
 }
 

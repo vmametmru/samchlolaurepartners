@@ -190,6 +190,8 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .calendar-filter-submit { padding: .45rem .9rem; border-radius: .6rem; font-size: .85rem; }
 .calendar-filter-hint { flex-basis: 100%; margin: 0; font-size: .8rem; }
 .calendar-guest-required-hint, .calendar-capacity-warning { margin-top: 1rem; }
+.calendar-loading-message { margin-top: 1rem; display: flex; align-items: center; gap: .5rem; }
+.calendar-price-note { margin-top: 1rem; }
 
 .multi-booking-cart { margin-top: 1.25rem; border: 1px solid var(--border, #e5e7eb); border-radius: .9rem; padding: 1rem; background: #f9fafb; }
 .multi-cart-list { list-style: none; margin: 0 0 .75rem; padding: 0; display: flex; flex-wrap: wrap; gap: .5rem; }

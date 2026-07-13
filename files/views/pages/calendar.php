@@ -51,11 +51,14 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
     <p class="muted calendar-filter-hint">Renseignez le nombre de personnes pour afficher les biens disponibles. Sans sélection de mois, seuls les 30 prochains jours sont chargés.</p>
   </form>
 
+  <p class="calendar-loading-message" data-calendar-loading hidden><span class="spinner" aria-hidden="true"></span> Chargement des disponibilités…</p>
+
   <?php if ($totalGuests < 1): ?>
     <p class="muted calendar-guest-required-hint">Veuillez renseigner le nombre de personnes ci-dessus puis cliquer sur « Afficher les disponibilités » pour voir les biens et leurs dates disponibles.</p>
   <?php elseif ($rows === []): ?>
     <p class="muted">Aucun hébergement à afficher.</p>
   <?php else: ?>
+    <p class="muted calendar-price-note">Prix de la nuité en Euros. Le prix inclus les frais de nettoyage 2 fois par semaine.</p>
     <?php $insufficientCount = count(array_filter($rows, static fn (array $row): bool => !($row['capacity_ok'] ?? true))); ?>
     <?php if ($insufficientCount > 0): ?>
       <p class="muted calendar-capacity-warning"><?= $insufficientCount ?> bien(s) ci-dessous ont une capacité individuelle insuffisante pour <?= (int) $totalGuests ?> personne(s), mais restent sélectionnables : combinez-les avec d'autres biens pour atteindre le nombre de personnes voulu.</p>

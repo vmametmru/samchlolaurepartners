@@ -205,6 +205,13 @@ final class PageController extends Controller
         $children5to12 = max(0, (int) ($_GET['children_5to12'] ?? 0));
         $totalGuests = $adults + $childrenUnder5 + $children5to12;
 
+        // The nightly price shown must include the cleaning fee configured for
+        // the active partner (partners.cleaning_fee_per_person_per_night),
+        // multiplied by the number of guests entered above the table.
+        $partner = Tenant::current();
+        $cleaningFeePerPerson = $partner ? (float) ($partner['cleaning_fee_per_person_per_night'] ?? 0) : 0.0;
+        $cleaningFeePerNight = $cleaningFeePerPerson * $totalGuests;
+
         $rows = [];
         if ($totalGuests > 0) {
             $properties = [];
@@ -228,6 +235,9 @@ final class PageController extends Controller
                         $singleNightMap[$day['date']] = !empty($day['single_night']);
                     }
                     foreach (self::publicRates($client, $id, $rangeStart, $rangeEnd) as $rate) {
+                        if ($cleaningFeePerNight > 0) {
+                            $rate['price_per_night'] = round($rate['price_per_night'] + $cleaningFeePerNight, 2);
+                        }
                         $rateMap[$rate['date_from']] = $rate;
                     }
                 } catch (Throwable $e) {
