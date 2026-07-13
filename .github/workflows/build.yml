@@ -21,11 +21,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.2'
-          extensions: pdo_mysql
+      - name: Verify PHP is available
+        run: |
+          php -v
+          php -m | grep -i '^pdo_mysql$'
 
       - name: Lint PHP files
         run: |
