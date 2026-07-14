@@ -107,7 +107,9 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
               </td>
               <td class="cal-fixed cal-col-name">
                 <a class="text-link" href="/properties/<?= $propertyId ?>"><?= \App\View::e($propertyName) ?></a>
-                <?php if (!$capacityOk): ?>
+                <?php if (!empty($row['load_failed'])): ?>
+                  <p class="muted cal-capacity-note"><span class="cal-warning-icon" aria-hidden="true">⚠️</span>Disponibilités temporairement indisponibles — réessayez dans quelques instants.</p>
+                <?php elseif (!$capacityOk): ?>
                   <p class="muted cal-capacity-note"><span class="cal-warning-icon" aria-hidden="true">⚠️</span>Capacité max <?= $maxGuests ?> pers. — combinez avec un autre bien pour atteindre <?= (int) $totalGuests ?> personne(s).</p>
                 <?php endif; ?>
               </td>

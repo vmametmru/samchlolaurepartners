@@ -239,6 +239,7 @@ final class PageController extends Controller
                 $availabilityMap = [];
                 $singleNightMap = [];
                 $rateMap = [];
+                $loadFailed = false;
                 try {
                     foreach ($client->getAvailability($id, $rangeStart, $rangeEnd) as $day) {
                         $availabilityMap[$day['date']] = $day['available'];
@@ -252,6 +253,12 @@ final class PageController extends Controller
                     }
                 } catch (Throwable $e) {
                     error_log('Calendar board load failed for property ' . $id . ': ' . $e->getMessage());
+                    // Surface the failure in the row itself (instead of a
+                    // silent, unexplained wall of grey/unclickable cells)
+                    // only when nothing at all could be loaded for this
+                    // property, so the visitor understands why no colours
+                    // show up rather than assuming the page is broken.
+                    $loadFailed = $availabilityMap === [];
                 }
                 $maxGuests = (int) ($property['max_guests'] ?? 0);
                 $rows[] = [
@@ -260,6 +267,7 @@ final class PageController extends Controller
                     'single_night' => $singleNightMap,
                     'rates' => $rateMap,
                     'capacity_ok' => $maxGuests <= 0 || $maxGuests >= $totalGuests,
+                    'load_failed' => $loadFailed,
                 ];
             }
         }
