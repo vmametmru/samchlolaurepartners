@@ -723,7 +723,8 @@ final class ReservationsController extends Controller
             if ($data === false || $data === '') {
                 return null;
             }
-            return ['data' => $data, 'mime' => self::detectMime($data)];
+            $mime = self::detectImageMime($data);
+            return $mime === null ? null : ['data' => $data, 'mime' => $mime];
         }
 
         if (!in_array(strtolower($scheme), ['http', 'https'], true)) {
@@ -734,22 +735,48 @@ final class ReservationsController extends Controller
         if ($data === null || $data === '') {
             return null;
         }
-        return ['data' => $data, 'mime' => self::detectMime($data)];
+        $mime = self::detectImageMime($data);
+        return $mime === null ? null : ['data' => $data, 'mime' => $mime];
     }
 
-    private static function detectMime(string $data): string
+    /**
+     * Determines the image MIME type from the file's leading "magic" bytes.
+     * Deliberately does NOT rely on the fileinfo extension (which isn't always
+     * enabled on shared cPanel hosts) and never blindly assumes "image/jpeg":
+     * mislabeling a PNG/WebP as JPEG made strict mail clients render a broken
+     * image, and embedding a non-image response (e.g. an HTML redirect/error
+     * page returned by a remote CDN) as a CID attachment produced the broken
+     * "?" placeholder. Returns null when the bytes are not a recognised image,
+     * so the caller can skip embedding instead of shipping a broken attachment.
+     */
+    private static function detectImageMime(string $data): ?string
     {
-        if (function_exists('finfo_open')) {
-            $finfo = finfo_open(FILEINFO_MIME_TYPE);
-            if ($finfo !== false) {
-                $mime = finfo_buffer($finfo, $data);
-                finfo_close($finfo);
-                if (is_string($mime) && str_starts_with($mime, 'image/')) {
-                    return $mime;
-                }
+        if (strlen($data) < 12) {
+            return null;
+        }
+        if (str_starts_with($data, "\xFF\xD8\xFF")) {
+            return 'image/jpeg';
+        }
+        if (str_starts_with($data, "\x89PNG\x0D\x0A\x1A\x0A")) {
+            return 'image/png';
+        }
+        if (str_starts_with($data, 'GIF87a') || str_starts_with($data, 'GIF89a')) {
+            return 'image/gif';
+        }
+        if (str_starts_with($data, 'RIFF') && substr($data, 8, 4) === 'WEBP') {
+            return 'image/webp';
+        }
+        if (str_starts_with($data, 'BM')) {
+            return 'image/bmp';
+        }
+        // ISO base media (HEIC/HEIF): "....ftypheic"/"heif"/"mif1" etc.
+        if (substr($data, 4, 4) === 'ftyp') {
+            $brand = substr($data, 8, 4);
+            if (in_array($brand, ['heic', 'heix', 'heif', 'mif1', 'hevc'], true)) {
+                return 'image/heic';
             }
         }
-        return 'image/jpeg';
+        return null;
     }
 
     private static function downloadImage(string $url): ?string
@@ -768,7 +795,8 @@ final class ReservationsController extends Controller
             CURLOPT_TIMEOUT => 10,
             CURLOPT_CONNECTTIMEOUT => 5,
             CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_USERAGENT => 'grand-baie-maurice.com email image embedder',
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (compatible; grand-baie-maurice.com email image embedder)',
+            CURLOPT_HTTPHEADER => ['Accept: image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8,*/*;q=0.5'],
         ]);
         $body = curl_exec($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);

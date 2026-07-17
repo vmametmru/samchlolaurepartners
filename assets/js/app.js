@@ -14,6 +14,38 @@ function runInit(fn) {
   }
 }
 
+/**
+ * Shows a brief, guaranteed-visible confirmation banner fixed at the top of the
+ * viewport. Used after a booking request is sent, because the inline
+ * [data-form-feedback] element lives inside a collapsible block that form.reset()
+ * hides again on success — so the visitor would otherwise get no confirmation
+ * that their request went through.
+ */
+function showToast(message, type) {
+  if (!message) return;
+  let container = document.querySelector('[data-app-toasts]');
+  if (!container) {
+    container = document.createElement('div');
+    container.className = 'app-toasts';
+    container.setAttribute('data-app-toasts', '');
+    document.body.appendChild(container);
+  }
+  const toast = document.createElement('div');
+  toast.className = `app-toast${type === 'success' ? ' app-toast-success' : ''}`;
+  toast.setAttribute('role', 'status');
+  toast.textContent = message;
+  container.appendChild(toast);
+  // Force reflow so the enter transition runs, then reveal.
+  void toast.offsetWidth;
+  toast.classList.add('visible');
+  const remove = () => {
+    toast.classList.remove('visible');
+    setTimeout(() => toast.remove(), 300);
+  };
+  toast.addEventListener('click', remove);
+  setTimeout(remove, 6000);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   [
     initGallery,
@@ -662,10 +694,18 @@ function initApiForms() {
         form.reset();
         const quoteBox = form.querySelector('[data-quote-box]');
         if (quoteBox) quoteBox.hidden = true;
+        const successMessage = form.dataset.successMessage || payload.message || 'Succès';
         if (feedback) {
-          feedback.textContent = form.dataset.successMessage || payload.message || 'Succès';
+          feedback.textContent = successMessage;
           feedback.classList.add('success');
         }
+        // form.reset() above fires a "reset" listener that re-hides the
+        // collapsible summary/checkout block containing [data-form-feedback],
+        // so the inline message is set but immediately hidden. Show a
+        // guaranteed-visible toast as well so the visitor always sees that
+        // their request was sent (on both the property tarifs & disponibilités
+        // page and the /calendrier multi-cart).
+        showToast(successMessage, 'success');
       } catch (error) {
         if (feedback) feedback.textContent = error.message || 'Une erreur est survenue.';
       }

@@ -323,6 +323,10 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .preview-frame { width: 100%; min-height: 18rem; border: 0; background: white; }
 .form-feedback { min-height: 1rem; color: var(--red); margin: 0; }
 .form-feedback.success { color: var(--green); }
+.app-toasts { position: fixed; top: 5.25rem; left: 50%; transform: translateX(-50%); z-index: 1000; display: flex; flex-direction: column; gap: .5rem; width: min(92vw, 30rem); pointer-events: none; }
+.app-toast { pointer-events: auto; cursor: pointer; background: #111827; color: #fff; padding: .85rem 1.1rem; border-radius: .6rem; box-shadow: 0 10px 30px rgba(0,0,0,.25); font-size: .95rem; line-height: 1.35; opacity: 0; transform: translateY(-8px); transition: opacity .25s ease, transform .25s ease; }
+.app-toast.visible { opacity: 1; transform: translateY(0); }
+.app-toast-success { background: var(--green); }
 .inline-check { display: flex; align-items: center; gap: .5rem; }
 .inline-check label { margin: 0; }
 .hidden { display: none !important; }
