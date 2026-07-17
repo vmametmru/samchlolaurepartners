@@ -1046,6 +1046,7 @@ function initMultiPropertyCart() {
   if (!board || !cartRoot) return;
 
   const listEl = cartRoot.querySelector('[data-multi-cart-list]');
+  const gapHintEl = cartRoot.querySelector('[data-multi-cart-gap-hint]');
   const feedbackEl = cartRoot.querySelector('[data-multi-cart-feedback]');
   const checkoutForm = cartRoot.querySelector('[data-multi-cart-form]');
   const itemsInput = checkoutForm ? checkoutForm.querySelector('[data-multi-cart-items]') : null;
@@ -1105,12 +1106,34 @@ function initMultiPropertyCart() {
     return amount.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
   }
 
+  // If the visitor switches property mid-cart (e.g. clicks a departure date
+  // on property A, then an arrival date on property B that isn't the same
+  // day as A's departure), the night(s) between the two selections are left
+  // unbooked — a silent gap the visitor likely didn't intend. Detect it here
+  // and surface a warning in "Votre sélection" without altering any existing
+  // selection behaviour.
+  function computeGapWarning() {
+    if (cart.length < 2) return '';
+    const sorted = cart.slice().sort((a, b) => (a.checkin < b.checkin ? -1 : a.checkin > b.checkin ? 1 : 0));
+    const gaps = [];
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const current = sorted[i];
+      const next = sorted[i + 1];
+      if (next.checkin > current.checkout) {
+        gaps.push(`la nuit du ${formatFr(current.checkout)} n'est pas réservée entre « ${current.propertyName} » (départ le ${formatFr(current.checkout)}) et « ${next.propertyName} » (arrivée le ${formatFr(next.checkin)})`);
+      }
+    }
+    if (!gaps.length) return '';
+    return `Attention : ${gaps.join(' ; ')}. Vérifiez vos dates pour éviter un trou dans votre séjour.`;
+  }
+
   function renderCart() {
     listEl.innerHTML = '';
     if (cart.length === 0) {
       cartRoot.hidden = true;
       checkoutForm.hidden = true;
       if (summaryEl) summaryEl.hidden = true;
+      if (gapHintEl) gapHintEl.textContent = '';
       itemsInput.value = '';
       return;
     }
@@ -1180,6 +1203,7 @@ function initMultiPropertyCart() {
         ? ''
         : `Capacité insuffisante pour ${requestedGuests} personne(s) : sélectionnez un ou plusieurs biens supplémentaires.`;
     }
+    if (gapHintEl) gapHintEl.textContent = computeGapWarning();
 
     itemsInput.value = JSON.stringify(cart.map((item) => ({
       property_id: item.propertyId,

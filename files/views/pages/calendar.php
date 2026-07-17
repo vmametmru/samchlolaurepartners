@@ -191,6 +191,7 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
     <div class="multi-booking-cart" data-multi-cart hidden>
       <h2 class="section-title">Votre sélection</h2>
       <ul class="multi-cart-list" data-multi-cart-list></ul>
+      <p class="form-feedback" data-multi-cart-gap-hint></p>
       <div class="multi-cart-summary" data-multi-cart-summary>
         <p><span data-multi-cart-summary-count>0</span> bien(s) sélectionné(s)</p>
         <p><span data-multi-cart-summary-nights>0</span> nuit(s) sélectionnée(s)</p>
