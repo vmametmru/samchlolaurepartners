@@ -28,7 +28,11 @@ final class PageController extends Controller
      */
     public static function home(): void
     {
-        View::render('pages/enter-code', ['pageTitle' => 'Bienvenue']);
+        View::render('pages/enter-code', [
+            'pageTitle' => 'Bienvenue',
+            'suppressPartner' => true,
+            'preloadHeroVideo' => true,
+        ]);
     }
 
     /**
@@ -370,7 +374,15 @@ final class PageController extends Controller
         }
 
         Tenant::setCodeCookie((string) $partner['subdomain']);
-        self::redirect('/accueil');
+
+        // Supports deep links like "/#code/calendrier" (see
+        // initPartnerCodeFromHash() in assets/js/app.js): the hash suffix is
+        // posted as "next" and, if it matches an allowed public page, the
+        // visitor lands there directly instead of always on /accueil.
+        $allowedNext = ['/accueil', '/calendrier', '/contact', '/properties'];
+        $next = (string) ($_POST['next'] ?? '');
+        $target = in_array($next, $allowedNext, true) ? $next : '/accueil';
+        self::redirect($target);
     }
 
     public static function submitContact(): never

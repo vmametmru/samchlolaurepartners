@@ -15,6 +15,9 @@ $jsVersion = is_file($jsPath) ? (string) filemtime($jsPath) : '1';
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title><?= \App\View::e($pageTitle) ?></title>
   <link rel="stylesheet" href="/assets/css/styles.css?v=<?= \App\View::e($cssVersion) ?>">
+  <?php if (!empty($preloadHeroVideo)): ?>
+    <link rel="preload" href="/medias/home.mp4" as="video" type="video/mp4">
+  <?php endif; ?>
 </head>
 <body>
   <?php require BASE_PATH . '/files/views/partials/navbar.php'; ?>
