@@ -1,5 +1,7 @@
 <?php declare(strict_types=1); $primaryColor = $partner['primary_color'] ?? '#E61E4D'; ?>
-<section class="hero" style="background: linear-gradient(135deg, <?= \App\View::e($primaryColor) ?>, #14b8a6);">
+<section class="hero hero-video">
+  <video class="hero-video-bg" src="/medias/home.mp4" autoplay muted loop playsinline preload="auto"></video>
+  <div class="hero-video-overlay"></div>
   <div class="container hero-inner">
     <h1><?= \App\View::e($partner ? 'Bienvenue chez ' . ($partner['name'] ?? '') : 'Trouvez votre hébergement idéal') ?></h1>
     <p>Séjours exceptionnels à l'île Maurice</p>

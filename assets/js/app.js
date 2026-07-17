@@ -42,6 +42,15 @@ document.addEventListener('DOMContentLoaded', () => {
   ].forEach(runInit);
 });
 
+// Typing "https://.../#code" into the address bar when a document at that
+// same path is already loaded (e.g. the visitor was just on "/") is treated
+// by browsers as a same-document fragment navigation: no reload happens, so
+// 'DOMContentLoaded' never fires again and initPartnerCodeFromHash() (wired
+// above) would never run for the new hash, leaving the visitor stuck on the
+// "Bienvenue" gate page. Re-run it on 'hashchange' too so both a fresh
+// full-page load AND an in-page hash change are handled.
+window.addEventListener('hashchange', () => runInit(initPartnerCodeFromHash));
+
 function initGallery() {
   document.querySelectorAll('[data-gallery]').forEach((gallery) => {
     const main = gallery.querySelector('[data-gallery-main]');

@@ -28,7 +28,11 @@ final class PageController extends Controller
      */
     public static function home(): void
     {
-        View::render('pages/enter-code', ['pageTitle' => 'Bienvenue', 'suppressPartner' => true]);
+        View::render('pages/enter-code', [
+            'pageTitle' => 'Bienvenue',
+            'suppressPartner' => true,
+            'preloadHeroVideo' => true,
+        ]);
     }
 
     /**
