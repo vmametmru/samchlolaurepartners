@@ -91,6 +91,16 @@ function initGallery() {
 }
 
 function initCalendarBoard() {
+  // This "hover the edge of the board to auto-scroll" behaviour relies on
+  // continuous mousemove events plus a mouseleave to stop it. Touch devices
+  // (iPhone/iPad) only ever fire a single synthetic mousemove at the tap
+  // location before the click, with no matching mouseleave: if that tap
+  // happened to land within the edge zone, scrollDirection was set once and
+  // never reset, so the requestAnimationFrame loop kept scrolling the board
+  // to the right forever and the visitor could never scroll back. Restrict
+  // this feature to devices that actually have a real hover-capable pointer
+  // (mouse/trackpad).
+  if (!window.matchMedia || !window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
   document.querySelectorAll('[data-calendar-board]').forEach((board) => {
     let scrollDirection = 0;
     let scrollFrame = null;
@@ -384,6 +394,11 @@ function initBookingCalendarSelection() {
         // Fresh selection (arrival click).
         if (!canStartStayAt(date)) return;
         checkin = date;
+        checkout = null;
+      } else if (date === checkin) {
+        // Clicking the arrival date again clears the selection instead of
+        // silently re-picking the same date as a new arrival.
+        checkin = null;
         checkout = null;
       } else if (date <= checkin || !isRangeFullyAvailable(checkin, date)) {
         // Invalid departure (before/same as arrival, or a booking in between):
@@ -1153,6 +1168,11 @@ function initMultiPropertyCart() {
       if (!checkin || checkout) {
         if (!isNightAvailable(date)) return;
         checkin = date;
+        checkout = null;
+      } else if (date === checkin) {
+        // Clicking the arrival date again clears the selection instead of
+        // silently re-picking the same date as a new arrival.
+        checkin = null;
         checkout = null;
       } else if (date <= checkin || !isRangeFullyAvailable(checkin, date)) {
         checkin = isNightAvailable(date) ? date : null;
