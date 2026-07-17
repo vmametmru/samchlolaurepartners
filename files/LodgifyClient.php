@@ -214,30 +214,32 @@ final class LodgifyClient
     }
 
     /**
-     * Counts sofa beds ("Canapé-lit") declared on a RoomDetailsDto item.
-     * Per Lodgify's actual response shape, each room-type item nests its
-     * physical sub-rooms under "rooms" (or "sub_rooms" in some responses),
-     * and each sub-room carries a "beds" array of {"type": "SofaBed"|
-     * "DoubleSofaBed", "count": n} (Lodgify also uses "quantity" for the
-     * count in some payloads). Bed "type" values are matched case-
-     * insensitively against "sofabed"/"doublesofabed", with a defensive
-     * fallback to any label containing "sofa" or "canap" (French) in case
-     * of other bed-type variants.
+     * Counts sofa beds ("Canapé-lit") declared on a RoomDetailsDto item (or,
+     * recursively, on any of its nested room levels). Per Lodgify's actual
+     * response shape, a room-type item nests its physical sub-rooms under
+     * "rooms" (or "sub_rooms" in some responses), and — depending on the
+     * endpoint/payload — those sub-rooms can themselves nest another level
+     * of physical rooms before finally exposing a "beds" array of {"type":
+     * "SofaBed"|"DoubleSofaBed", "count": n} (Lodgify also uses "quantity"/
+     * "bed_types"/"bedTypes" in some payloads). This recurses through every
+     * nesting level instead of stopping after one, so a sofa bed declared
+     * two (or more) levels down isn't missed. Bed "type" values are matched
+     * case-insensitively against "sofabed"/"doublesofabed", with a
+     * defensive fallback to any label containing "sofa" or "canap" (French)
+     * in case of other bed-type variants.
      */
     private function countSofaBeds(array $item): int
     {
-        $count = $this->countSofaBedsInBedsArray($item['beds'] ?? null);
+        $beds = $item['beds'] ?? $item['bed_types'] ?? $item['bedTypes'] ?? null;
+        $count = $this->countSofaBedsInBedsArray($beds);
 
         $subRooms = $item['rooms'] ?? $item['sub_rooms'] ?? $item['subRooms']
             ?? $item['type_rooms'] ?? $item['typeRooms'] ?? $item['roomTypes'] ?? $item['room_types'] ?? [];
         if (is_array($subRooms)) {
             foreach ($subRooms as $subRoom) {
-                if (!is_array($subRoom)) {
-                    continue;
+                if (is_array($subRoom)) {
+                    $count += $this->countSofaBeds($subRoom);
                 }
-                $beds = $subRoom['beds'] ?? $subRoom['bed_types'] ?? $subRoom['bedTypes'] ?? null;
-                $count += $this->countSofaBedsInBedsArray($beds);
-                $count += $this->countSofaBedsInAmenities($subRoom['amenities'] ?? null);
             }
         }
         // Some hosts configure the sofa bed under Lodgify's "Amenities"
