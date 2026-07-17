@@ -196,6 +196,8 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .cal-cell.in-range { background: var(--brand); color: #fff; }
 .cal-capacity-note { margin: .15rem 0 0; font-size: .72rem; color: #b91c1c; }
 .cal-capacity-note .cal-warning-icon { margin-right: .25rem; }
+.cal-cell.cal-restricted { width: auto; min-width: 0; text-align: left; padding: .5rem .75rem; background: #f3f4f6; cursor: default; }
+.cal-restricted-note { margin: 0; font-size: .8rem; color: var(--muted); }
 
 /* The "Bien" (property name) column is hidden by default (see the
    data-calendar-name-toggle checkbox, unchecked by default) to leave more
@@ -245,6 +247,13 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .help-dialog form { display: flex; justify-content: flex-end; margin: -.5rem -.5rem .5rem 0; }
 .help-dialog-close { appearance: none; border: 0; background: transparent; font-size: 1.3rem; line-height: 1; cursor: pointer; color: var(--muted); padding: .25rem .5rem; }
 .help-dialog p + p { margin-top: .75rem; }
+.assoc-dialog { max-width: 40rem; max-height: 85vh; overflow-y: auto; }
+.assoc-property-list { display: flex; flex-direction: column; gap: .5rem; max-height: 50vh; overflow-y: auto; }
+.assoc-property-row { display: flex; align-items: center; gap: .75rem; padding: .5rem; border: 1px solid var(--border, #e5e7eb); border-radius: .6rem; }
+.assoc-property-photo { width: 56px; height: 40px; object-fit: cover; border-radius: .4rem; flex-shrink: 0; }
+.assoc-property-name { flex: 1; font-size: .9rem; }
+.assoc-property-options { display: flex; gap: .75rem; font-size: .8rem; white-space: nowrap; }
+.assoc-property-options label { display: flex; align-items: center; gap: .25rem; cursor: pointer; }
 
 .multi-booking-cart { margin-top: 1.25rem; border: 1px solid var(--border, #e5e7eb); border-radius: .9rem; padding: 1rem; background: #f9fafb; }
 .multi-cart-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .75rem; }

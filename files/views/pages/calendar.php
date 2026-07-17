@@ -154,6 +154,11 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
               </td>
               <td class="cal-fixed cal-col-num cal-col-capacity"><?= (int) ($property['max_guests'] ?? 0) ?></td>
               <td class="cal-fixed cal-col-num cal-col-rooms"><?= (int) ($property['bedrooms'] ?? 0) ?></td>
+              <?php if (!empty($row['restricted'])): ?>
+                <td class="cal-cell cal-restricted" colspan="<?= count($dates) ?>">
+                  <p class="muted cal-restricted-note">Merci de contacter votre agence pour ce bien.</p>
+                </td>
+              <?php else: ?>
               <?php foreach ($dates as $date):
                 $key = $date->format('Y-m-d');
                 $isPast = $key < $today;
@@ -182,6 +187,7 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
                   <?php endif; ?>
                 </td>
               <?php endforeach; ?>
+              <?php endif; ?>
             </tr>
           <?php endforeach; ?>
         </tbody>

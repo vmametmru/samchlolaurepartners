@@ -12,6 +12,7 @@ use App\Flash;
 use App\HttpException;
 use App\LodgifyApiException;
 use App\LodgifyClient;
+use App\PartnerPropertyVisibility;
 use App\Scheduler;
 use App\Tenant;
 use App\View;
@@ -48,9 +49,10 @@ final class PageController extends Controller
             $checkin = (string) $_GET['checkin'];
             $checkout = (string) $_GET['checkout'];
             $guests = max(1, (int) ($_GET['adults'] ?? 1)) + max(0, (int) ($_GET['children'] ?? 0));
+            $partner = Tenant::current();
             try {
                 $client = new LodgifyClient();
-                $allProperties = $client->getProperties();
+                $allProperties = self::filterVisibleProperties($client->getProperties(), $partner, true);
                 $properties = array_values(array_filter(
                     $allProperties,
                     static function (array $property) use ($client, $checkin, $checkout, $guests): bool {
@@ -83,7 +85,7 @@ final class PageController extends Controller
         $properties = [];
         $query = trim((string) ($_GET['q'] ?? ''));
         try {
-            $properties = (new LodgifyClient())->getProperties();
+            $properties = self::filterVisibleProperties((new LodgifyClient())->getProperties(), Tenant::current());
         } catch (Throwable $e) {
             Flash::set('Impossible de charger les hébergements. Vérifiez la configuration Lodgify.', 'error');
         }
@@ -97,18 +99,61 @@ final class PageController extends Controller
         View::render('pages/properties', ['pageTitle' => 'Hébergements', 'properties' => $properties, 'query' => $query]);
     }
 
+    /**
+     * Removes properties the active partner isn't allowed to see ("none")
+     * from a Lodgify property list. When $excludePartial is true, "partial"
+     * properties are dropped too — used for date-based availability search
+     * results (home search), which would otherwise leak exactly the
+     * rates/availability information a "partial" restriction is meant to hide.
+     *
+     * @param array<int, array> $properties
+     * @return array<int, array>
+     */
+    private static function filterVisibleProperties(array $properties, ?array $partner, bool $excludePartial = false): array
+    {
+        if (!$partner) {
+            return $properties;
+        }
+        $visibilityMap = PartnerPropertyVisibility::allForPartner((int) $partner['id']);
+        if ($visibilityMap === []) {
+            return $properties;
+        }
+        return array_values(array_filter($properties, static function (array $property) use ($visibilityMap, $excludePartial): bool {
+            $visibility = $visibilityMap[(string) ($property['id'] ?? '')] ?? PartnerPropertyVisibility::FULL;
+            if ($visibility === PartnerPropertyVisibility::NONE) {
+                return false;
+            }
+            if ($excludePartial && $visibility === PartnerPropertyVisibility::PARTIAL) {
+                return false;
+            }
+            return true;
+        }));
+    }
+
     public static function propertyDetail(int $id): void
     {
+        $partner = Tenant::current();
+        $visibility = PartnerPropertyVisibility::visibilityFor($partner, $id);
+        if ($visibility === PartnerPropertyVisibility::NONE) {
+            throw new HttpException(404, 'Not Found', 'Hébergement introuvable');
+        }
         $client = new LodgifyClient();
         $today = date('Y-m-d');
         // The calendar always shows the next 12 months (no tab switching, no
         // AJAX refresh needed), rendered once with the full page.
         $calendarMonths = 12;
         [$rangeStart, $rangeEnd] = self::calendarRange($calendarMonths);
+        $availability = [];
+        $rates = [];
         try {
             $property = $client->getProperty($id);
-            $availability = $client->getAvailability($id, $rangeStart, $rangeEnd);
-            $rates = self::publicRates($client, $id, $rangeStart, $rangeEnd);
+            // "partial" properties never load/display rates & availability:
+            // the "Tarifs & Disponibilités" tab shows a contact message
+            // instead (see the view), so there is no need to hit Lodgify for it.
+            if ($visibility !== PartnerPropertyVisibility::PARTIAL) {
+                $availability = $client->getAvailability($id, $rangeStart, $rangeEnd);
+                $rates = self::publicRates($client, $id, $rangeStart, $rangeEnd);
+            }
         } catch (Throwable $e) {
             error_log('Property detail load failed for id ' . $id . ': ' . $e->getMessage());
             // Only a genuine 404 from Lodgify means the property truly doesn't
@@ -126,7 +171,6 @@ final class PageController extends Controller
         // /calendrier board. The booking form defaults to 2 adults, so that
         // is the guest count used for the initial render; the price note is
         // then kept in sync client-side as the visitor adjusts guest counts.
-        $partner = Tenant::current();
         $cleaningFeePerPerson = $partner ? (float) ($partner['cleaning_fee_per_person_per_night'] ?? 0) : 0.0;
         View::render('pages/property-detail', [
             'pageTitle' => (string) $property['name'],
@@ -138,6 +182,7 @@ final class PageController extends Controller
             'calendarStart' => $rangeStart,
             'cleaningFeePerPerson' => $cleaningFeePerPerson,
             'calendarGuests' => 2,
+            'ratesRestricted' => $visibility === PartnerPropertyVisibility::PARTIAL,
         ]);
     }
 
@@ -217,7 +262,7 @@ final class PageController extends Controller
         if ($totalGuests > 0) {
             $properties = [];
             try {
-                $properties = $client->getProperties();
+                $properties = self::filterVisibleProperties($client->getProperties(), $partner);
             } catch (Throwable $e) {
                 Flash::set('Impossible de charger les hébergements pour le moment.', 'error');
             }
@@ -227,29 +272,35 @@ final class PageController extends Controller
                 if ($id <= 0) {
                     continue;
                 }
+                $restricted = PartnerPropertyVisibility::visibilityFor($partner, $id) === PartnerPropertyVisibility::PARTIAL;
                 $availabilityMap = [];
                 $singleNightMap = [];
                 $rateMap = [];
                 $loadFailed = false;
-                try {
-                    foreach ($client->getAvailability($id, $rangeStart, $rangeEnd) as $day) {
-                        $availabilityMap[$day['date']] = $day['available'];
-                        $singleNightMap[$day['date']] = !empty($day['single_night']);
-                    }
-                    foreach (self::publicRates($client, $id, $rangeStart, $rangeEnd) as $rate) {
-                        if ($cleaningFeePerNight > 0) {
-                            $rate['price_per_night'] = round($rate['price_per_night'] + $cleaningFeePerNight, 2);
+                // "partial" rows never load rates/availability: the table
+                // shows the "contactez votre agence" message in place of the
+                // date cells instead (see the view).
+                if (!$restricted) {
+                    try {
+                        foreach ($client->getAvailability($id, $rangeStart, $rangeEnd) as $day) {
+                            $availabilityMap[$day['date']] = $day['available'];
+                            $singleNightMap[$day['date']] = !empty($day['single_night']);
                         }
-                        $rateMap[$rate['date_from']] = $rate;
+                        foreach (self::publicRates($client, $id, $rangeStart, $rangeEnd) as $rate) {
+                            if ($cleaningFeePerNight > 0) {
+                                $rate['price_per_night'] = round($rate['price_per_night'] + $cleaningFeePerNight, 2);
+                            }
+                            $rateMap[$rate['date_from']] = $rate;
+                        }
+                    } catch (Throwable $e) {
+                        error_log('Calendar board load failed for property ' . $id . ': ' . $e->getMessage());
+                        // Surface the failure in the row itself (instead of a
+                        // silent, unexplained wall of grey/unclickable cells)
+                        // only when nothing at all could be loaded for this
+                        // property, so the visitor understands why no colours
+                        // show up rather than assuming the page is broken.
+                        $loadFailed = $availabilityMap === [];
                     }
-                } catch (Throwable $e) {
-                    error_log('Calendar board load failed for property ' . $id . ': ' . $e->getMessage());
-                    // Surface the failure in the row itself (instead of a
-                    // silent, unexplained wall of grey/unclickable cells)
-                    // only when nothing at all could be loaded for this
-                    // property, so the visitor understands why no colours
-                    // show up rather than assuming the page is broken.
-                    $loadFailed = $availabilityMap === [];
                 }
                 $maxGuests = (int) ($property['max_guests'] ?? 0);
                 $rows[] = [
@@ -259,6 +310,7 @@ final class PageController extends Controller
                     'rates' => $rateMap,
                     'capacity_ok' => $maxGuests <= 0 || $maxGuests >= $totalGuests,
                     'load_failed' => $loadFailed,
+                    'restricted' => $restricted,
                 ];
             }
         }
@@ -449,7 +501,30 @@ final class PageController extends Controller
     {
         self::requireAdminUser();
         $partners = Database::connection()->query('SELECT * FROM partners ORDER BY name')->fetchAll(PDO::FETCH_ASSOC);
-        View::render('pages/admin-partners', ['pageTitle' => 'Partenaires', 'partners' => $partners]);
+        $properties = [];
+        try {
+            $properties = (new LodgifyClient())->getProperties();
+        } catch (Throwable $e) {
+            Flash::set('Impossible de charger la liste des biens Lodgify pour les associer aux partenaires.', 'error');
+        }
+        $visibilityByPartner = [];
+        foreach ($partners as $partnerRow) {
+            $visibilityByPartner[(int) $partnerRow['id']] = PartnerPropertyVisibility::allForPartner((int) $partnerRow['id']);
+        }
+        View::render('pages/admin-partners', [
+            'pageTitle' => 'Partenaires',
+            'partners' => $partners,
+            'properties' => $properties,
+            'visibilityByPartner' => $visibilityByPartner,
+        ]);
+    }
+
+    public static function adminSavePartnerProperties(int $id): never
+    {
+        self::requireAdminUser();
+        $visibility = is_array($_POST['visibility'] ?? null) ? $_POST['visibility'] : [];
+        PartnerPropertyVisibility::save($id, $visibility);
+        self::redirect('/admin/partners', 'Biens associés mis à jour.');
     }
 
     public static function adminPartnerForm(?int $id = null): void
