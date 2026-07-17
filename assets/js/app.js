@@ -1053,10 +1053,10 @@ function initMultiPropertyCart() {
   const summaryEl = cartRoot.querySelector('[data-multi-cart-summary]');
   const summaryCountEl = cartRoot.querySelector('[data-multi-cart-summary-count]');
   const summaryNightsEl = cartRoot.querySelector('[data-multi-cart-summary-nights]');
-  const summaryCapacityEl = cartRoot.querySelector('[data-multi-cart-summary-capacity]');
-  const summaryRequestedEl = cartRoot.querySelector('[data-multi-cart-summary-requested]');
+  const capacityTableEl = cartRoot.querySelector('[data-multi-cart-capacity-table]');
   const capacityHintEl = cartRoot.querySelector('[data-multi-cart-capacity-hint]');
   const summaryTotalEl = cartRoot.querySelector('[data-multi-cart-summary-total]');
+  const clearBtn = cartRoot.querySelector('[data-multi-cart-clear]');
   if (!listEl || !checkoutForm || !itemsInput) return;
 
   // The requested party size must stay live: a visitor can change the guest
@@ -1079,6 +1079,7 @@ function initMultiPropertyCart() {
 
   const cart = [];
   const rowUpdaters = [];
+  const rowResetters = [];
 
   function refreshAllRowHighlights() {
     rowUpdaters.forEach((updateRowSelection) => updateRowSelection());
@@ -1106,6 +1107,12 @@ function initMultiPropertyCart() {
     return amount.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
   }
 
+  const MONTHS_FR = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+  function formatFrLong(dateStr) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return `${d} ${MONTHS_FR[m - 1]} ${y}`;
+  }
+
   // If the visitor switches property mid-cart (e.g. clicks a departure date
   // on property A, then an arrival date on property B that isn't the same
   // day as A's departure), the night(s) between the two selections are left
@@ -1127,6 +1134,35 @@ function initMultiPropertyCart() {
     return `Attention : ${gaps.join(' ; ')}. Vérifiez vos dates pour éviter un trou dans votre séjour.`;
   }
 
+  // Builds a night-by-night capacity breakdown across the whole selection
+  // span (earliest arrival to latest departure): for every night, each cart
+  // item contributes its property's max capacity when that night falls in
+  // its own [checkin, checkout) range, 0 otherwise. This is what decides
+  // both the day-by-day "Ok / Not Ok" table and each mini-block's color.
+  function computeDailyCapacity() {
+    if (cart.length === 0) return [];
+    let minDate = cart[0].checkin;
+    let maxDate = cart[0].checkout;
+    cart.forEach((item) => {
+      if (item.checkin < minDate) minDate = item.checkin;
+      if (item.checkout > maxDate) maxDate = item.checkout;
+    });
+    const days = [];
+    let cursor = minDate;
+    while (cursor < maxDate) {
+      const terms = cart.map((item) => (cursor >= item.checkin && cursor < item.checkout ? item.maxGuests : 0));
+      const total = terms.reduce((sum, n) => sum + n, 0);
+      const ok = requestedGuests <= 0 || total >= requestedGuests;
+      days.push({ date: cursor, terms, total, ok });
+      cursor = addDaysStr(cursor, 1);
+    }
+    return days;
+  }
+
+  function isItemOk(item, dailyCapacity) {
+    return dailyCapacity.every((day) => (day.date < item.checkin || day.date >= item.checkout ? true : day.ok));
+  }
+
   function renderCart() {
     listEl.innerHTML = '';
     if (cart.length === 0) {
@@ -1134,6 +1170,7 @@ function initMultiPropertyCart() {
       checkoutForm.hidden = true;
       if (summaryEl) summaryEl.hidden = true;
       if (gapHintEl) gapHintEl.textContent = '';
+      if (capacityTableEl) capacityTableEl.innerHTML = '';
       itemsInput.value = '';
       return;
     }
@@ -1141,21 +1178,22 @@ function initMultiPropertyCart() {
     checkoutForm.hidden = false;
     if (summaryEl) summaryEl.hidden = false;
 
+    const dailyCapacity = computeDailyCapacity();
+
     let totalNights = 0;
     let totalAmount = 0;
-    const capacityByProperty = new Map();
+    const distinctPropertyIds = new Set();
 
     cart.forEach((item, index) => {
       const nights = nightsBetween(item.checkin, item.checkout);
       totalNights += nights;
       totalAmount += item.roomTotal;
-      // Several properties, each with a capacity below the requested party
-      // size, can be combined: the relevant figure is the sum of the max
-      // capacity of every *distinct* selected property, not the smallest one.
-      capacityByProperty.set(item.propertyId, item.maxGuests);
+      distinctPropertyIds.add(item.propertyId);
+
+      const itemOk = isItemOk(item, dailyCapacity);
 
       const li = document.createElement('li');
-      li.className = 'multi-cart-item';
+      li.className = `multi-cart-item ${itemOk ? 'cap-ok' : 'cap-warn'}`;
 
       const thumb = document.createElement('img');
       thumb.className = 'multi-cart-item-thumb';
@@ -1190,18 +1228,35 @@ function initMultiPropertyCart() {
       listEl.appendChild(li);
     });
 
-    const totalCapacity = Array.from(capacityByProperty.values()).reduce((sum, guests) => sum + guests, 0);
-    const capacitySufficient = requestedGuests <= 0 || totalCapacity >= requestedGuests;
+    const overallOk = dailyCapacity.every((day) => day.ok);
 
-    if (summaryCountEl) summaryCountEl.textContent = String(cart.length);
+    if (summaryCountEl) summaryCountEl.textContent = String(distinctPropertyIds.size);
     if (summaryNightsEl) summaryNightsEl.textContent = String(totalNights);
-    if (summaryCapacityEl) summaryCapacityEl.textContent = String(totalCapacity);
-    if (summaryRequestedEl) summaryRequestedEl.textContent = String(requestedGuests);
     if (summaryTotalEl) summaryTotalEl.textContent = formatEuros(totalAmount);
     if (capacityHintEl) {
-      capacityHintEl.textContent = capacitySufficient
+      capacityHintEl.textContent = overallOk
         ? ''
-        : `Capacité insuffisante pour ${requestedGuests} personne(s) : sélectionnez un ou plusieurs biens supplémentaires.`;
+        : `Capacité insuffisante pour ${requestedGuests} personne(s) sur une ou plusieurs dates : sélectionnez un ou plusieurs biens supplémentaires.`;
+    }
+    if (capacityTableEl) {
+      capacityTableEl.innerHTML = '';
+      dailyCapacity.forEach((day) => {
+        const li = document.createElement('li');
+        li.className = `multi-cart-capacity-row ${day.ok ? 'cap-ok' : 'cap-warn'}`;
+
+        const icon = document.createElement('span');
+        icon.className = 'multi-cart-capacity-icon';
+        icon.setAttribute('aria-hidden', 'true');
+        icon.textContent = day.ok ? '✔' : '⚠';
+        li.appendChild(icon);
+
+        const text = document.createElement('span');
+        const status = day.ok ? 'Ok' : 'Not Ok (Rajouter un ou plusieurs biens pour la même sélection)';
+        text.textContent = `${formatFrLong(day.date)} : ${day.terms.join(' + ')} = ${day.total} / ${requestedGuests} personne(s) - ${status}`;
+        li.appendChild(text);
+
+        capacityTableEl.appendChild(li);
+      });
     }
     if (gapHintEl) gapHintEl.textContent = computeGapWarning();
 
@@ -1289,6 +1344,10 @@ function initMultiPropertyCart() {
       });
     }
     rowUpdaters.push(updateRowSelection);
+    rowResetters.push(() => {
+      checkin = null;
+      checkout = null;
+    });
 
     row.addEventListener('click', (event) => {
       const cell = event.target.closest('[data-calendar-date]');
@@ -1349,6 +1408,18 @@ function initMultiPropertyCart() {
     cart.length = 0;
     renderCart();
   });
+
+  // "Effacer les sélections" fully resets the visitor's choices: the cart
+  // itself, plus any in-progress arrival/departure pick on every property
+  // row so the calendar board goes back to its free-to-select state.
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      cart.length = 0;
+      rowResetters.forEach((reset) => reset());
+      renderCart();
+      refreshAllRowHighlights();
+    });
+  }
 
   // Keep the requested party size (and its capacity warning) live if the
   // visitor tweaks the guest fields after already loading availabilities,
