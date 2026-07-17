@@ -888,17 +888,51 @@ final class LodgifyClient
         // (RoomDetailsDto), aggregated afterwards in applyRoomCapacity()/
         // sumRoomCapacity(). These root-level fallbacks are kept in case Lodgify
         // ever starts returning them directly.
+        [$latitude, $longitude] = $this->extractCoordinates($item);
         return [
             'id' => (int) ($item['id'] ?? 0),
             'name' => (string) ($item['name'] ?? ''),
             'description' => (string) ($item['description'] ?? ''),
             'images' => $images,
             'amenities' => $amenities,
-            'latitude' => isset($item['latitude']) ? (float) $item['latitude'] : null,
-            'longitude' => isset($item['longitude']) ? (float) $item['longitude'] : null,
+            'latitude' => $latitude,
+            'longitude' => $longitude,
             'max_guests' => (int) ($item['people_capacity'] ?? $item['max_guests'] ?? $item['maxGuests'] ?? 0),
             'bedrooms' => (int) ($item['rooms_count'] ?? $item['bedrooms'] ?? 0),
             'bathrooms' => (int) ($item['bathrooms_count'] ?? $item['bathrooms'] ?? 0),
         ];
+    }
+
+    /**
+     * Reads a property's GPS coordinates from Lodgify's PropertyDto. Lodgify
+     * actually nests these under "address" (address.lat / address.lng, e.g.
+     * {"address":{"lat":52.52,"lng":13.40,...}}), not as root-level
+     * "latitude"/"longitude" fields — using only the root fields left every
+     * property without coordinates, so the "/properties" map never showed any
+     * marker. Root-level "latitude"/"longitude"/"lat"/"lng" and a "location"
+     * sub-object are also checked as fallbacks in case Lodgify changes shape
+     * or an older/alternate response format is used.
+     *
+     * @param array<string, mixed> $item
+     * @return array{0: ?float, 1: ?float}
+     */
+    private function extractCoordinates(array $item): array
+    {
+        $address = is_array($item['address'] ?? null) ? $item['address'] : [];
+        $location = is_array($item['location'] ?? null) ? $item['location'] : [];
+        $candidates = [
+            [$address['lat'] ?? null, $address['lng'] ?? null],
+            [$address['latitude'] ?? null, $address['longitude'] ?? null],
+            [$location['lat'] ?? null, $location['lng'] ?? null],
+            [$location['latitude'] ?? null, $location['longitude'] ?? null],
+            [$item['latitude'] ?? null, $item['longitude'] ?? null],
+            [$item['lat'] ?? null, $item['lng'] ?? null],
+        ];
+        foreach ($candidates as [$lat, $lng]) {
+            if ($lat !== null && $lng !== null && is_numeric($lat) && is_numeric($lng)) {
+                return [(float) $lat, (float) $lng];
+            }
+        }
+        return [null, null];
     }
 }

@@ -40,6 +40,38 @@ final class View
         return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     }
 
+    /**
+     * Converts a Lodgify rich-text description (which is raw HTML, e.g.
+     * "<p>Welcome...</p><ul><li>...</li></ul>") into plain, safely-escaped
+     * text for places like property cards/tables where only a short excerpt
+     * is shown. Without this, htmlspecialchars() on the raw HTML just made
+     * the tags themselves visible as literal text (e.g. "<p>...</p>").
+     */
+    public static function plainText(mixed $value, ?int $maxLength = null): string
+    {
+        $text = html_entity_decode(strip_tags((string) $value), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $text = trim(preg_replace('/\s+/u', ' ', $text) ?? $text);
+        if ($maxLength !== null) {
+            $text = mb_strimwidth($text, 0, $maxLength, '…');
+        }
+        return self::e($text);
+    }
+
+    /**
+     * Renders a Lodgify rich-text description as safe, limited HTML: strips
+     * every tag except a small formatting allow-list and removes all
+     * attributes from those (e.g. a stray "onclick"), so the markup Lodgify
+     * hosts type in (paragraphs, bullet lists, bold text) still renders as
+     * such instead of either showing raw "<p>" tags as text or executing
+     * arbitrary attributes.
+     */
+    public static function safeHtml(mixed $value): string
+    {
+        $allowedTags = '<p><br><ul><ol><li><strong><b><em><i>';
+        $html = strip_tags((string) $value, $allowedTags);
+        return (string) preg_replace('/<(\w+)[^>]*>/', '<$1>', $html);
+    }
+
     public static function badgeLabel(string $status): string
     {
         return match ($status) {

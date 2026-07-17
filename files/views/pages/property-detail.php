@@ -64,7 +64,7 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
     <div class="stack-lg" data-tab-panels>
       <div data-tab-panel="description">
         <h2 class="section-title">Description</h2>
-        <p class="prose"><?= nl2br(\App\View::e($property['description'])) ?></p>
+        <div class="prose"><?= \App\View::safeHtml($property['description']) ?></div>
         <?php if ($checkinLabel !== null || $checkoutLabel !== null): ?>
           <div class="form-grid cols-2">
             <?php if ($checkinLabel !== null): ?><div><strong>Arrivée</strong><br><?= \App\View::e($checkinLabel) ?></div><?php endif; ?>
