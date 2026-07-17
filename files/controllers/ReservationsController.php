@@ -535,7 +535,7 @@ final class ReservationsController extends Controller
             'hebergement' => (string) ($input['property_name'] ?? ''),
             'message' => (string) ($input['message'] ?? ''),
             'partenaire' => (string) ($partner['name'] ?? ''),
-            'photo_bien' => self::propertyPhotoTag($input['property_id'] ?? null, (string) ($input['property_name'] ?? ''), $inlineImages),
+            'photo_bien' => self::propertyPhotoTag($input['property_id'] ?? null, (string) ($input['property_name'] ?? '')),
             'signature_nom' => $signatureName,
             'signature_photo' => self::signaturePhotoTag((string) ($contactUser['photo_url'] ?? ''), $signatureName, $inlineImages),
             'telephone_partenaire' => (string) ($contactUser['phone'] ?? ''),
@@ -613,15 +613,16 @@ final class ReservationsController extends Controller
     /**
      * Renders a small thumbnail of the requested property so the client
      * recognises which accommodation their request was about at a glance.
-     * The image is embedded inline (multipart/related, referenced by "cid:")
-     * so it renders even in mail clients that refuse to fetch remote/hotlinked
-     * URLs; if the bytes can't be resolved it falls back to an absolute <img
-     * src> URL, and finally to an empty string. Collected inline images are
-     * appended to $inlineImages (passed by reference).
-     *
-     * @param array<int,array{cid:string,data:string,mime:string}> $inlineImages
+     * Unlike signaturePhotoTag(), the property photo is hotlinked straight
+     * from its source (the site's own absolute URL, or Lodgify's CDN URL
+     * unchanged) instead of being downloaded and embedded as a CID
+     * attachment: the property image lives on Lodgify's CDN, which some
+     * hosts fail to reach at send time (timeouts/blocked outbound
+     * connections), silently dropping the inline attachment and leaving a
+     * broken image. Hotlinking makes the client's own mail app fetch the
+     * image directly, which is far more reliable than this server doing it.
      */
-    private static function propertyPhotoTag(mixed $propertyId, string $propertyName, array &$inlineImages = []): string
+    private static function propertyPhotoTag(mixed $propertyId, string $propertyName): string
     {
         $propertyId = (int) $propertyId;
         if ($propertyId <= 0) {
@@ -638,10 +639,11 @@ final class ReservationsController extends Controller
             return '';
         }
         $alt = htmlspecialchars($propertyName !== '' ? $propertyName : 'Hébergement', ENT_QUOTES, 'UTF-8');
-        $src = self::embeddableImageSrc($url, $inlineImages);
-        if ($src === '') {
+        $absolute = self::absoluteUrl($url);
+        if ($absolute === '') {
             return '';
         }
+        $src = htmlspecialchars($absolute, ENT_QUOTES, 'UTF-8');
         return '<p><img src="' . $src . '" alt="' . $alt . '" width="160" style="max-width:100%;height:auto;border-radius:8px;display:block;margin:12px 0;"></p>';
     }
 
