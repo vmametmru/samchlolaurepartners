@@ -1051,8 +1051,7 @@ function initMultiPropertyCart() {
   const checkoutForm = cartRoot.querySelector('[data-multi-cart-form]');
   const itemsInput = checkoutForm ? checkoutForm.querySelector('[data-multi-cart-items]') : null;
   const summaryEl = cartRoot.querySelector('[data-multi-cart-summary]');
-  const summaryCountEl = cartRoot.querySelector('[data-multi-cart-summary-count]');
-  const summaryNightsEl = cartRoot.querySelector('[data-multi-cart-summary-nights]');
+  const summaryLineEl = cartRoot.querySelector('[data-multi-cart-summary-line]');
   const capacityTableEl = cartRoot.querySelector('[data-multi-cart-capacity-table]');
   const capacityHintEl = cartRoot.querySelector('[data-multi-cart-capacity-hint]');
   const summaryTotalEl = cartRoot.querySelector('[data-multi-cart-summary-total]');
@@ -1183,12 +1182,14 @@ function initMultiPropertyCart() {
     let totalNights = 0;
     let totalAmount = 0;
     const distinctPropertyIds = new Set();
+    const nightsPerItem = new Set();
 
     cart.forEach((item, index) => {
       const nights = nightsBetween(item.checkin, item.checkout);
       totalNights += nights;
       totalAmount += item.roomTotal;
       distinctPropertyIds.add(item.propertyId);
+      nightsPerItem.add(nights);
 
       const itemOk = isItemOk(item, dailyCapacity);
 
@@ -1229,9 +1230,16 @@ function initMultiPropertyCart() {
     });
 
     const overallOk = dailyCapacity.every((day) => day.ok);
+    const propertyCount = distinctPropertyIds.size;
 
-    if (summaryCountEl) summaryCountEl.textContent = String(distinctPropertyIds.size);
-    if (summaryNightsEl) summaryNightsEl.textContent = String(totalNights);
+    if (summaryLineEl) {
+      if (nightsPerItem.size <= 1) {
+        const nightsPerSelection = nightsPerItem.size === 1 ? [...nightsPerItem][0] : 0;
+        summaryLineEl.textContent = `${propertyCount} bien(s) sélectionné(s) x ${nightsPerSelection} nuit(s) sélectionnée(s) = ${totalNights} nuit(s) sélectionnée(s)`;
+      } else {
+        summaryLineEl.textContent = `${propertyCount} bien(s) sélectionné(s) — ${totalNights} nuit(s) sélectionnée(s) au total`;
+      }
+    }
     if (summaryTotalEl) summaryTotalEl.textContent = formatEuros(totalAmount);
     if (capacityHintEl) {
       capacityHintEl.textContent = overallOk

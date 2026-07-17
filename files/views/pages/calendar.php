@@ -189,19 +189,26 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
     </div>
 
     <div class="multi-booking-cart" data-multi-cart hidden>
-      <h2 class="section-title">Votre sélection</h2>
+      <div class="multi-cart-header">
+        <h2 class="section-title">Votre sélection</h2>
+        <button type="button" class="btn-secondary" data-multi-cart-clear>Effacer les sélections</button>
+      </div>
       <ul class="multi-cart-list" data-multi-cart-list></ul>
       <p class="form-feedback" data-multi-cart-gap-hint></p>
       <div class="multi-cart-summary" data-multi-cart-summary>
-        <p><span data-multi-cart-summary-count>0</span> bien(s) sélectionné(s)</p>
-        <p><span data-multi-cart-summary-nights>0</span> nuit(s) sélectionnée(s)</p>
-        <p data-multi-cart-summary-capacity-row>Capacité cumulée des biens sélectionnés :</p>
-        <ul class="multi-cart-capacity-table" data-multi-cart-capacity-table></ul>
-        <p class="form-feedback" data-multi-cart-capacity-hint></p>
-        <p>Montant Total : <span data-multi-cart-summary-total>0</span> Euros</p>
+        <div class="multi-cart-summary-body">
+          <div class="multi-cart-summary-dates">
+            <p data-multi-cart-summary-line>0 bien(s) sélectionné(s) x 0 nuit(s) sélectionnée(s) = 0 nuit(s) sélectionnée(s)</p>
+            <p data-multi-cart-summary-capacity-row>Capacité cumulée du/des bien(s) sélectionné(s) :</p>
+            <ul class="multi-cart-capacity-table" data-multi-cart-capacity-table></ul>
+            <p class="form-feedback" data-multi-cart-capacity-hint></p>
+          </div>
+          <div class="multi-cart-summary-total">
+            <p>Montant Total : <span data-multi-cart-summary-total>0</span> Euros</p>
+          </div>
+        </div>
       </div>
       <p class="form-feedback" data-multi-cart-feedback></p>
-      <button type="button" class="btn-secondary" data-multi-cart-clear>Effacer les sélections</button>
       <form class="stack-md multi-cart-checkout" data-multi-cart-form data-api-form data-success-message="Vos demandes de réservation ont été envoyées ! Vous recevrez un email de confirmation." method="post" action="/api/reservations/request-multiple" hidden>
         <input type="hidden" name="adults" value="<?= (int) $adults ?>">
         <input type="hidden" name="children_under5" value="<?= (int) $childrenUnder5 ?>">
