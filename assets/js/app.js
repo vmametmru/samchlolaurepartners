@@ -34,6 +34,8 @@ document.addEventListener('DOMContentLoaded', () => {
     initCalendarBoard,
     initCalendarFilterLoading,
     initCalendarNameColumnToggle,
+    initCalendarGuestSlider,
+    initHelpDialogs,
     initMultiPropertyCart,
   ].forEach(runInit);
 });
@@ -147,6 +149,60 @@ function initCalendarFilterLoading() {
   if (!form || !loading) return;
   form.addEventListener('submit', () => {
     loading.hidden = false;
+  });
+}
+
+/**
+ * Wires the "Aide" (help) buttons to open their associated <dialog> as a
+ * modal, and lets the dialog's own "×" close form submit (method="dialog")
+ * close it again. Without this, clicking the button did nothing since
+ * <dialog> elements require showModal() to be called from JavaScript.
+ */
+function initHelpDialogs() {
+  document.querySelectorAll('[data-help-trigger]').forEach((trigger) => {
+    const name = trigger.dataset.helpTrigger;
+    const dialog = document.querySelector(`[data-help-dialog="${name}"]`);
+    if (!dialog || typeof dialog.showModal !== 'function') return;
+    trigger.addEventListener('click', () => {
+      dialog.showModal();
+    });
+  });
+}
+
+/**
+ * Horizontally-sliding guest count fields (Adulte(s) / Enfant(s) 5-12 ans /
+ * Bébé(s) -5 ans) on the /calendrier filter form: only one field is expanded
+ * (input visible) at a time, the others collapse to a small icon + count
+ * button. Clicking a collapsed icon expands its field and collapses the
+ * previously active one, keeping every value regardless of which field is
+ * currently shown.
+ */
+function initCalendarGuestSlider() {
+  document.querySelectorAll('[data-guest-slide-group]').forEach((group) => {
+    const items = Array.from(group.querySelectorAll('[data-guest-slide-item]'));
+    if (!items.length) return;
+
+    function setActive(target) {
+      items.forEach((item) => {
+        const isTarget = item === target;
+        item.classList.toggle('active', isTarget);
+        const input = item.querySelector('[data-guest-slide-input]');
+        const count = item.querySelector('[data-guest-slide-count]');
+        if (input && count) count.textContent = input.value || '0';
+      });
+      const input = target.querySelector('[data-guest-slide-input]');
+      if (input) input.focus();
+    }
+
+    items.forEach((item) => {
+      const summary = item.querySelector('[data-guest-slide-summary]');
+      const input = item.querySelector('[data-guest-slide-input]');
+      const count = item.querySelector('[data-guest-slide-count]');
+      summary?.addEventListener('click', () => setActive(item));
+      input?.addEventListener('input', () => {
+        if (count) count.textContent = input.value || '0';
+      });
+    });
   });
 }
 
@@ -767,8 +823,8 @@ function initColorSync() {
  */
 function initDateRanges() {
   document.querySelectorAll('[data-date-range]').forEach((wrap) => {
-    const checkin = wrap.querySelector('input[name="checkin"], input[name="checkin_date"]');
-    const checkout = wrap.querySelector('input[name="checkout"], input[name="checkout_date"]');
+    const checkin = wrap.querySelector('input[name="checkin"], input[name="checkin_date"], input[name="date_from"]');
+    const checkout = wrap.querySelector('input[name="checkout"], input[name="checkout_date"], input[name="date_to"]');
     if (!checkin || !checkout) return;
 
     function addDays(dateStr, days) {

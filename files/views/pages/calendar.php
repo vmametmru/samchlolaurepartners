@@ -2,15 +2,15 @@
 /** @var array<int, array{property: array, availability: array, single_night: array, rates: array, capacity_ok: bool}> $rows */
 /** @var array<int, DateTimeImmutable> $dates */
 /** @var int $visibleDays */
-/** @var array<int, array{value: string, label: string}> $monthOptions */
-/** @var array<int, string> $selectedMonths */
+/** @var string $dateFrom */
+/** @var string $dateTo */
 /** @var int $adults */
 /** @var int $childrenUnder5 */
 /** @var int $children5to12 */
 /** @var int $totalGuests */
 $visibleDays = $visibleDays ?? 31;
-$monthOptions = $monthOptions ?? [];
-$selectedMonths = $selectedMonths ?? [];
+$dateFrom = $dateFrom ?? '';
+$dateTo = $dateTo ?? '';
 $adults = $adults ?? 0;
 $childrenUnder5 = $childrenUnder5 ?? 0;
 $children5to12 = $children5to12 ?? 0;
@@ -32,42 +32,60 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
     <p class="muted">Réservez plusieurs biens en quelques clics : cliquez une date d'arrivée puis une date de départ sur un bien, puis recommencez sur un autre bien (mêmes dates ou dates différentes) pour l'ajouter à votre sélection.</p>
   </dialog>
 
-  <?php $filtersCollapsedByDefault = $totalGuests >= 1; ?>
   <form class="calendar-filter" method="get" action="/calendrier" data-calendar-filter-form>
-    <div class="booking-block calendar-filter-block" data-filter-block>
-      <button type="button" class="booking-block-header<?= $filtersCollapsedByDefault ? '' : ' open' ?>" data-filter-toggle>
-        <span>Mois à afficher</span>
-        <span class="booking-block-chevron" aria-hidden="true">▾</span>
-      </button>
-      <div class="booking-block-body calendar-filter-months" data-filter-body<?= $filtersCollapsedByDefault ? ' hidden' : '' ?>>
-        <?php foreach ($monthOptions as $option): ?>
-          <label class="calendar-filter-month">
-            <input type="checkbox" name="months[]" value="<?= \App\View::e($option['value']) ?>"<?= in_array($option['value'], $selectedMonths, true) ? ' checked' : '' ?>>
-            <?= \App\View::e($option['label']) ?>
-          </label>
-        <?php endforeach; ?>
+    <div class="calendar-filter-section">
+      <span class="calendar-filter-label">Dates à afficher</span>
+      <div class="calendar-filter-dates" data-date-range>
+        <label class="calendar-filter-date"><span>Du</span><input class="input" type="date" name="date_from" min="<?= \App\View::e($today) ?>" value="<?= \App\View::e($dateFrom) ?>"></label>
+        <label class="calendar-filter-date"><span>Au</span><input class="input" type="date" name="date_to" min="<?= \App\View::e($today) ?>" value="<?= \App\View::e($dateTo) ?>"></label>
       </div>
     </div>
 
-    <div class="booking-block calendar-filter-block" data-filter-block>
-      <button type="button" class="booking-block-header<?= $filtersCollapsedByDefault ? '' : ' open' ?>" data-filter-toggle>
-        <span>Nombre de personnes</span>
-        <span class="booking-block-chevron" aria-hidden="true">▾</span>
-      </button>
-      <div class="booking-block-body calendar-guest-form" data-filter-body data-calendar-guest-form<?= $filtersCollapsedByDefault ? ' hidden' : '' ?>>
-        <label class="calendar-guest-field"><span>Adulte(s)</span><input class="input" type="number" name="adults" min="1" max="20" value="<?= $adults > 0 ? (int) $adults : 2 ?>"></label>
-        <label class="calendar-guest-field"><span>Enfant(s) -5 ans</span><input class="input" type="number" name="children_under5" min="0" max="20" value="<?= (int) $childrenUnder5 ?>"></label>
-        <label class="calendar-guest-field"><span>Enfant(s) 5-12 ans</span><input class="input" type="number" name="children_5to12" min="0" max="20" value="<?= (int) $children5to12 ?>"></label>
+    <div class="calendar-filter-section">
+      <span class="calendar-filter-label">Nombre de personnes</span>
+      <div class="calendar-guest-form" data-calendar-guest-form>
+        <div class="guest-slide-group" data-guest-slide-group>
+          <div class="guest-slide-item active" data-guest-slide-item="adults">
+            <button type="button" class="guest-slide-summary" data-guest-slide-summary aria-label="Adulte(s)">
+              <span class="guest-slide-icon" aria-hidden="true">🧑</span>
+              <span class="guest-slide-count" data-guest-slide-count><?= $adults > 0 ? (int) $adults : 2 ?></span>
+            </button>
+            <label class="guest-slide-input-wrap">
+              <span class="guest-slide-field-label">Adulte(s)</span>
+              <input class="input guest-slide-input" type="number" name="adults" min="1" max="20" value="<?= $adults > 0 ? (int) $adults : 2 ?>" data-guest-slide-input>
+            </label>
+          </div>
+          <div class="guest-slide-item" data-guest-slide-item="children_5to12">
+            <button type="button" class="guest-slide-summary" data-guest-slide-summary aria-label="Enfant(s) 5-12 ans">
+              <span class="guest-slide-icon" aria-hidden="true">🧒</span>
+              <span class="guest-slide-count" data-guest-slide-count><?= (int) $children5to12 ?></span>
+            </button>
+            <label class="guest-slide-input-wrap">
+              <span class="guest-slide-field-label">Enfant(s) 5-12 ans</span>
+              <input class="input guest-slide-input" type="number" name="children_5to12" min="0" max="20" value="<?= (int) $children5to12 ?>" data-guest-slide-input>
+            </label>
+          </div>
+          <div class="guest-slide-item" data-guest-slide-item="children_under5">
+            <button type="button" class="guest-slide-summary" data-guest-slide-summary aria-label="Bébé(s) -5 ans">
+              <span class="guest-slide-icon" aria-hidden="true">👶</span>
+              <span class="guest-slide-count" data-guest-slide-count><?= (int) $childrenUnder5 ?></span>
+            </button>
+            <label class="guest-slide-input-wrap">
+              <span class="guest-slide-field-label">Bébé(s) -5 ans</span>
+              <input class="input guest-slide-input" type="number" name="children_under5" min="0" max="20" value="<?= (int) $childrenUnder5 ?>" data-guest-slide-input>
+            </label>
+          </div>
+        </div>
       </div>
     </div>
 
     <div class="calendar-filter-actions">
       <button type="submit" class="btn-primary calendar-filter-submit">Afficher les disponibilités</button>
-      <?php if ($selectedMonths !== []): ?>
+      <?php if ($dateFrom !== '' && $dateTo !== ''): ?>
         <a class="text-link" href="/calendrier">30 prochains jours</a>
       <?php endif; ?>
     </div>
-    <p class="muted calendar-filter-hint">Renseignez le nombre de personnes pour afficher les biens disponibles. Sans sélection de mois, seuls les 30 prochains jours sont chargés.</p>
+    <p class="muted calendar-filter-hint">Renseignez le nombre de personnes pour afficher les biens disponibles. Sans sélection de dates, seuls les 30 prochains jours sont chargés.</p>
   </form>
 
   <p class="calendar-loading-message" data-calendar-loading hidden><span class="spinner" aria-hidden="true"></span> Chargement des disponibilités…</p>

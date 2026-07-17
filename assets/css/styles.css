@@ -199,14 +199,30 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .calendar-board.cal-name-hidden { --cal-name-w: 0px; }
 .calendar-board.cal-name-hidden .cal-col-name { display: none; }
 
-.calendar-filter { margin-top: 1.25rem; display: flex; flex-direction: column; gap: .75rem; }
-.calendar-filter-block { flex-basis: 100%; }
-.calendar-filter-label { font-weight: 700; }
-.calendar-filter-months { display: flex; flex-wrap: wrap; gap: .4rem .9rem; }
-.calendar-filter-month { display: inline-flex; align-items: center; gap: .3rem; font-size: .85rem; cursor: pointer; }
-.calendar-guest-form { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; }
-.calendar-guest-field { display: inline-flex; align-items: center; gap: .4rem; font-size: .85rem; }
-.calendar-guest-field .input { width: 4.5rem; padding: .35rem .5rem; }
+.calendar-filter { margin-top: 1.25rem; display: flex; flex-direction: column; gap: 1rem; }
+.calendar-filter-section { display: flex; flex-direction: column; gap: .5rem; }
+.calendar-filter-label { font-weight: 700; font-size: .95rem; }
+.calendar-filter-dates { display: flex; flex-wrap: wrap; gap: .75rem 1rem; }
+.calendar-filter-date { display: inline-flex; flex-direction: column; gap: .3rem; font-size: .85rem; }
+.calendar-filter-date .input { padding: .4rem .5rem; }
+.calendar-guest-form { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+
+/* Sliding guest fields: only one item is expanded (input visible) at a
+   time, the others collapse to a compact icon + count button. See
+   initCalendarGuestSlider() in app.js. */
+.guest-slide-group { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.guest-slide-item { display: flex; align-items: center; }
+.guest-slide-summary { display: inline-flex; align-items: center; gap: .3rem; border: 1px solid #d1d5db; border-radius: .6rem; background: white; padding: .4rem .65rem; font-size: .9rem; cursor: pointer; appearance: none; font: inherit; color: var(--text); }
+.guest-slide-summary:hover { border-color: var(--brand); }
+.guest-slide-item.active .guest-slide-summary { display: none; }
+.guest-slide-item:not(.active) .guest-slide-input-wrap { display: none; }
+.guest-slide-icon { font-size: 1.1rem; line-height: 1; }
+.guest-slide-count { font-weight: 700; }
+.guest-slide-input-wrap { display: inline-flex; align-items: center; gap: .4rem; font-size: .85rem; border: 1px solid #d1d5db; border-radius: .6rem; padding: .35rem .6rem; background: white; }
+.guest-slide-field-label { white-space: nowrap; }
+.guest-slide-input { width: 3.5rem; padding: .3rem .4rem; border: 0; }
+.guest-slide-input:focus { outline: none; }
+
 .calendar-filter-actions { display: inline-flex; align-items: center; gap: .75rem; }
 .calendar-filter-submit { padding: .45rem .9rem; border-radius: .6rem; font-size: .85rem; }
 .calendar-filter-hint { margin: 0; font-size: .8rem; }
