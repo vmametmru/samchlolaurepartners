@@ -521,6 +521,7 @@ final class ReservationsController extends Controller
             $signatureName = (string) ($partner['name'] ?? '');
         }
 
+        $inlineImages = [];
         $variables = [
             'nom_client' => (string) ($input['client_name'] ?? ''),
             'email_client' => (string) ($input['client_email'] ?? ''),
@@ -534,9 +535,9 @@ final class ReservationsController extends Controller
             'hebergement' => (string) ($input['property_name'] ?? ''),
             'message' => (string) ($input['message'] ?? ''),
             'partenaire' => (string) ($partner['name'] ?? ''),
-            'photo_bien' => self::propertyPhotoTag($input['property_id'] ?? null, (string) ($input['property_name'] ?? '')),
+            'photo_bien' => self::propertyPhotoTag($input['property_id'] ?? null, (string) ($input['property_name'] ?? ''), $inlineImages),
             'signature_nom' => $signatureName,
-            'signature_photo' => self::signaturePhotoTag((string) ($contactUser['photo_url'] ?? ''), $signatureName),
+            'signature_photo' => self::signaturePhotoTag((string) ($contactUser['photo_url'] ?? ''), $signatureName, $inlineImages),
             'telephone_partenaire' => (string) ($contactUser['phone'] ?? ''),
             'lien_partenaire' => self::partnerLink($partner),
         ];
@@ -546,7 +547,7 @@ final class ReservationsController extends Controller
         $stmt->execute([(int) $partner['id'], 'REQUEST_RECEIVED_PARTNER']);
         $partnerTemplate = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
         if ($partnerTemplate) {
-            Mailer::sendTemplatedEmail($partner, $partnerTemplate, (string) $partner['email'], $variables);
+            Mailer::sendTemplatedEmail($partner, $partnerTemplate, (string) $partner['email'], $variables, $inlineImages);
         } else {
             Mailer::sendRawEmail($partner, (string) $partner['email'], 'Nouvelle demande de réservation - ' . $variables['nom_client'], '<p>Nouvelle demande de ' . htmlspecialchars($variables['nom_client']) . ' (' . htmlspecialchars($variables['email_client']) . ') pour ' . htmlspecialchars($variables['hebergement'] !== '' ? $variables['hebergement'] : 'hébergement non spécifié') . ' du ' . htmlspecialchars($variables['date_arrivee']) . ' au ' . htmlspecialchars($variables['date_depart']) . '.</p>');
         }
@@ -554,7 +555,7 @@ final class ReservationsController extends Controller
         $stmt->execute([(int) $partner['id'], 'REQUEST_RECEIVED_CLIENT']);
         $clientTemplate = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
         if ($clientTemplate) {
-            Mailer::sendTemplatedEmail($partner, $clientTemplate, (string) $input['client_email'], $variables);
+            Mailer::sendTemplatedEmail($partner, $clientTemplate, (string) $input['client_email'], $variables, $inlineImages);
         } else {
             Mailer::sendRawEmail($partner, (string) $input['client_email'], 'Confirmation de votre demande - ' . (string) $partner['name'], '<p>Bonjour ' . htmlspecialchars((string) $input['client_name']) . ',</p><p>Nous avons bien reçu votre demande de réservation pour ' . htmlspecialchars((string) ($input['property_name'] ?? 'l\'hébergement')) . ' du ' . htmlspecialchars((string) $input['checkin_date']) . ' au ' . htmlspecialchars((string) $input['checkout_date']) . '. Nous vous contacterons très prochainement.</p><p>Cordialement,<br>' . htmlspecialchars((string) $partner['name']) . '</p>');
         }
@@ -612,9 +613,15 @@ final class ReservationsController extends Controller
     /**
      * Renders a small thumbnail of the requested property so the client
      * recognises which accommodation their request was about at a glance.
-     * Falls back to an empty string when no photo could be resolved.
+     * The image is embedded inline (multipart/related, referenced by "cid:")
+     * so it renders even in mail clients that refuse to fetch remote/hotlinked
+     * URLs; if the bytes can't be resolved it falls back to an absolute <img
+     * src> URL, and finally to an empty string. Collected inline images are
+     * appended to $inlineImages (passed by reference).
+     *
+     * @param array<int,array{cid:string,data:string,mime:string}> $inlineImages
      */
-    private static function propertyPhotoTag(mixed $propertyId, string $propertyName): string
+    private static function propertyPhotoTag(mixed $propertyId, string $propertyName, array &$inlineImages = []): string
     {
         $propertyId = (int) $propertyId;
         if ($propertyId <= 0) {
@@ -631,23 +638,147 @@ final class ReservationsController extends Controller
             return '';
         }
         $alt = htmlspecialchars($propertyName !== '' ? $propertyName : 'Hébergement', ENT_QUOTES, 'UTF-8');
-        $src = htmlspecialchars(self::absoluteUrl($url), ENT_QUOTES, 'UTF-8');
+        $src = self::embeddableImageSrc($url, $inlineImages);
+        if ($src === '') {
+            return '';
+        }
         return '<p><img src="' . $src . '" alt="' . $alt . '" width="160" style="max-width:100%;height:auto;border-radius:8px;display:block;margin:12px 0;"></p>';
     }
 
     /**
      * Renders the small round signature photo of the partner contact used at
      * the bottom of client emails, falling back to an empty string when the
-     * contact has no profile photo set.
+     * contact has no profile photo set. Like propertyPhotoTag(), embeds the
+     * photo inline (cid:) when possible so it survives strict mail clients.
+     *
+     * @param array<int,array{cid:string,data:string,mime:string}> $inlineImages
      */
-    private static function signaturePhotoTag(string $photoUrl, string $name): string
+    private static function signaturePhotoTag(string $photoUrl, string $name, array &$inlineImages = []): string
     {
         if ($photoUrl === '') {
             return '';
         }
         $alt = htmlspecialchars($name !== '' ? $name : 'Partenaire', ENT_QUOTES, 'UTF-8');
-        $src = htmlspecialchars(self::absoluteUrl($photoUrl), ENT_QUOTES, 'UTF-8');
+        $src = self::embeddableImageSrc($photoUrl, $inlineImages);
+        if ($src === '') {
+            return '';
+        }
         return '<img src="' . $src . '" alt="' . $alt . '" width="48" height="48" style="width:48px;height:48px;border-radius:50%;object-fit:cover;display:block;">';
+    }
+
+    /**
+     * Turns an image URL (a local cached path like "/images/listings/..", or a
+     * remote Lodgify CDN URL) into a value usable as an email <img src>. It
+     * first tries to read the actual image bytes and register them as an inline
+     * attachment, returning a "cid:.." reference — the only reliable way to make
+     * images appear in every mail client, since many won't fetch remote URLs.
+     * When the bytes can't be read it falls back to an absolute URL, and to an
+     * empty string only if even that can't be built. The returned string is
+     * safe to embed in HTML (attribute-escaped).
+     *
+     * @param array<int,array{cid:string,data:string,mime:string}> $inlineImages
+     */
+    private static function embeddableImageSrc(string $url, array &$inlineImages): string
+    {
+        $resolved = self::resolveImageBytes($url);
+        if ($resolved !== null) {
+            $cid = bin2hex(random_bytes(16)) . '@grand-baie-maurice.com';
+            $inlineImages[] = ['cid' => $cid, 'data' => $resolved['data'], 'mime' => $resolved['mime']];
+            return htmlspecialchars('cid:' . $cid, ENT_QUOTES, 'UTF-8');
+        }
+        $absolute = self::absoluteUrl($url);
+        return $absolute === '' ? '' : htmlspecialchars($absolute, ENT_QUOTES, 'UTF-8');
+    }
+
+    /**
+     * Reads the raw bytes and MIME type of an image referenced either by a
+     * site-local path (served from the project root, e.g.
+     * "/images/listings/12/ab.jpg") or by an http(s) URL. Returns null on any
+     * failure so callers can fall back to a plain URL.
+     *
+     * @return array{data:string,mime:string}|null
+     */
+    private static function resolveImageBytes(string $url): ?array
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return null;
+        }
+
+        $scheme = parse_url($url, PHP_URL_SCHEME);
+        if (!is_string($scheme) || $scheme === '') {
+            // Site-relative path -> read the cached file straight off disk.
+            $path = parse_url($url, PHP_URL_PATH);
+            if (!is_string($path) || $path === '') {
+                return null;
+            }
+            $localPath = BASE_PATH . '/' . ltrim($path, '/');
+            $realBase = realpath(BASE_PATH);
+            $realPath = realpath($localPath);
+            // Guard against path traversal: only ever read files inside BASE_PATH.
+            if ($realBase === false || $realPath === false || !str_starts_with($realPath, $realBase . DIRECTORY_SEPARATOR)) {
+                return null;
+            }
+            $data = @file_get_contents($realPath);
+            if ($data === false || $data === '') {
+                return null;
+            }
+            return ['data' => $data, 'mime' => self::detectMime($data)];
+        }
+
+        if (!in_array(strtolower($scheme), ['http', 'https'], true)) {
+            return null;
+        }
+
+        $data = self::downloadImage($url);
+        if ($data === null || $data === '') {
+            return null;
+        }
+        return ['data' => $data, 'mime' => self::detectMime($data)];
+    }
+
+    private static function detectMime(string $data): string
+    {
+        if (function_exists('finfo_open')) {
+            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+            if ($finfo !== false) {
+                $mime = finfo_buffer($finfo, $data);
+                finfo_close($finfo);
+                if (is_string($mime) && str_starts_with($mime, 'image/')) {
+                    return $mime;
+                }
+            }
+        }
+        return 'image/jpeg';
+    }
+
+    private static function downloadImage(string $url): ?string
+    {
+        if (!function_exists('curl_init')) {
+            return null;
+        }
+        $ch = curl_init($url);
+        if ($ch === false) {
+            return null;
+        }
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS => 5,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_USERAGENT => 'grand-baie-maurice.com email image embedder',
+        ]);
+        $body = curl_exec($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error = curl_error($ch);
+        curl_close($ch);
+
+        if ($body === false || !is_string($body) || $body === '' || $error !== '' || $status >= 400) {
+            return null;
+        }
+        return $body;
     }
 
     /**

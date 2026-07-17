@@ -15,19 +15,31 @@ final class Mailer
         }, $template) ?? $template;
     }
 
-    public static function sendTemplatedEmail(array $partner, array $template, string $to, array $variables): void
+    /**
+     * @param array<int,array{cid:string,data:string,mime:string}> $inlineImages
+     *        Images to embed directly inside the message (multipart/related) so
+     *        they render even when the recipient's mail client can't fetch a
+     *        remote/hotlinked <img src> URL. Each entry's "cid" must match the
+     *        "cid:" reference used in the HTML body.
+     */
+    public static function sendTemplatedEmail(array $partner, array $template, string $to, array $variables, array $inlineImages = []): void
     {
         self::deliver(
             $partner,
             $to,
             self::renderTemplate((string) $template['subject'], $variables),
-            self::renderTemplate((string) $template['body_html'], $variables)
+            self::renderTemplate((string) $template['body_html'], $variables),
+            null,
+            $inlineImages
         );
     }
 
-    public static function sendRawEmail(array $partner, string $to, string $subject, string $html): void
+    /**
+     * @param array<int,array{cid:string,data:string,mime:string}> $inlineImages
+     */
+    public static function sendRawEmail(array $partner, string $to, string $subject, string $html, array $inlineImages = []): void
     {
-        self::deliver($partner, $to, $subject, $html);
+        self::deliver($partner, $to, $subject, $html, null, $inlineImages);
     }
 
     public static function sendContactEmail(array $partner, string $replyTo, string $subject, string $html): void
@@ -35,7 +47,10 @@ final class Mailer
         self::deliver($partner, (string) $partner['email'], $subject, $html, $replyTo);
     }
 
-    private static function deliver(array $partner, string $to, string $subject, string $html, ?string $replyTo = null): void
+    /**
+     * @param array<int,array{cid:string,data:string,mime:string}> $inlineImages
+     */
+    private static function deliver(array $partner, string $to, string $subject, string $html, ?string $replyTo = null, array $inlineImages = []): void
     {
         $to = self::sanitizeAddress($to, 'recipient');
         $subject = self::stripCrlf($subject);
@@ -53,20 +68,21 @@ final class Mailer
         ];
 
         if (!empty($config['host'])) {
-            self::sendSmtp($config, $to, $subject, $html, $replyTo);
+            self::sendSmtp($config, $to, $subject, $html, $replyTo, $inlineImages);
             return;
         }
 
+        [$contentType, $body] = self::buildBody($html, $inlineImages);
         $headers = [
             'MIME-Version: 1.0',
-            'Content-Type: text/html; charset=UTF-8',
+            'Content-Type: ' . $contentType,
             'From: "' . addslashes(self::stripCrlf($config['from_name'])) . '" <' . $config['from_email'] . '>',
         ];
         if ($replyTo) {
             $headers[] = 'Reply-To: ' . $replyTo;
         }
 
-        if (!@mail($to, $subject, $html, implode("\r\n", $headers))) {
+        if (!@mail($to, $subject, $body, implode("\r\n", $headers))) {
             throw new RuntimeException('Unable to send email via mail()');
         }
     }
@@ -90,7 +106,7 @@ final class Mailer
         return trim(str_replace(["\r", "\n"], '', $value));
     }
 
-    private static function sendSmtp(array $config, string $to, string $subject, string $html, ?string $replyTo): void
+    private static function sendSmtp(array $config, string $to, string $subject, string $html, ?string $replyTo, array $inlineImages = []): void
     {
         $host = (string) $config['host'];
         $port = (int) $config['port'];
@@ -121,23 +137,94 @@ final class Mailer
         self::command($socket, 'RCPT TO:<' . $to . '>', [250, 251]);
         self::command($socket, 'DATA', [354]);
 
+        [$contentType, $body] = self::buildBody($html, $inlineImages);
         $headers = [
             'Date: ' . date(DATE_RFC2822),
             'To: <' . $to . '>',
             'From: "' . addslashes(self::stripCrlf((string) $config['from_name'])) . '" <' . $fromEmail . '>',
             'Subject: ' . self::encodeHeader($subject),
             'MIME-Version: 1.0',
-            'Content-Type: text/html; charset=UTF-8',
-            'Content-Transfer-Encoding: 8bit',
+            'Content-Type: ' . $contentType,
         ];
+        if ($inlineImages === []) {
+            // Multipart bodies declare a Content-Transfer-Encoding per part, so
+            // only set a top-level one for the simple single-part message.
+            $headers[] = 'Content-Transfer-Encoding: 8bit';
+        }
         if ($replyTo) {
             $headers[] = 'Reply-To: ' . $replyTo;
         }
-        $message = implode("\r\n", $headers) . "\r\n\r\n" . $html . "\r\n.";
+        $message = implode("\r\n", $headers) . "\r\n\r\n" . self::dotStuff($body) . "\r\n.";
         fwrite($socket, $message . "\r\n");
         self::expect($socket, [250]);
         self::command($socket, 'QUIT', [221]);
         fclose($socket);
+    }
+
+    /**
+     * Builds the MIME body for a message. When inline images are supplied the
+     * message is wrapped as multipart/related so the images travel *inside* the
+     * email (referenced by "cid:") and render without the recipient's client
+     * having to fetch any remote/hotlinked URL — the previous approach, which
+     * broke in many mail clients. Returns [contentTypeHeaderValue, body].
+     *
+     * @param array<int,array{cid:string,data:string,mime:string}> $inlineImages
+     * @return array{0:string,1:string}
+     */
+    private static function buildBody(string $html, array $inlineImages): array
+    {
+        if ($inlineImages === []) {
+            return ['text/html; charset=UTF-8', $html];
+        }
+
+        $boundary = 'rel_' . bin2hex(random_bytes(16));
+        $lines = [];
+        $lines[] = '--' . $boundary;
+        $lines[] = 'Content-Type: text/html; charset=UTF-8';
+        $lines[] = 'Content-Transfer-Encoding: 8bit';
+        $lines[] = '';
+        $lines[] = $html;
+
+        foreach ($inlineImages as $image) {
+            $cid = self::stripCrlf((string) ($image['cid'] ?? ''));
+            $data = (string) ($image['data'] ?? '');
+            if ($cid === '' || $data === '') {
+                continue;
+            }
+            $mime = self::stripCrlf((string) ($image['mime'] ?? 'application/octet-stream'));
+            $lines[] = '--' . $boundary;
+            $lines[] = 'Content-Type: ' . $mime;
+            $lines[] = 'Content-Transfer-Encoding: base64';
+            $lines[] = 'Content-ID: <' . $cid . '>';
+            $lines[] = 'Content-Disposition: inline';
+            $lines[] = '';
+            $lines[] = trim(chunk_split(base64_encode($data), 76, "\r\n"));
+        }
+
+        $lines[] = '--' . $boundary . '--';
+
+        return [
+            'multipart/related; boundary="' . $boundary . '"',
+            implode("\r\n", $lines),
+        ];
+    }
+
+    /**
+     * Dot-stuffing per RFC 5321 §4.5.2: any body line starting with '.' must be
+     * escaped with an extra leading '.' so it isn't mistaken for the DATA
+     * terminator. Also normalises bare LFs to CRLF for SMTP transport.
+     */
+    private static function dotStuff(string $body): string
+    {
+        $body = str_replace(["\r\n", "\r", "\n"], "\n", $body);
+        $lines = explode("\n", $body);
+        foreach ($lines as &$line) {
+            if (isset($line[0]) && $line[0] === '.') {
+                $line = '.' . $line;
+            }
+        }
+        unset($line);
+        return implode("\r\n", $lines);
     }
 
     private static function encodeHeader(string $value): string
