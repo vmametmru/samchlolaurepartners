@@ -32,6 +32,7 @@
             <summary>Paramêtres</summary>
             <div class="navbar-dropdown-menu">
               <a href="/admin/partners">Partenaires</a>
+              <a href="/admin/lodgify-properties">Biens Lodgify</a>
               <a href="/admin/sync">Synchronisation</a>
               <a href="/admin/fees">Frais &amp; Taxes</a>
               <a href="/admin/versions">Versions</a>

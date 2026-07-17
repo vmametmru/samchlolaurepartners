@@ -661,6 +661,93 @@ final class LodgifyClient
     }
 
     /**
+     * Fetches a lightweight nightly-rate sample for the given property (the
+     * next 7 nights, 2 guests) and caches it for 30 minutes under
+     * "lodgify:v2:pricestatus:{id}". Availability/rates are otherwise always
+     * queried live at search time (never cached) since they depend on the
+     * visitor's chosen dates/guests, but the admin "Biens Lodgify" page needs
+     * a single "Statut Prix" freshness indicator per property, refreshed
+     * every 30 minutes regardless of visitor searches — this cached snapshot
+     * (and its cache_key's created_at, read via getCacheStatus()) is what
+     * powers that column.
+     */
+    public function getPriceStatusSnapshot(int $propertyId): array
+    {
+        return $this->remember('lodgify:v2:pricestatus:' . $propertyId, 1800, function () use ($propertyId): array {
+            $from = (new \DateTimeImmutable('today'))->format('Y-m-d');
+            $to = (new \DateTimeImmutable('today'))->modify('+7 days')->format('Y-m-d');
+            $samplePrice = null;
+            $currency = null;
+            try {
+                $rates = $this->getRates($propertyId, $from, $to, 2);
+                foreach ($rates as $rate) {
+                    if (($rate['price_per_night'] ?? 0.0) > 0.0) {
+                        $samplePrice = (float) $rate['price_per_night'];
+                        $currency = (string) ($rate['currency'] ?? '');
+                        break;
+                    }
+                }
+            } catch (\Throwable) {
+                // Swallowed: a Lodgify hiccup here should only leave the price
+                // status stale, never break the whole admin page.
+            }
+            return ['sample_price' => $samplePrice, 'currency' => $currency];
+        });
+    }
+
+    /**
+     * Reports, for a single property, when its "fiche" (photos/description/
+     * capacity — from getProperties()/getProperty()) and its price snapshot
+     * (getPriceStatusSnapshot()) were each last refreshed, straight from the
+     * lodgify_cache table's created_at/expires_at, plus whether each is still
+     * within its expected refresh cadence (24h for the fiche, 30min for
+     * price). Used by the "Biens Lodgify" admin page.
+     *
+     * @return array{
+     *   fiche_updated_at: ?\DateTimeImmutable, fiche_fresh: bool,
+     *   price_updated_at: ?\DateTimeImmutable, price_fresh: bool
+     * }
+     */
+    public function getCacheStatus(int $propertyId): array
+    {
+        $ficheRow = $this->cacheMeta(['lodgify:v2:property:' . $propertyId, 'lodgify:v2:properties']);
+        $priceRow = $this->cacheMeta(['lodgify:v2:pricestatus:' . $propertyId]);
+        return [
+            'fiche_updated_at' => $ficheRow['created_at'],
+            'fiche_fresh' => $ficheRow['expires_at'] !== null && $ficheRow['expires_at'] > new \DateTimeImmutable(),
+            'price_updated_at' => $priceRow['created_at'],
+            'price_fresh' => $priceRow['expires_at'] !== null && $priceRow['expires_at'] > new \DateTimeImmutable(),
+        ];
+    }
+
+    /**
+     * Returns the most recent created_at/expires_at among the given cache
+     * keys (nulls if none of them exist yet).
+     *
+     * @param array<int, string> $keys
+     * @return array{created_at: ?\DateTimeImmutable, expires_at: ?\DateTimeImmutable}
+     */
+    private function cacheMeta(array $keys): array
+    {
+        if ($keys === []) {
+            return ['created_at' => null, 'expires_at' => null];
+        }
+        $placeholders = implode(',', array_fill(0, count($keys), '?'));
+        $stmt = Database::connection()->prepare(
+            'SELECT created_at, expires_at FROM lodgify_cache WHERE cache_key IN (' . $placeholders . ') ORDER BY created_at DESC LIMIT 1'
+        );
+        $stmt->execute($keys);
+        $row = $stmt->fetch();
+        if (!$row) {
+            return ['created_at' => null, 'expires_at' => null];
+        }
+        return [
+            'created_at' => new \DateTimeImmutable((string) $row['created_at']),
+            'expires_at' => new \DateTimeImmutable((string) $row['expires_at']),
+        ];
+    }
+
+    /**
      * Resolves the primary room type id for a property, required by the Lodgify
      * rates/calendar endpoint. Most rentals on Lodgify have a single room type.
      */

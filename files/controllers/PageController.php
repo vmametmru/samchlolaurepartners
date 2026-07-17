@@ -664,6 +664,33 @@ final class PageController extends Controller
         self::redirect('/admin/sync', 'Synchronisation Lodgify terminée.');
     }
 
+    /**
+     * "Biens Lodgify" settings page: lists every property (photo, titre,
+     * capacité max, nb de lits, coordonnées GPS) alongside two freshness
+     * indicators — "Statut de la fiche" (photos/description/capacité,
+     * refreshed once a day) and "Statut Prix" (refreshed every 30 minutes).
+     * Availability itself is never shown here since it's always re-queried
+     * live at search time, not cached.
+     */
+    public static function adminLodgifyProperties(): void
+    {
+        self::requireAdminUser();
+        @set_time_limit(0);
+        $client = new LodgifyClient();
+        $properties = $client->getProperties();
+        $rows = [];
+        foreach ($properties as $property) {
+            $propertyId = (int) ($property['id'] ?? 0);
+            $priceSnapshot = $client->getPriceStatusSnapshot($propertyId);
+            $cacheStatus = $client->getCacheStatus($propertyId);
+            $rows[] = $property + $priceSnapshot + $cacheStatus;
+        }
+        View::render('pages/admin-lodgify-properties', [
+            'pageTitle' => 'Biens Lodgify',
+            'rows' => $rows,
+        ]);
+    }
+
     public static function adminDiagnostic(): void
     {
         self::requireAdminUser();

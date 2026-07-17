@@ -291,6 +291,9 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .badge-pending { background: #fef3c7; color: #92400e; }
 .badge-confirmed { background: #dcfce7; color: #166534; }
 .badge-cancelled { background: #fee2e2; color: #991b1b; }
+.badge-fresh { background: #dcfce7; color: #166534; }
+.badge-stale { background: #fee2e2; color: #991b1b; }
+.lodgify-thumb { width: 3.5rem; height: 2.5rem; object-fit: cover; border-radius: .5rem; }
 .stats-grid, .quick-grid { display: grid; gap: 1rem; margin-bottom: 1.5rem; }
 .stats-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .quick-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
