@@ -1232,18 +1232,96 @@ final class LodgifyClient
         // sumRoomCapacity(). These root-level fallbacks are kept in case Lodgify
         // ever starts returning them directly.
         [$latitude, $longitude] = $this->extractCoordinates($item);
+        $city = trim((string) ($item['city'] ?? ''));
+        $propertyId = (int) ($item['id'] ?? 0);
+        // Most listings on this account simply never had precise GPS filled
+        // in on Lodgify's side, so extractCoordinates() returns null for
+        // them far more often than not. The "/properties" overview map
+        // (map-board.php) filtered those out entirely, so it only ever
+        // showed the one or two properties that happen to have real
+        // coordinates — looking like an empty map with just a stray pin or
+        // two. Give every property an approximate "map_*" position (real
+        // coordinates when known, else a per-city estimate) so the overview
+        // map always shows every property; admin diagnostics and the
+        // property-detail page keep using the exact/possibly-null
+        // "latitude"/"longitude" fields untouched, since those claim to be
+        // precise and link out to OpenStreetMap.
+        $hasExactCoordinates = $latitude !== null && $longitude !== null;
+        [$mapLatitude, $mapLongitude] = $hasExactCoordinates
+            ? [$latitude, $longitude]
+            : $this->estimateCoordinatesFromCity($city, $propertyId);
         return [
-            'id' => (int) ($item['id'] ?? 0),
+            'id' => $propertyId,
             'name' => (string) ($item['name'] ?? ''),
             'description' => (string) ($item['description'] ?? ''),
             'images' => $images,
             'amenities' => $amenities,
+            'city' => $city,
             'latitude' => $latitude,
             'longitude' => $longitude,
+            'map_latitude' => $mapLatitude,
+            'map_longitude' => $mapLongitude,
+            'map_position_is_estimated' => !$hasExactCoordinates,
             'max_guests' => (int) ($item['people_capacity'] ?? $item['max_guests'] ?? $item['maxGuests'] ?? 0),
             'bedrooms' => (int) ($item['rooms_count'] ?? $item['bedrooms'] ?? 0),
             'bathrooms' => (int) ($item['bathrooms_count'] ?? $item['bathrooms'] ?? 0),
         ];
+    }
+
+    /**
+     * Northern Mauritius coastal towns/villages (this account's market,
+     * "Grand Baie") mapped to their approximate centre coordinates, used to
+     * place a property on the "/properties" overview map when Lodgify
+     * doesn't provide exact GPS for it. Matched case/accent-insensitively
+     * against the property's "city" field; falls back to Grand Baie itself
+     * — the area most of this account's properties are actually in — when
+     * the city is unset or unrecognized.
+     *
+     * @var array<string, array{0: float, 1: float}>
+     */
+    private const CITY_COORDINATES = [
+        'grandbaie' => [-20.0186, 57.5807],
+        'pereybere' => [-19.9926, 57.5822],
+        'perebere' => [-19.9926, 57.5822],
+        'troiletauxbiches' => [-20.0339, 57.5453],
+        'trouauxbiches' => [-20.0339, 57.5453],
+        'montchoisy' => [-20.0286, 57.5553],
+        'pointeauxcanonniers' => [-20.0067, 57.5647],
+        'capmalheureux' => [-19.9822, 57.6136],
+        'grandgaube' => [-20.0064, 57.6539],
+        'pointeauxpiments' => [-20.0511, 57.5219],
+        'triolet' => [-20.0333, 57.5500],
+        'bainboeuf' => [-19.9958, 57.5928],
+        'pamplemousses' => [-20.1075, 57.5697],
+    ];
+
+    /**
+     * Normalizes a city name for matching against CITY_COORDINATES: lower-
+     * cases it and strips accents/spaces/hyphens/apostrophes, so "Pereybère",
+     * "Péreybere" and "pereybere" all match the same key.
+     */
+    private function normalizeCityName(string $city): string
+    {
+        $transliterated = @iconv('UTF-8', 'ASCII//TRANSLIT', $city);
+        $normalized = $transliterated !== false ? $transliterated : $city;
+        return strtolower(preg_replace('/[^a-z0-9]/i', '', $normalized) ?? '');
+    }
+
+    /**
+     * Estimates a "good enough for an overview map" position for a property
+     * without exact GPS: looks up its city in CITY_COORDINATES (defaulting
+     * to Grand Baie when unset/unmatched), then applies a small deterministic
+     * per-property offset (derived from its id) so several properties in the
+     * same city don't render as a single overlapping dot.
+     *
+     * @return array{0: float, 1: float}
+     */
+    private function estimateCoordinatesFromCity(string $city, int $propertyId): array
+    {
+        [$baseLat, $baseLng] = self::CITY_COORDINATES[$this->normalizeCityName($city)] ?? self::CITY_COORDINATES['grandbaie'];
+        $angle = ($propertyId % 12) * (M_PI / 6);
+        $radius = 0.006;
+        return [$baseLat + sin($angle) * $radius, $baseLng + cos($angle) * $radius];
     }
 
     /**

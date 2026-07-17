@@ -98,6 +98,7 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .map-board { position: relative; min-height: 24rem; border-radius: 1.25rem; border: 1px solid var(--border); background: linear-gradient(180deg, #dbeafe, #dcfce7 45%, #bfdbfe); overflow: hidden; }
 .map-board::before { content: 'Maurice'; position: absolute; left: 1rem; top: 1rem; font-weight: 700; color: rgba(15,23,42,.6); }
 .map-marker { position: absolute; width: 1rem; height: 1rem; margin: -.5rem 0 0 -.5rem; color: var(--brand); font-size: 2rem; line-height: 1rem; }
+.map-marker-estimated { color: var(--muted); opacity: .75; }
 .map-legend { position: absolute; left: 1rem; right: 1rem; bottom: 1rem; font-size: .82rem; color: var(--muted); background: rgba(255,255,255,.9); padding: .5rem .75rem; border-radius: .8rem; }
 .property-detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
 .property-detail-header h1 { margin: 0 0 .35rem; }
