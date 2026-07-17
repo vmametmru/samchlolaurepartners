@@ -1316,6 +1316,18 @@ function initMultiPropertyCart() {
       updateRowSelection();
 
       if (checkin && checkout) {
+        // Replace any existing selection(s) for this same property whose
+        // dates overlap the newly picked range — the visitor is re-picking
+        // those nights. Existing selections for this property that don't
+        // overlap the new range are left untouched (only the "Votre
+        // sélection" gap warning applies between separate, non-overlapping
+        // ranges of the same property).
+        for (let i = cart.length - 1; i >= 0; i--) {
+          const item = cart[i];
+          if (item.propertyId === propertyId && item.checkin < checkout && item.checkout > checkin) {
+            cart.splice(i, 1);
+          }
+        }
         cart.push({
           propertyId,
           propertyName,
