@@ -337,26 +337,32 @@ final class LodgifyClient
     }
 
     /**
-     * Sofa-bed composition is only reliably exposed by Lodgify's legacy v1
+     * Sofa-bed composition was expected to be exposed by Lodgify's legacy v1
      * API ("/v1/properties/{id}" and "/v1/rooms"), not by the v2
      * "/properties/{id}/rooms" endpoint used everywhere else in this class
      * (its "beds"/"rooms" nesting used by countSofaBeds() is empty in
      * practice for every property, so the count silently stayed 0 even
-     * after a full resync). Falls back to the v2-derived $fallback count if
-     * the v1 call fails or returns nothing, so a v1 hiccup never regresses
-     * an already-working value.
+     * after a full resync). In practice, for this Lodgify account neither
+     * v1 call reliably returns it either: "/v1/properties/{id}" comes back
+     * without any "beds" field at all (its "rooms" only carry
+     * bedrooms/bathrooms/max_people), and "/v1/rooms?propertyId=" 404s
+     * outright. A v1 call that merely *succeeds* with zero sofa beds found
+     * must therefore NOT be treated as authoritative — only a v1 count
+     * greater than zero overrides the v2-derived $fallback (which itself
+     * already falls back to amenity-based detection via countSofaBeds()).
+     * Otherwise a v1 hiccup, or a v1 payload that simply lacks bed data,
+     * would silently clobber an already-working v2/amenity-derived count
+     * down to a false "Non".
      */
     private function fetchSofaBedCountFromV1(int $propertyId, int $fallback): int
     {
         $result = $this->remember('lodgify:v1:sofabeds:' . $propertyId, 86400, function () use ($propertyId, $fallback): array {
             $count = 0;
-            $found = false;
 
             try {
                 $property = $this->requestV1('/properties/' . $propertyId);
                 if (is_array($property)) {
                     $count += $this->countSofaBeds($property);
-                    $found = true;
                 }
             } catch (\Throwable $e) {
                 error_log('Lodgify: v1 property request failed for sofa bed count, property ' . $propertyId . ': ' . $e->getMessage());
@@ -368,14 +374,13 @@ final class LodgifyClient
                 foreach ($items as $room) {
                     if (is_array($room)) {
                         $count += $this->countSofaBeds($room);
-                        $found = true;
                     }
                 }
             } catch (\Throwable $e) {
                 error_log('Lodgify: v1 rooms request failed for sofa bed count, property ' . $propertyId . ': ' . $e->getMessage());
             }
 
-            return ['count' => $found ? $count : $fallback];
+            return ['count' => $count > 0 ? $count : $fallback];
         });
         return (int) ($result['count'] ?? $fallback);
     }
