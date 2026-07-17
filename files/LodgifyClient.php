@@ -193,6 +193,7 @@ final class LodgifyClient
                     $amenitiesByCategory[(string) $category] = $names;
                 }
             }
+            $sofaBedCount = $this->countSofaBeds($item);
             $rooms[] = [
                 'id' => (int) ($item['id'] ?? 0),
                 'name' => (string) ($item['name'] ?? ''),
@@ -206,16 +207,56 @@ final class LodgifyClient
                 'pets_allowed' => $item['pets_allowed'] ?? null,
                 'adults_only' => (bool) ($item['adults_only'] ?? false),
                 'amenities_by_category' => $amenitiesByCategory,
+                'sofa_bed_count' => $sofaBedCount,
             ];
         }
         return $rooms;
     }
 
     /**
+     * Counts sofa beds ("Canapé-lit") declared on a RoomDetailsDto item.
+     * Lodgify exposes per-room bed composition under "type_rooms[].beds[]"
+     * (each bed entry carrying a "type"/"name" label and an "amount"/"count"),
+     * but the exact key names have varied across API responses, so every
+     * known variant is checked defensively. A bed entry is counted as a sofa
+     * bed when its label contains "sofa" (English) or "canap" (French,
+     * matches "canapé"/"canape").
+     */
+    private function countSofaBeds(array $item): int
+    {
+        $typeRooms = $item['type_rooms'] ?? $item['typeRooms'] ?? $item['roomTypes'] ?? $item['room_types'] ?? [];
+        if (!is_array($typeRooms)) {
+            return 0;
+        }
+        $count = 0;
+        foreach ($typeRooms as $typeRoom) {
+            if (!is_array($typeRoom)) {
+                continue;
+            }
+            $beds = $typeRoom['beds'] ?? $typeRoom['bed_types'] ?? $typeRoom['bedTypes'] ?? [];
+            if (!is_array($beds)) {
+                continue;
+            }
+            foreach ($beds as $bed) {
+                if (!is_array($bed)) {
+                    continue;
+                }
+                $label = (string) ($bed['type'] ?? $bed['name'] ?? $bed['bed_type'] ?? '');
+                $normalized = mb_strtolower($label);
+                if (str_contains($normalized, 'sofa') || str_contains($normalized, 'canap')) {
+                    $count += (int) ($bed['amount'] ?? $bed['count'] ?? $bed['quantity'] ?? 1);
+                }
+            }
+        }
+        return $count;
+    }
+
+    /**
      * Fetches "/properties/{id}/rooms" for the given property and overwrites
-     * bedrooms/bathrooms/max_guests on the mapped property with the sum of
-     * each room's real capacity (see sumRoomCapacity()). Used by getProperties()
-     * where room details haven't already been fetched.
+     * bedrooms/bathrooms/max_guests/sofa_bed_count on the mapped property
+     * with the sum of each room's real capacity (see sumRoomCapacity()).
+     * Used by getProperties() where room details haven't already been
+     * fetched.
      */
     private function applyRoomCapacity(array $property, int $propertyId): array
     {
@@ -229,17 +270,19 @@ final class LodgifyClient
     }
 
     /**
-     * Aggregates bedrooms/bathrooms/max_guests from a property's room details
-     * (RoomDetailsDto[], from "/properties/{id}/rooms"). This is the only
-     * Lodgify v2 endpoint that actually exposes these numbers: the "rooms"
-     * array embedded in "/properties" and "/properties/{id}" (RoomSummaryDto)
-     * only ever contains "id" and "name".
+     * Aggregates bedrooms/bathrooms/max_guests/sofa_bed_count from a
+     * property's room details (RoomDetailsDto[], from
+     * "/properties/{id}/rooms"). This is the only Lodgify v2 endpoint that
+     * actually exposes these numbers: the "rooms" array embedded in
+     * "/properties" and "/properties/{id}" (RoomSummaryDto) only ever
+     * contains "id" and "name".
      */
     private function sumRoomCapacity(array $property, array $rooms): array
     {
         $bedrooms = 0;
         $bathrooms = 0;
         $maxGuests = 0;
+        $sofaBeds = 0;
         foreach ($rooms as $room) {
             if (!is_array($room)) {
                 continue;
@@ -247,7 +290,9 @@ final class LodgifyClient
             $bedrooms += (int) ($room['bedrooms'] ?? 0);
             $bathrooms += (int) ($room['bathrooms'] ?? 0);
             $maxGuests += (int) ($room['max_people'] ?? 0);
+            $sofaBeds += (int) ($room['sofa_bed_count'] ?? 0);
         }
+        $property['sofa_bed_count'] = $sofaBeds;
         if ($bedrooms > 0) {
             $property['bedrooms'] = $bedrooms;
         }

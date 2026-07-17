@@ -40,6 +40,7 @@ $statusBadge = static function (?\DateTimeImmutable $updatedAt, bool $fresh): st
             <th>Titre</th>
             <th>Capacité max</th>
             <th>Nb de lits</th>
+            <th>Canapé lit</th>
             <th>Coordonnées GPS</th>
             <th>Statut de la fiche</th>
             <th>Statut Prix</th>
@@ -55,6 +56,14 @@ $statusBadge = static function (?\DateTimeImmutable $updatedAt, bool $fresh): st
               <td><?= \App\View::e((string) $row['name']) ?></td>
               <td><?= (int) $row['max_guests'] ?> pers.</td>
               <td><?= (int) $row['bedrooms'] ?></td>
+              <td>
+                <?php $sofaBedCount = (int) ($row['sofa_bed_count'] ?? 0); ?>
+                <?php if ($sofaBedCount > 0): ?>
+                  Oui (<?= $sofaBedCount ?>)
+                <?php else: ?>
+                  <span class="muted">Non</span>
+                <?php endif; ?>
+              </td>
               <td>
                 <?php if ($hasCoords): ?>
                   <?= \App\View::e(number_format((float) $row['latitude'], 5)) ?>, <?= \App\View::e(number_format((float) $row['longitude'], 5)) ?>
