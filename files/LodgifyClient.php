@@ -43,81 +43,103 @@ final class LodgifyClient
 
     public function getProperty(int $propertyId): array
     {
-        return $this->remember('lodgify:v2:property:' . $propertyId, 86400, function () use ($propertyId): array {
-            $property = $this->mapProperty($this->request('/properties/' . $propertyId));
+        $cacheKey = 'lodgify:v2:property:' . $propertyId;
+        $cached = $this->cacheGet($cacheKey);
+        if ($cached !== null) {
+            return $cached;
+        }
 
-            // Lodgify's "/properties/{id}" endpoint (PropertyDto) never returns an
-            // "images" array — only a single "image_url" string — so the previous
-            // code always fell back to one photo, no matter how many times the
-            // cache was refreshed. The real multi-photo galleries only exist per
-            // room type, via "/properties/{id}/rooms" (RoomDetailsDto.images), which
-            // is also how Lodgify itself groups photos by room in its own listing
-            // page. Fetch and cache those here so the detail page can show every
-            // photo, grouped by room, from local copies.
-            $rooms = $this->getPropertyRoomsDetails($propertyId);
-            $photoRooms = [];
-            $allImages = [];
-            foreach ($rooms as $room) {
-                $roomImages = array_map(
-                    static fn(array $image): array => [
-                        'url' => ImageCache::cache($image['url'], $propertyId),
-                        'text' => $image['text'],
-                    ],
-                    $room['images']
-                );
-                if ($roomImages !== []) {
-                    $photoRooms[] = ['id' => $room['id'], 'name' => $room['name'], 'images' => $roomImages];
-                    array_push($allImages, ...$roomImages);
+        $property = $this->fetchPropertyDetails($propertyId);
+
+        // A transient hiccup (Lodgify rate-limiting/timeout on the "/rooms"
+        // call, a download failure in ImageCache, ...) can leave "images"
+        // empty even though the property does have photos. Caching that
+        // empty result for the normal 24h TTL would silently hide the
+        // property photo (e.g. in the booking-request emails' {{photo_bien}}
+        // tag) for a full day on every retry. Use a much shorter TTL in that
+        // case so the next request/email naturally retries soon, while a
+        // successful fetch is still cached for the normal 24h.
+        $ttl = $property['images'] !== [] ? 86400 : 300;
+        $this->cacheSet($cacheKey, $property, $ttl);
+
+        return $property;
+    }
+
+    private function fetchPropertyDetails(int $propertyId): array
+    {
+        $property = $this->mapProperty($this->request('/properties/' . $propertyId));
+
+        // Lodgify's "/properties/{id}" endpoint (PropertyDto) never returns an
+        // "images" array — only a single "image_url" string — so the previous
+        // code always fell back to one photo, no matter how many times the
+        // cache was refreshed. The real multi-photo galleries only exist per
+        // room type, via "/properties/{id}/rooms" (RoomDetailsDto.images), which
+        // is also how Lodgify itself groups photos by room in its own listing
+        // page. Fetch and cache those here so the detail page can show every
+        // photo, grouped by room, from local copies.
+        $rooms = $this->getPropertyRoomsDetails($propertyId);
+        $photoRooms = [];
+        $allImages = [];
+        foreach ($rooms as $room) {
+            $roomImages = array_map(
+                static fn(array $image): array => [
+                    'url' => ImageCache::cache($image['url'], $propertyId),
+                    'text' => $image['text'],
+                ],
+                $room['images']
+            );
+            if ($roomImages !== []) {
+                $photoRooms[] = ['id' => $room['id'], 'name' => $room['name'], 'images' => $roomImages];
+                array_push($allImages, ...$roomImages);
+            }
+        }
+
+        if ($allImages === []) {
+            // No room photos available: fall back to the single property image
+            // (still cached locally) so the gallery is never completely empty.
+            $allImages = array_map(
+                static fn(array $image): array => [
+                    'url' => ImageCache::cache($image['url'], $propertyId),
+                    'text' => $image['text'],
+                ],
+                $property['images']
+            );
+        }
+
+        $property['images'] = $allImages;
+        $property['photo_rooms'] = $photoRooms;
+        $property['room_details'] = $rooms;
+
+        // As with getProperties(), the plain property payload's "rooms" only
+        // carries id/name (RoomSummaryDto), never capacity — aggregate the
+        // real numbers from the RoomDetailsDto rooms already fetched above.
+        $property = $this->sumRoomCapacity($property, $rooms, $propertyId);
+
+        $rateSettings = $this->getRateSettingsFor($propertyId);
+        $property['checkin_hour'] = $rateSettings['check_in_hour'];
+        $property['checkout_hour'] = $rateSettings['check_out_hour'];
+        $property['fees'] = $rateSettings['fees'];
+
+        // Merge per-room categorized amenities (e.g. "Cuisine et salle à manger" =>
+        // [...]) since the property-level "amenities" field doesn't exist on
+        // Lodgify's PropertyDto either; only rooms expose amenities, grouped by
+        // category, matching how Lodgify displays them on its own listing page.
+        $amenitiesByCategory = [];
+        foreach ($rooms as $room) {
+            foreach ($room['amenities_by_category'] as $category => $names) {
+                $amenitiesByCategory[$category] = array_values(array_unique(array_merge($amenitiesByCategory[$category] ?? [], $names)));
+            }
+        }
+        $property['amenities_by_category'] = $amenitiesByCategory;
+        if ($property['amenities'] === [] && $amenitiesByCategory !== []) {
+            foreach ($amenitiesByCategory as $names) {
+                foreach ($names as $name) {
+                    $property['amenities'][] = ['name' => $name];
                 }
             }
+        }
 
-            if ($allImages === []) {
-                // No room photos available: fall back to the single property image
-                // (still cached locally) so the gallery is never completely empty.
-                $allImages = array_map(
-                    static fn(array $image): array => [
-                        'url' => ImageCache::cache($image['url'], $propertyId),
-                        'text' => $image['text'],
-                    ],
-                    $property['images']
-                );
-            }
-
-            $property['images'] = $allImages;
-            $property['photo_rooms'] = $photoRooms;
-            $property['room_details'] = $rooms;
-
-            // As with getProperties(), the plain property payload's "rooms" only
-            // carries id/name (RoomSummaryDto), never capacity — aggregate the
-            // real numbers from the RoomDetailsDto rooms already fetched above.
-            $property = $this->sumRoomCapacity($property, $rooms, $propertyId);
-
-            $rateSettings = $this->getRateSettingsFor($propertyId);
-            $property['checkin_hour'] = $rateSettings['check_in_hour'];
-            $property['checkout_hour'] = $rateSettings['check_out_hour'];
-            $property['fees'] = $rateSettings['fees'];
-
-            // Merge per-room categorized amenities (e.g. "Cuisine et salle à manger" =>
-            // [...]) since the property-level "amenities" field doesn't exist on
-            // Lodgify's PropertyDto either; only rooms expose amenities, grouped by
-            // category, matching how Lodgify displays them on its own listing page.
-            $amenitiesByCategory = [];
-            foreach ($rooms as $room) {
-                foreach ($room['amenities_by_category'] as $category => $names) {
-                    $amenitiesByCategory[$category] = array_values(array_unique(array_merge($amenitiesByCategory[$category] ?? [], $names)));
-                }
-            }
-            $property['amenities_by_category'] = $amenitiesByCategory;
-            if ($property['amenities'] === [] && $amenitiesByCategory !== []) {
-                foreach ($amenitiesByCategory as $names) {
-                    foreach ($names as $name) {
-                        $property['amenities'][] = ['name' => $name];
-                    }
-                }
-            }
-
-            return $property;
-        });
+        return $property;
     }
 
     /**
@@ -129,9 +151,20 @@ final class LodgifyClient
      */
     private function getPropertyRoomsDetails(int $propertyId): array
     {
-        return $this->remember('lodgify:v2:rooms:' . $propertyId, 86400, function () use ($propertyId): array {
-            return $this->fetchPropertyRoomsDetails($propertyId);
-        });
+        $cacheKey = 'lodgify:v2:rooms:' . $propertyId;
+        $cached = $this->cacheGet($cacheKey);
+        if ($cached !== null) {
+            return $cached;
+        }
+
+        $rooms = $this->fetchPropertyRoomsDetails($propertyId);
+        // As with getProperty(), don't freeze an empty result (most likely a
+        // transient failure of the "/rooms" call, see fetchPropertyRoomsDetails())
+        // for the normal 24h TTL — retry again soon instead, so a hiccup
+        // doesn't hide room photos/amenities/capacity for a full day.
+        $this->cacheSet($cacheKey, $rooms, $rooms !== [] ? 86400 : 300);
+
+        return $rooms;
     }
 
     /**
