@@ -237,6 +237,39 @@ final class LodgifyClient
                 }
                 $beds = $subRoom['beds'] ?? $subRoom['bed_types'] ?? $subRoom['bedTypes'] ?? null;
                 $count += $this->countSofaBedsInBedsArray($beds);
+                $count += $this->countSofaBedsInAmenities($subRoom['amenities'] ?? null);
+            }
+        }
+        // Some hosts configure the sofa bed under Lodgify's "Amenities"
+        // section (e.g. "Canapé-lit") rather than the room's bed
+        // composition, which the checks above never see. Count it too, as
+        // a last-resort fallback, so the admin page doesn't show "Non" for
+        // a property that genuinely has one configured in Lodgify.
+        if ($count === 0) {
+            $count += $this->countSofaBedsInAmenities($item['amenities'] ?? null);
+        }
+        return $count;
+    }
+
+    /**
+     * Defensive fallback: counts amenity entries (as returned by Lodgify,
+     * either a flat list or a map of category => list) whose name matches a
+     * sofa-bed label. Amenities never carry a quantity, so each match counts
+     * as 1.
+     */
+    private function countSofaBedsInAmenities(mixed $amenities): int
+    {
+        if (!is_array($amenities)) {
+            return 0;
+        }
+        $count = 0;
+        foreach ($amenities as $amenityOrList) {
+            $list = is_array($amenityOrList) && array_is_list($amenityOrList) ? $amenityOrList : [$amenityOrList];
+            foreach ($list as $amenity) {
+                $name = is_array($amenity) ? (string) ($amenity['name'] ?? $amenity['text'] ?? '') : (string) $amenity;
+                if ($name !== '' && $this->isSofaBedLabel($name)) {
+                    $count += 1;
+                }
             }
         }
         return $count;
@@ -247,6 +280,13 @@ final class LodgifyClient
      * matching entries whose "type" (or "name"/"bed_type") is "SofaBed" or
      * "DoubleSofaBed" (case/spacing-insensitive), with a defensive fallback
      * to any label containing "sofa" or "canap" (French) for other variants.
+     * Handles several payload shapes actually seen from Lodgify, since the
+     * v1/v2 endpoints aren't fully consistent:
+     *  - a plain string entry (e.g. "beds": ["Sofa Bed", "Double"]),
+     *  - an object whose "type"/"bedType" is itself a nested object
+     *    (e.g. {"id": 5, "name": "Sofa Bed"}) instead of a flat string,
+     *  - a boolean flag on the bed object itself (e.g. "is_sofa_bed": true /
+     *    "isSofaBed": true) instead of (or in addition to) a type label.
      */
     private function countSofaBedsInBedsArray(mixed $beds): int
     {
@@ -255,21 +295,43 @@ final class LodgifyClient
         }
         $count = 0;
         foreach ($beds as $bed) {
+            if (is_string($bed)) {
+                if ($this->isSofaBedLabel($bed)) {
+                    $count += 1;
+                }
+                continue;
+            }
             if (!is_array($bed)) {
                 continue;
             }
-            $label = (string) ($bed['type'] ?? $bed['name'] ?? $bed['bed_type'] ?? '');
-            $normalized = mb_strtolower(str_replace([' ', '-', '_'], '', $label));
-            if (
-                $normalized === 'sofabed'
-                || $normalized === 'doublesofabed'
-                || str_contains($normalized, 'sofa')
-                || str_contains($normalized, 'canap')
-            ) {
+            $typeValue = $bed['type'] ?? $bed['bed_type'] ?? $bed['bedType'] ?? $bed['name'] ?? '';
+            $label = is_array($typeValue)
+                ? (string) ($typeValue['name'] ?? $typeValue['label'] ?? $typeValue['text'] ?? '')
+                : (string) $typeValue;
+            $sofaFlag = filter_var(
+                $bed['is_sofa_bed'] ?? $bed['isSofaBed'] ?? $bed['sofa_bed'] ?? $bed['sofaBed'] ?? false,
+                FILTER_VALIDATE_BOOLEAN
+            );
+            if ($sofaFlag || $this->isSofaBedLabel($label)) {
                 $count += (int) ($bed['count'] ?? $bed['quantity'] ?? $bed['amount'] ?? 1);
             }
         }
         return $count;
+    }
+
+    /**
+     * True when a bed-type label (case/spacing-insensitive) denotes a sofa
+     * bed: "SofaBed"/"DoubleSofaBed" exactly, or any label containing "sofa"
+     * or "canap" (French "canapé-lit") as a defensive fallback for other
+     * variants Lodgify might use.
+     */
+    private function isSofaBedLabel(string $label): bool
+    {
+        $normalized = mb_strtolower(str_replace([' ', '-', '_'], '', $label));
+        return $normalized === 'sofabed'
+            || $normalized === 'doublesofabed'
+            || str_contains($normalized, 'sofa')
+            || str_contains($normalized, 'canap');
     }
 
     /**
@@ -314,6 +376,51 @@ final class LodgifyClient
             return ['count' => $found ? $count : $fallback];
         });
         return (int) ($result['count'] ?? $fallback);
+    }
+
+    /**
+     * Uncached diagnostic helper: returns the raw v1 "/properties/{id}" and
+     * "/rooms?propertyId=" payloads Lodgify actually returns for a property,
+     * alongside the sofa-bed count countSofaBeds() derives from each, so an
+     * admin can see exactly why detection says "Non" when Lodgify's own
+     * back-office shows a sofa bed configured (e.g. a bed-composition shape
+     * countSofaBeds()/countSofaBedsInBedsArray() don't yet recognize).
+     */
+    public function getSofaBedDebug(int $propertyId): array
+    {
+        $result = [
+            'property_id' => $propertyId,
+            'v1_property' => null,
+            'v1_property_error' => null,
+            'v1_property_sofa_count' => 0,
+            'v1_rooms' => null,
+            'v1_rooms_error' => null,
+            'v1_rooms_sofa_count' => 0,
+        ];
+        try {
+            $property = $this->requestV1('/properties/' . $propertyId);
+            $result['v1_property'] = $property;
+            if (is_array($property)) {
+                $result['v1_property_sofa_count'] = $this->countSofaBeds($property);
+            }
+        } catch (\Throwable $e) {
+            $result['v1_property_error'] = $e->getMessage();
+        }
+        try {
+            $rooms = $this->requestV1('/rooms', ['propertyId' => $propertyId]);
+            $result['v1_rooms'] = $rooms;
+            $items = is_array($rooms['items'] ?? null) ? $rooms['items'] : (is_array($rooms) ? $rooms : []);
+            $count = 0;
+            foreach ($items as $room) {
+                if (is_array($room)) {
+                    $count += $this->countSofaBeds($room);
+                }
+            }
+            $result['v1_rooms_sofa_count'] = $count;
+        } catch (\Throwable $e) {
+            $result['v1_rooms_error'] = $e->getMessage();
+        }
+        return $result;
     }
 
     /**

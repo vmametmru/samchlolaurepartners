@@ -691,6 +691,23 @@ final class PageController extends Controller
         ]);
     }
 
+    /**
+     * Shows the raw Lodgify v1 payloads used to derive the sofa-bed count
+     * for one property, so an admin can see exactly what Lodgify returns
+     * when the "Canapé lit" column doesn't match what's configured in
+     * Lodgify's own back-office.
+     */
+    public static function adminLodgifySofaBedDebug(int $propertyId): void
+    {
+        self::requireAdminUser();
+        $client = new LodgifyClient();
+        $debug = $client->getSofaBedDebug($propertyId);
+        View::render('pages/admin-lodgify-sofa-bed-debug', [
+            'pageTitle' => 'Débogage canapé-lit — bien #' . $propertyId,
+            'debug' => $debug,
+        ]);
+    }
+
     public static function adminDiagnostic(): void
     {
         self::requireAdminUser();

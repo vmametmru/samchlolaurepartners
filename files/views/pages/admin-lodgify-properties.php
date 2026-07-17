@@ -63,6 +63,7 @@ $statusBadge = static function (?\DateTimeImmutable $updatedAt, bool $fresh): st
                 <?php else: ?>
                   <span class="muted">Non</span>
                 <?php endif; ?>
+                <br><a href="/admin/lodgify-properties/<?= (int) ($row['id'] ?? 0) ?>/sofa-bed-debug" style="font-size:.78rem">Voir données brutes</a>
               </td>
               <td>
                 <?php if ($hasCoords): ?>
