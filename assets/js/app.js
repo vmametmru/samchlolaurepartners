@@ -1,22 +1,40 @@
+// Each init function is isolated in its own try/catch: on any given page only
+// a handful of these apply (most simply no-op via querySelectorAll on absent
+// data attributes), but if one throws (e.g. an unexpected DOM shape on some
+// device/browser) it must not abort the rest of this handler, otherwise
+// later calls — crucially initBookingCalendarSelection() and
+// initMultiPropertyCart(), which wire up the date-selection click handlers —
+// would silently never run, leaving calendar cells looking interactive
+// (hover/tap CSS still applies) but unresponsive to clicks/taps.
+function runInit(fn) {
+  try {
+    fn();
+  } catch (error) {
+    if (window.console && console.error) console.error(`[app.js] ${fn.name} failed:`, error);
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
-  initGallery();
-  initShareButton();
-  initPropertyTabs();
-  initMaps();
-  initApiForms();
-  initNationalities();
-  initTemplateEditor();
-  initColorSync();
-  initDateRanges();
-  initBookingCalendarSelection();
-  initPhoneInputs();
-  initGuestSteppers();
-  initCalendarGuestPricing();
-  initBookingAccordion();
-  initBookingQuote();
-  initCalendarBoard();
-  initCalendarFilterLoading();
-  initMultiPropertyCart();
+  [
+    initGallery,
+    initShareButton,
+    initPropertyTabs,
+    initMaps,
+    initApiForms,
+    initNationalities,
+    initTemplateEditor,
+    initColorSync,
+    initDateRanges,
+    initBookingCalendarSelection,
+    initPhoneInputs,
+    initGuestSteppers,
+    initCalendarGuestPricing,
+    initBookingAccordion,
+    initBookingQuote,
+    initCalendarBoard,
+    initCalendarFilterLoading,
+    initMultiPropertyCart,
+  ].forEach(runInit);
 });
 
 function initGallery() {
