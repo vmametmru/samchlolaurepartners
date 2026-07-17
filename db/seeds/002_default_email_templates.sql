@@ -25,6 +25,9 @@ INSERT IGNORE INTO email_templates (partner_id, type, subject, body_html) VALUES
 <ul>
   <li><strong>Hébergement :</strong> {{hebergement}}</li>
   <li><strong>Dates souhaitées :</strong> Du {{date_arrivee}} au {{date_depart}}</li>
+  <li><strong>Nombre d''adulte(s) :</strong> {{adultes}}</li>
+  <li><strong>Nombre d''enfant(s) &lt; 12 ans :</strong> {{enfants}}</li>
+  <li><strong>Nombre de Bébé(s) &lt; 5 ans :</strong> {{bebes}}</li>
   <li><strong>Statut :</strong> 🔄 En attente de vérification</li>
 </ul>
 <h3>Que se passe-t-il maintenant ?</h3>

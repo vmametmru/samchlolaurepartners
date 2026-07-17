@@ -204,10 +204,21 @@ final class LodgifyClient
             $images = [];
             foreach (($item['images'] ?? []) as $image) {
                 if (is_array($image)) {
-                    $url = (string) ($image['url'] ?? '');
+                    $url = (string) ($image['url'] ?? $image['src'] ?? '');
                     if ($url !== '') {
                         $images[] = ['url' => $url, 'text' => isset($image['text']) ? (string) $image['text'] : null];
                     }
+                }
+            }
+            // Some Lodgify room-type payloads (like the PropertyDto handled in
+            // mapProperty()) only ever expose a single "image_url"/"picture_url"
+            // string instead of an "images" array — without this fallback those
+            // rooms silently contributed zero photos to the gallery/email tag,
+            // even though the room type does have a picture in Lodgify.
+            if ($images === []) {
+                $singleUrl = (string) ($item['image_url'] ?? $item['picture_url'] ?? '');
+                if ($singleUrl !== '') {
+                    $images[] = ['url' => $singleUrl, 'text' => null];
                 }
             }
             $amenitiesByCategory = [];
