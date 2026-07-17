@@ -34,6 +34,7 @@ img { max-width: 100%; display: block; }
 .navbar-user-info { font-size: .85rem; color: var(--text-muted, #6b7280); }
 .btn-primary, .btn-secondary, button.link-danger, button.link-warning { appearance: none; border: 0; cursor: pointer; font: inherit; }
 .btn-primary, .btn-secondary { display: inline-flex; align-items: center; justify-content: center; padding: .8rem 1rem; border-radius: .8rem; font-weight: 700; }
+.btn-primary:disabled, .btn-secondary:disabled { opacity: .5; cursor: not-allowed; }
 .btn-primary { background: var(--brand); color: white; }
 .btn-secondary { background: white; color: var(--text); border: 1px solid var(--border); }
 .btn-icon { appearance: none; border: 0; cursor: pointer; font: inherit; display: inline-flex; align-items: center; justify-content: center; width: 2.4rem; height: 2.4rem; border-radius: 50%; background: var(--brand); color: white; font-size: 1.1rem; text-decoration: none; flex-shrink: 0; }
@@ -195,16 +196,16 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
    both the column itself and the left offsets of the columns sticky after
    it (capacity, rooms) collapse accordingly; the property thumbnail (with
    its link to the property page) stays visible either way. */
-.calendar-name-toggle { display: inline-flex; align-items: center; gap: .4rem; font-size: .85rem; margin-top: 1rem; cursor: pointer; }
+.calendar-name-toggle { display: inline-flex; align-items: center; gap: .4rem; font-size: .9rem; margin-top: 1rem; cursor: pointer; }
 .calendar-board.cal-name-hidden { --cal-name-w: 0px; }
 .calendar-board.cal-name-hidden .cal-col-name { display: none; }
 
 .calendar-filter { margin-top: 1.25rem; display: flex; flex-direction: column; gap: 1rem; }
 .calendar-filter-section { display: flex; flex-direction: column; gap: .5rem; }
-.calendar-filter-label { font-weight: 700; font-size: .95rem; }
+.calendar-filter-label { font-weight: 700; font-size: .9rem; }
 .calendar-filter-dates { display: flex; flex-wrap: wrap; gap: .75rem 1rem; }
-.calendar-filter-date { display: inline-flex; flex-direction: column; gap: .3rem; font-size: .85rem; }
-.calendar-filter-date .input { padding: .4rem .5rem; }
+.calendar-filter-date { display: inline-flex; flex-direction: column; gap: .3rem; font-size: .9rem; }
+.calendar-filter-date .input { padding: .4rem .5rem; font-size: .9rem; }
 .calendar-guest-form { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
 
 /* Sliding guest fields: only one item is expanded (input visible) at a
@@ -217,21 +218,20 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .guest-slide-item.active .guest-slide-summary { display: none; }
 .guest-slide-item:not(.active) .guest-slide-input-wrap { display: none; }
 .guest-slide-icon { font-size: 1.1rem; line-height: 1; }
-.guest-slide-count { font-weight: 700; }
-.guest-slide-input-wrap { display: inline-flex; align-items: center; gap: .4rem; font-size: .85rem; border: 1px solid #d1d5db; border-radius: .6rem; padding: .35rem .6rem; background: white; }
+.guest-slide-count { font-weight: 700; font-size: .9rem; }
+.guest-slide-input-wrap { display: inline-flex; align-items: center; gap: .4rem; font-size: .9rem; border: 1px solid #d1d5db; border-radius: .6rem; padding: .35rem .6rem; background: white; }
 .guest-slide-field-label { white-space: nowrap; }
-.guest-slide-input { width: 3.5rem; padding: .3rem .4rem; border: 0; }
+.guest-slide-input { width: 3.5rem; padding: .3rem .4rem; border: 0; font-size: .9rem; }
 .guest-slide-input:focus { outline: none; }
 
 .calendar-filter-actions { display: inline-flex; align-items: center; gap: .75rem; }
-.calendar-filter-submit { padding: .45rem .9rem; border-radius: .6rem; font-size: .85rem; }
-.calendar-filter-hint { margin: 0; font-size: .8rem; }
-.calendar-guest-required-hint, .calendar-capacity-warning { margin-top: 1rem; }
-.calendar-loading-message { margin-top: 1rem; display: flex; align-items: center; gap: .5rem; }
+.calendar-filter-submit { padding: .45rem .9rem; border-radius: .6rem; font-size: .9rem; }
+.calendar-guest-required-hint { margin-top: 1rem; font-size: .85rem; }
+.calendar-loading-message { margin-top: 1rem; display: flex; align-items: center; gap: .5rem; font-size: .85rem; }
 .calendar-loading-message[hidden] { display: none; }
-.calendar-price-note { margin-top: 1rem; }
+.calendar-price-note { margin-top: 1rem; font-size: .85rem; }
 
-.calendar-help-btn { padding: .5rem .9rem; border-radius: .6rem; font-size: .85rem; flex-shrink: 0; }
+.calendar-help-btn { padding: .5rem .9rem; border-radius: .6rem; font-size: .9rem; flex-shrink: 0; }
 .help-dialog { max-width: 32rem; width: calc(100% - 2rem); border: 1px solid var(--border, #e5e7eb); border-radius: .9rem; padding: 1.25rem; }
 .help-dialog::backdrop { background: rgba(17, 24, 39, .45); }
 .help-dialog form { display: flex; justify-content: flex-end; margin: -.5rem -.5rem .5rem 0; }
@@ -240,11 +240,11 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 
 .multi-booking-cart { margin-top: 1.25rem; border: 1px solid var(--border, #e5e7eb); border-radius: .9rem; padding: 1rem; background: #f9fafb; }
 .multi-cart-list { list-style: none; margin: 0 0 .75rem; padding: 0; display: flex; flex-wrap: wrap; gap: .5rem; }
-.multi-cart-item { display: flex; align-items: center; gap: .6rem; background: #fee2e2; border: 1px solid #fca5a5; border-radius: .6rem; padding: .4rem .5rem; font-size: .85rem; color: #7f1d1d; }
+.multi-cart-item { display: flex; align-items: center; gap: .6rem; background: #fee2e2; border: 1px solid #fca5a5; border-radius: .6rem; padding: .4rem .5rem; font-size: .9rem; color: #7f1d1d; }
 .multi-cart-item-thumb { width: 2.5rem; height: 2.5rem; object-fit: cover; border-radius: .4rem; flex-shrink: 0; }
 .multi-cart-item-info { display: flex; flex-direction: column; gap: .1rem; }
 .multi-cart-item-name { font-weight: 700; }
-.multi-cart-item-dates { font-size: .8rem; }
+.multi-cart-item-dates { font-size: .85rem; }
 .multi-cart-remove { border: 0; background: rgba(127, 29, 29, .12); color: #7f1d1d; width: 1.4rem; height: 1.4rem; border-radius: 50%; font-size: .95rem; line-height: 1; font-weight: 700; cursor: pointer; flex-shrink: 0; }
 .multi-cart-remove:hover { background: rgba(127, 29, 29, .22); }
 .multi-cart-summary { margin: 0 0 .75rem; padding: .6rem .75rem; border-radius: .6rem; background: #fff; border: 1px solid var(--border, #e5e7eb); font-size: .9rem; }

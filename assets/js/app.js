@@ -33,6 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initBookingQuote,
     initCalendarBoard,
     initCalendarFilterLoading,
+    initCalendarFilterSubmitState,
     initCalendarNameColumnToggle,
     initCalendarGuestSlider,
     initHelpDialogs,
@@ -150,6 +151,38 @@ function initCalendarFilterLoading() {
   form.addEventListener('submit', () => {
     loading.hidden = false;
   });
+}
+
+/**
+ * The /calendrier filter form only makes sense once the visitor has given
+ * either a date range or a number of guests: disable "Afficher les
+ * disponibilités" while both the date pickers are empty and the guest count
+ * is 0, and re-enable it as soon as either condition is satisfied.
+ */
+function initCalendarFilterSubmitState() {
+  const form = document.querySelector('[data-calendar-filter-form]');
+  const submitBtn = form ? form.querySelector('[data-calendar-filter-submit]') : null;
+  if (!form || !submitBtn) return;
+
+  const dateFrom = form.querySelector('input[name="date_from"]');
+  const dateTo = form.querySelector('input[name="date_to"]');
+  const guestInputs = Array.from(form.querySelectorAll('[data-guest-slide-input]'));
+
+  function totalGuests() {
+    return guestInputs.reduce((sum, input) => sum + (parseInt(input.value || '0', 10) || 0), 0);
+  }
+
+  function updateState() {
+    const datesFilled = Boolean(dateFrom && dateFrom.value) && Boolean(dateTo && dateTo.value);
+    submitBtn.disabled = !datesFilled && totalGuests() === 0;
+  }
+
+  [dateFrom, dateTo].forEach((input) => {
+    if (input) input.addEventListener('input', updateState);
+  });
+  guestInputs.forEach((input) => input.addEventListener('input', updateState));
+
+  updateState();
 }
 
 /**
@@ -1020,11 +1053,28 @@ function initMultiPropertyCart() {
   const summaryCountEl = cartRoot.querySelector('[data-multi-cart-summary-count]');
   const summaryNightsEl = cartRoot.querySelector('[data-multi-cart-summary-nights]');
   const summaryCapacityEl = cartRoot.querySelector('[data-multi-cart-summary-capacity]');
+  const summaryRequestedEl = cartRoot.querySelector('[data-multi-cart-summary-requested]');
   const capacityHintEl = cartRoot.querySelector('[data-multi-cart-capacity-hint]');
   const summaryTotalEl = cartRoot.querySelector('[data-multi-cart-summary-total]');
   if (!listEl || !checkoutForm || !itemsInput) return;
 
-  const requestedGuests = parseInt(board.dataset.totalGuests || '0', 10) || 0;
+  // The requested party size must stay live: a visitor can change the guest
+  // count fields above the table after already clicking "Afficher les
+  // disponibilités" (without submitting again), and "Votre sélection" has to
+  // reflect that immediately — both the displayed target and the capacity
+  // warning — instead of staying frozen at the value from the last page
+  // load (board.dataset.totalGuests).
+  const filterForm = document.querySelector('[data-calendar-filter-form]');
+  const guestInputs = filterForm ? Array.from(filterForm.querySelectorAll('[data-guest-slide-input]')) : [];
+
+  function getRequestedGuests() {
+    if (guestInputs.length) {
+      return guestInputs.reduce((sum, input) => sum + (parseInt(input.value || '0', 10) || 0), 0);
+    }
+    return parseInt(board.dataset.totalGuests || '0', 10) || 0;
+  }
+
+  let requestedGuests = getRequestedGuests();
 
   const cart = [];
   const rowUpdaters = [];
@@ -1123,6 +1173,7 @@ function initMultiPropertyCart() {
     if (summaryCountEl) summaryCountEl.textContent = String(cart.length);
     if (summaryNightsEl) summaryNightsEl.textContent = String(totalNights);
     if (summaryCapacityEl) summaryCapacityEl.textContent = String(totalCapacity);
+    if (summaryRequestedEl) summaryRequestedEl.textContent = String(requestedGuests);
     if (summaryTotalEl) summaryTotalEl.textContent = formatEuros(totalAmount);
     if (capacityHintEl) {
       capacityHintEl.textContent = capacitySufficient
@@ -1261,5 +1312,27 @@ function initMultiPropertyCart() {
   checkoutForm.addEventListener('reset', () => {
     cart.length = 0;
     renderCart();
+  });
+
+  // Keep the requested party size (and its capacity warning) live if the
+  // visitor tweaks the guest fields after already loading availabilities,
+  // instead of only reflecting whatever was submitted last.
+  guestInputs.forEach((input) => {
+    input.addEventListener('input', () => {
+      requestedGuests = getRequestedGuests();
+      renderCart();
+      // Keep the checkout form's hidden guest-count fields (sent with the
+      // reservation request) in sync with whatever the visitor last set,
+      // not just what was submitted when the page loaded.
+      const adultsInput = checkoutForm.querySelector('input[name="adults"]');
+      const under5Input = checkoutForm.querySelector('input[name="children_under5"]');
+      const to12Input = checkoutForm.querySelector('input[name="children_5to12"]');
+      const liveAdults = filterForm ? filterForm.querySelector('input[name="adults"]') : null;
+      const liveUnder5 = filterForm ? filterForm.querySelector('input[name="children_under5"]') : null;
+      const liveTo12 = filterForm ? filterForm.querySelector('input[name="children_5to12"]') : null;
+      if (adultsInput && liveAdults) adultsInput.value = liveAdults.value;
+      if (under5Input && liveUnder5) under5Input.value = liveUnder5.value;
+      if (to12Input && liveTo12) to12Input.value = liveTo12.value;
+    });
   });
 }

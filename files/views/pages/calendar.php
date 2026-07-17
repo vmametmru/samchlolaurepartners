@@ -80,12 +80,8 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
     </div>
 
     <div class="calendar-filter-actions">
-      <button type="submit" class="btn-primary calendar-filter-submit">Afficher les disponibilités</button>
-      <?php if ($dateFrom !== '' && $dateTo !== ''): ?>
-        <a class="text-link" href="/calendrier">30 prochains jours</a>
-      <?php endif; ?>
+      <button type="submit" class="btn-primary calendar-filter-submit" data-calendar-filter-submit>Afficher les disponibilités</button>
     </div>
-    <p class="muted calendar-filter-hint">Renseignez le nombre de personnes pour afficher les biens disponibles. Sans sélection de dates, seuls les 30 prochains jours sont chargés.</p>
   </form>
 
   <p class="calendar-loading-message" data-calendar-loading hidden><span class="spinner" aria-hidden="true"></span> Chargement des disponibilités…</p>
@@ -96,14 +92,17 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
     <p class="muted">Aucun hébergement à afficher.</p>
   <?php else: ?>
     <p class="muted calendar-price-note">Prix de la nuité en Euros. Le prix inclus les frais de nettoyage 2 fois par semaine.</p>
-    <?php $insufficientCount = count(array_filter($rows, static fn (array $row): bool => !($row['capacity_ok'] ?? true))); ?>
-    <?php if ($insufficientCount > 0): ?>
-      <p class="muted calendar-capacity-warning"><?= $insufficientCount ?> bien(s) ci-dessous ont une capacité individuelle insuffisante pour <?= (int) $totalGuests ?> personne(s), mais restent sélectionnables : combinez-les avec d'autres biens pour atteindre le nombre de personnes voulu.</p>
-    <?php endif; ?>
     <label class="calendar-name-toggle">
       <input type="checkbox" data-calendar-name-toggle>
-      Afficher le nom du bien (masqué par défaut pour laisser plus de place aux dates)
+      Afficher le nom du bien
     </label>
+
+    <div class="calendar-legend">
+      <span class="dot dot-green"></span> Disponible
+      <span class="dot dot-red"></span> Indisponible
+      <span class="dot dot-yellow"></span> Bloquée
+      <span class="dot dot-gray"></span> Non réservable / Non renseigné
+    </div>
 
     <div class="calendar-board cal-name-hidden" data-calendar-board data-multi-calendar-board data-total-guests="<?= (int) $totalGuests ?>" style="--cal-visible-days: <?= (int) $visibleDays ?>;">
       <table class="calendar-board-table">
@@ -151,8 +150,6 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
                 <a class="text-link" href="/properties/<?= $propertyId ?>"><?= \App\View::e($propertyName) ?></a>
                 <?php if (!empty($row['load_failed'])): ?>
                   <p class="muted cal-capacity-note"><span class="cal-warning-icon" aria-hidden="true">⚠️</span>Disponibilités temporairement indisponibles — réessayez dans quelques instants.</p>
-                <?php elseif (!$capacityOk): ?>
-                  <p class="muted cal-capacity-note"><span class="cal-warning-icon" aria-hidden="true">⚠️</span>Capacité max <?= $maxGuests ?> pers. — combinez avec un autre bien pour atteindre <?= (int) $totalGuests ?> personne(s).</p>
                 <?php endif; ?>
               </td>
               <td class="cal-fixed cal-col-num cal-col-capacity"><?= (int) ($property['max_guests'] ?? 0) ?></td>
@@ -197,7 +194,7 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
       <div class="multi-cart-summary" data-multi-cart-summary>
         <p><span data-multi-cart-summary-count>0</span> bien(s) sélectionné(s)</p>
         <p><span data-multi-cart-summary-nights>0</span> nuit(s) sélectionnée(s)</p>
-        <p data-multi-cart-summary-capacity-row>Capacité cumulée des biens sélectionnés : <span data-multi-cart-summary-capacity>0</span> / <?= (int) $totalGuests ?> personne(s)</p>
+        <p data-multi-cart-summary-capacity-row>Capacité cumulée des biens sélectionnés : <span data-multi-cart-summary-capacity>0</span> / <span data-multi-cart-summary-requested><?= (int) $totalGuests ?></span> personne(s)</p>
         <p class="form-feedback" data-multi-cart-capacity-hint></p>
         <p>Montant Total : <span data-multi-cart-summary-total>0</span> Euros</p>
       </div>
@@ -216,13 +213,6 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
         <button class="btn-primary" type="submit">Envoyer mes demandes de réservation</button>
         <p class="form-feedback" data-form-feedback></p>
       </form>
-    </div>
-
-    <div class="calendar-legend">
-      <span class="dot dot-green"></span> Disponible
-      <span class="dot dot-red"></span> Indisponible
-      <span class="dot dot-yellow"></span> Réservation d'1 nuit (arrivée ou départ uniquement)
-      <span class="dot dot-gray"></span> Non réservable / Non renseigné
     </div>
   <?php endif; ?>
 </section>
