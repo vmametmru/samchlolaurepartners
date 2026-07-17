@@ -38,6 +38,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initCalendarGuestSlider,
     initHelpDialogs,
     initMultiPropertyCart,
+    initPartnerCodeFromHash,
   ].forEach(runInit);
 });
 
@@ -1450,4 +1451,22 @@ function initMultiPropertyCart() {
       if (to12Input && liveTo12) to12Input.value = liveTo12.value;
     });
   });
+}
+
+// Allows deep-linking straight to a partner's site with e.g.
+// https://www.grand-baie-maurice.com/#scl (or "#/scl"): on the "/" gate page
+// (files/views/pages/enter-code.php), if the URL carries a non-empty hash we
+// treat it exactly as if the visitor had typed that code into the "Code
+// partenaire" form and clicked "Ouvrir le site" — auto-filling the input and
+// submitting the real form so the server sets the partner_code cookie and
+// redirects to /accueil.
+function initPartnerCodeFromHash() {
+  const form = document.querySelector('form[action="/partner-code"]');
+  if (!form) return;
+  const code = decodeURIComponent(window.location.hash.replace(/^#\/?/, '')).trim();
+  if (!code) return;
+  const input = form.querySelector('input[name="code"]');
+  if (!input) return;
+  input.value = code;
+  form.submit();
 }

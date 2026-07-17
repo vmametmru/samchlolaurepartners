@@ -5,20 +5,26 @@
       <?php if (!empty($partner['logo_url'])): ?>
         <img src="<?= \App\View::e($partner['logo_url']) ?>" alt="<?= \App\View::e($partner['name'] ?? 'Partner') ?>" class="brand-logo">
       <?php else: ?>
-        <span class="brand-name" style="color: <?= \App\View::e($primaryColor) ?>;"><?= \App\View::e($partner['name'] ?? 'Partners Portal') ?></span>
+        <span class="brand-name" style="color: <?= \App\View::e($primaryColor) ?>;"><?= \App\View::e($partner['name'] ?? 'Portail Partenaires') ?></span>
       <?php endif; ?>
     </a>
     <div class="navbar-links">
       <?php if (is_array($user) && in_array($user['role'] ?? '', ['partner', 'admin'], true)): ?><a href="/partner/dashboard">Dashboard</a><?php endif; ?>
       <?php if ($partner): ?>
-        <details class="navbar-dropdown">
-          <summary>Pages Publiques</summary>
-          <div class="navbar-dropdown-menu">
-            <a href="/properties">Hébergements</a>
-            <a href="/calendrier">Calendrier</a>
-            <a href="/contact">Contact</a>
-          </div>
-        </details>
+        <?php if (is_array($user)): ?>
+          <details class="navbar-dropdown">
+            <summary>Pages Publiques</summary>
+            <div class="navbar-dropdown-menu">
+              <a href="/properties">Hébergements</a>
+              <a href="/calendrier">Calendrier</a>
+              <a href="/contact">Contact</a>
+            </div>
+          </details>
+        <?php else: ?>
+          <a href="/properties">Hébergements</a>
+          <a href="/calendrier">Calendrier</a>
+          <a href="/contact">Contact</a>
+        <?php endif; ?>
       <?php endif; ?>
       <?php if (is_array($user)): ?>
         <?php if (($user['role'] ?? '') === 'admin'): ?>
@@ -41,7 +47,7 @@
           <span class="navbar-user-info">Session invalide ou expirée — reconnectez-vous.</span>
         <?php endif; ?>
         <a class="btn-icon" style="background-color: <?= \App\View::e($primaryColor) ?>;" href="/login" title="Connexion" aria-label="Connexion">
-          <span aria-hidden="true">👤</span>
+          <span aria-hidden="true">🔑</span>
         </a>
       <?php endif; ?>
     </div>
