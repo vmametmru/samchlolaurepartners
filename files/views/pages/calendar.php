@@ -63,7 +63,12 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
     <?php if ($insufficientCount > 0): ?>
       <p class="muted calendar-capacity-warning"><?= $insufficientCount ?> bien(s) ci-dessous ont une capacité individuelle insuffisante pour <?= (int) $totalGuests ?> personne(s), mais restent sélectionnables : combinez-les avec d'autres biens pour atteindre le nombre de personnes voulu.</p>
     <?php endif; ?>
-    <div class="calendar-board" data-calendar-board data-multi-calendar-board data-total-guests="<?= (int) $totalGuests ?>" style="--cal-visible-days: <?= (int) $visibleDays ?>;">
+    <label class="calendar-name-toggle">
+      <input type="checkbox" data-calendar-name-toggle>
+      Afficher le nom du bien (masqué par défaut pour laisser plus de place aux dates)
+    </label>
+
+    <div class="calendar-board cal-name-hidden" data-calendar-board data-multi-calendar-board data-total-guests="<?= (int) $totalGuests ?>" style="--cal-visible-days: <?= (int) $visibleDays ?>;">
       <table class="calendar-board-table">
         <thead>
           <tr>

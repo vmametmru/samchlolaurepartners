@@ -33,6 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initBookingQuote,
     initCalendarBoard,
     initCalendarFilterLoading,
+    initCalendarNameColumnToggle,
     initMultiPropertyCart,
   ].forEach(runInit);
 });
@@ -136,6 +137,41 @@ function initCalendarFilterLoading() {
   if (!form || !loading) return;
   form.addEventListener('submit', () => {
     loading.hidden = false;
+  });
+}
+
+/**
+ * The /calendrier board's property-name column is hidden by default (see
+ * the "cal-name-hidden" class rendered server-side in calendar.php) to
+ * leave more width for the date columns, which matters most on narrow
+ * mobile screens in portrait mode. This wires the checkbox that lets a
+ * visitor reveal it, remembering their choice in localStorage (same
+ * behaviour on desktop and mobile) so it doesn't reset on every page load.
+ */
+function initCalendarNameColumnToggle() {
+  const board = document.querySelector('[data-calendar-board]');
+  const toggle = document.querySelector('[data-calendar-name-toggle]');
+  if (!board || !toggle) return;
+
+  const storageKey = 'calendarNameColumnVisible';
+  let stored = null;
+  try {
+    stored = window.localStorage.getItem(storageKey);
+  } catch (error) {
+    stored = null;
+  }
+  const visible = stored === '1';
+  toggle.checked = visible;
+  board.classList.toggle('cal-name-hidden', !visible);
+
+  toggle.addEventListener('change', () => {
+    board.classList.toggle('cal-name-hidden', !toggle.checked);
+    try {
+      window.localStorage.setItem(storageKey, toggle.checked ? '1' : '0');
+    } catch (error) {
+      // Ignore storage errors (e.g. private browsing): the choice simply
+      // won't persist across page loads, which is a harmless degradation.
+    }
   });
 }
 

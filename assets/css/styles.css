@@ -187,6 +187,17 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .cal-capacity-note { margin: .15rem 0 0; font-size: .72rem; color: #b91c1c; }
 .cal-capacity-note .cal-warning-icon { margin-right: .25rem; }
 
+/* The "Bien" (property name) column is hidden by default (see the
+   data-calendar-name-toggle checkbox, unchecked by default) to leave more
+   horizontal room for the date columns, which is the scarce resource on
+   narrow/portrait phone screens. --cal-name-w is overridden to 0 here so
+   both the column itself and the left offsets of the columns sticky after
+   it (capacity, rooms) collapse accordingly; the property thumbnail (with
+   its link to the property page) stays visible either way. */
+.calendar-name-toggle { display: inline-flex; align-items: center; gap: .4rem; font-size: .85rem; margin-top: 1rem; cursor: pointer; }
+.calendar-board.cal-name-hidden { --cal-name-w: 0px; }
+.calendar-board.cal-name-hidden .cal-col-name { display: none; }
+
 .calendar-filter { margin-top: 1.25rem; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; }
 .calendar-filter-label { font-weight: 700; }
 .calendar-filter-months { display: flex; flex-wrap: wrap; gap: .4rem .9rem; }
