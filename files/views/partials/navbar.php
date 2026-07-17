@@ -1,4 +1,10 @@
-<?php declare(strict_types=1); $primaryColor = $partner['primary_color'] ?? '#E61E4D'; $brandHref = $partner ? '/accueil' : '/'; ?>
+<?php declare(strict_types=1); $primaryColor = $partner['primary_color'] ?? '#E61E4D'; $brandHref = $partner ? '/accueil' : '/';
+$userDisplayName = '';
+if (is_array($user ?? null)) {
+    $fullName = trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
+    $userDisplayName = $fullName !== '' ? $fullName : (string) ($user['email'] ?? $user['role'] ?? '');
+}
+?>
 <nav class="navbar">
   <div class="container navbar-inner">
     <a href="<?= \App\View::e($brandHref) ?>" class="brand">
@@ -39,7 +45,7 @@
             </div>
           </details>
         <?php endif; ?>
-        <span class="navbar-user-info" title="Connecté : <?= \App\View::e($user['email'] ?? '') ?>">🔑 <?= \App\View::e($user['role'] ?? '') ?></span>
+        <a class="navbar-user-info" href="/account" title="Voir mon profil">🔑 <?= \App\View::e($userDisplayName) ?></a>
         <a class="btn-icon" href="/logout" title="Déconnexion" aria-label="Déconnexion">
           <span aria-hidden="true">🚪</span>
         </a>

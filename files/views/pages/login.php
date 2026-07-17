@@ -10,5 +10,6 @@
       <label><span>Mot de passe</span><input class="input" type="password" name="password" required></label>
       <button class="btn-primary" type="submit">Se connecter</button>
     </form>
+    <p class="center"><a class="text-link" href="/forgot-password">Mot de passe oublié ?</a></p>
   </div>
 </section>
