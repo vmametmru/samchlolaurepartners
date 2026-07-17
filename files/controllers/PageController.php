@@ -664,6 +664,50 @@ final class PageController extends Controller
         self::redirect('/admin/sync', 'Synchronisation Lodgify terminée.');
     }
 
+    /**
+     * "Biens Lodgify" settings page: lists every property (photo, titre,
+     * capacité max, nb de lits, coordonnées GPS) alongside two freshness
+     * indicators — "Statut de la fiche" (photos/description/capacité,
+     * refreshed once a day) and "Statut Prix" (refreshed every 30 minutes).
+     * Availability itself is never shown here since it's always re-queried
+     * live at search time, not cached.
+     */
+    public static function adminLodgifyProperties(): void
+    {
+        self::requireAdminUser();
+        @set_time_limit(0);
+        $client = new LodgifyClient();
+        $properties = $client->getProperties();
+        $rows = [];
+        foreach ($properties as $property) {
+            $propertyId = (int) ($property['id'] ?? 0);
+            $priceSnapshot = $client->getPriceStatusSnapshot($propertyId);
+            $cacheStatus = $client->getCacheStatus($propertyId);
+            $rows[] = $property + $priceSnapshot + $cacheStatus;
+        }
+        View::render('pages/admin-lodgify-properties', [
+            'pageTitle' => 'Biens Lodgify',
+            'rows' => $rows,
+        ]);
+    }
+
+    /**
+     * Shows the raw Lodgify v1 payloads used to derive the sofa-bed count
+     * for one property, so an admin can see exactly what Lodgify returns
+     * when the "Canapé lit" column doesn't match what's configured in
+     * Lodgify's own back-office.
+     */
+    public static function adminLodgifySofaBedDebug(int $propertyId): void
+    {
+        self::requireAdminUser();
+        $client = new LodgifyClient();
+        $debug = $client->getSofaBedDebug($propertyId);
+        View::render('pages/admin-lodgify-sofa-bed-debug', [
+            'pageTitle' => 'Débogage canapé-lit — bien #' . $propertyId,
+            'debug' => $debug,
+        ]);
+    }
+
     public static function adminDiagnostic(): void
     {
         self::requireAdminUser();

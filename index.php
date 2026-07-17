@@ -222,6 +222,12 @@ try {
             break;
         case route($method, $path, 'POST', '#^/admin/sync$#'):
             PageController::adminRunSync();
+        case route($method, $path, 'GET', '#^/admin/lodgify-properties$#'):
+            PageController::adminLodgifyProperties();
+            break;
+        case route($method, $path, 'GET', '#^/admin/lodgify-properties/(\d+)/sofa-bed-debug$#', $matches):
+            PageController::adminLodgifySofaBedDebug((int) $matches[1]);
+            break;
         case route($method, $path, 'GET', '#^/admin/diagnostic$#'):
             PageController::adminDiagnostic();
             break;

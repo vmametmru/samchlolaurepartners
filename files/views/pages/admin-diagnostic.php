@@ -223,7 +223,7 @@ pouvoir y lire quoi que ce soit d'autre.</pre>
             <?php foreach ($rows as $row): ?>
               <tr class="<?= ($row['available'] && $row['meets_capacity']) ? '' : 'row-muted' ?>">
                 <td><?= View::e((string) $row['name']) ?></td>
-                <td><?= View::e(mb_strimwidth((string) $row['description'], 0, 140, '…')) ?></td>
+                <td><?= View::plainText((string) $row['description'], 140) ?></td>
                 <td><?= (int) $row['max_guests'] ?></td>
               <td><?= $row['min_stay'] !== null ? (int) $row['min_stay'] : '—' ?></td>
               <td><?= $row['available'] ? '✓ Oui' : '✕ Non' ?></td>

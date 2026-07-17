@@ -3,7 +3,7 @@
   <div class="property-card-image"><img src="<?= \App\View::e($image) ?>" alt="<?= \App\View::e($property['name']) ?>"></div>
   <div class="card-body">
     <h3><?= \App\View::e($property['name']) ?></h3>
-    <p><?= \App\View::e(mb_strimwidth((string) $property['description'], 0, 140, '…')) ?></p>
+    <p><?= \App\View::plainText((string) $property['description'], 140) ?></p>
     <div class="property-meta"><span><?= (int) $property['bedrooms'] ?> ch.</span><span>·</span><span><?= (int) $property['max_guests'] ?> pers. max</span></div>
   </div>
 </a>

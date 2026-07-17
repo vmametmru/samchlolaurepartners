@@ -90,7 +90,7 @@ final class LodgifyClient
             // As with getProperties(), the plain property payload's "rooms" only
             // carries id/name (RoomSummaryDto), never capacity — aggregate the
             // real numbers from the RoomDetailsDto rooms already fetched above.
-            $property = $this->sumRoomCapacity($property, $rooms);
+            $property = $this->sumRoomCapacity($property, $rooms, $propertyId);
 
             $rateSettings = $this->getRateSettingsFor($propertyId);
             $property['checkin_hour'] = $rateSettings['check_in_hour'];
@@ -193,6 +193,7 @@ final class LodgifyClient
                     $amenitiesByCategory[(string) $category] = $names;
                 }
             }
+            $sofaBedCount = $this->countSofaBeds($item);
             $rooms[] = [
                 'id' => (int) ($item['id'] ?? 0),
                 'name' => (string) ($item['name'] ?? ''),
@@ -206,16 +207,235 @@ final class LodgifyClient
                 'pets_allowed' => $item['pets_allowed'] ?? null,
                 'adults_only' => (bool) ($item['adults_only'] ?? false),
                 'amenities_by_category' => $amenitiesByCategory,
+                'sofa_bed_count' => $sofaBedCount,
             ];
         }
         return $rooms;
     }
 
     /**
+     * Counts sofa beds ("Canapé-lit") declared on a RoomDetailsDto item (or,
+     * recursively, on any of its nested room levels). Per Lodgify's actual
+     * response shape, a room-type item nests its physical sub-rooms under
+     * "rooms" (or "sub_rooms" in some responses), and — depending on the
+     * endpoint/payload — those sub-rooms can themselves nest another level
+     * of physical rooms before finally exposing a "beds" array of {"type":
+     * "SofaBed"|"DoubleSofaBed", "count": n} (Lodgify also uses "quantity"/
+     * "bed_types"/"bedTypes" in some payloads). This recurses through every
+     * nesting level instead of stopping after one, so a sofa bed declared
+     * two (or more) levels down isn't missed. Bed "type" values are matched
+     * case-insensitively against "sofabed"/"doublesofabed", with a
+     * defensive fallback to any label containing "sofa" or "canap" (French)
+     * in case of other bed-type variants.
+     */
+    private function countSofaBeds(array $item): int
+    {
+        $beds = $item['beds'] ?? $item['bed_types'] ?? $item['bedTypes'] ?? null;
+        $count = $this->countSofaBedsInBedsArray($beds);
+
+        $subRooms = $item['rooms'] ?? $item['sub_rooms'] ?? $item['subRooms']
+            ?? $item['type_rooms'] ?? $item['typeRooms'] ?? $item['roomTypes'] ?? $item['room_types'] ?? [];
+        if (is_array($subRooms)) {
+            foreach ($subRooms as $subRoom) {
+                if (is_array($subRoom)) {
+                    $count += $this->countSofaBeds($subRoom);
+                }
+            }
+        }
+        // Some hosts configure the sofa bed under Lodgify's "Amenities"
+        // section (e.g. "Canapé-lit") rather than the room's bed
+        // composition, which the checks above never see. Count it too, as
+        // a last-resort fallback, so the admin page doesn't show "Non" for
+        // a property that genuinely has one configured in Lodgify.
+        if ($count === 0) {
+            $count += $this->countSofaBedsInAmenities($item['amenities'] ?? null);
+        }
+        return $count;
+    }
+
+    /**
+     * Defensive fallback: counts amenity entries (as returned by Lodgify,
+     * either a flat list or a map of category => list) whose name matches a
+     * sofa-bed label. Amenities never carry a quantity, so each match counts
+     * as 1.
+     */
+    private function countSofaBedsInAmenities(mixed $amenities): int
+    {
+        if (!is_array($amenities)) {
+            return 0;
+        }
+        $count = 0;
+        foreach ($amenities as $amenityOrList) {
+            $list = is_array($amenityOrList) && array_is_list($amenityOrList) ? $amenityOrList : [$amenityOrList];
+            foreach ($list as $amenity) {
+                $name = is_array($amenity) ? (string) ($amenity['name'] ?? $amenity['text'] ?? '') : (string) $amenity;
+                if ($name !== '' && $this->isSofaBedLabel($name)) {
+                    $count += 1;
+                }
+            }
+        }
+        return $count;
+    }
+
+    /**
+     * Sums the sofa-bed "count"/"quantity" across a single bed[] array,
+     * matching entries whose "type" (or "name"/"bed_type") is "SofaBed" or
+     * "DoubleSofaBed" (case/spacing-insensitive), with a defensive fallback
+     * to any label containing "sofa" or "canap" (French) for other variants.
+     * Handles several payload shapes actually seen from Lodgify, since the
+     * v1/v2 endpoints aren't fully consistent:
+     *  - a plain string entry (e.g. "beds": ["Sofa Bed", "Double"]),
+     *  - an object whose "type"/"bedType" is itself a nested object
+     *    (e.g. {"id": 5, "name": "Sofa Bed"}) instead of a flat string,
+     *  - a boolean flag on the bed object itself (e.g. "is_sofa_bed": true /
+     *    "isSofaBed": true) instead of (or in addition to) a type label.
+     */
+    private function countSofaBedsInBedsArray(mixed $beds): int
+    {
+        if (!is_array($beds)) {
+            return 0;
+        }
+        $count = 0;
+        foreach ($beds as $bed) {
+            if (is_string($bed)) {
+                if ($this->isSofaBedLabel($bed)) {
+                    $count += 1;
+                }
+                continue;
+            }
+            if (!is_array($bed)) {
+                continue;
+            }
+            $typeValue = $bed['type'] ?? $bed['bed_type'] ?? $bed['bedType'] ?? $bed['name'] ?? '';
+            $label = is_array($typeValue)
+                ? (string) ($typeValue['name'] ?? $typeValue['label'] ?? $typeValue['text'] ?? '')
+                : (string) $typeValue;
+            $sofaFlag = filter_var(
+                $bed['is_sofa_bed'] ?? $bed['isSofaBed'] ?? $bed['sofa_bed'] ?? $bed['sofaBed'] ?? false,
+                FILTER_VALIDATE_BOOLEAN
+            );
+            if ($sofaFlag || $this->isSofaBedLabel($label)) {
+                $count += (int) ($bed['count'] ?? $bed['quantity'] ?? $bed['amount'] ?? 1);
+            }
+        }
+        return $count;
+    }
+
+    /**
+     * True when a bed-type label (case/spacing-insensitive) denotes a sofa
+     * bed: "SofaBed"/"DoubleSofaBed" exactly, or any label containing "sofa"
+     * or "canap" (French "canapé-lit") as a defensive fallback for other
+     * variants Lodgify might use.
+     */
+    private function isSofaBedLabel(string $label): bool
+    {
+        $normalized = mb_strtolower(str_replace([' ', '-', '_'], '', $label));
+        return $normalized === 'sofabed'
+            || $normalized === 'doublesofabed'
+            || str_contains($normalized, 'sofa')
+            || str_contains($normalized, 'canap');
+    }
+
+    /**
+     * Sofa-bed composition was expected to be exposed by Lodgify's legacy v1
+     * API ("/v1/properties/{id}" and "/v1/rooms"), not by the v2
+     * "/properties/{id}/rooms" endpoint used everywhere else in this class
+     * (its "beds"/"rooms" nesting used by countSofaBeds() is empty in
+     * practice for every property, so the count silently stayed 0 even
+     * after a full resync). In practice, for this Lodgify account neither
+     * v1 call reliably returns it either: "/v1/properties/{id}" comes back
+     * without any "beds" field at all (its "rooms" only carry
+     * bedrooms/bathrooms/max_people), and "/v1/rooms?propertyId=" 404s
+     * outright. A v1 call that merely *succeeds* with zero sofa beds found
+     * must therefore NOT be treated as authoritative — only a v1 count
+     * greater than zero overrides the v2-derived $fallback (which itself
+     * already falls back to amenity-based detection via countSofaBeds()).
+     * Otherwise a v1 hiccup, or a v1 payload that simply lacks bed data,
+     * would silently clobber an already-working v2/amenity-derived count
+     * down to a false "Non".
+     */
+    private function fetchSofaBedCountFromV1(int $propertyId, int $fallback): int
+    {
+        $result = $this->remember('lodgify:v1:sofabeds:' . $propertyId, 86400, function () use ($propertyId, $fallback): array {
+            $count = 0;
+
+            try {
+                $property = $this->requestV1('/properties/' . $propertyId);
+                if (is_array($property)) {
+                    $count += $this->countSofaBeds($property);
+                }
+            } catch (\Throwable $e) {
+                error_log('Lodgify: v1 property request failed for sofa bed count, property ' . $propertyId . ': ' . $e->getMessage());
+            }
+
+            try {
+                $rooms = $this->requestV1('/rooms', ['propertyId' => $propertyId]);
+                $items = is_array($rooms['items'] ?? null) ? $rooms['items'] : (is_array($rooms) ? $rooms : []);
+                foreach ($items as $room) {
+                    if (is_array($room)) {
+                        $count += $this->countSofaBeds($room);
+                    }
+                }
+            } catch (\Throwable $e) {
+                error_log('Lodgify: v1 rooms request failed for sofa bed count, property ' . $propertyId . ': ' . $e->getMessage());
+            }
+
+            return ['count' => $count > 0 ? $count : $fallback];
+        });
+        return (int) ($result['count'] ?? $fallback);
+    }
+
+    /**
+     * Uncached diagnostic helper: returns the raw v1 "/properties/{id}" and
+     * "/rooms?propertyId=" payloads Lodgify actually returns for a property,
+     * alongside the sofa-bed count countSofaBeds() derives from each, so an
+     * admin can see exactly why detection says "Non" when Lodgify's own
+     * back-office shows a sofa bed configured (e.g. a bed-composition shape
+     * countSofaBeds()/countSofaBedsInBedsArray() don't yet recognize).
+     */
+    public function getSofaBedDebug(int $propertyId): array
+    {
+        $result = [
+            'property_id' => $propertyId,
+            'v1_property' => null,
+            'v1_property_error' => null,
+            'v1_property_sofa_count' => 0,
+            'v1_rooms' => null,
+            'v1_rooms_error' => null,
+            'v1_rooms_sofa_count' => 0,
+        ];
+        try {
+            $property = $this->requestV1('/properties/' . $propertyId);
+            $result['v1_property'] = $property;
+            if (is_array($property)) {
+                $result['v1_property_sofa_count'] = $this->countSofaBeds($property);
+            }
+        } catch (\Throwable $e) {
+            $result['v1_property_error'] = $e->getMessage();
+        }
+        try {
+            $rooms = $this->requestV1('/rooms', ['propertyId' => $propertyId]);
+            $result['v1_rooms'] = $rooms;
+            $items = is_array($rooms['items'] ?? null) ? $rooms['items'] : (is_array($rooms) ? $rooms : []);
+            $count = 0;
+            foreach ($items as $room) {
+                if (is_array($room)) {
+                    $count += $this->countSofaBeds($room);
+                }
+            }
+            $result['v1_rooms_sofa_count'] = $count;
+        } catch (\Throwable $e) {
+            $result['v1_rooms_error'] = $e->getMessage();
+        }
+        return $result;
+    }
+
+    /**
      * Fetches "/properties/{id}/rooms" for the given property and overwrites
-     * bedrooms/bathrooms/max_guests on the mapped property with the sum of
-     * each room's real capacity (see sumRoomCapacity()). Used by getProperties()
-     * where room details haven't already been fetched.
+     * bedrooms/bathrooms/max_guests/sofa_bed_count on the mapped property
+     * with the sum of each room's real capacity (see sumRoomCapacity()).
+     * Used by getProperties() where room details haven't already been
+     * fetched.
      */
     private function applyRoomCapacity(array $property, int $propertyId): array
     {
@@ -225,21 +445,23 @@ final class LodgifyClient
             error_log('Lodgify: failed to compute room capacity for property ' . $propertyId . ': ' . $e->getMessage());
             return $property;
         }
-        return $this->sumRoomCapacity($property, $rooms);
+        return $this->sumRoomCapacity($property, $rooms, $propertyId);
     }
 
     /**
-     * Aggregates bedrooms/bathrooms/max_guests from a property's room details
-     * (RoomDetailsDto[], from "/properties/{id}/rooms"). This is the only
-     * Lodgify v2 endpoint that actually exposes these numbers: the "rooms"
-     * array embedded in "/properties" and "/properties/{id}" (RoomSummaryDto)
-     * only ever contains "id" and "name".
+     * Aggregates bedrooms/bathrooms/max_guests/sofa_bed_count from a
+     * property's room details (RoomDetailsDto[], from
+     * "/properties/{id}/rooms"). This is the only Lodgify v2 endpoint that
+     * actually exposes these numbers: the "rooms" array embedded in
+     * "/properties" and "/properties/{id}" (RoomSummaryDto) only ever
+     * contains "id" and "name".
      */
-    private function sumRoomCapacity(array $property, array $rooms): array
+    private function sumRoomCapacity(array $property, array $rooms, ?int $propertyId = null): array
     {
         $bedrooms = 0;
         $bathrooms = 0;
         $maxGuests = 0;
+        $sofaBeds = 0;
         foreach ($rooms as $room) {
             if (!is_array($room)) {
                 continue;
@@ -247,7 +469,19 @@ final class LodgifyClient
             $bedrooms += (int) ($room['bedrooms'] ?? 0);
             $bathrooms += (int) ($room['bathrooms'] ?? 0);
             $maxGuests += (int) ($room['max_people'] ?? 0);
+            $sofaBeds += (int) ($room['sofa_bed_count'] ?? 0);
         }
+        // The v2 "/properties/{id}/rooms" (RoomDetailsDto) payload doesn't
+        // reliably expose bed composition (it's always been empty/absent in
+        // practice, so $sofaBeds computed above from it stays 0), even though
+        // Lodgify's own back-office shows sofa beds correctly. That data is
+        // only available from the legacy v1 API ("/v1/properties/{id}" or
+        // "/v1/rooms"), so fetch and prefer that count when a propertyId is
+        // available.
+        if ($propertyId !== null) {
+            $sofaBeds = $this->fetchSofaBedCountFromV1($propertyId, $sofaBeds);
+        }
+        $property['sofa_bed_count'] = $sofaBeds;
         if ($bedrooms > 0) {
             $property['bedrooms'] = $bedrooms;
         }
@@ -661,6 +895,93 @@ final class LodgifyClient
     }
 
     /**
+     * Fetches a lightweight nightly-rate sample for the given property (the
+     * next 7 nights, 2 guests) and caches it for 30 minutes under
+     * "lodgify:v2:pricestatus:{id}". Availability/rates are otherwise always
+     * queried live at search time (never cached) since they depend on the
+     * visitor's chosen dates/guests, but the admin "Biens Lodgify" page needs
+     * a single "Statut Prix" freshness indicator per property, refreshed
+     * every 30 minutes regardless of visitor searches — this cached snapshot
+     * (and its cache_key's created_at, read via getCacheStatus()) is what
+     * powers that column.
+     */
+    public function getPriceStatusSnapshot(int $propertyId): array
+    {
+        return $this->remember('lodgify:v2:pricestatus:' . $propertyId, 1800, function () use ($propertyId): array {
+            $from = (new \DateTimeImmutable('today'))->format('Y-m-d');
+            $to = (new \DateTimeImmutable('today'))->modify('+7 days')->format('Y-m-d');
+            $samplePrice = null;
+            $currency = null;
+            try {
+                $rates = $this->getRates($propertyId, $from, $to, 2);
+                foreach ($rates as $rate) {
+                    if (($rate['price_per_night'] ?? 0.0) > 0.0) {
+                        $samplePrice = (float) $rate['price_per_night'];
+                        $currency = (string) ($rate['currency'] ?? '');
+                        break;
+                    }
+                }
+            } catch (\Throwable) {
+                // Swallowed: a Lodgify hiccup here should only leave the price
+                // status stale, never break the whole admin page.
+            }
+            return ['sample_price' => $samplePrice, 'currency' => $currency];
+        });
+    }
+
+    /**
+     * Reports, for a single property, when its "fiche" (photos/description/
+     * capacity — from getProperties()/getProperty()) and its price snapshot
+     * (getPriceStatusSnapshot()) were each last refreshed, straight from the
+     * lodgify_cache table's created_at/expires_at, plus whether each is still
+     * within its expected refresh cadence (24h for the fiche, 30min for
+     * price). Used by the "Biens Lodgify" admin page.
+     *
+     * @return array{
+     *   fiche_updated_at: ?\DateTimeImmutable, fiche_fresh: bool,
+     *   price_updated_at: ?\DateTimeImmutable, price_fresh: bool
+     * }
+     */
+    public function getCacheStatus(int $propertyId): array
+    {
+        $ficheRow = $this->cacheMeta(['lodgify:v2:property:' . $propertyId, 'lodgify:v2:properties']);
+        $priceRow = $this->cacheMeta(['lodgify:v2:pricestatus:' . $propertyId]);
+        return [
+            'fiche_updated_at' => $ficheRow['created_at'],
+            'fiche_fresh' => $ficheRow['expires_at'] !== null && $ficheRow['expires_at'] > new \DateTimeImmutable(),
+            'price_updated_at' => $priceRow['created_at'],
+            'price_fresh' => $priceRow['expires_at'] !== null && $priceRow['expires_at'] > new \DateTimeImmutable(),
+        ];
+    }
+
+    /**
+     * Returns the most recent created_at/expires_at among the given cache
+     * keys (nulls if none of them exist yet).
+     *
+     * @param array<int, string> $keys
+     * @return array{created_at: ?\DateTimeImmutable, expires_at: ?\DateTimeImmutable}
+     */
+    private function cacheMeta(array $keys): array
+    {
+        if ($keys === []) {
+            return ['created_at' => null, 'expires_at' => null];
+        }
+        $placeholders = implode(',', array_fill(0, count($keys), '?'));
+        $stmt = Database::connection()->prepare(
+            'SELECT created_at, expires_at FROM lodgify_cache WHERE cache_key IN (' . $placeholders . ') ORDER BY created_at DESC LIMIT 1'
+        );
+        $stmt->execute($keys);
+        $row = $stmt->fetch();
+        if (!$row) {
+            return ['created_at' => null, 'expires_at' => null];
+        }
+        return [
+            'created_at' => new \DateTimeImmutable((string) $row['created_at']),
+            'expires_at' => new \DateTimeImmutable((string) $row['expires_at']),
+        ];
+    }
+
+    /**
      * Resolves the primary room type id for a property, required by the Lodgify
      * rates/calendar endpoint. Most rentals on Lodgify have a single room type.
      */
@@ -794,11 +1115,33 @@ final class LodgifyClient
 
     private function request(string $path, array $params = []): array
     {
+        return $this->httpRequest($this->baseUrl, $path, $params);
+    }
+
+    /**
+     * Same as request() but against Lodgify's legacy v1 API base URL,
+     * needed for endpoints (like sofa bed / bed composition data) that v2
+     * doesn't reliably expose. Derived from LODGIFY_BASE_URL by swapping a
+     * trailing "/v2" for "/v1", or defaults to the standard v1 host.
+     */
+    private function requestV1(string $path, array $params = []): array
+    {
+        return $this->httpRequest($this->v1BaseUrl(), $path, $params);
+    }
+
+    private function v1BaseUrl(): string
+    {
+        $swapped = preg_replace('#/v2$#', '/v1', $this->baseUrl);
+        return $swapped !== null && $swapped !== $this->baseUrl ? $swapped : 'https://api.lodgify.com/v1';
+    }
+
+    private function httpRequest(string $baseUrl, string $path, array $params = []): array
+    {
         if ($this->apiKey === '') {
             throw new RuntimeException('LODGIFY_API_KEY is not set');
         }
 
-        $url = $this->baseUrl . $path;
+        $url = $baseUrl . $path;
         if ($params !== []) {
             $url .= '?' . http_build_query($params);
         }
@@ -888,17 +1231,129 @@ final class LodgifyClient
         // (RoomDetailsDto), aggregated afterwards in applyRoomCapacity()/
         // sumRoomCapacity(). These root-level fallbacks are kept in case Lodgify
         // ever starts returning them directly.
+        [$latitude, $longitude] = $this->extractCoordinates($item);
+        $city = trim((string) ($item['city'] ?? ''));
+        $propertyId = (int) ($item['id'] ?? 0);
+        // Most listings on this account simply never had precise GPS filled
+        // in on Lodgify's side, so extractCoordinates() returns null for
+        // them far more often than not. The "/properties" overview map
+        // (map-board.php) filtered those out entirely, so it only ever
+        // showed the one or two properties that happen to have real
+        // coordinates — looking like an empty map with just a stray pin or
+        // two. Give every property an approximate "map_*" position (real
+        // coordinates when known, else a per-city estimate) so the overview
+        // map always shows every property; admin diagnostics and the
+        // property-detail page keep using the exact/possibly-null
+        // "latitude"/"longitude" fields untouched, since those claim to be
+        // precise and link out to OpenStreetMap.
+        $hasExactCoordinates = $latitude !== null && $longitude !== null;
+        [$mapLatitude, $mapLongitude] = $hasExactCoordinates
+            ? [$latitude, $longitude]
+            : $this->estimateCoordinatesFromCity($city, $propertyId);
         return [
-            'id' => (int) ($item['id'] ?? 0),
+            'id' => $propertyId,
             'name' => (string) ($item['name'] ?? ''),
             'description' => (string) ($item['description'] ?? ''),
             'images' => $images,
             'amenities' => $amenities,
-            'latitude' => isset($item['latitude']) ? (float) $item['latitude'] : null,
-            'longitude' => isset($item['longitude']) ? (float) $item['longitude'] : null,
+            'city' => $city,
+            'latitude' => $latitude,
+            'longitude' => $longitude,
+            'map_latitude' => $mapLatitude,
+            'map_longitude' => $mapLongitude,
+            'map_position_is_estimated' => !$hasExactCoordinates,
             'max_guests' => (int) ($item['people_capacity'] ?? $item['max_guests'] ?? $item['maxGuests'] ?? 0),
             'bedrooms' => (int) ($item['rooms_count'] ?? $item['bedrooms'] ?? 0),
             'bathrooms' => (int) ($item['bathrooms_count'] ?? $item['bathrooms'] ?? 0),
         ];
+    }
+
+    /**
+     * Northern Mauritius coastal towns/villages (this account's market,
+     * "Grand Baie") mapped to their approximate centre coordinates, used to
+     * place a property on the "/properties" overview map when Lodgify
+     * doesn't provide exact GPS for it. Matched case/accent-insensitively
+     * against the property's "city" field; falls back to Grand Baie itself
+     * — the area most of this account's properties are actually in — when
+     * the city is unset or unrecognized.
+     *
+     * @var array<string, array{0: float, 1: float}>
+     */
+    private const CITY_COORDINATES = [
+        'grandbaie' => [-20.0186, 57.5807],
+        'pereybere' => [-19.9926, 57.5822],
+        'perebere' => [-19.9926, 57.5822],
+        'troiletauxbiches' => [-20.0339, 57.5453],
+        'trouauxbiches' => [-20.0339, 57.5453],
+        'montchoisy' => [-20.0286, 57.5553],
+        'pointeauxcanonniers' => [-20.0067, 57.5647],
+        'capmalheureux' => [-19.9822, 57.6136],
+        'grandgaube' => [-20.0064, 57.6539],
+        'pointeauxpiments' => [-20.0511, 57.5219],
+        'triolet' => [-20.0333, 57.5500],
+        'bainboeuf' => [-19.9958, 57.5928],
+        'pamplemousses' => [-20.1075, 57.5697],
+    ];
+
+    /**
+     * Normalizes a city name for matching against CITY_COORDINATES: lower-
+     * cases it and strips accents/spaces/hyphens/apostrophes, so "Pereybère",
+     * "Péreybere" and "pereybere" all match the same key.
+     */
+    private function normalizeCityName(string $city): string
+    {
+        $transliterated = @iconv('UTF-8', 'ASCII//TRANSLIT', $city);
+        $normalized = $transliterated !== false ? $transliterated : $city;
+        return strtolower(preg_replace('/[^a-z0-9]/i', '', $normalized) ?? '');
+    }
+
+    /**
+     * Estimates a "good enough for an overview map" position for a property
+     * without exact GPS: looks up its city in CITY_COORDINATES (defaulting
+     * to Grand Baie when unset/unmatched), then applies a small deterministic
+     * per-property offset (derived from its id) so several properties in the
+     * same city don't render as a single overlapping dot.
+     *
+     * @return array{0: float, 1: float}
+     */
+    private function estimateCoordinatesFromCity(string $city, int $propertyId): array
+    {
+        [$baseLat, $baseLng] = self::CITY_COORDINATES[$this->normalizeCityName($city)] ?? self::CITY_COORDINATES['grandbaie'];
+        $angle = ($propertyId % 12) * (M_PI / 6);
+        $radius = 0.006;
+        return [$baseLat + sin($angle) * $radius, $baseLng + cos($angle) * $radius];
+    }
+
+    /**
+     * Reads a property's GPS coordinates from Lodgify's PropertyDto. Lodgify
+     * actually nests these under "address" (address.lat / address.lng, e.g.
+     * {"address":{"lat":52.52,"lng":13.40,...}}), not as root-level
+     * "latitude"/"longitude" fields — using only the root fields left every
+     * property without coordinates, so the "/properties" map never showed any
+     * marker. Root-level "latitude"/"longitude"/"lat"/"lng" and a "location"
+     * sub-object are also checked as fallbacks in case Lodgify changes shape
+     * or an older/alternate response format is used.
+     *
+     * @param array<string, mixed> $item
+     * @return array{0: ?float, 1: ?float}
+     */
+    private function extractCoordinates(array $item): array
+    {
+        $address = is_array($item['address'] ?? null) ? $item['address'] : [];
+        $location = is_array($item['location'] ?? null) ? $item['location'] : [];
+        $candidates = [
+            [$address['lat'] ?? null, $address['lng'] ?? null],
+            [$address['latitude'] ?? null, $address['longitude'] ?? null],
+            [$location['lat'] ?? null, $location['lng'] ?? null],
+            [$location['latitude'] ?? null, $location['longitude'] ?? null],
+            [$item['latitude'] ?? null, $item['longitude'] ?? null],
+            [$item['lat'] ?? null, $item['lng'] ?? null],
+        ];
+        foreach ($candidates as [$lat, $lng]) {
+            if ($lat !== null && $lng !== null && is_numeric($lat) && is_numeric($lng)) {
+                return [(float) $lat, (float) $lng];
+            }
+        }
+        return [null, null];
     }
 }
