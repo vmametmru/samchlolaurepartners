@@ -36,6 +36,7 @@ img { max-width: 100%; display: block; }
 .btn-primary, .btn-secondary { display: inline-flex; align-items: center; justify-content: center; padding: .8rem 1rem; border-radius: .8rem; font-weight: 700; }
 .btn-primary { background: var(--brand); color: white; }
 .btn-secondary { background: white; color: var(--text); border: 1px solid var(--border); }
+.btn-icon { appearance: none; border: 0; cursor: pointer; font: inherit; display: inline-flex; align-items: center; justify-content: center; width: 2.4rem; height: 2.4rem; border-radius: 50%; background: var(--brand); color: white; font-size: 1.1rem; text-decoration: none; flex-shrink: 0; }
 .danger { color: var(--red); border-color: #fecaca; }
 .input, textarea, select { width: 100%; border: 1px solid #d1d5db; border-radius: .8rem; padding: .72rem .85rem; font: inherit; background: white; color: var(--text); }
 .input:focus, textarea:focus, select:focus { outline: 2px solid rgba(230,30,77,.18); border-color: var(--brand); }
@@ -198,20 +199,28 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .calendar-board.cal-name-hidden { --cal-name-w: 0px; }
 .calendar-board.cal-name-hidden .cal-col-name { display: none; }
 
-.calendar-filter { margin-top: 1.25rem; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; }
+.calendar-filter { margin-top: 1.25rem; display: flex; flex-direction: column; gap: .75rem; }
+.calendar-filter-block { flex-basis: 100%; }
 .calendar-filter-label { font-weight: 700; }
 .calendar-filter-months { display: flex; flex-wrap: wrap; gap: .4rem .9rem; }
 .calendar-filter-month { display: inline-flex; align-items: center; gap: .3rem; font-size: .85rem; cursor: pointer; }
-.calendar-guest-form { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; flex-basis: 100%; }
+.calendar-guest-form { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; }
 .calendar-guest-field { display: inline-flex; align-items: center; gap: .4rem; font-size: .85rem; }
 .calendar-guest-field .input { width: 4.5rem; padding: .35rem .5rem; }
 .calendar-filter-actions { display: inline-flex; align-items: center; gap: .75rem; }
 .calendar-filter-submit { padding: .45rem .9rem; border-radius: .6rem; font-size: .85rem; }
-.calendar-filter-hint { flex-basis: 100%; margin: 0; font-size: .8rem; }
+.calendar-filter-hint { margin: 0; font-size: .8rem; }
 .calendar-guest-required-hint, .calendar-capacity-warning { margin-top: 1rem; }
 .calendar-loading-message { margin-top: 1rem; display: flex; align-items: center; gap: .5rem; }
 .calendar-loading-message[hidden] { display: none; }
 .calendar-price-note { margin-top: 1rem; }
+
+.calendar-help-btn { padding: .5rem .9rem; border-radius: .6rem; font-size: .85rem; flex-shrink: 0; }
+.help-dialog { max-width: 32rem; width: calc(100% - 2rem); border: 1px solid var(--border, #e5e7eb); border-radius: .9rem; padding: 1.25rem; }
+.help-dialog::backdrop { background: rgba(17, 24, 39, .45); }
+.help-dialog form { display: flex; justify-content: flex-end; margin: -.5rem -.5rem .5rem 0; }
+.help-dialog-close { appearance: none; border: 0; background: transparent; font-size: 1.3rem; line-height: 1; cursor: pointer; color: var(--muted); padding: .25rem .5rem; }
+.help-dialog p + p { margin-top: .75rem; }
 
 .multi-booking-cart { margin-top: 1.25rem; border: 1px solid var(--border, #e5e7eb); border-radius: .9rem; padding: 1rem; background: #f9fafb; }
 .multi-cart-list { list-style: none; margin: 0 0 .75rem; padding: 0; display: flex; flex-wrap: wrap; gap: .5rem; }

@@ -20,26 +20,45 @@ $frenchDays = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
 $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'];
 ?>
 <section class="container section-lg">
-  <h1>Calendrier</h1>
-  <p class="muted">Vue d'ensemble des disponibilités et tarifs de tous les biens. Approchez la souris du bord gauche ou droit du tableau pour faire défiler les dates.</p>
-  <p class="muted">Réservez plusieurs biens en quelques clics : cliquez une date d'arrivée puis une date de départ sur un bien, puis recommencez sur un autre bien (mêmes dates ou dates différentes) pour l'ajouter à votre sélection.</p>
+  <div class="section-header">
+    <h1>Calendrier</h1>
+    <button type="button" class="btn-secondary calendar-help-btn" data-help-trigger="calendar-help">Aide</button>
+  </div>
+  <dialog class="help-dialog" data-help-dialog="calendar-help">
+    <form method="dialog">
+      <button type="submit" class="help-dialog-close" aria-label="Fermer">×</button>
+    </form>
+    <p class="muted">Vue d'ensemble des disponibilités et tarifs de tous les biens. Approchez la souris du bord gauche ou droit du tableau pour faire défiler les dates.</p>
+    <p class="muted">Réservez plusieurs biens en quelques clics : cliquez une date d'arrivée puis une date de départ sur un bien, puis recommencez sur un autre bien (mêmes dates ou dates différentes) pour l'ajouter à votre sélection.</p>
+  </dialog>
 
-  <form class="calendar-filter" method="get" action="/calendrier">
-    <span class="calendar-filter-label">Mois à afficher&nbsp;:</span>
-    <div class="calendar-filter-months">
-      <?php foreach ($monthOptions as $option): ?>
-        <label class="calendar-filter-month">
-          <input type="checkbox" name="months[]" value="<?= \App\View::e($option['value']) ?>"<?= in_array($option['value'], $selectedMonths, true) ? ' checked' : '' ?>>
-          <?= \App\View::e($option['label']) ?>
-        </label>
-      <?php endforeach; ?>
+  <?php $filtersCollapsedByDefault = $totalGuests >= 1; ?>
+  <form class="calendar-filter" method="get" action="/calendrier" data-calendar-filter-form>
+    <div class="booking-block calendar-filter-block" data-filter-block>
+      <button type="button" class="booking-block-header<?= $filtersCollapsedByDefault ? '' : ' open' ?>" data-filter-toggle>
+        <span>Mois à afficher</span>
+        <span class="booking-block-chevron" aria-hidden="true">▾</span>
+      </button>
+      <div class="booking-block-body calendar-filter-months" data-filter-body<?= $filtersCollapsedByDefault ? ' hidden' : '' ?>>
+        <?php foreach ($monthOptions as $option): ?>
+          <label class="calendar-filter-month">
+            <input type="checkbox" name="months[]" value="<?= \App\View::e($option['value']) ?>"<?= in_array($option['value'], $selectedMonths, true) ? ' checked' : '' ?>>
+            <?= \App\View::e($option['label']) ?>
+          </label>
+        <?php endforeach; ?>
+      </div>
     </div>
 
-    <div class="calendar-guest-form" data-calendar-guest-form>
-      <span class="calendar-filter-label">Nombre de personnes&nbsp;:</span>
-      <label class="calendar-guest-field"><span>Adulte(s)</span><input class="input" type="number" name="adults" min="1" max="20" value="<?= $adults > 0 ? (int) $adults : 2 ?>"></label>
-      <label class="calendar-guest-field"><span>Enfant(s) -5 ans</span><input class="input" type="number" name="children_under5" min="0" max="20" value="<?= (int) $childrenUnder5 ?>"></label>
-      <label class="calendar-guest-field"><span>Enfant(s) 5-12 ans</span><input class="input" type="number" name="children_5to12" min="0" max="20" value="<?= (int) $children5to12 ?>"></label>
+    <div class="booking-block calendar-filter-block" data-filter-block>
+      <button type="button" class="booking-block-header<?= $filtersCollapsedByDefault ? '' : ' open' ?>" data-filter-toggle>
+        <span>Nombre de personnes</span>
+        <span class="booking-block-chevron" aria-hidden="true">▾</span>
+      </button>
+      <div class="booking-block-body calendar-guest-form" data-filter-body data-calendar-guest-form<?= $filtersCollapsedByDefault ? ' hidden' : '' ?>>
+        <label class="calendar-guest-field"><span>Adulte(s)</span><input class="input" type="number" name="adults" min="1" max="20" value="<?= $adults > 0 ? (int) $adults : 2 ?>"></label>
+        <label class="calendar-guest-field"><span>Enfant(s) -5 ans</span><input class="input" type="number" name="children_under5" min="0" max="20" value="<?= (int) $childrenUnder5 ?>"></label>
+        <label class="calendar-guest-field"><span>Enfant(s) 5-12 ans</span><input class="input" type="number" name="children_5to12" min="0" max="20" value="<?= (int) $children5to12 ?>"></label>
+      </div>
     </div>
 
     <div class="calendar-filter-actions">
