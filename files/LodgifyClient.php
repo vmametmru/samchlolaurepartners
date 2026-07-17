@@ -215,37 +215,58 @@ final class LodgifyClient
 
     /**
      * Counts sofa beds ("Canapé-lit") declared on a RoomDetailsDto item.
-     * Lodgify exposes per-room bed composition under "type_rooms[].beds[]"
-     * (each bed entry carrying a "type"/"name" label and an "amount"/"count"),
-     * but the exact key names have varied across API responses, so every
-     * known variant is checked defensively. A bed entry is counted as a sofa
-     * bed when its label contains "sofa" (English) or "canap" (French,
-     * matches "canapé"/"canape").
+     * Per Lodgify's actual response shape, each room-type item nests its
+     * physical sub-rooms under "rooms" (or "sub_rooms" in some responses),
+     * and each sub-room carries a "beds" array of {"type": "SofaBed"|
+     * "DoubleSofaBed", "count": n} (Lodgify also uses "quantity" for the
+     * count in some payloads). Bed "type" values are matched case-
+     * insensitively against "sofabed"/"doublesofabed", with a defensive
+     * fallback to any label containing "sofa" or "canap" (French) in case
+     * of other bed-type variants.
      */
     private function countSofaBeds(array $item): int
     {
-        $typeRooms = $item['type_rooms'] ?? $item['typeRooms'] ?? $item['roomTypes'] ?? $item['room_types'] ?? [];
-        if (!is_array($typeRooms)) {
+        $count = $this->countSofaBedsInBedsArray($item['beds'] ?? null);
+
+        $subRooms = $item['rooms'] ?? $item['sub_rooms'] ?? $item['subRooms']
+            ?? $item['type_rooms'] ?? $item['typeRooms'] ?? $item['roomTypes'] ?? $item['room_types'] ?? [];
+        if (is_array($subRooms)) {
+            foreach ($subRooms as $subRoom) {
+                if (!is_array($subRoom)) {
+                    continue;
+                }
+                $beds = $subRoom['beds'] ?? $subRoom['bed_types'] ?? $subRoom['bedTypes'] ?? null;
+                $count += $this->countSofaBedsInBedsArray($beds);
+            }
+        }
+        return $count;
+    }
+
+    /**
+     * Sums the sofa-bed "count"/"quantity" across a single bed[] array,
+     * matching entries whose "type" (or "name"/"bed_type") is "SofaBed" or
+     * "DoubleSofaBed" (case/spacing-insensitive), with a defensive fallback
+     * to any label containing "sofa" or "canap" (French) for other variants.
+     */
+    private function countSofaBedsInBedsArray(mixed $beds): int
+    {
+        if (!is_array($beds)) {
             return 0;
         }
         $count = 0;
-        foreach ($typeRooms as $typeRoom) {
-            if (!is_array($typeRoom)) {
+        foreach ($beds as $bed) {
+            if (!is_array($bed)) {
                 continue;
             }
-            $beds = $typeRoom['beds'] ?? $typeRoom['bed_types'] ?? $typeRoom['bedTypes'] ?? [];
-            if (!is_array($beds)) {
-                continue;
-            }
-            foreach ($beds as $bed) {
-                if (!is_array($bed)) {
-                    continue;
-                }
-                $label = (string) ($bed['type'] ?? $bed['name'] ?? $bed['bed_type'] ?? '');
-                $normalized = mb_strtolower($label);
-                if (str_contains($normalized, 'sofa') || str_contains($normalized, 'canap')) {
-                    $count += (int) ($bed['amount'] ?? $bed['count'] ?? $bed['quantity'] ?? 1);
-                }
+            $label = (string) ($bed['type'] ?? $bed['name'] ?? $bed['bed_type'] ?? '');
+            $normalized = mb_strtolower(str_replace([' ', '-', '_'], '', $label));
+            if (
+                $normalized === 'sofabed'
+                || $normalized === 'doublesofabed'
+                || str_contains($normalized, 'sofa')
+                || str_contains($normalized, 'canap')
+            ) {
+                $count += (int) ($bed['count'] ?? $bed['quantity'] ?? $bed['amount'] ?? 1);
             }
         }
         return $count;
