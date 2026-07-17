@@ -149,6 +149,28 @@ final class Auth
     }
 
     /**
+     * The scheme+host the current visitor actually used to reach the site
+     * (e.g. "https://www.grand-baie-maurice.com"), used to build absolute
+     * URLs (email images/links) instead of trusting the "APP_URL" setting,
+     * which is only set once at install time and easily goes stale (left at
+     * its "http://localhost:8080" default, or entered without "https://").
+     * Falls back to the "APP_URL" setting when there is no HTTP request to
+     * inspect (e.g. a future CLI/cron job). Unlike requestHost() (used for
+     * the cookie Domain, which never includes a port), this keeps the port
+     * from the Host header when present so local/dev URLs (e.g. :8080) stay
+     * correct too.
+     */
+    public static function currentBaseUrl(): string
+    {
+        $host = strtolower(trim((string) ($_SERVER['HTTP_HOST'] ?? '')));
+        if ($host === '') {
+            return rtrim((string) (Settings::get('APP_URL', '') ?? ''), '/');
+        }
+        $scheme = self::isSecureRequest() ? 'https' : 'http';
+        return $scheme . '://' . $host;
+    }
+
+    /**
      * Whether the current request reached us over HTTPS, accounting for TLS-terminating
      * reverse proxies (common on cPanel/Cloudflare) that forward to Apache over plain HTTP
      * but advertise the original scheme via X-Forwarded-* headers.

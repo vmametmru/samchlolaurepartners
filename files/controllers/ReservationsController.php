@@ -9,7 +9,6 @@ use App\Controller;
 use App\Database;
 use App\LodgifyClient;
 use App\Mailer;
-use App\Settings;
 use PDO;
 use Throwable;
 
@@ -651,16 +650,19 @@ final class ReservationsController extends Controller
 
     /**
      * Turns a locally-stored relative path (e.g. "/images/others/avatars/x.jpg")
-     * into an absolute URL using APP_URL, since email clients have no notion
-     * of the site's host and would otherwise render a broken image. Already
-     * absolute URLs (e.g. Lodgify's CDN photos) are returned unchanged.
+     * into an absolute URL, since email clients have no notion of the site's
+     * host and would otherwise render a broken image. Uses the scheme+host the
+     * current visitor actually used (Auth::currentBaseUrl()) rather than the
+     * "APP_URL" setting, which is only set once at install time and easily
+     * goes stale. Already-absolute URLs (e.g. Lodgify's CDN photos) are
+     * returned unchanged.
      */
     private static function absoluteUrl(string $url): string
     {
         if ($url === '' || preg_match('#^(?:[a-z][a-z0-9+.-]*:)?//#i', $url) === 1) {
             return $url;
         }
-        $baseUrl = rtrim((string) (Settings::get('APP_URL', '') ?? ''), '/');
+        $baseUrl = Auth::currentBaseUrl();
         if ($baseUrl === '') {
             return $url;
         }
@@ -670,11 +672,13 @@ final class ReservationsController extends Controller
     /**
      * Builds the client-facing link back to the partner's booking site (home
      * page + "#code partenaire" fragment, the mechanism this app uses instead
-     * of real subdomains, see Tenant::current()).
+     * of real subdomains, see Tenant::current()). Uses the scheme+host the
+     * current visitor actually used rather than the "APP_URL" setting so the
+     * link is never stuck on a stale install-time value (localhost, http://).
      */
     private static function partnerLink(array $partner): string
     {
-        $baseUrl = rtrim((string) (Settings::get('APP_URL', '') ?? ''), '/');
+        $baseUrl = Auth::currentBaseUrl();
         $subdomain = (string) ($partner['subdomain'] ?? '');
         if ($baseUrl === '' || $subdomain === '') {
             return '';

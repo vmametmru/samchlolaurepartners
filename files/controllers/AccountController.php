@@ -9,7 +9,6 @@ use App\Controller;
 use App\Database;
 use App\HttpException;
 use App\Mailer;
-use App\Settings;
 use App\View;
 use PDO;
 use Throwable;
@@ -129,10 +128,8 @@ final class AccountController extends Controller
 
     private static function sendResetEmail(array $user, string $token): void
     {
-        $baseUrl = rtrim((string) (Settings::get('APP_URL', '') ?? ''), '/');
-        $host = $_SERVER['HTTP_HOST'] ?? '';
-        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-        $resetUrl = ($baseUrl !== '' ? $baseUrl : ($host !== '' ? $scheme . '://' . $host : '')) . '/reset-password/' . $token;
+        $baseUrl = Auth::currentBaseUrl();
+        $resetUrl = $baseUrl . '/reset-password/' . $token;
 
         $partner = null;
         if (!empty($user['partner_id'])) {
