@@ -630,8 +630,8 @@ final class ReservationsController extends Controller
             return '';
         }
         $alt = htmlspecialchars($propertyName !== '' ? $propertyName : 'Hébergement', ENT_QUOTES, 'UTF-8');
-        $src = htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
-        return '<p><img src="' . $src . '" alt="' . $alt . '" width="320" style="max-width:100%;height:auto;border-radius:8px;display:block;margin:12px 0;"></p>';
+        $src = htmlspecialchars(self::absoluteUrl($url), ENT_QUOTES, 'UTF-8');
+        return '<p><img src="' . $src . '" alt="' . $alt . '" width="160" style="max-width:100%;height:auto;border-radius:8px;display:block;margin:12px 0;"></p>';
     }
 
     /**
@@ -645,8 +645,26 @@ final class ReservationsController extends Controller
             return '';
         }
         $alt = htmlspecialchars($name !== '' ? $name : 'Partenaire', ENT_QUOTES, 'UTF-8');
-        $src = htmlspecialchars($photoUrl, ENT_QUOTES, 'UTF-8');
+        $src = htmlspecialchars(self::absoluteUrl($photoUrl), ENT_QUOTES, 'UTF-8');
         return '<img src="' . $src . '" alt="' . $alt . '" width="48" height="48" style="width:48px;height:48px;border-radius:50%;object-fit:cover;display:block;">';
+    }
+
+    /**
+     * Turns a locally-stored relative path (e.g. "/images/others/avatars/x.jpg")
+     * into an absolute URL using APP_URL, since email clients have no notion
+     * of the site's host and would otherwise render a broken image. Already
+     * absolute URLs (e.g. Lodgify's CDN photos) are returned unchanged.
+     */
+    private static function absoluteUrl(string $url): string
+    {
+        if ($url === '' || preg_match('#^(?:[a-z][a-z0-9+.-]*:)?//#i', $url) === 1) {
+            return $url;
+        }
+        $baseUrl = rtrim((string) (Settings::get('APP_URL', '') ?? ''), '/');
+        if ($baseUrl === '') {
+            return $url;
+        }
+        return $baseUrl . '/' . ltrim($url, '/');
     }
 
     /**

@@ -17,9 +17,8 @@ INSERT IGNORE INTO email_templates (partner_id, type, subject, body_html) VALUES
 -- 2. Client acknowledgement
 INSERT IGNORE INTO email_templates (partner_id, type, subject, body_html) VALUES
 (1, 'REQUEST_RECEIVED_CLIENT',
- '⏳ Votre demande de séjour est bien reçue ! – {{partenaire}}',
- '<h2>⏳ Votre demande de séjour est bien reçue !</h2>
-<p>Bonjour {{nom_client}},</p>
+ '⏳ Votre demande de séjour est bien reçue !',
+ '<p>Bonjour {{nom_client}},</p>
 <p>Un grand merci pour votre intérêt ! Nous avons bien reçu votre demande de réservation pour <strong>{{hebergement}}</strong>.</p>
 {{photo_bien}}
 <p>Voici le récapitulatif de votre demande :</p>
