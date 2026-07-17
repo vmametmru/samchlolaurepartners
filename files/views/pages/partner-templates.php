@@ -6,7 +6,7 @@ $labels = [
   'RESERVATION_CANCELLED' => 'Réservation annulée (client)',
   'REMINDER' => 'Rappel avant arrivée',
 ];
-$variables = ['{{nom_client}}','{{email_client}}','{{telephone_client}}','{{dates}}','{{date_arrivee}}','{{date_depart}}','{{adultes}}','{{enfants}}','{{hebergement}}','{{partenaire}}','{{notes}}','{{message}}'];
+$variables = ['{{nom_client}}','{{email_client}}','{{telephone_client}}','{{dates}}','{{date_arrivee}}','{{date_depart}}','{{adultes}}','{{enfants}}','{{hebergement}}','{{partenaire}}','{{notes}}','{{message}}','{{photo_bien}}','{{signature_nom}}','{{signature_photo}}','{{telephone_partenaire}}','{{lien_partenaire}}'];
 ?>
 <section class="container section-lg">
   <h1>Templates d'emails</h1>

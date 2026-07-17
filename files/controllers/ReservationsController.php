@@ -9,6 +9,7 @@ use App\Controller;
 use App\Database;
 use App\LodgifyClient;
 use App\Mailer;
+use App\Settings;
 use PDO;
 use Throwable;
 
@@ -372,6 +373,7 @@ final class ReservationsController extends Controller
                 'checkout_date' => $item['checkout_date'],
                 'adults' => $adults,
                 'children' => $children,
+                'property_id' => $item['property_id'],
                 'property_name' => $item['property_name'],
                 'message' => $message,
             ]);
@@ -512,6 +514,13 @@ final class ReservationsController extends Controller
 
     private static function sendRequestEmails(array $partner, array $input): void
     {
+        $partnerId = (int) $partner['id'];
+        $contactUser = self::fetchPartnerContactUser($partnerId);
+        $signatureName = trim((string) ($contactUser['first_name'] ?? '') . ' ' . (string) ($contactUser['last_name'] ?? ''));
+        if ($signatureName === '') {
+            $signatureName = (string) ($partner['name'] ?? '');
+        }
+
         $variables = [
             'nom_client' => (string) ($input['client_name'] ?? ''),
             'email_client' => (string) ($input['client_email'] ?? ''),
@@ -524,6 +533,11 @@ final class ReservationsController extends Controller
             'hebergement' => (string) ($input['property_name'] ?? ''),
             'message' => (string) ($input['message'] ?? ''),
             'partenaire' => (string) ($partner['name'] ?? ''),
+            'photo_bien' => self::propertyPhotoTag($input['property_id'] ?? null, (string) ($input['property_name'] ?? '')),
+            'signature_nom' => $signatureName,
+            'signature_photo' => self::signaturePhotoTag((string) ($contactUser['photo_url'] ?? ''), $signatureName),
+            'telephone_partenaire' => (string) ($contactUser['phone'] ?? ''),
+            'lien_partenaire' => self::partnerLink($partner),
         ];
 
         $pdo = Database::connection();
@@ -578,6 +592,76 @@ final class ReservationsController extends Controller
         $stmt = Database::connection()->prepare('SELECT * FROM partners WHERE id = ? LIMIT 1');
         $stmt->execute([$partnerId]);
         return $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /**
+     * The primary partner-side contact (used to sign client emails with a name/photo)
+     * is the oldest 'partner' role user attached to the partner account, since this
+     * app does not track which staff member handled a given request.
+     */
+    private static function fetchPartnerContactUser(int $partnerId): array
+    {
+        $stmt = Database::connection()->prepare(
+            "SELECT first_name, last_name, phone, photo_url FROM users WHERE partner_id = ? AND role = 'partner' ORDER BY id ASC LIMIT 1"
+        );
+        $stmt->execute([$partnerId]);
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /**
+     * Renders a small thumbnail of the requested property so the client
+     * recognises which accommodation their request was about at a glance.
+     * Falls back to an empty string when no photo could be resolved.
+     */
+    private static function propertyPhotoTag(mixed $propertyId, string $propertyName): string
+    {
+        $propertyId = (int) $propertyId;
+        if ($propertyId <= 0) {
+            return '';
+        }
+        try {
+            $property = (new LodgifyClient())->getProperty($propertyId);
+        } catch (Throwable $e) {
+            error_log('Lodgify: failed to fetch property ' . $propertyId . ' for email photo: ' . $e->getMessage());
+            return '';
+        }
+        $url = $property['images'][0]['url'] ?? ($property['image_url'] ?? '');
+        if (!is_string($url) || $url === '') {
+            return '';
+        }
+        $alt = htmlspecialchars($propertyName !== '' ? $propertyName : 'Hébergement', ENT_QUOTES, 'UTF-8');
+        $src = htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
+        return '<p><img src="' . $src . '" alt="' . $alt . '" width="320" style="max-width:100%;height:auto;border-radius:8px;display:block;margin:12px 0;"></p>';
+    }
+
+    /**
+     * Renders the small round signature photo of the partner contact used at
+     * the bottom of client emails, falling back to an empty string when the
+     * contact has no profile photo set.
+     */
+    private static function signaturePhotoTag(string $photoUrl, string $name): string
+    {
+        if ($photoUrl === '') {
+            return '';
+        }
+        $alt = htmlspecialchars($name !== '' ? $name : 'Partenaire', ENT_QUOTES, 'UTF-8');
+        $src = htmlspecialchars($photoUrl, ENT_QUOTES, 'UTF-8');
+        return '<img src="' . $src . '" alt="' . $alt . '" width="48" height="48" style="width:48px;height:48px;border-radius:50%;object-fit:cover;display:block;">';
+    }
+
+    /**
+     * Builds the client-facing link back to the partner's booking site (home
+     * page + "#code partenaire" fragment, the mechanism this app uses instead
+     * of real subdomains, see Tenant::current()).
+     */
+    private static function partnerLink(array $partner): string
+    {
+        $baseUrl = rtrim((string) (Settings::get('APP_URL', '') ?? ''), '/');
+        $subdomain = (string) ($partner['subdomain'] ?? '');
+        if ($baseUrl === '' || $subdomain === '') {
+            return '';
+        }
+        return $baseUrl . '/#' . $subdomain;
     }
 
     private static function decodeGuests(mixed $guests): array
