@@ -187,10 +187,79 @@ final class Auth
             'id' => (int) $user['id'],
             'partner_id' => $user['partner_id'] !== null ? (int) $user['partner_id'] : null,
             'email' => (string) $user['email'],
+            'first_name' => $user['first_name'] !== null ? (string) $user['first_name'] : null,
+            'last_name' => $user['last_name'] !== null ? (string) $user['last_name'] : null,
+            'phone' => $user['phone'] !== null ? (string) $user['phone'] : null,
+            'photo_url' => $user['photo_url'] !== null ? (string) $user['photo_url'] : null,
             'role' => (string) $user['role'],
             'created_at' => (string) $user['created_at'],
             'updated_at' => (string) $user['updated_at'],
         ];
+    }
+
+    /**
+     * Re-issues the auth cookie for the given user id with fresh claims,
+     * used after a profile update (e.g. name change) so the navbar reflects
+     * the change immediately without requiring a re-login.
+     */
+    public static function refreshSession(int $userId): void
+    {
+        $stmt = Database::connection()->prepare(
+            'SELECT u.*, p.id AS partner_id_val, p.name AS partner_name,
+                    p.subdomain, p.logo_url, p.primary_color, p.email AS partner_email,
+                    p.markup_percent, p.active AS partner_active
+             FROM users u
+             LEFT JOIN partners p ON p.id = u.partner_id
+             WHERE u.id = ?
+             LIMIT 1'
+        );
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch();
+        if (!$user) {
+            return;
+        }
+        self::setAuthCookie(self::issueToken(self::userPayload($user)));
+    }
+
+    /**
+     * Generates a one-time password-reset token for the given email (if it
+     * belongs to a user), valid for one hour, and returns [user, token] so
+     * the caller can send the reset link by email. Returns null when no
+     * matching account exists (callers should still show a generic success
+     * message to avoid leaking which emails are registered).
+     */
+    public static function createPasswordResetToken(string $email): ?array
+    {
+        $stmt = Database::connection()->prepare('SELECT * FROM users WHERE email = ? LIMIT 1');
+        $stmt->execute([$email]);
+        $user = $stmt->fetch();
+        if (!$user) {
+            return null;
+        }
+
+        $token = bin2hex(random_bytes(32));
+        $expires = date('Y-m-d H:i:s', time() + 3600);
+        Database::connection()
+            ->prepare('UPDATE users SET reset_token = ?, reset_token_expires = ? WHERE id = ?')
+            ->execute([$token, $expires, (int) $user['id']]);
+
+        return ['user' => $user, 'token' => $token];
+    }
+
+    public static function findByResetToken(string $token): ?array
+    {
+        $stmt = Database::connection()->prepare(
+            'SELECT * FROM users WHERE reset_token = ? AND reset_token_expires IS NOT NULL AND reset_token_expires > NOW() LIMIT 1'
+        );
+        $stmt->execute([$token]);
+        return $stmt->fetch() ?: null;
+    }
+
+    public static function resetPassword(int $userId, string $newPassword): void
+    {
+        Database::connection()
+            ->prepare('UPDATE users SET password_hash = ?, reset_token = NULL, reset_token_expires = NULL, updated_at = NOW() WHERE id = ?')
+            ->execute([password_hash($newPassword, PASSWORD_BCRYPT, ['cost' => 12]), $userId]);
     }
 
     private static function secret(): string

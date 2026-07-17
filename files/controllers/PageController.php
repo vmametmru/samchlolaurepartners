@@ -520,14 +520,18 @@ final class PageController extends Controller
             Flash::set('Impossible de charger la liste des biens Lodgify pour les associer aux partenaires.', 'error');
         }
         $visibilityByPartner = [];
+        $usersByPartner = [];
         foreach ($partners as $partnerRow) {
-            $visibilityByPartner[(int) $partnerRow['id']] = PartnerPropertyVisibility::allForPartner((int) $partnerRow['id']);
+            $partnerId = (int) $partnerRow['id'];
+            $visibilityByPartner[$partnerId] = PartnerPropertyVisibility::allForPartner($partnerId);
+            $usersByPartner[$partnerId] = self::usersForPartner($partnerId);
         }
         View::render('pages/admin-partners', [
             'pageTitle' => 'Partenaires',
             'partners' => $partners,
             'properties' => $properties,
             'visibilityByPartner' => $visibilityByPartner,
+            'usersByPartner' => $usersByPartner,
         ]);
     }
 
@@ -537,6 +541,68 @@ final class PageController extends Controller
         $visibility = is_array($_POST['visibility'] ?? null) ? $_POST['visibility'] : [];
         PartnerPropertyVisibility::save($id, $visibility);
         self::redirect('/admin/partners', 'Biens associés mis à jour.');
+    }
+
+    /**
+     * Partner-scoped user accounts, listed in the "Utilisateurs" column of
+     * /admin/partners: a partner can be granted several such logins (via
+     * the "Ajouter des utilisateurs" modal) so more than one person can
+     * manage that partner's requests, all restricted to their own
+     * partner_id exactly like the primary partner account.
+     */
+    private static function usersForPartner(int $partnerId): array
+    {
+        $stmt = Database::connection()->prepare(
+            "SELECT id, email, first_name, last_name FROM users WHERE partner_id = ? AND role = 'partner' ORDER BY email"
+        );
+        $stmt->execute([$partnerId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public static function adminCreatePartnerUser(int $partnerId): never
+    {
+        self::requireAdminUser();
+        $partner = PartnersController::formData($partnerId);
+        if ($partner === []) {
+            throw new HttpException(404, 'Not Found', 'Partenaire introuvable.');
+        }
+
+        $email = trim((string) ($_POST['email'] ?? ''));
+        $password = (string) ($_POST['password'] ?? '');
+        $firstName = trim((string) ($_POST['first_name'] ?? '')) ?: null;
+        $lastName = trim((string) ($_POST['last_name'] ?? '')) ?: null;
+
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            self::redirect('/admin/partners', 'Adresse email invalide pour le nouvel utilisateur.', 'error');
+        }
+        if (strlen($password) < 8) {
+            self::redirect('/admin/partners', 'Le mot de passe doit contenir au moins 8 caractères.', 'error');
+        }
+
+        try {
+            Database::connection()->prepare(
+                'INSERT INTO users (partner_id, email, password_hash, first_name, last_name, role) VALUES (?, ?, ?, ?, ?, "partner")'
+            )->execute([
+                $partnerId,
+                $email,
+                password_hash($password, PASSWORD_BCRYPT, ['cost' => 12]),
+                $firstName,
+                $lastName,
+            ]);
+        } catch (\PDOException $e) {
+            self::redirect('/admin/partners', 'Impossible de créer cet utilisateur (email déjà utilisé ?).', 'error');
+        }
+
+        self::redirect('/admin/partners', 'Utilisateur ajouté pour ce partenaire.');
+    }
+
+    public static function adminDeletePartnerUser(int $partnerId, int $userId): never
+    {
+        self::requireAdminUser();
+        Database::connection()
+            ->prepare("DELETE FROM users WHERE id = ? AND partner_id = ? AND role = 'partner'")
+            ->execute([$userId, $partnerId]);
+        self::redirect('/admin/partners', 'Utilisateur supprimé.');
     }
 
     public static function adminPartnerForm(?int $id = null): void

@@ -6,6 +6,7 @@ require __DIR__ . '/files/bootstrap.php';
 
 use App\HttpException;
 use App\Settings;
+use App\controllers\AccountController;
 use App\controllers\AuthController;
 use App\controllers\DiagnosticController;
 use App\controllers\EmailSchedulesController;
@@ -165,6 +166,21 @@ try {
             AuthController::pageLogin();
         case route($method, $path, 'GET', '#^/logout$#'):
             AuthController::logout();
+        case route($method, $path, 'GET', '#^/forgot-password$#'):
+            AccountController::forgotPassword();
+            break;
+        case route($method, $path, 'POST', '#^/forgot-password$#'):
+            AccountController::submitForgotPassword();
+        case route($method, $path, 'GET', '#^/reset-password/([^/]+)$#', $matches):
+            AccountController::resetPassword((string) $matches[1]);
+            break;
+        case route($method, $path, 'POST', '#^/reset-password/([^/]+)$#', $matches):
+            AccountController::submitResetPassword((string) $matches[1]);
+        case route($method, $path, 'GET', '#^/account$#'):
+            AccountController::profile();
+            break;
+        case route($method, $path, 'POST', '#^/account$#'):
+            AccountController::updateProfile();
         case route($method, $path, 'GET', '#^/partner/dashboard$#'):
             PageController::partnerDashboard();
             break;
@@ -205,6 +221,10 @@ try {
             PageController::adminDeletePartner((int) $matches[1]);
         case route($method, $path, 'POST', '#^/admin/partners/(\d+)/properties$#', $matches):
             PageController::adminSavePartnerProperties((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/admin/partners/(\d+)/users$#', $matches):
+            PageController::adminCreatePartnerUser((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/admin/partners/(\d+)/users/(\d+)/delete$#', $matches):
+            PageController::adminDeletePartnerUser((int) $matches[1], (int) $matches[2]);
         case route($method, $path, 'GET', '#^/admin/fees$#'):
             PageController::adminFees();
             break;
