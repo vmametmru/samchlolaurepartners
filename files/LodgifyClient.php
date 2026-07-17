@@ -90,7 +90,7 @@ final class LodgifyClient
             // As with getProperties(), the plain property payload's "rooms" only
             // carries id/name (RoomSummaryDto), never capacity — aggregate the
             // real numbers from the RoomDetailsDto rooms already fetched above.
-            $property = $this->sumRoomCapacity($property, $rooms);
+            $property = $this->sumRoomCapacity($property, $rooms, $propertyId);
 
             $rateSettings = $this->getRateSettingsFor($propertyId);
             $property['checkin_hour'] = $rateSettings['check_in_hour'];
@@ -273,6 +273,50 @@ final class LodgifyClient
     }
 
     /**
+     * Sofa-bed composition is only reliably exposed by Lodgify's legacy v1
+     * API ("/v1/properties/{id}" and "/v1/rooms"), not by the v2
+     * "/properties/{id}/rooms" endpoint used everywhere else in this class
+     * (its "beds"/"rooms" nesting used by countSofaBeds() is empty in
+     * practice for every property, so the count silently stayed 0 even
+     * after a full resync). Falls back to the v2-derived $fallback count if
+     * the v1 call fails or returns nothing, so a v1 hiccup never regresses
+     * an already-working value.
+     */
+    private function fetchSofaBedCountFromV1(int $propertyId, int $fallback): int
+    {
+        $result = $this->remember('lodgify:v1:sofabeds:' . $propertyId, 86400, function () use ($propertyId, $fallback): array {
+            $count = 0;
+            $found = false;
+
+            try {
+                $property = $this->requestV1('/properties/' . $propertyId);
+                if (is_array($property)) {
+                    $count += $this->countSofaBeds($property);
+                    $found = true;
+                }
+            } catch (\Throwable $e) {
+                error_log('Lodgify: v1 property request failed for sofa bed count, property ' . $propertyId . ': ' . $e->getMessage());
+            }
+
+            try {
+                $rooms = $this->requestV1('/rooms', ['propertyId' => $propertyId]);
+                $items = is_array($rooms['items'] ?? null) ? $rooms['items'] : (is_array($rooms) ? $rooms : []);
+                foreach ($items as $room) {
+                    if (is_array($room)) {
+                        $count += $this->countSofaBeds($room);
+                        $found = true;
+                    }
+                }
+            } catch (\Throwable $e) {
+                error_log('Lodgify: v1 rooms request failed for sofa bed count, property ' . $propertyId . ': ' . $e->getMessage());
+            }
+
+            return ['count' => $found ? $count : $fallback];
+        });
+        return (int) ($result['count'] ?? $fallback);
+    }
+
+    /**
      * Fetches "/properties/{id}/rooms" for the given property and overwrites
      * bedrooms/bathrooms/max_guests/sofa_bed_count on the mapped property
      * with the sum of each room's real capacity (see sumRoomCapacity()).
@@ -287,7 +331,7 @@ final class LodgifyClient
             error_log('Lodgify: failed to compute room capacity for property ' . $propertyId . ': ' . $e->getMessage());
             return $property;
         }
-        return $this->sumRoomCapacity($property, $rooms);
+        return $this->sumRoomCapacity($property, $rooms, $propertyId);
     }
 
     /**
@@ -298,7 +342,7 @@ final class LodgifyClient
      * "/properties" and "/properties/{id}" (RoomSummaryDto) only ever
      * contains "id" and "name".
      */
-    private function sumRoomCapacity(array $property, array $rooms): array
+    private function sumRoomCapacity(array $property, array $rooms, ?int $propertyId = null): array
     {
         $bedrooms = 0;
         $bathrooms = 0;
@@ -312,6 +356,16 @@ final class LodgifyClient
             $bathrooms += (int) ($room['bathrooms'] ?? 0);
             $maxGuests += (int) ($room['max_people'] ?? 0);
             $sofaBeds += (int) ($room['sofa_bed_count'] ?? 0);
+        }
+        // The v2 "/properties/{id}/rooms" (RoomDetailsDto) payload doesn't
+        // reliably expose bed composition (it's always been empty/absent in
+        // practice, so $sofaBeds computed above from it stays 0), even though
+        // Lodgify's own back-office shows sofa beds correctly. That data is
+        // only available from the legacy v1 API ("/v1/properties/{id}" or
+        // "/v1/rooms"), so fetch and prefer that count when a propertyId is
+        // available.
+        if ($propertyId !== null) {
+            $sofaBeds = $this->fetchSofaBedCountFromV1($propertyId, $sofaBeds);
         }
         $property['sofa_bed_count'] = $sofaBeds;
         if ($bedrooms > 0) {
@@ -947,11 +1001,33 @@ final class LodgifyClient
 
     private function request(string $path, array $params = []): array
     {
+        return $this->httpRequest($this->baseUrl, $path, $params);
+    }
+
+    /**
+     * Same as request() but against Lodgify's legacy v1 API base URL,
+     * needed for endpoints (like sofa bed / bed composition data) that v2
+     * doesn't reliably expose. Derived from LODGIFY_BASE_URL by swapping a
+     * trailing "/v2" for "/v1", or defaults to the standard v1 host.
+     */
+    private function requestV1(string $path, array $params = []): array
+    {
+        return $this->httpRequest($this->v1BaseUrl(), $path, $params);
+    }
+
+    private function v1BaseUrl(): string
+    {
+        $swapped = preg_replace('#/v2$#', '/v1', $this->baseUrl);
+        return $swapped !== null && $swapped !== $this->baseUrl ? $swapped : 'https://api.lodgify.com/v1';
+    }
+
+    private function httpRequest(string $baseUrl, string $path, array $params = []): array
+    {
         if ($this->apiKey === '') {
             throw new RuntimeException('LODGIFY_API_KEY is not set');
         }
 
-        $url = $this->baseUrl . $path;
+        $url = $baseUrl . $path;
         if ($params !== []) {
             $url .= '?' . http_build_query($params);
         }
