@@ -566,6 +566,16 @@ function initCalendarGuestPricing() {
   });
 }
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[char]));
+}
+
 function initMaps() {
   if (typeof window.L === 'undefined') return;
   document.querySelectorAll('.map-board').forEach((board) => {
@@ -585,8 +595,20 @@ function initMaps() {
     const markers = [];
     points.forEach((point) => {
       const marker = window.L.marker([point.lat, point.lng]).addTo(map);
-      const label = point.estimated ? `${point.name} (position approximative)` : point.name;
-      marker.bindPopup(`<a href="${point.url}">${label}</a>`);
+      const name = escapeHtml(point.name) + (point.estimated ? ' (position approximative)' : '');
+      const url = escapeHtml(point.url);
+      const imageHtml = point.image
+        ? `<img class="map-popup-image" src="${escapeHtml(point.image)}" alt="${escapeHtml(point.name)}">`
+        : '';
+      const popupHtml = `
+        <div class="map-popup">
+          ${imageHtml}
+          <h4 class="map-popup-title">${name}</h4>
+          <div class="map-popup-meta"><span>${point.bedrooms || 0} ch.</span><span>·</span><span>${point.maxGuests || 0} pers. max</span></div>
+          <a class="btn-primary map-popup-link" href="${url}">Voir la fiche</a>
+        </div>
+      `;
+      marker.bindPopup(popupHtml, { minWidth: 220 });
       markers.push(marker);
     });
 

@@ -19,6 +19,9 @@ foreach ($items as $item) {
         'name' => (string) $item['name'],
         'url' => '/properties/' . (int) $item['id'],
         'estimated' => $isEstimated,
+        'image' => $item['images'][0]['url'] ?? null,
+        'bedrooms' => (int) ($item['bedrooms'] ?? 0),
+        'maxGuests' => (int) ($item['max_guests'] ?? 0),
     ];
 }
 $mapId = 'map-board-' . bin2hex(random_bytes(4));

@@ -97,6 +97,11 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .map-board-wrapper { position: sticky; top: 5.5rem; align-self: start; width: 100%; }
 .map-board { position: relative; width: 100%; min-height: 24rem; height: 24rem; border-radius: 1.25rem; border: 1px solid var(--border); overflow: hidden; background: #dbeafe; z-index: 0; }
 .map-legend { margin-top: .5rem; font-size: .82rem; color: var(--muted); }
+.map-popup { width: 200px; }
+.map-popup-image { width: 100%; height: 7.5rem; object-fit: cover; border-radius: .6rem; margin-bottom: .5rem; }
+.map-popup-title { margin: 0 0 .35rem; font-size: .95rem; }
+.map-popup-meta { display: flex; gap: .35rem; font-size: .82rem; color: var(--muted); margin-bottom: .6rem; }
+.map-popup-link { display: block; text-align: center; text-decoration: none; padding: .5rem .75rem; font-size: .85rem; }
 .property-detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
 .property-detail-header h1 { margin: 0 0 .35rem; }
 .property-detail-header p { margin: 0; }
