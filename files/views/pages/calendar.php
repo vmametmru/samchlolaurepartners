@@ -2,15 +2,15 @@
 /** @var array<int, array{property: array, availability: array, single_night: array, rates: array, capacity_ok: bool}> $rows */
 /** @var array<int, DateTimeImmutable> $dates */
 /** @var int $visibleDays */
-/** @var array<int, array{value: string, label: string}> $monthOptions */
-/** @var array<int, string> $selectedMonths */
+/** @var string $dateFrom */
+/** @var string $dateTo */
 /** @var int $adults */
 /** @var int $childrenUnder5 */
 /** @var int $children5to12 */
 /** @var int $totalGuests */
 $visibleDays = $visibleDays ?? 31;
-$monthOptions = $monthOptions ?? [];
-$selectedMonths = $selectedMonths ?? [];
+$dateFrom = $dateFrom ?? '';
+$dateTo = $dateTo ?? '';
 $adults = $adults ?? 0;
 $childrenUnder5 = $childrenUnder5 ?? 0;
 $children5to12 = $children5to12 ?? 0;
@@ -20,35 +20,68 @@ $frenchDays = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
 $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'];
 ?>
 <section class="container section-lg">
-  <h1>Calendrier</h1>
-  <p class="muted">Vue d'ensemble des disponibilités et tarifs de tous les biens. Approchez la souris du bord gauche ou droit du tableau pour faire défiler les dates.</p>
-  <p class="muted">Réservez plusieurs biens en quelques clics : cliquez une date d'arrivée puis une date de départ sur un bien, puis recommencez sur un autre bien (mêmes dates ou dates différentes) pour l'ajouter à votre sélection.</p>
+  <div class="section-header">
+    <h1>Calendrier</h1>
+    <button type="button" class="btn-secondary calendar-help-btn" data-help-trigger="calendar-help">Aide</button>
+  </div>
+  <dialog class="help-dialog" data-help-dialog="calendar-help">
+    <form method="dialog">
+      <button type="submit" class="help-dialog-close" aria-label="Fermer">×</button>
+    </form>
+    <p class="muted">Vue d'ensemble des disponibilités et tarifs de tous les biens. Approchez la souris du bord gauche ou droit du tableau pour faire défiler les dates.</p>
+    <p class="muted">Réservez plusieurs biens en quelques clics : cliquez une date d'arrivée puis une date de départ sur un bien, puis recommencez sur un autre bien (mêmes dates ou dates différentes) pour l'ajouter à votre sélection.</p>
+  </dialog>
 
-  <form class="calendar-filter" method="get" action="/calendrier">
-    <span class="calendar-filter-label">Mois à afficher&nbsp;:</span>
-    <div class="calendar-filter-months">
-      <?php foreach ($monthOptions as $option): ?>
-        <label class="calendar-filter-month">
-          <input type="checkbox" name="months[]" value="<?= \App\View::e($option['value']) ?>"<?= in_array($option['value'], $selectedMonths, true) ? ' checked' : '' ?>>
-          <?= \App\View::e($option['label']) ?>
-        </label>
-      <?php endforeach; ?>
+  <form class="calendar-filter" method="get" action="/calendrier" data-calendar-filter-form>
+    <div class="calendar-filter-section">
+      <span class="calendar-filter-label">Dates à afficher</span>
+      <div class="calendar-filter-dates" data-date-range>
+        <label class="calendar-filter-date"><span>Du</span><input class="input" type="date" name="date_from" min="<?= \App\View::e($today) ?>" value="<?= \App\View::e($dateFrom) ?>"></label>
+        <label class="calendar-filter-date"><span>Au</span><input class="input" type="date" name="date_to" min="<?= \App\View::e($today) ?>" value="<?= \App\View::e($dateTo) ?>"></label>
+      </div>
     </div>
 
-    <div class="calendar-guest-form" data-calendar-guest-form>
-      <span class="calendar-filter-label">Nombre de personnes&nbsp;:</span>
-      <label class="calendar-guest-field"><span>Adulte(s)</span><input class="input" type="number" name="adults" min="1" max="20" value="<?= $adults > 0 ? (int) $adults : 2 ?>"></label>
-      <label class="calendar-guest-field"><span>Enfant(s) -5 ans</span><input class="input" type="number" name="children_under5" min="0" max="20" value="<?= (int) $childrenUnder5 ?>"></label>
-      <label class="calendar-guest-field"><span>Enfant(s) 5-12 ans</span><input class="input" type="number" name="children_5to12" min="0" max="20" value="<?= (int) $children5to12 ?>"></label>
+    <div class="calendar-filter-section">
+      <span class="calendar-filter-label">Nombre de personnes</span>
+      <div class="calendar-guest-form" data-calendar-guest-form>
+        <div class="guest-slide-group" data-guest-slide-group>
+          <div class="guest-slide-item active" data-guest-slide-item="adults">
+            <button type="button" class="guest-slide-summary" data-guest-slide-summary aria-label="Adulte(s)">
+              <span class="guest-slide-icon" aria-hidden="true">🧑</span>
+              <span class="guest-slide-count" data-guest-slide-count><?= $adults > 0 ? (int) $adults : 2 ?></span>
+            </button>
+            <label class="guest-slide-input-wrap">
+              <span class="guest-slide-field-label">Adulte(s)</span>
+              <input class="input guest-slide-input" type="number" name="adults" min="1" max="20" value="<?= $adults > 0 ? (int) $adults : 2 ?>" data-guest-slide-input>
+            </label>
+          </div>
+          <div class="guest-slide-item" data-guest-slide-item="children_5to12">
+            <button type="button" class="guest-slide-summary" data-guest-slide-summary aria-label="Enfant(s) 5-12 ans">
+              <span class="guest-slide-icon" aria-hidden="true">🧒</span>
+              <span class="guest-slide-count" data-guest-slide-count><?= (int) $children5to12 ?></span>
+            </button>
+            <label class="guest-slide-input-wrap">
+              <span class="guest-slide-field-label">Enfant(s) 5-12 ans</span>
+              <input class="input guest-slide-input" type="number" name="children_5to12" min="0" max="20" value="<?= (int) $children5to12 ?>" data-guest-slide-input>
+            </label>
+          </div>
+          <div class="guest-slide-item" data-guest-slide-item="children_under5">
+            <button type="button" class="guest-slide-summary" data-guest-slide-summary aria-label="Bébé(s) -5 ans">
+              <span class="guest-slide-icon" aria-hidden="true">👶</span>
+              <span class="guest-slide-count" data-guest-slide-count><?= (int) $childrenUnder5 ?></span>
+            </button>
+            <label class="guest-slide-input-wrap">
+              <span class="guest-slide-field-label">Bébé(s) -5 ans</span>
+              <input class="input guest-slide-input" type="number" name="children_under5" min="0" max="20" value="<?= (int) $childrenUnder5 ?>" data-guest-slide-input>
+            </label>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="calendar-filter-actions">
-      <button type="submit" class="btn-primary calendar-filter-submit">Afficher les disponibilités</button>
-      <?php if ($selectedMonths !== []): ?>
-        <a class="text-link" href="/calendrier">30 prochains jours</a>
-      <?php endif; ?>
+      <button type="submit" class="btn-primary calendar-filter-submit" data-calendar-filter-submit>Afficher les disponibilités</button>
     </div>
-    <p class="muted calendar-filter-hint">Renseignez le nombre de personnes pour afficher les biens disponibles. Sans sélection de mois, seuls les 30 prochains jours sont chargés.</p>
   </form>
 
   <p class="calendar-loading-message" data-calendar-loading hidden><span class="spinner" aria-hidden="true"></span> Chargement des disponibilités…</p>
@@ -59,11 +92,19 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
     <p class="muted">Aucun hébergement à afficher.</p>
   <?php else: ?>
     <p class="muted calendar-price-note">Prix de la nuité en Euros. Le prix inclus les frais de nettoyage 2 fois par semaine.</p>
-    <?php $insufficientCount = count(array_filter($rows, static fn (array $row): bool => !($row['capacity_ok'] ?? true))); ?>
-    <?php if ($insufficientCount > 0): ?>
-      <p class="muted calendar-capacity-warning"><?= $insufficientCount ?> bien(s) ci-dessous ont une capacité individuelle insuffisante pour <?= (int) $totalGuests ?> personne(s), mais restent sélectionnables : combinez-les avec d'autres biens pour atteindre le nombre de personnes voulu.</p>
-    <?php endif; ?>
-    <div class="calendar-board" data-calendar-board data-multi-calendar-board data-total-guests="<?= (int) $totalGuests ?>" style="--cal-visible-days: <?= (int) $visibleDays ?>;">
+    <label class="calendar-name-toggle">
+      <input type="checkbox" data-calendar-name-toggle>
+      Afficher le nom du bien
+    </label>
+
+    <div class="calendar-legend">
+      <span class="dot dot-green"></span> Disponible
+      <span class="dot dot-red"></span> Indisponible
+      <span class="dot dot-yellow"></span> Bloquée
+      <span class="dot dot-gray"></span> Non réservable / Non renseigné
+    </div>
+
+    <div class="calendar-board cal-name-hidden" data-calendar-board data-multi-calendar-board data-total-guests="<?= (int) $totalGuests ?>" style="--cal-visible-days: <?= (int) $visibleDays ?>;">
       <table class="calendar-board-table">
         <thead>
           <tr>
@@ -107,8 +148,8 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
               </td>
               <td class="cal-fixed cal-col-name">
                 <a class="text-link" href="/properties/<?= $propertyId ?>"><?= \App\View::e($propertyName) ?></a>
-                <?php if (!$capacityOk): ?>
-                  <p class="muted cal-capacity-note"><span class="cal-warning-icon" aria-hidden="true">⚠️</span>Capacité max <?= $maxGuests ?> pers. — combinez avec un autre bien pour atteindre <?= (int) $totalGuests ?> personne(s).</p>
+                <?php if (!empty($row['load_failed'])): ?>
+                  <p class="muted cal-capacity-note"><span class="cal-warning-icon" aria-hidden="true">⚠️</span>Disponibilités temporairement indisponibles — réessayez dans quelques instants.</p>
                 <?php endif; ?>
               </td>
               <td class="cal-fixed cal-col-num cal-col-capacity"><?= (int) ($property['max_guests'] ?? 0) ?></td>
@@ -148,14 +189,24 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
     </div>
 
     <div class="multi-booking-cart" data-multi-cart hidden>
-      <h2 class="section-title">Votre sélection</h2>
+      <div class="multi-cart-header">
+        <h2 class="section-title">Votre sélection</h2>
+        <button type="button" class="btn-secondary" data-multi-cart-clear>Effacer les sélections</button>
+      </div>
       <ul class="multi-cart-list" data-multi-cart-list></ul>
+      <p class="form-feedback" data-multi-cart-gap-hint></p>
       <div class="multi-cart-summary" data-multi-cart-summary>
-        <p><span data-multi-cart-summary-count>0</span> bien(s) sélectionné(s)</p>
-        <p><span data-multi-cart-summary-nights>0</span> nuit(s) sélectionnée(s)</p>
-        <p data-multi-cart-summary-capacity-row>Capacité cumulée des biens sélectionnés : <span data-multi-cart-summary-capacity>0</span> / <?= (int) $totalGuests ?> personne(s)</p>
-        <p class="form-feedback" data-multi-cart-capacity-hint></p>
-        <p>Montant Total : <span data-multi-cart-summary-total>0</span> Euros</p>
+        <div class="multi-cart-summary-body">
+          <div class="multi-cart-summary-dates">
+            <p data-multi-cart-summary-line>0 bien(s) sélectionné(s) x 0 nuit(s) sélectionnée(s) = 0 nuit(s) sélectionnée(s)</p>
+            <p data-multi-cart-summary-capacity-row>Capacité cumulée du/des bien(s) sélectionné(s) :</p>
+            <ul class="multi-cart-capacity-table" data-multi-cart-capacity-table></ul>
+            <p class="form-feedback" data-multi-cart-capacity-hint></p>
+          </div>
+          <div class="multi-cart-summary-total">
+            <p>Montant Total : <span data-multi-cart-summary-total>0</span> Euros</p>
+          </div>
+        </div>
       </div>
       <p class="form-feedback" data-multi-cart-feedback></p>
       <form class="stack-md multi-cart-checkout" data-multi-cart-form data-api-form data-success-message="Vos demandes de réservation ont été envoyées ! Vous recevrez un email de confirmation." method="post" action="/api/reservations/request-multiple" hidden>
@@ -172,13 +223,6 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
         <button class="btn-primary" type="submit">Envoyer mes demandes de réservation</button>
         <p class="form-feedback" data-form-feedback></p>
       </form>
-    </div>
-
-    <div class="calendar-legend">
-      <span class="dot dot-green"></span> Disponible
-      <span class="dot dot-red"></span> Indisponible
-      <span class="dot dot-yellow"></span> Réservation d'1 nuit (arrivée ou départ uniquement)
-      <span class="dot dot-gray"></span> Non réservable / Non renseigné
     </div>
   <?php endif; ?>
 </section>

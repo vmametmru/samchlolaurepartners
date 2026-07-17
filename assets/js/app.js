@@ -1,22 +1,44 @@
+// Each init function is isolated in its own try/catch: on any given page only
+// a handful of these apply (most simply no-op via querySelectorAll on absent
+// data attributes), but if one throws (e.g. an unexpected DOM shape on some
+// device/browser) it must not abort the rest of this handler, otherwise
+// later calls — crucially initBookingCalendarSelection() and
+// initMultiPropertyCart(), which wire up the date-selection click handlers —
+// would silently never run, leaving calendar cells looking interactive
+// (hover/tap CSS still applies) but unresponsive to clicks/taps.
+function runInit(fn) {
+  try {
+    fn();
+  } catch (error) {
+    if (window.console && console.error) console.error(`[app.js] ${fn.name} failed:`, error);
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
-  initGallery();
-  initShareButton();
-  initPropertyTabs();
-  initMaps();
-  initApiForms();
-  initNationalities();
-  initTemplateEditor();
-  initColorSync();
-  initDateRanges();
-  initBookingCalendarSelection();
-  initPhoneInputs();
-  initGuestSteppers();
-  initCalendarGuestPricing();
-  initBookingAccordion();
-  initBookingQuote();
-  initCalendarBoard();
-  initCalendarFilterLoading();
-  initMultiPropertyCart();
+  [
+    initGallery,
+    initShareButton,
+    initPropertyTabs,
+    initMaps,
+    initApiForms,
+    initNationalities,
+    initTemplateEditor,
+    initColorSync,
+    initDateRanges,
+    initBookingCalendarSelection,
+    initPhoneInputs,
+    initGuestSteppers,
+    initCalendarGuestPricing,
+    initBookingAccordion,
+    initBookingQuote,
+    initCalendarBoard,
+    initCalendarFilterLoading,
+    initCalendarFilterSubmitState,
+    initCalendarNameColumnToggle,
+    initCalendarGuestSlider,
+    initHelpDialogs,
+    initMultiPropertyCart,
+  ].forEach(runInit);
 });
 
 function initGallery() {
@@ -72,6 +94,16 @@ function initGallery() {
 }
 
 function initCalendarBoard() {
+  // This "hover the edge of the board to auto-scroll" behaviour relies on
+  // continuous mousemove events plus a mouseleave to stop it. Touch devices
+  // (iPhone/iPad) only ever fire a single synthetic mousemove at the tap
+  // location before the click, with no matching mouseleave: if that tap
+  // happened to land within the edge zone, scrollDirection was set once and
+  // never reset, so the requestAnimationFrame loop kept scrolling the board
+  // to the right forever and the visitor could never scroll back. Restrict
+  // this feature to devices that actually have a real hover-capable pointer
+  // (mouse/trackpad).
+  if (!window.matchMedia || !window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
   document.querySelectorAll('[data-calendar-board]').forEach((board) => {
     let scrollDirection = 0;
     let scrollFrame = null;
@@ -118,6 +150,127 @@ function initCalendarFilterLoading() {
   if (!form || !loading) return;
   form.addEventListener('submit', () => {
     loading.hidden = false;
+  });
+}
+
+/**
+ * The /calendrier filter form only makes sense once the visitor has given
+ * either a date range or a number of guests: disable "Afficher les
+ * disponibilités" while both the date pickers are empty and the guest count
+ * is 0, and re-enable it as soon as either condition is satisfied.
+ */
+function initCalendarFilterSubmitState() {
+  const form = document.querySelector('[data-calendar-filter-form]');
+  const submitBtn = form ? form.querySelector('[data-calendar-filter-submit]') : null;
+  if (!form || !submitBtn) return;
+
+  const dateFrom = form.querySelector('input[name="date_from"]');
+  const dateTo = form.querySelector('input[name="date_to"]');
+  const guestInputs = Array.from(form.querySelectorAll('[data-guest-slide-input]'));
+
+  function totalGuests() {
+    return guestInputs.reduce((sum, input) => sum + (parseInt(input.value || '0', 10) || 0), 0);
+  }
+
+  function updateState() {
+    const datesFilled = Boolean(dateFrom && dateFrom.value) && Boolean(dateTo && dateTo.value);
+    submitBtn.disabled = !datesFilled && totalGuests() === 0;
+  }
+
+  [dateFrom, dateTo].forEach((input) => {
+    if (input) input.addEventListener('input', updateState);
+  });
+  guestInputs.forEach((input) => input.addEventListener('input', updateState));
+
+  updateState();
+}
+
+/**
+ * Wires the "Aide" (help) buttons to open their associated <dialog> as a
+ * modal, and lets the dialog's own "×" close form submit (method="dialog")
+ * close it again. Without this, clicking the button did nothing since
+ * <dialog> elements require showModal() to be called from JavaScript.
+ */
+function initHelpDialogs() {
+  document.querySelectorAll('[data-help-trigger]').forEach((trigger) => {
+    const name = trigger.dataset.helpTrigger;
+    const dialog = document.querySelector(`[data-help-dialog="${name}"]`);
+    if (!dialog || typeof dialog.showModal !== 'function') return;
+    trigger.addEventListener('click', () => {
+      dialog.showModal();
+    });
+  });
+}
+
+/**
+ * Horizontally-sliding guest count fields (Adulte(s) / Enfant(s) 5-12 ans /
+ * Bébé(s) -5 ans) on the /calendrier filter form: only one field is expanded
+ * (input visible) at a time, the others collapse to a small icon + count
+ * button. Clicking a collapsed icon expands its field and collapses the
+ * previously active one, keeping every value regardless of which field is
+ * currently shown.
+ */
+function initCalendarGuestSlider() {
+  document.querySelectorAll('[data-guest-slide-group]').forEach((group) => {
+    const items = Array.from(group.querySelectorAll('[data-guest-slide-item]'));
+    if (!items.length) return;
+
+    function setActive(target) {
+      items.forEach((item) => {
+        const isTarget = item === target;
+        item.classList.toggle('active', isTarget);
+        const input = item.querySelector('[data-guest-slide-input]');
+        const count = item.querySelector('[data-guest-slide-count]');
+        if (input && count) count.textContent = input.value || '0';
+      });
+      const input = target.querySelector('[data-guest-slide-input]');
+      if (input) input.focus();
+    }
+
+    items.forEach((item) => {
+      const summary = item.querySelector('[data-guest-slide-summary]');
+      const input = item.querySelector('[data-guest-slide-input]');
+      const count = item.querySelector('[data-guest-slide-count]');
+      summary?.addEventListener('click', () => setActive(item));
+      input?.addEventListener('input', () => {
+        if (count) count.textContent = input.value || '0';
+      });
+    });
+  });
+}
+
+/**
+ * The /calendrier board's property-name column is hidden by default (see
+ * the "cal-name-hidden" class rendered server-side in calendar.php) to
+ * leave more width for the date columns, which matters most on narrow
+ * mobile screens in portrait mode. This wires the checkbox that lets a
+ * visitor reveal it, remembering their choice in localStorage (same
+ * behaviour on desktop and mobile) so it doesn't reset on every page load.
+ */
+function initCalendarNameColumnToggle() {
+  const board = document.querySelector('[data-calendar-board]');
+  const toggle = document.querySelector('[data-calendar-name-toggle]');
+  if (!board || !toggle) return;
+
+  const storageKey = 'calendarNameColumnVisible';
+  let stored = null;
+  try {
+    stored = window.localStorage.getItem(storageKey);
+  } catch (error) {
+    stored = null;
+  }
+  const visible = stored === '1';
+  toggle.checked = visible;
+  board.classList.toggle('cal-name-hidden', !visible);
+
+  toggle.addEventListener('change', () => {
+    board.classList.toggle('cal-name-hidden', !toggle.checked);
+    try {
+      window.localStorage.setItem(storageKey, toggle.checked ? '1' : '0');
+    } catch (error) {
+      // Ignore storage errors (e.g. private browsing): the choice simply
+      // won't persist across page loads, which is a harmless degradation.
+    }
   });
 }
 
@@ -330,6 +483,11 @@ function initBookingCalendarSelection() {
         // Fresh selection (arrival click).
         if (!canStartStayAt(date)) return;
         checkin = date;
+        checkout = null;
+      } else if (date === checkin) {
+        // Clicking the arrival date again clears the selection instead of
+        // silently re-picking the same date as a new arrival.
+        checkin = null;
         checkout = null;
       } else if (date <= checkin || !isRangeFullyAvailable(checkin, date)) {
         // Invalid departure (before/same as arrival, or a booking in between):
@@ -698,8 +856,8 @@ function initColorSync() {
  */
 function initDateRanges() {
   document.querySelectorAll('[data-date-range]').forEach((wrap) => {
-    const checkin = wrap.querySelector('input[name="checkin"], input[name="checkin_date"]');
-    const checkout = wrap.querySelector('input[name="checkout"], input[name="checkout_date"]');
+    const checkin = wrap.querySelector('input[name="checkin"], input[name="checkin_date"], input[name="date_from"]');
+    const checkout = wrap.querySelector('input[name="checkout"], input[name="checkout_date"], input[name="date_to"]');
     if (!checkin || !checkout) return;
 
     function addDays(dateStr, days) {
@@ -888,21 +1046,39 @@ function initMultiPropertyCart() {
   if (!board || !cartRoot) return;
 
   const listEl = cartRoot.querySelector('[data-multi-cart-list]');
+  const gapHintEl = cartRoot.querySelector('[data-multi-cart-gap-hint]');
   const feedbackEl = cartRoot.querySelector('[data-multi-cart-feedback]');
   const checkoutForm = cartRoot.querySelector('[data-multi-cart-form]');
   const itemsInput = checkoutForm ? checkoutForm.querySelector('[data-multi-cart-items]') : null;
   const summaryEl = cartRoot.querySelector('[data-multi-cart-summary]');
-  const summaryCountEl = cartRoot.querySelector('[data-multi-cart-summary-count]');
-  const summaryNightsEl = cartRoot.querySelector('[data-multi-cart-summary-nights]');
-  const summaryCapacityEl = cartRoot.querySelector('[data-multi-cart-summary-capacity]');
+  const summaryLineEl = cartRoot.querySelector('[data-multi-cart-summary-line]');
+  const capacityTableEl = cartRoot.querySelector('[data-multi-cart-capacity-table]');
   const capacityHintEl = cartRoot.querySelector('[data-multi-cart-capacity-hint]');
   const summaryTotalEl = cartRoot.querySelector('[data-multi-cart-summary-total]');
+  const clearBtn = cartRoot.querySelector('[data-multi-cart-clear]');
   if (!listEl || !checkoutForm || !itemsInput) return;
 
-  const requestedGuests = parseInt(board.dataset.totalGuests || '0', 10) || 0;
+  // The requested party size must stay live: a visitor can change the guest
+  // count fields above the table after already clicking "Afficher les
+  // disponibilités" (without submitting again), and "Votre sélection" has to
+  // reflect that immediately — both the displayed target and the capacity
+  // warning — instead of staying frozen at the value from the last page
+  // load (board.dataset.totalGuests).
+  const filterForm = document.querySelector('[data-calendar-filter-form]');
+  const guestInputs = filterForm ? Array.from(filterForm.querySelectorAll('[data-guest-slide-input]')) : [];
+
+  function getRequestedGuests() {
+    if (guestInputs.length) {
+      return guestInputs.reduce((sum, input) => sum + (parseInt(input.value || '0', 10) || 0), 0);
+    }
+    return parseInt(board.dataset.totalGuests || '0', 10) || 0;
+  }
+
+  let requestedGuests = getRequestedGuests();
 
   const cart = [];
   const rowUpdaters = [];
+  const rowResetters = [];
 
   function refreshAllRowHighlights() {
     rowUpdaters.forEach((updateRowSelection) => updateRowSelection());
@@ -930,12 +1106,70 @@ function initMultiPropertyCart() {
     return amount.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
   }
 
+  const MONTHS_FR = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+  function formatFrLong(dateStr) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return `${d} ${MONTHS_FR[m - 1]} ${y}`;
+  }
+
+  // If the visitor switches property mid-cart (e.g. clicks a departure date
+  // on property A, then an arrival date on property B that isn't the same
+  // day as A's departure), the night(s) between the two selections are left
+  // unbooked — a silent gap the visitor likely didn't intend. Detect it here
+  // and surface a warning in "Votre sélection" without altering any existing
+  // selection behaviour.
+  function computeGapWarning() {
+    if (cart.length < 2) return '';
+    const sorted = cart.slice().sort((a, b) => (a.checkin < b.checkin ? -1 : a.checkin > b.checkin ? 1 : 0));
+    const gaps = [];
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const current = sorted[i];
+      const next = sorted[i + 1];
+      if (next.checkin > current.checkout) {
+        gaps.push(`la nuit du ${formatFr(current.checkout)} n'est pas réservée entre « ${current.propertyName} » (départ le ${formatFr(current.checkout)}) et « ${next.propertyName} » (arrivée le ${formatFr(next.checkin)})`);
+      }
+    }
+    if (!gaps.length) return '';
+    return `Attention : ${gaps.join(' ; ')}. Vérifiez vos dates pour éviter un trou dans votre séjour.`;
+  }
+
+  // Builds a night-by-night capacity breakdown across the whole selection
+  // span (earliest arrival to latest departure): for every night, each cart
+  // item contributes its property's max capacity when that night falls in
+  // its own [checkin, checkout) range, 0 otherwise. This is what decides
+  // both the day-by-day "Ok / Not Ok" table and each mini-block's color.
+  function computeDailyCapacity() {
+    if (cart.length === 0) return [];
+    let minDate = cart[0].checkin;
+    let maxDate = cart[0].checkout;
+    cart.forEach((item) => {
+      if (item.checkin < minDate) minDate = item.checkin;
+      if (item.checkout > maxDate) maxDate = item.checkout;
+    });
+    const days = [];
+    let cursor = minDate;
+    while (cursor < maxDate) {
+      const terms = cart.map((item) => (cursor >= item.checkin && cursor < item.checkout ? item.maxGuests : 0));
+      const total = terms.reduce((sum, n) => sum + n, 0);
+      const ok = requestedGuests <= 0 || total >= requestedGuests;
+      days.push({ date: cursor, terms, total, ok });
+      cursor = addDaysStr(cursor, 1);
+    }
+    return days;
+  }
+
+  function isItemOk(item, dailyCapacity) {
+    return dailyCapacity.every((day) => (day.date < item.checkin || day.date >= item.checkout ? true : day.ok));
+  }
+
   function renderCart() {
     listEl.innerHTML = '';
     if (cart.length === 0) {
       cartRoot.hidden = true;
       checkoutForm.hidden = true;
       if (summaryEl) summaryEl.hidden = true;
+      if (gapHintEl) gapHintEl.textContent = '';
+      if (capacityTableEl) capacityTableEl.innerHTML = '';
       itemsInput.value = '';
       return;
     }
@@ -943,21 +1177,24 @@ function initMultiPropertyCart() {
     checkoutForm.hidden = false;
     if (summaryEl) summaryEl.hidden = false;
 
+    const dailyCapacity = computeDailyCapacity();
+
     let totalNights = 0;
     let totalAmount = 0;
-    const capacityByProperty = new Map();
+    const distinctPropertyIds = new Set();
+    const nightsPerItem = new Set();
 
     cart.forEach((item, index) => {
       const nights = nightsBetween(item.checkin, item.checkout);
       totalNights += nights;
       totalAmount += item.roomTotal;
-      // Several properties, each with a capacity below the requested party
-      // size, can be combined: the relevant figure is the sum of the max
-      // capacity of every *distinct* selected property, not the smallest one.
-      capacityByProperty.set(item.propertyId, item.maxGuests);
+      distinctPropertyIds.add(item.propertyId);
+      nightsPerItem.add(nights);
+
+      const itemOk = isItemOk(item, dailyCapacity);
 
       const li = document.createElement('li');
-      li.className = 'multi-cart-item';
+      li.className = `multi-cart-item ${itemOk ? 'cap-ok' : 'cap-warn'}`;
 
       const thumb = document.createElement('img');
       thumb.className = 'multi-cart-item-thumb';
@@ -992,18 +1229,44 @@ function initMultiPropertyCart() {
       listEl.appendChild(li);
     });
 
-    const totalCapacity = Array.from(capacityByProperty.values()).reduce((sum, guests) => sum + guests, 0);
-    const capacitySufficient = requestedGuests <= 0 || totalCapacity >= requestedGuests;
+    const overallOk = dailyCapacity.every((day) => day.ok);
+    const propertyCount = distinctPropertyIds.size;
 
-    if (summaryCountEl) summaryCountEl.textContent = String(cart.length);
-    if (summaryNightsEl) summaryNightsEl.textContent = String(totalNights);
-    if (summaryCapacityEl) summaryCapacityEl.textContent = String(totalCapacity);
+    if (summaryLineEl) {
+      if (nightsPerItem.size <= 1) {
+        const nightsPerSelection = nightsPerItem.size === 1 ? [...nightsPerItem][0] : 0;
+        summaryLineEl.textContent = `${propertyCount} bien(s) sélectionné(s) x ${nightsPerSelection} nuit(s) sélectionnée(s) = ${totalNights} nuit(s) sélectionnée(s)`;
+      } else {
+        summaryLineEl.textContent = `${propertyCount} bien(s) sélectionné(s) — ${totalNights} nuit(s) sélectionnée(s) au total`;
+      }
+    }
     if (summaryTotalEl) summaryTotalEl.textContent = formatEuros(totalAmount);
     if (capacityHintEl) {
-      capacityHintEl.textContent = capacitySufficient
+      capacityHintEl.textContent = overallOk
         ? ''
-        : `Capacité insuffisante pour ${requestedGuests} personne(s) : sélectionnez un ou plusieurs biens supplémentaires.`;
+        : `Capacité insuffisante pour ${requestedGuests} personne(s) sur une ou plusieurs dates : sélectionnez un ou plusieurs biens supplémentaires.`;
     }
+    if (capacityTableEl) {
+      capacityTableEl.innerHTML = '';
+      dailyCapacity.forEach((day) => {
+        const li = document.createElement('li');
+        li.className = `multi-cart-capacity-row ${day.ok ? 'cap-ok' : 'cap-warn'}`;
+
+        const icon = document.createElement('span');
+        icon.className = 'multi-cart-capacity-icon';
+        icon.setAttribute('aria-hidden', 'true');
+        icon.textContent = day.ok ? '✔' : '⚠';
+        li.appendChild(icon);
+
+        const text = document.createElement('span');
+        const status = day.ok ? 'Ok' : 'Not Ok (Rajouter un ou plusieurs biens pour la même sélection)';
+        text.textContent = `${formatFrLong(day.date)} : ${day.terms.join(' + ')} = ${day.total} / ${requestedGuests} personne(s) - ${status}`;
+        li.appendChild(text);
+
+        capacityTableEl.appendChild(li);
+      });
+    }
+    if (gapHintEl) gapHintEl.textContent = computeGapWarning();
 
     itemsInput.value = JSON.stringify(cart.map((item) => ({
       property_id: item.propertyId,
@@ -1089,6 +1352,10 @@ function initMultiPropertyCart() {
       });
     }
     rowUpdaters.push(updateRowSelection);
+    rowResetters.push(() => {
+      checkin = null;
+      checkout = null;
+    });
 
     row.addEventListener('click', (event) => {
       const cell = event.target.closest('[data-calendar-date]');
@@ -1099,6 +1366,11 @@ function initMultiPropertyCart() {
       if (!checkin || checkout) {
         if (!isNightAvailable(date)) return;
         checkin = date;
+        checkout = null;
+      } else if (date === checkin) {
+        // Clicking the arrival date again clears the selection instead of
+        // silently re-picking the same date as a new arrival.
+        checkin = null;
         checkout = null;
       } else if (date <= checkin || !isRangeFullyAvailable(checkin, date)) {
         checkin = isNightAvailable(date) ? date : null;
@@ -1111,6 +1383,18 @@ function initMultiPropertyCart() {
       updateRowSelection();
 
       if (checkin && checkout) {
+        // Replace any existing selection(s) for this same property whose
+        // dates overlap the newly picked range — the visitor is re-picking
+        // those nights. Existing selections for this property that don't
+        // overlap the new range are left untouched (only the "Votre
+        // sélection" gap warning applies between separate, non-overlapping
+        // ranges of the same property).
+        for (let i = cart.length - 1; i >= 0; i--) {
+          const item = cart[i];
+          if (item.propertyId === propertyId && item.checkin < checkout && item.checkout > checkin) {
+            cart.splice(i, 1);
+          }
+        }
         cart.push({
           propertyId,
           propertyName,
@@ -1131,5 +1415,39 @@ function initMultiPropertyCart() {
   checkoutForm.addEventListener('reset', () => {
     cart.length = 0;
     renderCart();
+  });
+
+  // "Effacer les sélections" fully resets the visitor's choices: the cart
+  // itself, plus any in-progress arrival/departure pick on every property
+  // row so the calendar board goes back to its free-to-select state.
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      cart.length = 0;
+      rowResetters.forEach((reset) => reset());
+      renderCart();
+      refreshAllRowHighlights();
+    });
+  }
+
+  // Keep the requested party size (and its capacity warning) live if the
+  // visitor tweaks the guest fields after already loading availabilities,
+  // instead of only reflecting whatever was submitted last.
+  guestInputs.forEach((input) => {
+    input.addEventListener('input', () => {
+      requestedGuests = getRequestedGuests();
+      renderCart();
+      // Keep the checkout form's hidden guest-count fields (sent with the
+      // reservation request) in sync with whatever the visitor last set,
+      // not just what was submitted when the page loaded.
+      const adultsInput = checkoutForm.querySelector('input[name="adults"]');
+      const under5Input = checkoutForm.querySelector('input[name="children_under5"]');
+      const to12Input = checkoutForm.querySelector('input[name="children_5to12"]');
+      const liveAdults = filterForm ? filterForm.querySelector('input[name="adults"]') : null;
+      const liveUnder5 = filterForm ? filterForm.querySelector('input[name="children_under5"]') : null;
+      const liveTo12 = filterForm ? filterForm.querySelector('input[name="children_5to12"]') : null;
+      if (adultsInput && liveAdults) adultsInput.value = liveAdults.value;
+      if (under5Input && liveUnder5) under5Input.value = liveUnder5.value;
+      if (to12Input && liveTo12) to12Input.value = liveTo12.value;
+    });
   });
 }

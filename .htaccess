@@ -12,3 +12,15 @@ RewriteCond %{REQUEST_FILENAME} -f [OR]
 RewriteCond %{REQUEST_FILENAME} -d
 RewriteRule ^ - [L]
 RewriteRule ^ index.php [QSA,L]
+
+# assets/css/styles.css and assets/js/app.js are linked with a
+# filemtime()-based ?v=... cache-busting query string (see
+# files/views/layout.php), but some mobile browsers/carrier proxies cache
+# aggressively and can otherwise keep serving a stale copy. Force these two
+# files to always be revalidated with the origin server so a new deploy is
+# never masked by a cached response.
+<IfModule mod_headers.c>
+  <FilesMatch "^(styles\.css|app\.js)$">
+    Header set Cache-Control "no-cache, must-revalidate"
+  </FilesMatch>
+</IfModule>

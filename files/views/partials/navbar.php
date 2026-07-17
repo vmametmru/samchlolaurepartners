@@ -23,7 +23,9 @@
         <?php if (!empty($authDebug['cookie_present']) && empty($authDebug['valid'])): ?>
           <span class="navbar-user-info">Session invalide ou expirée — reconnectez-vous.</span>
         <?php endif; ?>
-        <a class="btn-primary" style="background-color: <?= \App\View::e($primaryColor) ?>;" href="/login">Connexion</a>
+        <a class="btn-icon" style="background-color: <?= \App\View::e($primaryColor) ?>;" href="/login" title="Connexion" aria-label="Connexion">
+          <span aria-hidden="true">👤</span>
+        </a>
       <?php endif; ?>
     </div>
   </div>
