@@ -105,13 +105,17 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
 
       <div data-tab-panel="rates-availability" hidden>
         <h2 class="section-title">Tarifs &amp; Disponibilités</h2>
-        <?php if ($minRate === null): ?>
-          <p class="muted">Tarifs non disponibles pour le moment.</p>
+        <?php if (!empty($ratesRestricted)): ?>
+          <p class="muted">Merci de contacter votre agence pour ce bien.</p>
         <?php else: ?>
-          <p class="muted calendar-price-note">Prix de la nuité en Euros. Le prix inclus les frais de nettoyage 2 fois par semaine.</p>
+          <?php if ($minRate === null): ?>
+            <p class="muted">Tarifs non disponibles pour le moment.</p>
+          <?php else: ?>
+            <p class="muted calendar-price-note">Prix de la nuité en Euros. Le prix inclus les frais de nettoyage 2 fois par semaine.</p>
+          <?php endif; ?>
+          <p class="muted">Cliquez sur une date disponible du calendrier pour renseigner votre date d'arrivée, puis cliquez sur une seconde date pour la date de départ.</p>
+          <?php require BASE_PATH . '/files/views/partials/calendar.php'; ?>
         <?php endif; ?>
-        <p class="muted">Cliquez sur une date disponible du calendrier pour renseigner votre date d'arrivée, puis cliquez sur une seconde date pour la date de départ.</p>
-        <?php require BASE_PATH . '/files/views/partials/calendar.php'; ?>
       </div>
     </div>
     <aside class="card card-body sticky-card" data-form-panel="rates-availability" hidden>

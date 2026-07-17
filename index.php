@@ -203,6 +203,8 @@ try {
             PageController::adminSavePartner((int) $matches[1]);
         case route($method, $path, 'POST', '#^/admin/partners/(\d+)/delete$#', $matches):
             PageController::adminDeletePartner((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/admin/partners/(\d+)/properties$#', $matches):
+            PageController::adminSavePartnerProperties((int) $matches[1]);
         case route($method, $path, 'GET', '#^/admin/fees$#'):
             PageController::adminFees();
             break;
