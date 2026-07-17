@@ -5,6 +5,7 @@
     <p>Merci d'entrer le code partenaire que vous avez reçu avec votre agence de voyage.</p>
     <form method="post" action="/partner-code" class="stack-md">
       <label><span>Code partenaire</span><input class="input" type="text" name="code" required autofocus></label>
+      <input type="hidden" name="next" value="">
       <button class="btn-primary" type="submit">Ouvrir le site</button>
     </form>
   </div>

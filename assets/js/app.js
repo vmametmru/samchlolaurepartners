@@ -1454,19 +1454,24 @@ function initMultiPropertyCart() {
 }
 
 // Allows deep-linking straight to a partner's site with e.g.
-// https://www.grand-baie-maurice.com/#scl (or "#/scl"): on the "/" gate page
-// (files/views/pages/enter-code.php), if the URL carries a non-empty hash we
-// treat it exactly as if the visitor had typed that code into the "Code
-// partenaire" form and clicked "Ouvrir le site" — auto-filling the input and
-// submitting the real form so the server sets the partner_code cookie and
-// redirects to /accueil.
+// https://www.grand-baie-maurice.com/#scl (or "#/scl", "#scl/calendrier"):
+// on the "/" gate page (files/views/pages/enter-code.php), if the URL
+// carries a non-empty hash we treat it exactly as if the visitor had typed
+// that code into the "Code partenaire" form and clicked "Ouvrir le site" —
+// auto-filling the input (and the target sub-page, if any) and submitting
+// the real form so the server sets the partner_code cookie and redirects
+// there (see PageController::submitPartnerCode()).
 function initPartnerCodeFromHash() {
   const form = document.querySelector('form[action="/partner-code"]');
   if (!form) return;
-  const code = decodeURIComponent(window.location.hash.replace(/^#\/?/, '')).trim();
+  const raw = decodeURIComponent(window.location.hash.replace(/^#\/?/, '')).trim();
+  if (!raw) return;
+  const [code, page] = raw.split('/', 2);
   if (!code) return;
   const input = form.querySelector('input[name="code"]');
   if (!input) return;
   input.value = code;
+  const nextInput = form.querySelector('input[name="next"]');
+  if (nextInput && page) nextInput.value = '/' + page;
   form.submit();
 }

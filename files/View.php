@@ -15,7 +15,15 @@ final class View
             throw new HttpException(500, 'Internal Server Error', 'View not found: ' . $template);
         }
 
-        $partner = Tenant::currentPublic();
+        // The "/" gate page (pages/enter-code) must always render as if no
+        // partner were active — title "Portail Partenaires" and no public
+        // pages menu — even if a partner_code cookie is still set from a
+        // previous session; a stale cookie must never leak partner branding
+        // onto the code-entry gate. Pass 'suppressPartner' => true from the
+        // controller to force that.
+        $suppressPartner = !empty($data['suppressPartner']);
+        unset($data['suppressPartner']);
+        $partner = $suppressPartner ? null : Tenant::currentPublic();
         $user = Auth::user();
         $authDebug = $user === null ? Auth::debugStatus() : null;
         $flash = Flash::pull();
