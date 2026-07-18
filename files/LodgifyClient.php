@@ -144,22 +144,20 @@ final class LodgifyClient
 
     /**
      * Returns the local "photo1" URL for a property (the normalized first
-     * photo produced by the manual Lodgify sync). Fiche data (photos,
-     * description, ...) is only refreshed through the manual admin sync
-     * action, never automatically/live — so building a reservation email can
-     * never be slowed down or broken by the full getProperty() pipeline
-     * (per-room photo galleries, rates, amenities, ...), and the photo it
-     * links to is always a stable local file instead of a hotlinked remote
-     * URL that some webmail clients refuse to load (showing a placeholder).
-     *
-     * If that property has never been synced yet (no local photo1.* file),
-     * a single lightweight raw "/properties/{id}" call (no room/gallery
-     * fetch, no cache write) is made to grab its primary photo and cache it
-     * locally as photo1, so the very first reservation request for a
-     * not-yet-synced property still ships a photo instead of leaving the
-     * email without one until an admin remembers to run the manual sync.
-     * Any failure here is swallowed (returns '') so a Lodgify hiccup never
-     * breaks the reservation email.
+     * photo produced by the manual Lodgify sync), or '' if that property has
+     * never been synced yet. This must NEVER call Lodgify: an earlier
+     * revision added a "lightweight" live fallback fetch here for
+     * not-yet-synced properties, but that live call (plus the subsequent
+     * image download) could push the request past PHP's max_execution_time
+     * on shared hosting, fatally killing the reservation request before the
+     * email was ever sent — the exact regression this function's contract
+     * exists to prevent. Fiche data (photos, description, ...) is only ever
+     * refreshed through the manual admin sync action; if a property's photo
+     * is missing from a reservation email, run that sync rather than
+     * reintroducing a live fetch here. This keeps reservation emails fast and
+     * immune to Lodgify hiccups, and the photo it links to is always a
+     * stable local file instead of a hotlinked remote URL that some webmail
+     * clients refuse to load (showing a placeholder).
      */
     public function getPropertyPhotoUrl(int $propertyId): string
     {
@@ -175,35 +173,7 @@ final class LodgifyClient
             }
         }
 
-        try {
-            $remoteUrl = $this->fetchPrimaryPhotoUrl($propertyId);
-        } catch (\Throwable $e) {
-            error_log('Lodgify: failed to fetch fallback photo for property ' . $propertyId . ': ' . $e->getMessage());
-            return '';
-        }
-        if ($remoteUrl === '') {
-            return '';
-        }
-
-        $cachedPath = ImageCache::cache($remoteUrl, $propertyId, 1);
-        // ImageCache::cache() falls back to returning the original remote URL
-        // untouched when the download itself fails: only accept a genuine
-        // local path here, never hotlink Lodgify's CDN directly.
-        return str_starts_with($cachedPath, '/images/listings/') ? $cachedPath : '';
-    }
-
-    /**
-     * Uncached, lightweight fetch of a property's primary photo URL directly
-     * from Lodgify's plain "/properties/{id}" endpoint (no per-room gallery
-     * fetch via "/properties/{id}/rooms", unlike getProperty()), used only as
-     * a one-time backfill by getPropertyPhotoUrl() when a property has never
-     * been synced yet.
-     */
-    private function fetchPrimaryPhotoUrl(int $propertyId): string
-    {
-        $mapped = $this->mapProperty($this->request('/properties/' . $propertyId));
-        $images = $mapped['images'] ?? [];
-        return trim((string) ($images[0]['url'] ?? ''));
+        return '';
     }
 
     /**
