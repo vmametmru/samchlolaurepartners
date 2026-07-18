@@ -16,7 +16,8 @@
     </form>
   </div>
 </section>
-<section class="container section-lg">
+<section class="home-results">
+  <div class="container section-lg">
   <?php if (!$searched): ?>
     <p class="empty-state">Utilisez la recherche ci-dessus pour trouver des hébergements disponibles.</p>
   <?php else: ?>
@@ -36,4 +37,5 @@
       <?php endif; ?>
     </div>
   <?php endif; ?>
+  </div>
 </section>
