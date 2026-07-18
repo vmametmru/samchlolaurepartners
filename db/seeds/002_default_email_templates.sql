@@ -8,6 +8,7 @@ INSERT IGNORE INTO email_templates (partner_id, type, subject, body_html) VALUES
  '<h2>Nouvelle demande de réservation</h2>
 <p><strong>Client :</strong> {{nom_client}} ({{email_client}})</p>
 <p><strong>Hébergement :</strong> {{hebergement}}</p>
+{{photo_bien}}
 <p><strong>Dates :</strong> {{dates}}</p>
 <p><strong>Voyageurs :</strong> {{adultes}} adulte(s), {{enfants}} enfant(s)</p>
 <p><strong>Message :</strong><br>{{message}}</p>
@@ -21,6 +22,7 @@ INSERT IGNORE INTO email_templates (partner_id, type, subject, body_html) VALUES
  '<h2>Votre demande a bien été reçue</h2>
 <p>Bonjour {{nom_client}},</p>
 <p>Nous avons bien reçu votre demande pour <strong>{{hebergement}}</strong> du <strong>{{date_arrivee}}</strong> au <strong>{{date_depart}}</strong>.</p>
+{{photo_bien}}
 <p>Notre équipe vous contactera dans les plus brefs délais pour confirmer votre réservation.</p>
 <p>Cordialement,<br><strong>{{partenaire}}</strong></p>');
 

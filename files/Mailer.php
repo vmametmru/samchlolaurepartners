@@ -15,19 +15,21 @@ final class Mailer
         }, $template) ?? $template;
     }
 
-    public static function sendTemplatedEmail(array $partner, array $template, string $to, array $variables): void
+    public static function sendTemplatedEmail(array $partner, array $template, string $to, array $variables, array $embeds = []): void
     {
         self::deliver(
             $partner,
             $to,
             self::renderTemplate((string) $template['subject'], $variables),
-            self::renderTemplate((string) $template['body_html'], $variables)
+            self::renderTemplate((string) $template['body_html'], $variables),
+            null,
+            $embeds
         );
     }
 
-    public static function sendRawEmail(array $partner, string $to, string $subject, string $html): void
+    public static function sendRawEmail(array $partner, string $to, string $subject, string $html, array $embeds = []): void
     {
-        self::deliver($partner, $to, $subject, $html);
+        self::deliver($partner, $to, $subject, $html, null, $embeds);
     }
 
     public static function sendContactEmail(array $partner, string $replyTo, string $subject, string $html): void
@@ -35,7 +37,13 @@ final class Mailer
         self::deliver($partner, (string) $partner['email'], $subject, $html, $replyTo);
     }
 
-    private static function deliver(array $partner, string $to, string $subject, string $html, ?string $replyTo = null): void
+    /**
+     * @param array<int, array{cid: string, data: string, mime: string}> $embeds
+     *        Images to embed inline via Content-ID (referenced in $html as
+     *        <img src="cid:...">), instead of hotlinking an external URL.
+     *        When non-empty, the message is sent as multipart/related.
+     */
+    private static function deliver(array $partner, string $to, string $subject, string $html, ?string $replyTo = null, array $embeds = []): void
     {
         $to = self::sanitizeAddress($to, 'recipient');
         $subject = self::stripCrlf($subject);
@@ -53,20 +61,27 @@ final class Mailer
         ];
 
         if (!empty($config['host'])) {
-            self::sendSmtp($config, $to, $subject, $html, $replyTo);
+            self::sendSmtp($config, $to, $subject, $html, $replyTo, $embeds);
             return;
         }
 
+        $boundary = self::boundary();
         $headers = [
             'MIME-Version: 1.0',
-            'Content-Type: text/html; charset=UTF-8',
             'From: "' . addslashes(self::stripCrlf($config['from_name'])) . '" <' . $config['from_email'] . '>',
         ];
         if ($replyTo) {
             $headers[] = 'Reply-To: ' . $replyTo;
         }
+        if ($embeds !== []) {
+            $headers[] = 'Content-Type: multipart/related; boundary="' . $boundary . '"';
+            $body = self::buildRelatedBody($boundary, $html, $embeds);
+        } else {
+            $headers[] = 'Content-Type: text/html; charset=UTF-8';
+            $body = $html;
+        }
 
-        if (!@mail($to, $subject, $html, implode("\r\n", $headers))) {
+        if (!@mail($to, $subject, $body, implode("\r\n", $headers))) {
             throw new RuntimeException('Unable to send email via mail()');
         }
     }
@@ -90,7 +105,7 @@ final class Mailer
         return trim(str_replace(["\r", "\n"], '', $value));
     }
 
-    private static function sendSmtp(array $config, string $to, string $subject, string $html, ?string $replyTo): void
+    private static function sendSmtp(array $config, string $to, string $subject, string $html, ?string $replyTo, array $embeds = []): void
     {
         $host = (string) $config['host'];
         $port = (int) $config['port'];
@@ -127,17 +142,75 @@ final class Mailer
             'From: "' . addslashes(self::stripCrlf((string) $config['from_name'])) . '" <' . $fromEmail . '>',
             'Subject: ' . self::encodeHeader($subject),
             'MIME-Version: 1.0',
-            'Content-Type: text/html; charset=UTF-8',
-            'Content-Transfer-Encoding: 8bit',
         ];
         if ($replyTo) {
             $headers[] = 'Reply-To: ' . $replyTo;
         }
-        $message = implode("\r\n", $headers) . "\r\n\r\n" . $html . "\r\n.";
+
+        if ($embeds !== []) {
+            $boundary = self::boundary();
+            $headers[] = 'Content-Type: multipart/related; boundary="' . $boundary . '"';
+            $body = self::buildRelatedBody($boundary, $html, $embeds);
+        } else {
+            $headers[] = 'Content-Type: text/html; charset=UTF-8';
+            $headers[] = 'Content-Transfer-Encoding: 8bit';
+            $body = $html;
+        }
+
+        $message = implode("\r\n", $headers) . "\r\n\r\n" . self::dotStuff($body) . "\r\n.";
         fwrite($socket, $message . "\r\n");
         self::expect($socket, [250]);
         self::command($socket, 'QUIT', [221]);
         fclose($socket);
+    }
+
+    /**
+     * Builds a multipart/related body: the HTML part first, then one part
+     * per embedded image, each addressable from the HTML via
+     * "cid:{$embed['cid']}" instead of an external URL.
+     */
+    private static function buildRelatedBody(string $boundary, string $html, array $embeds): string
+    {
+        $parts = [
+            "--{$boundary}\r\n" .
+            "Content-Type: text/html; charset=UTF-8\r\n" .
+            "Content-Transfer-Encoding: 8bit\r\n\r\n" .
+            $html,
+        ];
+
+        foreach ($embeds as $embed) {
+            $mime = (string) ($embed['mime'] ?? 'application/octet-stream');
+            $cid = (string) ($embed['cid'] ?? '');
+            $data = (string) ($embed['data'] ?? '');
+            if ($cid === '' || $data === '') {
+                continue;
+            }
+            $parts[] =
+                "--{$boundary}\r\n" .
+                "Content-Type: {$mime}\r\n" .
+                "Content-Transfer-Encoding: base64\r\n" .
+                "Content-ID: <{$cid}>\r\n" .
+                "Content-Disposition: inline; filename=\"{$cid}\"\r\n\r\n" .
+                chunk_split(base64_encode($data));
+        }
+
+        return implode("\r\n", $parts) . "\r\n--{$boundary}--";
+    }
+
+    private static function boundary(): string
+    {
+        return 'boundary_' . bin2hex(random_bytes(16));
+    }
+
+    /**
+     * SMTP DATA requires "dot-stuffing": any line that starts with a lone "."
+     * must be escaped as ".." so the mail server doesn't mistake it for the
+     * end-of-data marker. Both plain HTML and base64-encoded attachment
+     * bodies can (rarely) contain such a line.
+     */
+    private static function dotStuff(string $body): string
+    {
+        return preg_replace('/^\./m', '..', $body) ?? $body;
     }
 
     private static function encodeHeader(string $value): string

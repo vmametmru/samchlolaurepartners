@@ -25,3 +25,18 @@ if (!is_dir(BASE_PATH . '/files/storage/cache')) {
 if (!is_dir(BASE_PATH . '/files/storage/logs')) {
     @mkdir(BASE_PATH . '/files/storage/logs', 0775, true);
 }
+
+// images/logo, images/listings and images/others are gitignored (only kept
+// via .gitkeep) so the app can serve/write uploads there, but some FTP
+// clients and cPanel file managers silently drop empty directories / hidden
+// dotfiles when uploading a deployment package, leaving these directories
+// missing on the server. When that happens, ImageCache::cache() and the
+// admin logo/avatar uploaders fall back to the original remote URL (or
+// fail outright) on every request instead of caching locally, defeating the
+// whole point of the local image cache. Recreate them here on every request,
+// the same way the files/storage/* runtime directories are self-healed above.
+foreach (['images/logo', 'images/listings', 'images/others'] as $imageDir) {
+    if (!is_dir(BASE_PATH . '/' . $imageDir)) {
+        @mkdir(BASE_PATH . '/' . $imageDir, 0775, true);
+    }
+}

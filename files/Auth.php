@@ -262,6 +262,16 @@ final class Auth
             ->execute([password_hash($newPassword, PASSWORD_BCRYPT, ['cost' => 12]), $userId]);
     }
 
+    public static function currentBaseUrl(): string
+    {
+        $host = trim((string) ($_SERVER['HTTP_HOST'] ?? ''));
+        if (preg_match('/^[a-z0-9.-]+(?::[0-9]{1,5})?$/i', $host) === 1) {
+            return (self::isSecureRequest() ? 'https' : 'http') . '://' . $host;
+        }
+
+        return rtrim((string) (Settings::get('APP_URL', '') ?? ''), '/');
+    }
+
     private static function secret(): string
     {
         $secret = Settings::get('JWT_SECRET', Settings::get('AUTH_SECRET', null));

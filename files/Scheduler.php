@@ -61,6 +61,7 @@ SQL;
                 'hebergement' => (string) $row['property_name'],
                 'partenaire' => (string) $row['name'],
             ];
+            $variables += \App\controllers\ReservationsController::signatureVariables((int) $row['id']);
 
             try {
                 Mailer::sendTemplatedEmail($row, $template, (string) $row['client_email'], $variables);
@@ -76,17 +77,21 @@ SQL;
     }
 
     /**
-     * Refreshes the local Lodgify properties cache. Meant to be invoked from
-     * the same cron job as runOnce() (e.g. every 30 minutes) so the public
-     * listing/detail pages never rely on data older than the cron interval,
-     * instead of the 24h cache TTL used for on-demand (lazy) refreshes.
+     * Refreshes the local Lodgify properties cache (name, description,
+     * photo gallery, capacity, amenities, ...). This is manual-only: it is no
+     * longer invoked from the cron job, only from the "Synchroniser
+     * maintenant" admin action (PageController::adminSync()). Property fiche
+     * data has no automatic refresh at all anymore — it never expires on its
+     * own (see LodgifyClient::FICHE_TTL) — so photos stay stable/normalized
+     * (photo1.jpg, photo2.jpg, ...) on the server until an admin explicitly
+     * re-syncs. Prices/availability are unaffected: they are always fetched
+     * live at search time, never cached.
      *
      * getProperties() alone only refreshes the compact property list (cards),
      * which Lodgify limits to a single image per property, so this also calls
      * refreshAllPropertyDetails() to reload every property's full detail data
      * — including its complete photo gallery — and keep the local image cache
-     * (images/listings/) up to date, instead of only refreshing on the rare
-     * occasion someone happens to open that specific property page.
+     * (images/listings/) up to date.
      */
     public static function syncLodgify(): array
     {
@@ -94,10 +99,10 @@ SQL;
             $client = new LodgifyClient();
             $client->invalidate('lodgify:');
             $properties = $client->getProperties();
-            $client->refreshAllPropertyDetails();
-            return ['synced' => count($properties), 'error' => null];
+            $details = $client->refreshAllPropertyDetails();
+            return ['synced' => count($properties), 'error' => null, 'photo_errors' => $details['photo_errors']];
         } catch (\Throwable $e) {
-            return ['synced' => 0, 'error' => $e->getMessage()];
+            return ['synced' => 0, 'error' => $e->getMessage(), 'photo_errors' => []];
         }
     }
 }

@@ -716,18 +716,113 @@ final class PageController extends Controller
         ]);
     }
 
+    /**
+     * Legacy all-in-one sync kept as a fallback for non-JS clients: it still
+     * works, but risks being killed by the web server/PHP-FPM's hard
+     * execution timeout on shared hosting before every property's photos
+     * have been downloaded (see refreshAllPropertyDetails()'s docblock). The
+     * admin sync page itself now drives the one-by-one flow via
+     * adminSyncStart()/adminSyncProperty()/adminSyncFinish() instead.
+     */
     public static function adminRunSync(): never
     {
         self::requireAdminUser();
-        // Refreshing every property's detail cache (photos included) can take
-        // a while; avoid the request being killed by PHP's default execution
-        // time limit before it finishes, same as the deployment script does
-        // for its own long-running operations.
         @set_time_limit(0);
         $client = new LodgifyClient();
-        $client->invalidate('lodgify:');
-        $client->refreshAllPropertyDetails();
-        self::redirect('/admin/sync', 'Synchronisation Lodgify terminée.');
+        try {
+            $client->invalidate('lodgify:');
+            $details = $client->refreshAllPropertyDetails();
+        } catch (\Throwable $e) {
+            error_log('Lodgify sync: aborted before refreshing any property: ' . $e->getMessage());
+            self::redirect('/admin/sync', 'Synchronisation Lodgify échouée : ' . $e->getMessage() . ' (aucun bien n\'a pu être récupéré, aucun dossier images/listings/ n\'a donc été créé).', 'error');
+        }
+        if ($details['refreshed'] === 0 && $details['photo_errors'] === []) {
+            // Lodgify returned zero properties (e.g. empty account, wrong API
+            // key/scope): this used to look identical to a real success
+            // ("Synchronisation Lodgify terminée.") even though nothing at
+            // all was fetched or cached, leaving no clue why images/listings/
+            // stayed empty.
+            self::redirect('/admin/sync', 'Synchronisation Lodgify terminée, mais Lodgify n\'a retourné aucun bien : aucun dossier images/listings/ n\'a donc été créé.', 'error');
+        }
+        $photoErrors = $details['photo_errors'];
+        if ($photoErrors === []) {
+            self::redirect('/admin/sync', 'Synchronisation Lodgify terminée.');
+        }
+        // Photos failed to cache locally for at least one property (e.g.
+        // images/listings/ not writable, curl/SSL blocked, disk full, ...):
+        // surface the concrete reason instead of a misleading "terminée"
+        // message that hides the fact nothing was actually saved to disk.
+        $preview = array_slice($photoErrors, 0, 3);
+        $message = 'Synchronisation terminée avec ' . count($photoErrors) . ' erreur(s) de mise en cache des photos : ' . implode(' | ', $preview);
+        if (count($photoErrors) > count($preview)) {
+            $message .= ' … (voir le journal des erreurs pour le détail complet)';
+        }
+        self::redirect('/admin/sync', $message, 'error');
+    }
+
+    /**
+     * Step 1/3 of the one-by-one manual sync driven by the admin sync page's
+     * JavaScript: clears the whole Lodgify cache and returns the plain list
+     * of property ids/names (a single lightweight "/properties" call, no
+     * per-property enrichment or photo download) so the browser can loop
+     * over them one at a time via adminSyncProperty(), each in its own short
+     * HTTP request. This avoids the previous single-request bulk sync being
+     * killed mid-way by the web server/PHP-FPM's hard execution timeout on
+     * shared hosting once the account has more than a handful of properties.
+     */
+    public static function adminSyncStart(): never
+    {
+        self::requireAdminUser();
+        $client = new LodgifyClient();
+        try {
+            $client->invalidate('lodgify:');
+            $properties = $client->getPropertyIdsForSync();
+        } catch (Throwable $e) {
+            error_log('Lodgify sync: failed to start (' . $e->getMessage() . ')');
+            self::json(['error' => 'Internal Server Error', 'message' => $e->getMessage()], 500);
+        }
+        self::json(['data' => $properties]);
+    }
+
+    /**
+     * Step 2/3: re-fetches and re-caches a single property (fiche, photos
+     * renamed photo1.ext/photo2.ext/... under images/listings/{id}/, ...),
+     * called once per property by the admin sync page's JavaScript loop.
+     * Keeping this to one property per request means a single slow property
+     * or Lodgify hiccup can never block, or exhaust the execution time
+     * budget of, the rest of the sync.
+     */
+    public static function adminSyncProperty(int $propertyId): never
+    {
+        self::requireAdminUser();
+        if ($propertyId <= 0) {
+            self::json(['error' => 'Bad Request', 'message' => 'Identifiant de bien invalide.'], 400);
+        }
+        $client = new LodgifyClient();
+        $client->invalidateProperty($propertyId);
+        $result = $client->refreshPropertyDetail($propertyId);
+        self::json(['data' => $result]);
+    }
+
+    /**
+     * Step 3/3: once every property has been re-cached individually, rebuild
+     * the aggregate "/properties" list cache (used by search/listing pages)
+     * and record the sync timestamp. This call is fast: every property's
+     * "/properties/{id}/rooms" response is already warm in cache from step 2,
+     * so getProperties()'s per-property capacity enrichment just reads the
+     * cache instead of hitting Lodgify again.
+     */
+    public static function adminSyncFinish(): never
+    {
+        self::requireAdminUser();
+        $client = new LodgifyClient();
+        try {
+            $client->getProperties();
+        } catch (Throwable $e) {
+            error_log('Lodgify sync: failed to rebuild the properties list (' . $e->getMessage() . ')');
+            self::json(['error' => 'Internal Server Error', 'message' => $e->getMessage()], 500);
+        }
+        self::json(['data' => ['last_sync_label' => self::formatLodgifyLastSync()]]);
     }
 
     /**

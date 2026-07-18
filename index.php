@@ -242,6 +242,12 @@ try {
             break;
         case route($method, $path, 'POST', '#^/admin/sync$#'):
             PageController::adminRunSync();
+        case route($method, $path, 'POST', '#^/admin/sync/start$#'):
+            PageController::adminSyncStart();
+        case route($method, $path, 'POST', '#^/admin/sync/property/(\d+)$#', $matches):
+            PageController::adminSyncProperty((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/admin/sync/finish$#'):
+            PageController::adminSyncFinish();
         case route($method, $path, 'GET', '#^/admin/lodgify-properties$#'):
             PageController::adminLodgifyProperties();
             break;
