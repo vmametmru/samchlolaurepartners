@@ -12,9 +12,21 @@ namespace App;
  */
 final class ImageCache
 {
-    private const ALLOWED_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+    public const ALLOWED_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
 
-    public static function cache(string $remoteUrl, int $propertyId): string
+    /**
+     * @param int|null $index When given (1-based), the photo is saved under a
+     *                        normalized "photoN.ext" filename instead of a
+     *                        content-hashed one, so the manual sync always
+     *                        produces predictable names (photo1.jpg = first
+     *                        photo, photo2.jpg = second, ...) that other code
+     *                        (e.g. reservation emails) can link to directly.
+     *                        Unlike the hash-based filename, "photoN" is not
+     *                        content-addressed, so an existing file at that
+     *                        position is always overwritten with whatever
+     *                        Lodgify currently serves there.
+     */
+    public static function cache(string $remoteUrl, int $propertyId, ?int $index = null): string
     {
         $remoteUrl = trim($remoteUrl);
         if ($remoteUrl === '') {
@@ -27,13 +39,14 @@ final class ImageCache
             return $remoteUrl;
         }
 
-        $filename = sha1($remoteUrl) . self::extensionFromUrl($remoteUrl);
+        $extension = self::extensionFromUrl($remoteUrl);
+        $filename = $index !== null ? 'photo' . $index . $extension : sha1($remoteUrl) . $extension;
         $relativeDir = 'listings/' . $propertyId;
         $dir = BASE_PATH . '/images/' . $relativeDir;
         $localPath = $dir . '/' . $filename;
         $publicPath = '/images/' . $relativeDir . '/' . $filename;
 
-        if (is_file($localPath) && filesize($localPath) > 0) {
+        if ($index === null && is_file($localPath) && filesize($localPath) > 0) {
             return $publicPath;
         }
 

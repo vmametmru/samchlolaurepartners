@@ -564,6 +564,7 @@ final class ReservationsController extends Controller
                 (string) ($input['property_name'] ?? '')
             ),
         ];
+        $variables += self::signatureVariables((int) ($partner['id'] ?? 0));
 
         $pdo = Database::connection();
         $stmt = $pdo->prepare('SELECT * FROM email_templates WHERE partner_id = ? AND type = ? LIMIT 1');
@@ -605,6 +606,7 @@ final class ReservationsController extends Controller
                 (string) $request['property_name']
             ),
         ];
+        $variables += self::signatureVariables((int) ($partner['id'] ?? 0));
 
         if ($template) {
             Mailer::sendTemplatedEmail($partner, $template, (string) $request['client_email'], $variables);
@@ -629,27 +631,114 @@ final class ReservationsController extends Controller
             return '';
         }
 
-        try {
-            $photoUrl = trim((new LodgifyClient())->getPropertyPhotoUrl($propertyId));
-        } catch (Throwable $e) {
-            error_log('Lodgify: failed to fetch property photo ' . $propertyId . ' for email: ' . $e->getMessage());
-            return '';
-        }
-
+        // Never call Lodgify here: the photo is only ever the locally-synced
+        // "photo1" file produced by the manual admin sync (see
+        // LodgifyClient::getPropertyPhotoUrl()/ImageCache::cache()). This keeps
+        // reservation emails fast and immune to Lodgify hiccups, and avoids
+        // hotlinking Lodgify's CDN (some webmail clients refuse to load it and
+        // show a broken-image placeholder instead).
+        $photoUrl = trim((new LodgifyClient())->getPropertyPhotoUrl($propertyId));
         if ($photoUrl === '') {
             return '';
         }
 
-        if (!preg_match('#^https?://#i', $photoUrl)) {
-            $baseUrl = Auth::currentBaseUrl();
-            if ($baseUrl === '') {
-                return '';
-            }
-            $photoUrl = $baseUrl . '/' . ltrim($photoUrl, '/');
+        $photoUrl = self::absoluteUrl($photoUrl);
+        if ($photoUrl === '') {
+            return '';
         }
 
-        return '<img src="' . htmlspecialchars($photoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($propertyName, ENT_QUOTES, 'UTF-8') . '" width="600" style="display:block;max-width:100%;height:auto;">';
+        return '<img src="' . htmlspecialchars($photoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($propertyName, ENT_QUOTES, 'UTF-8') . '" width="320" style="display:block;max-width:320px;width:100%;height:auto;">';
     }
+
+    /**
+     * Builds the {{signature_photo}}/{{signature_nom}}/{{lien_partenaire}}/
+     * {{telephone_partenaire}} email variables from the partner's own account
+     * (the "partner" role user tied to that partner_id, i.e. whoever set
+     * their name/phone/photo from "Mon compte"), so partners can sign their
+     * outgoing reservation emails.
+     */
+    public static function signatureVariables(int $partnerId): array
+    {
+        $user = $partnerId > 0 ? self::fetchPartnerUser($partnerId) : null;
+
+        $fullName = trim(trim((string) ($user['first_name'] ?? '')) . ' ' . trim((string) ($user['last_name'] ?? '')));
+        $photoUrl = trim((string) ($user['photo_url'] ?? ''));
+        $phone = trim((string) ($user['phone'] ?? ''));
+
+        return [
+            'signature_nom' => $fullName,
+            'signature_photo' => self::signaturePhotoTag($photoUrl, $fullName !== '' ? $fullName : 'Photo'),
+            'lien_partenaire' => self::partnerLink($partnerId),
+            'telephone_partenaire' => $phone,
+        ];
+    }
+
+    private static function fetchPartnerUser(int $partnerId): ?array
+    {
+        $stmt = Database::connection()->prepare(
+            "SELECT * FROM users WHERE partner_id = ? AND role = 'partner' ORDER BY id ASC LIMIT 1"
+        );
+        $stmt->execute([$partnerId]);
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
+    private static function signaturePhotoTag(string $photoUrl, string $alt): string
+    {
+        if ($photoUrl === '') {
+            return '';
+        }
+
+        $photoUrl = self::absoluteUrl($photoUrl);
+        if ($photoUrl === '') {
+            return '';
+        }
+
+        return '<img src="' . htmlspecialchars($photoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($alt, ENT_QUOTES, 'UTF-8') . '" width="64" height="64" style="display:inline-block;width:64px;height:64px;border-radius:50%;object-fit:cover;">';
+    }
+
+    /**
+     * Deep-link back to this partner's own site (see assets/js/app.js
+     * initPartnerCodeFromHash() and PageController::submitPartnerCode()),
+     * e.g. https://example.com/#scl, so clicking it from the signature opens
+     * the partner's branded site directly without retyping their code.
+     */
+    private static function partnerLink(int $partnerId): string
+    {
+        if ($partnerId <= 0) {
+            return '';
+        }
+        $stmt = Database::connection()->prepare('SELECT subdomain FROM partners WHERE id = ? LIMIT 1');
+        $stmt->execute([$partnerId]);
+        $subdomain = trim((string) ($stmt->fetchColumn() ?: ''));
+        if ($subdomain === '') {
+            return '';
+        }
+        $baseUrl = Auth::currentBaseUrl();
+        return $baseUrl === '' ? '' : $baseUrl . '/#' . $subdomain;
+    }
+
+    /**
+     * Converts a locally-uploaded relative path (e.g. "/images/others/...")
+     * into an absolute URL suitable for embedding in outgoing email HTML,
+     * using the actual request host (see Auth::currentBaseUrl()) rather than
+     * a possibly-stale "APP_URL" setting. Already-absolute URLs are returned
+     * unchanged.
+     */
+    private static function absoluteUrl(string $url): string
+    {
+        if ($url === '') {
+            return '';
+        }
+        if (preg_match('#^https?://#i', $url)) {
+            return $url;
+        }
+        $baseUrl = Auth::currentBaseUrl();
+        if ($baseUrl === '') {
+            return '';
+        }
+        return $baseUrl . '/' . ltrim($url, '/');
+    }
+
 
     private static function decodeGuests(mixed $guests): array
     {

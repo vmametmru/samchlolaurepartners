@@ -11,6 +11,22 @@ final class LodgifyClient
     private string $baseUrl;
     private string $apiKey;
 
+    /**
+     * TTL (10 years) used for "fiche" data — property name, description,
+     * photo gallery, rooms, capacity, amenities, room-type id, sofa-bed
+     * counts, ... — which must NOT be refreshed automatically anymore.
+     * Automatic refresh caused reservation emails and detail pages to be
+     * slowed down or broken by live Lodgify calls, and made it impossible to
+     * keep photos stable/normalized on the server. This data is now only
+     * ever refreshed by the manual "Synchroniser maintenant" admin action
+     * (PageController::adminSync() -> Scheduler::syncLodgify()), which
+     * explicitly invalidates these cache keys before refetching. Prices and
+     * availability are unaffected: they are always fetched live at search
+     * time (see getAvailability()/getRates(), never cached) or refreshed on
+     * their own short TTL (getPriceStatusSnapshot(), 30 min).
+     */
+    private const FICHE_TTL = 315360000;
+
     public function __construct()
     {
         $baseUrl = trim((string) (Settings::get('LODGIFY_BASE_URL') ?? ''));
@@ -20,7 +36,7 @@ final class LodgifyClient
 
     public function getProperties(): array
     {
-        return $this->remember('lodgify:v2:properties', 86400, function (): array {
+        return $this->remember('lodgify:v2:properties', self::FICHE_TTL, function (): array {
             $data = $this->request('/properties');
             $items = is_array($data['items'] ?? null) ? $data['items'] : (is_array($data) ? $data : []);
             $properties = array_map([$this, 'mapProperty'], $items);
@@ -43,7 +59,7 @@ final class LodgifyClient
 
     public function getProperty(int $propertyId): array
     {
-        return $this->remember('lodgify:v2:property:' . $propertyId, 86400, function () use ($propertyId): array {
+        return $this->remember('lodgify:v2:property:' . $propertyId, self::FICHE_TTL, function () use ($propertyId): array {
             $property = $this->mapProperty($this->request('/properties/' . $propertyId));
 
             // Lodgify's "/properties/{id}" endpoint (PropertyDto) never returns an
@@ -57,14 +73,20 @@ final class LodgifyClient
             $rooms = $this->getPropertyRoomsDetails($propertyId);
             $photoRooms = [];
             $allImages = [];
+            // Numbered sequentially across every room's photos (not reset per
+            // room) so the manual sync produces predictable, stable filenames
+            // per property: photo1.jpg = first photo, photo2.jpg = second, ...
+            // matching the order the gallery is displayed in.
+            $photoIndex = 0;
             foreach ($rooms as $room) {
-                $roomImages = array_map(
-                    static fn(array $image): array => [
-                        'url' => ImageCache::cache($image['url'], $propertyId),
+                $roomImages = [];
+                foreach ($room['images'] as $image) {
+                    $photoIndex++;
+                    $roomImages[] = [
+                        'url' => ImageCache::cache($image['url'], $propertyId, $photoIndex),
                         'text' => $image['text'],
-                    ],
-                    $room['images']
-                );
+                    ];
+                }
                 if ($roomImages !== []) {
                     $photoRooms[] = ['id' => $room['id'], 'name' => $room['name'], 'images' => $roomImages];
                     array_push($allImages, ...$roomImages);
@@ -74,13 +96,13 @@ final class LodgifyClient
             if ($allImages === []) {
                 // No room photos available: fall back to the single property image
                 // (still cached locally) so the gallery is never completely empty.
-                $allImages = array_map(
-                    static fn(array $image): array => [
-                        'url' => ImageCache::cache($image['url'], $propertyId),
+                foreach ($property['images'] as $image) {
+                    $photoIndex++;
+                    $allImages[] = [
+                        'url' => ImageCache::cache($image['url'], $propertyId, $photoIndex),
                         'text' => $image['text'],
-                    ],
-                    $property['images']
-                );
+                    ];
+                }
             }
 
             $property['images'] = $allImages;
@@ -121,26 +143,30 @@ final class LodgifyClient
     }
 
     /**
-     * Returns the single remote photo URL for a property, without triggering
-     * getProperty()'s full pipeline (rooms/rate settings fetch + downloading
-     * every gallery image via ImageCache). That heavy path is fine for the
-     * property detail page (cached for a day), but running it synchronously
-     * just to grab one thumbnail for a reservation email risks exceeding
-     * PHP's max_execution_time (each image download alone allows up to 10s),
-     * which kills the whole request — including the email that hadn't been
-     * sent yet. Uses its own short-lived cache key so a slow/failed lookup
-     * here never taints (or is tainted by) the full getProperty() cache.
+     * Returns the local "photo1" URL for a property (the normalized first
+     * photo produced by the manual Lodgify sync), or '' if that property has
+     * never been synced yet. This never calls Lodgify: fiche data (photos,
+     * description, ...) is only refreshed through the manual admin sync
+     * action, never automatically/live — so building a reservation email can
+     * never be slowed down or broken by a Lodgify request, and the photo it
+     * links to is always a stable local file instead of a hotlinked remote
+     * URL that some webmail clients refuse to load (showing a placeholder).
      */
     public function getPropertyPhotoUrl(int $propertyId): string
     {
-        $cached = $this->remember('lodgify:v2:propertyphoto:' . $propertyId, 3600, function () use ($propertyId): array {
-            $item = $this->request('/properties/' . $propertyId);
-            $property = $this->mapProperty($item);
-            $url = trim((string) ($property['images'][0]['url'] ?? ''));
-            return ['url' => $url];
-        });
+        if ($propertyId <= 0) {
+            return '';
+        }
 
-        return (string) ($cached['url'] ?? '');
+        $dir = BASE_PATH . '/images/listings/' . $propertyId;
+        foreach (ImageCache::ALLOWED_EXTENSIONS as $extension) {
+            $path = $dir . '/photo1.' . $extension;
+            if (is_file($path) && filesize($path) > 0) {
+                return '/images/listings/' . $propertyId . '/photo1.' . $extension;
+            }
+        }
+
+        return '';
     }
 
     /**
@@ -152,7 +178,7 @@ final class LodgifyClient
      */
     private function getPropertyRoomsDetails(int $propertyId): array
     {
-        return $this->remember('lodgify:v2:rooms:' . $propertyId, 86400, function () use ($propertyId): array {
+        return $this->remember('lodgify:v2:rooms:' . $propertyId, self::FICHE_TTL, function () use ($propertyId): array {
             return $this->fetchPropertyRoomsDetails($propertyId);
         });
     }
@@ -379,7 +405,7 @@ final class LodgifyClient
      */
     private function fetchSofaBedCountFromV1(int $propertyId, int $fallback): int
     {
-        $result = $this->remember('lodgify:v1:sofabeds:' . $propertyId, 86400, function () use ($propertyId, $fallback): array {
+        $result = $this->remember('lodgify:v1:sofabeds:' . $propertyId, self::FICHE_TTL, function () use ($propertyId, $fallback): array {
             $count = 0;
 
             try {
@@ -957,8 +983,10 @@ final class LodgifyClient
      * capacity — from getProperties()/getProperty()) and its price snapshot
      * (getPriceStatusSnapshot()) were each last refreshed, straight from the
      * lodgify_cache table's created_at/expires_at, plus whether each is still
-     * within its expected refresh cadence (24h for the fiche, 30min for
-     * price). Used by the "Biens Lodgify" admin page.
+     * within its expected refresh cadence: the fiche is manual-only (never
+     * auto-expires; "fresh" just means it has been synced at least once),
+     * price auto-refreshes every 30 min. Used by the "Biens Lodgify" admin
+     * page.
      *
      * @return array{
      *   fiche_updated_at: ?\DateTimeImmutable, fiche_fresh: bool,
@@ -1010,7 +1038,7 @@ final class LodgifyClient
      */
     private function getPrimaryRoomTypeId(int $propertyId): ?int
     {
-        $cached = $this->remember('lodgify:v2:roomtype:' . $propertyId, 86400, function () use ($propertyId): array {
+        $cached = $this->remember('lodgify:v2:roomtype:' . $propertyId, self::FICHE_TTL, function () use ($propertyId): array {
             $roomTypeId = null;
             try {
                 $raw = $this->request('/properties/' . $propertyId);

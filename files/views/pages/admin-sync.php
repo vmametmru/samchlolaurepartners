@@ -9,7 +9,7 @@
     <?php else: ?>
       <p class="text-muted">Aucune synchronisation n'a encore été effectuée.</p>
     <?php endif; ?>
-    <p>Cette action efface le cache local et recharge toutes les propriétés depuis Lodgify.</p>
+    <p>Cette action efface le cache local et recharge toutes les propriétés (fiche, photos, description) depuis Lodgify. C'est la seule façon de rafraîchir ces données : elles ne sont plus synchronisées automatiquement.</p>
     <form method="post" action="/admin/sync"><button class="btn-primary" type="submit">Synchroniser maintenant</button></form>
   </div>
 </section>

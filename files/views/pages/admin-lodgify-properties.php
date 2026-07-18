@@ -4,10 +4,10 @@ $rows = $rows ?? [];
 
 /**
  * Formats a cache freshness timestamp + badge for display: "fresh" (green)
- * means the underlying cache entry hasn't expired yet (so it was refreshed
- * within its expected cadence), "stale" (red) means it's overdue for a
- * refresh (will happen automatically on the next visitor request/page load
- * that needs it).
+ * means the fiche/price has already been synced at least once, "stale"
+ * (red) means it has never been synced yet. Unlike price (auto-refreshed
+ * every 30 min), the fiche is only ever refreshed by an explicit manual
+ * "Resynchroniser" click — it never expires/refreshes on its own.
  */
 $statusBadge = static function (?\DateTimeImmutable $updatedAt, bool $fresh): string {
     if ($updatedAt === null) {
@@ -25,7 +25,7 @@ $statusBadge = static function (?\DateTimeImmutable $updatedAt, bool $fresh): st
     <a class="btn-primary" href="/admin/sync">Resynchroniser</a>
   </div>
   <p class="subtitle">
-    Statut de la fiche (photos, description, capacité…) : rafraîchie automatiquement une fois par jour.
+    Statut de la fiche (photos, description, capacité…) : synchronisée manuellement uniquement, via le bouton « Resynchroniser » ci-dessus.
     Statut Prix : rafraîchi automatiquement toutes les 30 minutes.
     Les disponibilités ne sont jamais mises en cache : elles sont interrogées en direct auprès de Lodgify à chaque recherche.
   </p>
