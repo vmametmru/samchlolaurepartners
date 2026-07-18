@@ -547,6 +547,10 @@ final class ReservationsController extends Controller
 
     private static function sendRequestEmails(array $partner, array $input): void
     {
+        $photo = self::propertyPhotoTag(
+            (int) ($input['property_id'] ?? 0),
+            (string) ($input['property_name'] ?? '')
+        );
         $variables = [
             'nom_client' => (string) ($input['client_name'] ?? ''),
             'email_client' => (string) ($input['client_email'] ?? ''),
@@ -559,19 +563,17 @@ final class ReservationsController extends Controller
             'hebergement' => (string) ($input['property_name'] ?? ''),
             'message' => (string) ($input['message'] ?? ''),
             'partenaire' => (string) ($partner['name'] ?? ''),
-            'photo_bien' => self::propertyPhotoTag(
-                (int) ($input['property_id'] ?? 0),
-                (string) ($input['property_name'] ?? '')
-            ),
+            'photo_bien' => $photo['html'],
         ];
         $variables += self::signatureVariables((int) ($partner['id'] ?? 0));
+        $embeds = $photo['embed'] !== null ? [$photo['embed']] : [];
 
         $pdo = Database::connection();
         $stmt = $pdo->prepare('SELECT * FROM email_templates WHERE partner_id = ? AND type = ? LIMIT 1');
         $stmt->execute([(int) $partner['id'], 'REQUEST_RECEIVED_PARTNER']);
         $partnerTemplate = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
         if ($partnerTemplate) {
-            Mailer::sendTemplatedEmail($partner, $partnerTemplate, (string) $partner['email'], $variables);
+            Mailer::sendTemplatedEmail($partner, $partnerTemplate, (string) $partner['email'], $variables, $embeds);
         } else {
             Mailer::sendRawEmail($partner, (string) $partner['email'], 'Nouvelle demande de réservation - ' . $variables['nom_client'], '<p>Nouvelle demande de ' . htmlspecialchars($variables['nom_client']) . ' (' . htmlspecialchars($variables['email_client']) . ') pour ' . htmlspecialchars($variables['hebergement'] !== '' ? $variables['hebergement'] : 'hébergement non spécifié') . ' du ' . htmlspecialchars($variables['date_arrivee']) . ' au ' . htmlspecialchars($variables['date_depart']) . '.</p>');
         }
@@ -579,7 +581,7 @@ final class ReservationsController extends Controller
         $stmt->execute([(int) $partner['id'], 'REQUEST_RECEIVED_CLIENT']);
         $clientTemplate = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
         if ($clientTemplate) {
-            Mailer::sendTemplatedEmail($partner, $clientTemplate, (string) $input['client_email'], $variables);
+            Mailer::sendTemplatedEmail($partner, $clientTemplate, (string) $input['client_email'], $variables, $embeds);
         } else {
             Mailer::sendRawEmail($partner, (string) $input['client_email'], 'Confirmation de votre demande - ' . (string) $partner['name'], '<p>Bonjour ' . htmlspecialchars((string) $input['client_name']) . ',</p><p>Nous avons bien reçu votre demande de réservation pour ' . htmlspecialchars((string) ($input['property_name'] ?? 'l\'hébergement')) . ' du ' . htmlspecialchars((string) $input['checkin_date']) . ' au ' . htmlspecialchars((string) $input['checkout_date']) . '. Nous vous contacterons très prochainement.</p><p>Cordialement,<br>' . htmlspecialchars((string) $partner['name']) . '</p>');
         }
@@ -590,6 +592,10 @@ final class ReservationsController extends Controller
         $stmt = Database::connection()->prepare('SELECT * FROM email_templates WHERE partner_id = ? AND type = ? LIMIT 1');
         $stmt->execute([(int) $partner['id'], $type]);
         $template = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        $photo = self::propertyPhotoTag(
+            (int) ($request['property_id'] ?? 0),
+            (string) $request['property_name']
+        );
         $variables = [
             'nom_client' => (string) $request['client_name'],
             'email_client' => (string) $request['client_email'],
@@ -601,15 +607,13 @@ final class ReservationsController extends Controller
             'hebergement' => (string) $request['property_name'],
             'notes' => $notes ?? '',
             'partenaire' => (string) $partner['name'],
-            'photo_bien' => self::propertyPhotoTag(
-                (int) ($request['property_id'] ?? 0),
-                (string) $request['property_name']
-            ),
+            'photo_bien' => $photo['html'],
         ];
         $variables += self::signatureVariables((int) ($partner['id'] ?? 0));
+        $embeds = $photo['embed'] !== null ? [$photo['embed']] : [];
 
         if ($template) {
-            Mailer::sendTemplatedEmail($partner, $template, (string) $request['client_email'], $variables);
+            Mailer::sendTemplatedEmail($partner, $template, (string) $request['client_email'], $variables, $embeds);
             return;
         }
 
@@ -625,29 +629,43 @@ final class ReservationsController extends Controller
         return $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
     }
 
-    private static function propertyPhotoTag(int $propertyId, string $propertyName): string
+    /**
+     * Builds the {{photo_bien}} <img> tag plus (if a local thumbnail exists)
+     * the corresponding embed to attach to the outgoing message.
+     *
+     * @return array{html: string, embed: ?array{cid: string, data: string, mime: string}}
+     */
+    private static function propertyPhotoTag(int $propertyId, string $propertyName): array
     {
+        $empty = ['html' => '', 'embed' => null];
         if ($propertyId <= 0) {
-            return '';
+            return $empty;
         }
 
         // Never call Lodgify here: the photo is only ever the locally-synced
-        // "photo1" file produced by the manual admin sync (see
-        // LodgifyClient::getPropertyPhotoUrl()/ImageCache::cache()). This keeps
-        // reservation emails fast and immune to Lodgify hiccups, and avoids
-        // hotlinking Lodgify's CDN (some webmail clients refuse to load it and
-        // show a broken-image placeholder instead).
-        $photoUrl = trim((new LodgifyClient())->getPropertyPhotoUrl($propertyId));
-        if ($photoUrl === '') {
-            return '';
+        // 320px thumbnail produced by the manual admin sync (see
+        // LodgifyClient::getPropertyPhotoThumbnailPath()/ImageCache::cache()).
+        // This keeps reservation emails fast and immune to Lodgify hiccups.
+        // The thumbnail is embedded inline via Content-ID rather than
+        // hotlinked, since some webmail clients refuse to load external
+        // images and show a broken-image placeholder instead.
+        $thumbnailPath = (new LodgifyClient())->getPropertyPhotoThumbnailPath($propertyId);
+        if ($thumbnailPath === null) {
+            return $empty;
         }
 
-        $photoUrl = self::absoluteUrl($photoUrl);
-        if ($photoUrl === '') {
-            return '';
+        $data = @file_get_contents($thumbnailPath);
+        if ($data === false || $data === '') {
+            return $empty;
         }
 
-        return '<img src="' . htmlspecialchars($photoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($propertyName, ENT_QUOTES, 'UTF-8') . '" width="320" style="display:block;max-width:320px;width:100%;height:auto;">';
+        $cid = 'property-photo-' . $propertyId . '-' . bin2hex(random_bytes(4)) . '@local';
+        $html = '<img src="cid:' . htmlspecialchars($cid, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($propertyName, ENT_QUOTES, 'UTF-8') . '" width="320" style="display:block;max-width:320px;width:100%;height:auto;">';
+
+        return [
+            'html' => $html,
+            'embed' => ['cid' => $cid, 'data' => $data, 'mime' => 'image/jpeg'],
+        ];
     }
 
     /**

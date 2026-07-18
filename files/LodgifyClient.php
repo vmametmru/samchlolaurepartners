@@ -212,6 +212,26 @@ final class LodgifyClient
     }
 
     /**
+     * Returns the absolute filesystem path to the locally-synced 320px
+     * "photo1-320.jpg" thumbnail for a property (generated alongside photo1
+     * by ImageCache::cache() during the manual sync), or null if that
+     * thumbnail doesn't exist yet (property never synced, or synced before
+     * thumbnail generation was introduced). Callers should read the file's
+     * bytes and embed them directly (e.g. as a CID attachment) rather than
+     * hotlinking a URL. Like getPropertyPhotoUrl(), this must NEVER call
+     * Lodgify live — see that method's docblock for why.
+     */
+    public function getPropertyPhotoThumbnailPath(int $propertyId): ?string
+    {
+        if ($propertyId <= 0) {
+            return null;
+        }
+
+        $path = BASE_PATH . '/images/listings/' . $propertyId . '/photo1' . ImageCache::THUMBNAIL_SUFFIX;
+        return (is_file($path) && filesize($path) > 0) ? $path : null;
+    }
+
+    /**
      * Fetches and maps "/properties/{id}/rooms" (RoomDetailsDto[]), the only
      * Lodgify v2 endpoint that actually returns per-room photo galleries and
      * categorized amenities — none of which are present on the plain property

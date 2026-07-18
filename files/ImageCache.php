@@ -14,6 +14,10 @@ final class ImageCache
 {
     public const ALLOWED_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
 
+    /** Fixed width (px) and filename suffix for the email thumbnail generated alongside each synced photo. */
+    public const THUMBNAIL_WIDTH = 320;
+    public const THUMBNAIL_SUFFIX = '-320.jpg';
+
     /**
      * Collects the reasons behind every cache() call that fell back to the
      * remote URL during the current request, so a manual sync can report
@@ -124,7 +128,77 @@ final class ImageCache
             return $remoteUrl;
         }
 
+        if ($index !== null) {
+            // Also produce a fixed-width thumbnail (photoN-320.jpg) next to the
+            // full-size file, so email templates can embed a small, predictable
+            // image (see ReservationsController::propertyPhotoTag()) instead of
+            // downloading/hotlinking the full-resolution photo. Failures here
+            // are non-fatal: the full-size photo was already saved successfully
+            // above, and callers fall back to it when the thumbnail is missing.
+            self::createThumbnail($data, $dir . '/photo' . $index . self::THUMBNAIL_SUFFIX, self::THUMBNAIL_WIDTH);
+        }
+
         return $publicPath;
+    }
+
+    /**
+     * Resizes the just-downloaded image bytes to a fixed-width JPEG thumbnail
+     * and writes it to $destPath. Always re-encodes as JPEG (regardless of the
+     * source format) so the output is a single, predictable, universally
+     * supported format for email clients; transparency (PNG/GIF/WEBP) is
+     * flattened onto a white background. Returns false (and leaves no partial
+     * file behind) on any failure, e.g. GD missing or corrupt image data.
+     */
+    private static function createThumbnail(string $data, string $destPath, int $targetWidth): bool
+    {
+        if (!function_exists('imagecreatefromstring')) {
+            self::recordError('GD extension is not available, skipping thumbnail generation for ' . $destPath);
+            return false;
+        }
+
+        $source = @imagecreatefromstring($data);
+        if ($source === false) {
+            self::recordError('could not decode image data for thumbnail ' . $destPath);
+            return false;
+        }
+
+        $srcWidth = imagesx($source);
+        $srcHeight = imagesy($source);
+        if ($srcWidth <= 0 || $srcHeight <= 0) {
+            imagedestroy($source);
+            self::recordError('invalid image dimensions for thumbnail ' . $destPath);
+            return false;
+        }
+
+        $targetHeight = max(1, (int) round($srcHeight * ($targetWidth / $srcWidth)));
+        $thumbnail = imagecreatetruecolor($targetWidth, $targetHeight);
+        $white = imagecolorallocate($thumbnail, 255, 255, 255);
+        imagefill($thumbnail, 0, 0, $white);
+        imagecopyresampled($thumbnail, $source, 0, 0, 0, 0, $targetWidth, $targetHeight, $srcWidth, $srcHeight);
+        imagedestroy($source);
+
+        $dir = dirname($destPath);
+        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+            imagedestroy($thumbnail);
+            self::recordError('could not create directory ' . $dir . ' for thumbnail ' . $destPath);
+            return false;
+        }
+
+        $tmpPath = $destPath . '.tmp-' . bin2hex(random_bytes(6));
+        $ok = imagejpeg($thumbnail, $tmpPath, 82);
+        imagedestroy($thumbnail);
+        if (!$ok) {
+            @unlink($tmpPath);
+            self::recordError('could not encode JPEG thumbnail ' . $destPath);
+            return false;
+        }
+        if (!@rename($tmpPath, $destPath)) {
+            @unlink($tmpPath);
+            self::recordError('could not rename thumbnail to ' . $destPath);
+            return false;
+        }
+
+        return true;
     }
 
     private static function extensionFromUrl(string $url): string
