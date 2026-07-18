@@ -58,12 +58,33 @@ final class ImageCache
     {
         $remoteUrl = trim($remoteUrl);
         if ($remoteUrl === '') {
+            // No URL at all for this photo slot: nothing to download, but
+            // this is worth surfacing too — a previous version of this
+            // method returned silently here (and on the scheme/host check
+            // below), so a whole sync could report "terminée" with zero
+            // photo_errors and refreshed=N even though not a single photo
+            // was ever written to images/listings/, with no way to tell why.
+            self::recordError('empty image URL received for property ' . $propertyId . ', nothing to cache');
             return $remoteUrl;
+        }
+
+        // Lodgify (and some proxies/CDNs) sometimes serve protocol-relative
+        // URLs ("//cdn.example.com/photo.jpg") or HTML-entity-escaped ones
+        // ("&amp;" instead of "&" in the query string); normalize both
+        // before validating, instead of silently treating them as invalid
+        // and falling back to the remote URL without ever attempting a
+        // download.
+        if (str_starts_with($remoteUrl, '//')) {
+            $remoteUrl = 'https:' . $remoteUrl;
+        }
+        if (str_contains($remoteUrl, '&amp;')) {
+            $remoteUrl = html_entity_decode($remoteUrl, ENT_QUOTES | ENT_HTML5);
         }
 
         $scheme = parse_url($remoteUrl, PHP_URL_SCHEME);
         $host = parse_url($remoteUrl, PHP_URL_HOST);
         if (!is_string($scheme) || !in_array(strtolower($scheme), ['http', 'https'], true) || !is_string($host) || $host === '') {
+            self::recordError('invalid or unsupported image URL "' . $remoteUrl . '" for property ' . $propertyId . ' (scheme/host missing), falling back to remote URL as-is');
             return $remoteUrl;
         }
 
