@@ -39,6 +39,18 @@ final class LodgifyClient
      */
     private array $roomFetchErrors = [];
 
+    /**
+     * Records properties for which getProperty() found zero images at all —
+     * neither via "/properties/{id}/rooms" nor the single "image_url"
+     * fallback — so images/listings/{id}/ is legitimately never created
+     * (ImageCache::cache() is simply never called). This case previously
+     * looked identical to a successful sync: no exception, no cache-write
+     * failure, just an empty photo_errors list and "Synchronisation Lodgify
+     * terminée", leaving an admin unable to tell "Lodgify has no photos for
+     * this property" apart from "the sync silently did nothing".
+     */
+    private array $noPhotosWarnings = [];
+
     public function __construct()
     {
         $baseUrl = trim((string) (Settings::get('LODGIFY_BASE_URL') ?? ''));
@@ -115,6 +127,17 @@ final class LodgifyClient
                         'text' => $image['text'],
                     ];
                 }
+            }
+
+            if ($allImages === []) {
+                // Neither the rooms endpoint nor the plain property fetch returned
+                // any image at all: ImageCache::cache() is never called, so
+                // images/listings/{id}/ is legitimately never created. Record this
+                // so refreshAllPropertyDetails() can tell an admin *why* a property
+                // ended up with no local photos, instead of a misleading "terminée"
+                // that looks identical to a real success.
+                unset($this->noPhotosWarnings[$propertyId]);
+                $this->noPhotosWarnings[$propertyId] = true;
             }
 
             $property['images'] = $allImages;
@@ -1116,7 +1139,7 @@ final class LodgifyClient
             if ($propertyId <= 0) {
                 continue;
             }
-            unset($this->roomFetchErrors[$propertyId]);
+            unset($this->roomFetchErrors[$propertyId], $this->noPhotosWarnings[$propertyId]);
             try {
                 $this->getProperty($propertyId);
                 $refreshed++;
@@ -1130,6 +1153,10 @@ final class LodgifyClient
             }
             foreach (ImageCache::drainErrors() as $error) {
                 $photoErrors[] = 'Bien #' . $propertyId . ': ' . $error;
+            }
+            if (isset($this->noPhotosWarnings[$propertyId])) {
+                $photoErrors[] = 'Bien #' . $propertyId . ': aucune photo disponible sur Lodgify (ni via /rooms, ni via image_url) — le dossier images/listings/' . $propertyId . '/ n\'est donc jamais créé, ce n\'est pas une erreur de synchronisation.';
+                unset($this->noPhotosWarnings[$propertyId]);
             }
         }
         return ['refreshed' => $refreshed, 'photo_errors' => $photoErrors];

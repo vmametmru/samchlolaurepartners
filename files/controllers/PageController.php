@@ -725,8 +725,21 @@ final class PageController extends Controller
         // for its own long-running operations.
         @set_time_limit(0);
         $client = new LodgifyClient();
-        $client->invalidate('lodgify:');
-        $details = $client->refreshAllPropertyDetails();
+        try {
+            $client->invalidate('lodgify:');
+            $details = $client->refreshAllPropertyDetails();
+        } catch (\Throwable $e) {
+            error_log('Lodgify sync: aborted before refreshing any property: ' . $e->getMessage());
+            self::redirect('/admin/sync', 'Synchronisation Lodgify échouée : ' . $e->getMessage() . ' (aucun bien n\'a pu être récupéré, aucun dossier images/listings/ n\'a donc été créé).', 'error');
+        }
+        if ($details['refreshed'] === 0 && $details['photo_errors'] === []) {
+            // Lodgify returned zero properties (e.g. empty account, wrong API
+            // key/scope): this used to look identical to a real success
+            // ("Synchronisation Lodgify terminée.") even though nothing at
+            // all was fetched or cached, leaving no clue why images/listings/
+            // stayed empty.
+            self::redirect('/admin/sync', 'Synchronisation Lodgify terminée, mais Lodgify n\'a retourné aucun bien : aucun dossier images/listings/ n\'a donc été créé.', 'error');
+        }
         $photoErrors = $details['photo_errors'];
         if ($photoErrors === []) {
             self::redirect('/admin/sync', 'Synchronisation Lodgify terminée.');
