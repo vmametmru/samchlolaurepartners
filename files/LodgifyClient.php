@@ -121,6 +121,29 @@ final class LodgifyClient
     }
 
     /**
+     * Returns the single remote photo URL for a property, without triggering
+     * getProperty()'s full pipeline (rooms/rate settings fetch + downloading
+     * every gallery image via ImageCache). That heavy path is fine for the
+     * property detail page (cached for a day), but running it synchronously
+     * just to grab one thumbnail for a reservation email risks exceeding
+     * PHP's max_execution_time (each image download alone allows up to 10s),
+     * which kills the whole request — including the email that hadn't been
+     * sent yet. Uses its own short-lived cache key so a slow/failed lookup
+     * here never taints (or is tainted by) the full getProperty() cache.
+     */
+    public function getPropertyPhotoUrl(int $propertyId): string
+    {
+        $cached = $this->remember('lodgify:v2:propertyphoto:' . $propertyId, 3600, function () use ($propertyId): array {
+            $item = $this->request('/properties/' . $propertyId);
+            $property = $this->mapProperty($item);
+            $url = trim((string) ($property['images'][0]['url'] ?? ''));
+            return ['url' => $url];
+        });
+
+        return (string) ($cached['url'] ?? '');
+    }
+
+    /**
      * Fetches and maps "/properties/{id}/rooms" (RoomDetailsDto[]), the only
      * Lodgify v2 endpoint that actually returns per-room photo galleries and
      * categorized amenities — none of which are present on the plain property

@@ -596,8 +596,7 @@ final class ReservationsController extends Controller
         }
 
         try {
-            $property = (new LodgifyClient())->getProperty($propertyId);
-            $photoUrl = trim((string) ($property['images'][0]['url'] ?? ''));
+            $photoUrl = trim((new LodgifyClient())->getPropertyPhotoUrl($propertyId));
         } catch (Throwable $e) {
             error_log('Lodgify: failed to fetch property photo ' . $propertyId . ' for email: ' . $e->getMessage());
             return '';
