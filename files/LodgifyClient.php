@@ -27,6 +27,18 @@ final class LodgifyClient
      */
     private const FICHE_TTL = 315360000;
 
+    /**
+     * Collects "/properties/{id}/rooms" fetch failures recorded by
+     * fetchPropertyRoomsDetails() during the current request, so a manual
+     * sync can report *why* a property ended up with no photos: that
+     * endpoint is the only source of the multi-photo gallery, but its
+     * failure was previously only written to the PHP error log and silently
+     * swallowed (returning []), so refreshAllPropertyDetails() reported a
+     * clean "terminée" even though no photo was ever downloaded for that
+     * property.
+     */
+    private array $roomFetchErrors = [];
+
     public function __construct()
     {
         $baseUrl = trim((string) (Settings::get('LODGIFY_BASE_URL') ?? ''));
@@ -216,6 +228,7 @@ final class LodgifyClient
             $raw = $this->request('/properties/' . $propertyId . '/rooms');
         } catch (\Throwable $e) {
             error_log('Lodgify: failed to fetch rooms for property ' . $propertyId . ': ' . $e->getMessage());
+            $this->roomFetchErrors[$propertyId] = $e->getMessage();
             return [];
         }
         $items = is_array($raw) ? $raw : [];
@@ -1083,8 +1096,16 @@ final class LodgifyClient
      *         populated whenever ImageCache::cache() had to fall back to a
      *         remote Lodgify URL instead of saving a local file (e.g.
      *         permission denied on images/listings/, curl/SSL failure, disk
-     *         full, ...), so callers (the admin sync page) can show the real
+     *         full, ...), or whenever getProperty() itself threw before ever
+     *         reaching the image-caching step (e.g. Lodgify API/network
+     *         error), so callers (the admin sync page) can show the real
      *         reason instead of a silent "done" with nothing actually cached.
+     *         or whenever "/properties/{id}/rooms" (the only source of the
+     *         multi-photo gallery) failed. Previously, both of those
+     *         failures were only written to the PHP error log and swallowed
+     *         here, so the sync page reported "terminée" with zero
+     *         photo_errors even though no (or only a single fallback) photo
+     *         had ever been downloaded for that property.
      */
     public function refreshAllPropertyDetails(): array
     {
@@ -1095,11 +1116,17 @@ final class LodgifyClient
             if ($propertyId <= 0) {
                 continue;
             }
+            unset($this->roomFetchErrors[$propertyId]);
             try {
                 $this->getProperty($propertyId);
                 $refreshed++;
             } catch (\Throwable $e) {
                 error_log('Lodgify sync: failed to refresh property ' . $propertyId . ': ' . $e->getMessage());
+                $photoErrors[] = 'Bien #' . $propertyId . ': échec du rafraîchissement (' . $e->getMessage() . '), aucune photo récupérée';
+            }
+            if (isset($this->roomFetchErrors[$propertyId])) {
+                $photoErrors[] = 'Bien #' . $propertyId . ': échec de récupération des photos (rooms API : ' . $this->roomFetchErrors[$propertyId] . ')';
+                unset($this->roomFetchErrors[$propertyId]);
             }
             foreach (ImageCache::drainErrors() as $error) {
                 $photoErrors[] = 'Bien #' . $propertyId . ': ' . $error;
