@@ -726,8 +726,21 @@ final class PageController extends Controller
         @set_time_limit(0);
         $client = new LodgifyClient();
         $client->invalidate('lodgify:');
-        $client->refreshAllPropertyDetails();
-        self::redirect('/admin/sync', 'Synchronisation Lodgify terminée.');
+        $details = $client->refreshAllPropertyDetails();
+        $photoErrors = $details['photo_errors'];
+        if ($photoErrors === []) {
+            self::redirect('/admin/sync', 'Synchronisation Lodgify terminée.');
+        }
+        // Photos failed to cache locally for at least one property (e.g.
+        // images/listings/ not writable, curl/SSL blocked, disk full, ...):
+        // surface the concrete reason instead of a misleading "terminée"
+        // message that hides the fact nothing was actually saved to disk.
+        $preview = array_slice($photoErrors, 0, 3);
+        $message = 'Synchronisation terminée avec ' . count($photoErrors) . ' erreur(s) de mise en cache des photos : ' . implode(' | ', $preview);
+        if (count($photoErrors) > count($preview)) {
+            $message .= ' … (voir le journal des erreurs pour le détail complet)';
+        }
+        self::redirect('/admin/sync', $message, 'error');
     }
 
     /**

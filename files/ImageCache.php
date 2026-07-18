@@ -15,6 +15,34 @@ final class ImageCache
     public const ALLOWED_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
 
     /**
+     * Collects the reasons behind every cache() call that fell back to the
+     * remote URL during the current request, so a manual sync can report
+     * *why* images/listings/{id}/ ended up empty (permission denied, curl/SSL
+     * failure, disk full, ...) instead of silently succeeding with nothing
+     * written — the failures were previously only visible in the PHP error
+     * log, which most shared-hosting admins can't easily read.
+     */
+    private static array $lastErrors = [];
+
+    /**
+     * Returns and clears the errors collected since the last call, so callers
+     * (e.g. LodgifyClient::refreshAllPropertyDetails()) can report a fresh
+     * batch per sync run.
+     */
+    public static function drainErrors(): array
+    {
+        $errors = self::$lastErrors;
+        self::$lastErrors = [];
+        return $errors;
+    }
+
+    private static function recordError(string $message): void
+    {
+        error_log('ImageCache: ' . $message);
+        self::$lastErrors[] = $message;
+    }
+
+    /**
      * @param int|null $index When given (1-based), the photo is saved under a
      *                        normalized "photoN.ext" filename instead of a
      *                        content-hashed one, so the manual sync always
@@ -51,24 +79,27 @@ final class ImageCache
         }
 
         if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
-            error_log('ImageCache: could not create directory ' . $dir . ', falling back to remote URL');
+            $lastError = error_get_last();
+            self::recordError('could not create directory ' . $dir . ' (' . ($lastError['message'] ?? 'permission denied ?') . '), falling back to remote URL for ' . $remoteUrl);
             return $remoteUrl;
         }
 
-        $data = self::download($remoteUrl);
+        [$data, $downloadError] = self::download($remoteUrl);
         if ($data === null || $data === '') {
-            error_log('ImageCache: download failed for ' . $remoteUrl . ', falling back to remote URL');
+            self::recordError('download failed for ' . $remoteUrl . ' (' . ($downloadError ?: 'unknown error') . '), falling back to remote URL');
             return $remoteUrl;
         }
 
         $tmpPath = $localPath . '.tmp-' . bin2hex(random_bytes(6));
         if (@file_put_contents($tmpPath, $data) === false) {
-            error_log('ImageCache: could not write ' . $tmpPath . ', falling back to remote URL');
+            $lastError = error_get_last();
+            self::recordError('could not write ' . $tmpPath . ' (' . ($lastError['message'] ?? 'permission denied ?') . '), falling back to remote URL for ' . $remoteUrl);
             return $remoteUrl;
         }
         if (!@rename($tmpPath, $localPath)) {
             @unlink($tmpPath);
-            error_log('ImageCache: could not rename ' . $tmpPath . ' to ' . $localPath . ', falling back to remote URL');
+            $lastError = error_get_last();
+            self::recordError('could not rename ' . $tmpPath . ' to ' . $localPath . ' (' . ($lastError['message'] ?? 'permission denied ?') . '), falling back to remote URL for ' . $remoteUrl);
             return $remoteUrl;
         }
 
@@ -82,11 +113,17 @@ final class ImageCache
         return in_array($extension, self::ALLOWED_EXTENSIONS, true) ? '.' . $extension : '.jpg';
     }
 
-    private static function download(string $url): ?string
+    /**
+     * @return array{0: ?string, 1: ?string} [downloaded body or null, error detail or null]
+     */
+    private static function download(string $url): array
     {
+        if (!function_exists('curl_init')) {
+            return [null, 'curl extension is not available on this server'];
+        }
         $ch = curl_init($url);
         if ($ch === false) {
-            return null;
+            return [null, 'curl_init() failed'];
         }
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
@@ -102,10 +139,16 @@ final class ImageCache
         $error = curl_error($ch);
         curl_close($ch);
 
-        if ($body === false || $body === '' || $error !== '' || $status >= 400) {
-            return null;
+        if ($body === false || $error !== '') {
+            return [null, $error !== '' ? $error : 'curl_exec() returned false'];
+        }
+        if ($status >= 400) {
+            return [null, 'HTTP ' . $status];
+        }
+        if ($body === '') {
+            return [null, 'empty response body'];
         }
 
-        return $body;
+        return [$body, null];
     }
 }

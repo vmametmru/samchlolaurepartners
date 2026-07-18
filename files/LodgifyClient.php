@@ -1078,10 +1078,18 @@ final class LodgifyClient
      * and re-cache all the gallery photos shown on each property detail page —
      * otherwise a resync only refreshes property cards and leaves stale/empty
      * detail-page photos until someone happens to open that property's page.
+     *
+     * @return array{refreshed: int, photo_errors: string[]} "photo_errors" is
+     *         populated whenever ImageCache::cache() had to fall back to a
+     *         remote Lodgify URL instead of saving a local file (e.g.
+     *         permission denied on images/listings/, curl/SSL failure, disk
+     *         full, ...), so callers (the admin sync page) can show the real
+     *         reason instead of a silent "done" with nothing actually cached.
      */
-    public function refreshAllPropertyDetails(): int
+    public function refreshAllPropertyDetails(): array
     {
         $refreshed = 0;
+        $photoErrors = [];
         foreach ($this->getProperties() as $property) {
             $propertyId = (int) ($property['id'] ?? 0);
             if ($propertyId <= 0) {
@@ -1093,8 +1101,11 @@ final class LodgifyClient
             } catch (\Throwable $e) {
                 error_log('Lodgify sync: failed to refresh property ' . $propertyId . ': ' . $e->getMessage());
             }
+            foreach (ImageCache::drainErrors() as $error) {
+                $photoErrors[] = 'Bien #' . $propertyId . ': ' . $error;
+            }
         }
-        return $refreshed;
+        return ['refreshed' => $refreshed, 'photo_errors' => $photoErrors];
     }
 
     public function getRawProperties(): array

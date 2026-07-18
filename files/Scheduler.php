@@ -99,10 +99,10 @@ SQL;
             $client = new LodgifyClient();
             $client->invalidate('lodgify:');
             $properties = $client->getProperties();
-            $client->refreshAllPropertyDetails();
-            return ['synced' => count($properties), 'error' => null];
+            $details = $client->refreshAllPropertyDetails();
+            return ['synced' => count($properties), 'error' => null, 'photo_errors' => $details['photo_errors']];
         } catch (\Throwable $e) {
-            return ['synced' => 0, 'error' => $e->getMessage()];
+            return ['synced' => 0, 'error' => $e->getMessage(), 'photo_errors' => []];
         }
     }
 }
