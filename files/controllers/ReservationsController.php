@@ -365,6 +365,7 @@ final class ReservationsController extends Controller
 
         foreach ($normalizedItems as $item) {
             self::sendRequestEmails($partner, [
+                'property_id' => $item['property_id'],
                 'client_name' => $clientName,
                 'client_email' => $clientEmail,
                 'client_phone' => $clientPhone,
@@ -524,6 +525,10 @@ final class ReservationsController extends Controller
             'hebergement' => (string) ($input['property_name'] ?? ''),
             'message' => (string) ($input['message'] ?? ''),
             'partenaire' => (string) ($partner['name'] ?? ''),
+            'photo_bien' => self::propertyPhotoTag(
+                (int) ($input['property_id'] ?? 0),
+                (string) ($input['property_name'] ?? '')
+            ),
         ];
 
         $pdo = Database::connection();
@@ -561,6 +566,10 @@ final class ReservationsController extends Controller
             'hebergement' => (string) $request['property_name'],
             'notes' => $notes ?? '',
             'partenaire' => (string) $partner['name'],
+            'photo_bien' => self::propertyPhotoTag(
+                (int) ($request['property_id'] ?? 0),
+                (string) $request['property_name']
+            ),
         ];
 
         if ($template) {
@@ -578,6 +587,35 @@ final class ReservationsController extends Controller
         $stmt = Database::connection()->prepare('SELECT * FROM partners WHERE id = ? LIMIT 1');
         $stmt->execute([$partnerId]);
         return $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    private static function propertyPhotoTag(int $propertyId, string $propertyName): string
+    {
+        if ($propertyId <= 0) {
+            return '';
+        }
+
+        try {
+            $property = (new LodgifyClient())->getProperty($propertyId);
+            $photoUrl = trim((string) ($property['images'][0]['url'] ?? ''));
+        } catch (Throwable $e) {
+            error_log('Lodgify: failed to fetch property photo ' . $propertyId . ' for email: ' . $e->getMessage());
+            return '';
+        }
+
+        if ($photoUrl === '') {
+            return '';
+        }
+
+        if (!preg_match('#^https?://#i', $photoUrl)) {
+            $baseUrl = Auth::currentBaseUrl();
+            if ($baseUrl === '') {
+                return '';
+            }
+            $photoUrl = $baseUrl . '/' . ltrim($photoUrl, '/');
+        }
+
+        return '<img src="' . htmlspecialchars($photoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($propertyName, ENT_QUOTES, 'UTF-8') . '" width="600" style="display:block;max-width:100%;height:auto;">';
     }
 
     private static function decodeGuests(mixed $guests): array
