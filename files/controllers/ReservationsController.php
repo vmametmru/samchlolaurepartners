@@ -15,6 +15,41 @@ use Throwable;
 final class ReservationsController extends Controller
 {
     /**
+     * Cached result of the reservation_requests.children_under5/children_5to12
+     * column-existence check (see hasChildrenBreakdownColumns()).
+     */
+    private static ?bool $hasChildrenBreakdownColumns = null;
+
+    /**
+     * Whether the reservation_requests table already has the
+     * children_under5/children_5to12 columns (migration 018). Migrator::run()
+     * applies pending migrations automatically on every request, but on some
+     * shared-hosting setups the ALTER TABLE can fail (e.g. a restricted DB
+     * user without ALTER privilege) or simply not have run yet right after a
+     * deploy. Previously the INSERT below always referenced these columns
+     * unconditionally, so a missing migration turned every reservation
+     * request into a hard 500 ("Failed to submit request") and the
+     * notification email was never even attempted. Checking for the columns
+     * first lets the request (and its emails) succeed either way, and the
+     * breakdown columns get populated automatically as soon as the
+     * migration does apply.
+     */
+    private static function hasChildrenBreakdownColumns(PDO $pdo): bool
+    {
+        if (self::$hasChildrenBreakdownColumns !== null) {
+            return self::$hasChildrenBreakdownColumns;
+        }
+        try {
+            $stmt = $pdo->query("SHOW COLUMNS FROM reservation_requests LIKE 'children_under5'");
+            self::$hasChildrenBreakdownColumns = $stmt !== false && $stmt->fetch() !== false;
+        } catch (Throwable $e) {
+            self::$hasChildrenBreakdownColumns = false;
+        }
+
+        return self::$hasChildrenBreakdownColumns;
+    }
+
+    /**
      * Computes a live price estimate (room total + cleaning fee + tourist
      * tax) for the given property/dates/guests so the visitor sees the full
      * cost before sending a reservation request. Used by the property
@@ -196,27 +231,37 @@ final class ReservationsController extends Controller
         $partner = self::requirePartnerContext();
         $pdo = Database::connection();
 
+        $hasBreakdown = self::hasChildrenBreakdownColumns($pdo);
+        $columns = ['partner_id', 'property_id', 'property_name', 'client_name', 'client_email', 'client_phone', 'checkin_date', 'checkout_date', 'adults', 'children'];
+        $params = [
+            (int) $partner['id'],
+            self::nullableString($input['property_id'] ?? null),
+            (string) ($input['property_name'] ?? ''),
+            $clientName,
+            $clientEmail,
+            self::nullableString($input['client_phone'] ?? null),
+            $checkin,
+            $checkout,
+            $adults,
+            (int) ($input['children'] ?? 0),
+        ];
+        if ($hasBreakdown) {
+            $columns[] = 'children_under5';
+            $columns[] = 'children_5to12';
+            $params[] = $childrenUnder5;
+            $params[] = $children5to12;
+        }
+        $columns[] = 'guests';
+        $columns[] = 'message';
+        $params[] = json_encode($input['guests'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $params[] = self::nullableString($input['message'] ?? null);
+
         try {
             $stmt = $pdo->prepare(
-                'INSERT INTO reservation_requests (partner_id, property_id, property_name, client_name, client_email, client_phone, checkin_date, checkout_date, adults, children, children_under5, children_5to12, guests, message)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO reservation_requests (' . implode(', ', $columns) . ')
+                 VALUES (' . implode(', ', array_fill(0, count($params), '?')) . ')'
             );
-            $stmt->execute([
-                (int) $partner['id'],
-                self::nullableString($input['property_id'] ?? null),
-                (string) ($input['property_name'] ?? ''),
-                $clientName,
-                $clientEmail,
-                self::nullableString($input['client_phone'] ?? null),
-                $checkin,
-                $checkout,
-                $adults,
-                (int) ($input['children'] ?? 0),
-                $childrenUnder5,
-                $children5to12,
-                json_encode($input['guests'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-                self::nullableString($input['message'] ?? null),
-            ]);
+            $stmt->execute($params);
             $id = (int) $pdo->lastInsertId();
         } catch (Throwable $e) {
             error_log((string) $e);
@@ -350,12 +395,20 @@ final class ReservationsController extends Controller
 
         try {
             $pdo->beginTransaction();
+            $hasBreakdown = self::hasChildrenBreakdownColumns($pdo);
+            $columns = ['partner_id', 'property_id', 'property_name', 'client_name', 'client_email', 'client_phone', 'checkin_date', 'checkout_date', 'adults', 'children'];
+            if ($hasBreakdown) {
+                $columns[] = 'children_under5';
+                $columns[] = 'children_5to12';
+            }
+            $columns[] = 'guests';
+            $columns[] = 'message';
             $stmt = $pdo->prepare(
-                'INSERT INTO reservation_requests (partner_id, property_id, property_name, client_name, client_email, client_phone, checkin_date, checkout_date, adults, children, children_under5, children_5to12, guests, message)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO reservation_requests (' . implode(', ', $columns) . ')
+                 VALUES (' . implode(', ', array_fill(0, count($columns), '?')) . ')'
             );
             foreach ($normalizedItems as $item) {
-                $stmt->execute([
+                $params = [
                     (int) $partner['id'],
                     (string) $item['property_id'],
                     $item['property_name'],
@@ -366,11 +419,14 @@ final class ReservationsController extends Controller
                     $item['checkout_date'],
                     $adults,
                     $children,
-                    $childrenUnder5,
-                    $children5to12,
-                    $guestsJson,
-                    $message,
-                ]);
+                ];
+                if ($hasBreakdown) {
+                    $params[] = $childrenUnder5;
+                    $params[] = $children5to12;
+                }
+                $params[] = $guestsJson;
+                $params[] = $message;
+                $stmt->execute($params);
                 $createdIds[] = (int) $pdo->lastInsertId();
             }
             $pdo->commit();
