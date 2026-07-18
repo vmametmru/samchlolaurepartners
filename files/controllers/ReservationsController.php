@@ -216,12 +216,22 @@ final class ReservationsController extends Controller
                 self::nullableString($input['message'] ?? null),
             ]);
             $id = (int) $pdo->lastInsertId();
-            self::sendRequestEmails($partner, $input);
-            self::json(['data' => ['id' => $id], 'message' => 'Reservation request submitted'], 201);
         } catch (Throwable $e) {
             error_log((string) $e);
             self::json(['error' => 'Internal Server Error', 'message' => 'Failed to submit request'], 500);
         }
+
+        // The request is already persisted at this point: a notification-email
+        // failure (SMTP down, invalid template, slow Lodgify lookup, ...) must
+        // never turn an otherwise-successful submission into a 500 for the
+        // visitor, who would then wrongly believe nothing was recorded.
+        try {
+            self::sendRequestEmails($partner, $input);
+        } catch (Throwable $e) {
+            error_log('Failed to send reservation request emails: ' . $e);
+        }
+
+        self::json(['data' => ['id' => $id], 'message' => 'Reservation request submitted'], 201);
     }
 
     /**
@@ -363,19 +373,27 @@ final class ReservationsController extends Controller
             self::json(['error' => 'Internal Server Error', 'message' => 'Failed to submit requests'], 500);
         }
 
+        // The requests are already persisted (and committed) at this point: a
+        // notification-email failure must never turn an otherwise-successful
+        // submission into a 500 for the visitor, who would then wrongly
+        // believe nothing was recorded.
         foreach ($normalizedItems as $item) {
-            self::sendRequestEmails($partner, [
-                'property_id' => $item['property_id'],
-                'client_name' => $clientName,
-                'client_email' => $clientEmail,
-                'client_phone' => $clientPhone,
-                'checkin_date' => $item['checkin_date'],
-                'checkout_date' => $item['checkout_date'],
-                'adults' => $adults,
-                'children' => $children,
-                'property_name' => $item['property_name'],
-                'message' => $message,
-            ]);
+            try {
+                self::sendRequestEmails($partner, [
+                    'property_id' => $item['property_id'],
+                    'client_name' => $clientName,
+                    'client_email' => $clientEmail,
+                    'client_phone' => $clientPhone,
+                    'checkin_date' => $item['checkin_date'],
+                    'checkout_date' => $item['checkout_date'],
+                    'adults' => $adults,
+                    'children' => $children,
+                    'property_name' => $item['property_name'],
+                    'message' => $message,
+                ]);
+            } catch (Throwable $e) {
+                error_log('Failed to send reservation request emails: ' . $e);
+            }
         }
 
         self::json(['data' => ['ids' => $createdIds], 'message' => 'Reservation requests submitted'], 201);
@@ -445,13 +463,21 @@ final class ReservationsController extends Controller
                  ON DUPLICATE KEY UPDATE confirmed_at = NOW(), cancelled_at = NULL, notes = VALUES(notes)'
             )->execute([$id, $partnerId, $notes]);
             $pdo->prepare("UPDATE reservation_requests SET status = 'confirmed', updated_at = NOW() WHERE id = ?")->execute([$id]);
-            $partner = self::fetchPartner((int) $partnerId);
-            self::sendReservationStatusEmail($partner, $request, 'RESERVATION_CONFIRMED', $notes);
-            self::json(['data' => null, 'message' => 'Reservation confirmed']);
         } catch (Throwable $e) {
             error_log((string) $e);
             self::json(['error' => 'Internal Server Error', 'message' => 'Failed to confirm reservation'], 500);
         }
+
+        // The confirmation is already persisted: a notification-email failure
+        // must not turn an otherwise-successful confirmation into a 500.
+        try {
+            $partner = self::fetchPartner((int) $partnerId);
+            self::sendReservationStatusEmail($partner, $request, 'RESERVATION_CONFIRMED', $notes);
+        } catch (Throwable $e) {
+            error_log('Failed to send reservation confirmation email: ' . $e);
+        }
+
+        self::json(['data' => null, 'message' => 'Reservation confirmed']);
     }
 
     public static function cancel(int $id): never
@@ -469,13 +495,21 @@ final class ReservationsController extends Controller
         try {
             $pdo->prepare('UPDATE reservations SET cancelled_at = NOW() WHERE request_id = ?')->execute([$id]);
             $pdo->prepare("UPDATE reservation_requests SET status = 'cancelled', updated_at = NOW() WHERE id = ?")->execute([$id]);
-            $partner = self::fetchPartner((int) $partnerId);
-            self::sendReservationStatusEmail($partner, $request, 'RESERVATION_CANCELLED', null);
-            self::json(['data' => null, 'message' => 'Reservation cancelled']);
         } catch (Throwable $e) {
             error_log((string) $e);
             self::json(['error' => 'Internal Server Error', 'message' => 'Failed to cancel reservation'], 500);
         }
+
+        // The cancellation is already persisted: a notification-email failure
+        // must not turn an otherwise-successful cancellation into a 500.
+        try {
+            $partner = self::fetchPartner((int) $partnerId);
+            self::sendReservationStatusEmail($partner, $request, 'RESERVATION_CANCELLED', null);
+        } catch (Throwable $e) {
+            error_log('Failed to send reservation cancellation email: ' . $e);
+        }
+
+        self::json(['data' => null, 'message' => 'Reservation cancelled']);
     }
 
     public static function listForPartner(int $partnerId): array
