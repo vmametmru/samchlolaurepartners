@@ -1107,28 +1107,123 @@ final class LodgifyClient
     }
 
     /**
-     * Refreshes the per-property detail cache (name, description, full images
-     * gallery, ...) for every known property. getProperties() only fetches the
-     * compact list endpoint, which Lodgify limits to a single image per
-     * property, so the "sync" action needs this extra pass to actually reload
-     * and re-cache all the gallery photos shown on each property detail page —
-     * otherwise a resync only refreshes property cards and leaves stale/empty
-     * detail-page photos until someone happens to open that property's page.
+     * Clears every cache entry specific to a single property (fiche, rooms/
+     * photos gallery, room-type id, v1 sofa-bed lookup), without touching the
+     * aggregate "/properties" list cache or any other property. Used by the
+     * one-by-one manual sync so each property can be re-fetched and re-cached
+     * independently, in its own short HTTP request, instead of a single
+     * invalidate('lodgify:') + refreshAllPropertyDetails() pass that has to
+     * fetch and download photos for every property before the request can
+     * return — which risks being killed by the web server/PHP-FPM's hard
+     * timeout on shared hosting long before it finishes, silently leaving
+     * later properties in the list with stale or missing photos.
+     */
+    public function invalidateProperty(int $propertyId): void
+    {
+        $stmt = Database::connection()->prepare('DELETE FROM lodgify_cache WHERE cache_key IN (?, ?, ?, ?)');
+        $stmt->execute([
+            'lodgify:v2:property:' . $propertyId,
+            'lodgify:v2:rooms:' . $propertyId,
+            'lodgify:v2:roomtype:' . $propertyId,
+            'lodgify:v1:sofabeds:' . $propertyId,
+        ]);
+    }
+
+    /**
+     * Fresh (uncached), lightweight "/properties" list fetch used to drive
+     * the one-by-one manual sync UI: only id/name are needed to build the
+     * per-property progress list, so this deliberately skips the per-property
+     * room-capacity enrichment that getProperties() performs (which issues an
+     * extra "/properties/{id}/rooms" call per property and can itself be slow
+     * for large accounts).
      *
-     * @return array{refreshed: int, photo_errors: string[]} "photo_errors" is
+     * @return array<int, array{id: int, name: string}>
+     */
+    public function getPropertyIdsForSync(): array
+    {
+        $data = $this->request('/properties');
+        $items = is_array($data['items'] ?? null) ? $data['items'] : (is_array($data) ? $data : []);
+        $result = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $id = (int) ($item['id'] ?? 0);
+            if ($id <= 0) {
+                continue;
+            }
+            $result[] = ['id' => $id, 'name' => (string) ($item['name'] ?? ('Bien #' . $id))];
+        }
+        return $result;
+    }
+
+    /**
+     * Refreshes the detail cache (name, description, full images gallery,
+     * ...) of a single property and re-downloads its photo gallery, renaming
+     * each file sequentially (photo1.ext, photo2.ext, ...) under
+     * images/listings/{id}/ (see ImageCache::cache()). This is the building
+     * block used by both the one-by-one manual sync (one HTTP request per
+     * property, so a slow/large property or a Lodgify hiccup never blocks or
+     * times out the rest of the sync) and refreshAllPropertyDetails() (kept
+     * for callers that still want a single all-in-one pass, e.g. scripts).
+     *
+     * @return array{ok: bool, photo_errors: string[]} "photo_errors" is
      *         populated whenever ImageCache::cache() had to fall back to a
      *         remote Lodgify URL instead of saving a local file (e.g.
      *         permission denied on images/listings/, curl/SSL failure, disk
-     *         full, ...), or whenever getProperty() itself threw before ever
+     *         full, ...), whenever getProperty() itself threw before ever
      *         reaching the image-caching step (e.g. Lodgify API/network
-     *         error), so callers (the admin sync page) can show the real
-     *         reason instead of a silent "done" with nothing actually cached.
-     *         or whenever "/properties/{id}/rooms" (the only source of the
-     *         multi-photo gallery) failed. Previously, both of those
-     *         failures were only written to the PHP error log and swallowed
-     *         here, so the sync page reported "terminée" with zero
-     *         photo_errors even though no (or only a single fallback) photo
-     *         had ever been downloaded for that property.
+     *         error), or whenever "/properties/{id}/rooms" (the only source
+     *         of the multi-photo gallery) failed — so callers can show the
+     *         real reason instead of a silent "done" with nothing actually
+     *         cached.
+     */
+    public function refreshPropertyDetail(int $propertyId): array
+    {
+        $photoErrors = [];
+        unset($this->roomFetchErrors[$propertyId], $this->noPhotosWarnings[$propertyId]);
+        $ok = true;
+        try {
+            $this->getProperty($propertyId);
+        } catch (\Throwable $e) {
+            $ok = false;
+            error_log('Lodgify sync: failed to refresh property ' . $propertyId . ': ' . $e->getMessage());
+            $photoErrors[] = 'Bien #' . $propertyId . ': échec du rafraîchissement (' . $e->getMessage() . '), aucune photo récupérée';
+        }
+        if (isset($this->roomFetchErrors[$propertyId])) {
+            $photoErrors[] = 'Bien #' . $propertyId . ': échec de récupération des photos (rooms API : ' . $this->roomFetchErrors[$propertyId] . ')';
+            unset($this->roomFetchErrors[$propertyId]);
+        }
+        foreach (ImageCache::drainErrors() as $error) {
+            $photoErrors[] = 'Bien #' . $propertyId . ': ' . $error;
+        }
+        if (isset($this->noPhotosWarnings[$propertyId])) {
+            $photoErrors[] = 'Bien #' . $propertyId . ': aucune photo disponible sur Lodgify (ni via /rooms, ni via image_url) — le dossier images/listings/' . $propertyId . '/ n\'est donc jamais créé, ce n\'est pas une erreur de synchronisation.';
+            unset($this->noPhotosWarnings[$propertyId]);
+        }
+        return ['ok' => $ok, 'photo_errors' => $photoErrors];
+    }
+
+    /**
+     * Refreshes the per-property detail cache (name, description, full images
+     * gallery, ...) for every known property in a single pass. getProperties()
+     * only fetches the compact list endpoint, which Lodgify limits to a
+     * single image per property, so the "sync" action needs this extra pass
+     * to actually reload and re-cache all the gallery photos shown on each
+     * property detail page — otherwise a resync only refreshes property cards
+     * and leaves stale/empty detail-page photos until someone happens to open
+     * that property's page.
+     *
+     * Prefer driving the sync one property at a time (getPropertyIdsForSync()
+     * + invalidateProperty()/refreshPropertyDetail() per id, from a
+     * short-lived request each) over calling this in a single admin request:
+     * with many properties, downloading every gallery photo for the whole
+     * account in one HTTP request can exceed the web server's hard execution
+     * timeout on shared hosting, silently leaving the properties processed
+     * last without any photo. This method is kept for callers (e.g. CLI
+     * scripts) that don't have that constraint.
+     *
+     * @return array{refreshed: int, photo_errors: string[]}
      */
     public function refreshAllPropertyDetails(): array
     {
@@ -1139,25 +1234,11 @@ final class LodgifyClient
             if ($propertyId <= 0) {
                 continue;
             }
-            unset($this->roomFetchErrors[$propertyId], $this->noPhotosWarnings[$propertyId]);
-            try {
-                $this->getProperty($propertyId);
+            $result = $this->refreshPropertyDetail($propertyId);
+            if ($result['ok']) {
                 $refreshed++;
-            } catch (\Throwable $e) {
-                error_log('Lodgify sync: failed to refresh property ' . $propertyId . ': ' . $e->getMessage());
-                $photoErrors[] = 'Bien #' . $propertyId . ': échec du rafraîchissement (' . $e->getMessage() . '), aucune photo récupérée';
             }
-            if (isset($this->roomFetchErrors[$propertyId])) {
-                $photoErrors[] = 'Bien #' . $propertyId . ': échec de récupération des photos (rooms API : ' . $this->roomFetchErrors[$propertyId] . ')';
-                unset($this->roomFetchErrors[$propertyId]);
-            }
-            foreach (ImageCache::drainErrors() as $error) {
-                $photoErrors[] = 'Bien #' . $propertyId . ': ' . $error;
-            }
-            if (isset($this->noPhotosWarnings[$propertyId])) {
-                $photoErrors[] = 'Bien #' . $propertyId . ': aucune photo disponible sur Lodgify (ni via /rooms, ni via image_url) — le dossier images/listings/' . $propertyId . '/ n\'est donc jamais créé, ce n\'est pas une erreur de synchronisation.';
-                unset($this->noPhotosWarnings[$propertyId]);
-            }
+            array_push($photoErrors, ...$result['photo_errors']);
         }
         return ['refreshed' => $refreshed, 'photo_errors' => $photoErrors];
     }
