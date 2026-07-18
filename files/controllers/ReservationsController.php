@@ -163,6 +163,8 @@ final class ReservationsController extends Controller
         $checkout = trim((string) ($input['checkout_date'] ?? ''));
         $adults = (int) ($input['adults'] ?? 0);
         $propertyId = (int) ($input['property_id'] ?? 0);
+        $childrenUnder5 = max(0, (int) ($input['children_under5'] ?? 0));
+        $children5to12 = max(0, (int) ($input['children_5to12'] ?? 0));
 
         if ($clientName === '' || $clientEmail === '' || $checkin === '' || $checkout === '' || $adults === 0) {
             self::json(['error' => 'Bad Request', 'message' => 'Required fields missing'], 400);
@@ -176,8 +178,6 @@ final class ReservationsController extends Controller
         // exceeds it, so a visitor cannot book more guests than the
         // property can actually accommodate.
         if ($propertyId > 0) {
-            $childrenUnder5 = max(0, (int) ($input['children_under5'] ?? 0));
-            $children5to12 = max(0, (int) ($input['children_5to12'] ?? 0));
             $totalGuests = $adults + $childrenUnder5 + $children5to12;
             try {
                 $property = (new LodgifyClient())->getProperty($propertyId);
@@ -198,8 +198,8 @@ final class ReservationsController extends Controller
 
         try {
             $stmt = $pdo->prepare(
-                'INSERT INTO reservation_requests (partner_id, property_id, property_name, client_name, client_email, client_phone, checkin_date, checkout_date, adults, children, guests, message)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO reservation_requests (partner_id, property_id, property_name, client_name, client_email, client_phone, checkin_date, checkout_date, adults, children, children_under5, children_5to12, guests, message)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
             $stmt->execute([
                 (int) $partner['id'],
@@ -212,6 +212,8 @@ final class ReservationsController extends Controller
                 $checkout,
                 $adults,
                 (int) ($input['children'] ?? 0),
+                $childrenUnder5,
+                $children5to12,
                 json_encode($input['guests'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
                 self::nullableString($input['message'] ?? null),
             ]);
@@ -226,7 +228,10 @@ final class ReservationsController extends Controller
         // never turn an otherwise-successful submission into a 500 for the
         // visitor, who would then wrongly believe nothing was recorded.
         try {
-            self::sendRequestEmails($partner, $input);
+            self::sendRequestEmails($partner, $input + [
+                'children_under5' => $childrenUnder5,
+                'children_5to12' => $children5to12,
+            ]);
         } catch (Throwable $e) {
             error_log('Failed to send reservation request emails: ' . $e);
         }
@@ -346,8 +351,8 @@ final class ReservationsController extends Controller
         try {
             $pdo->beginTransaction();
             $stmt = $pdo->prepare(
-                'INSERT INTO reservation_requests (partner_id, property_id, property_name, client_name, client_email, client_phone, checkin_date, checkout_date, adults, children, guests, message)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO reservation_requests (partner_id, property_id, property_name, client_name, client_email, client_phone, checkin_date, checkout_date, adults, children, children_under5, children_5to12, guests, message)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
             foreach ($normalizedItems as $item) {
                 $stmt->execute([
@@ -361,6 +366,8 @@ final class ReservationsController extends Controller
                     $item['checkout_date'],
                     $adults,
                     $children,
+                    $childrenUnder5,
+                    $children5to12,
                     $guestsJson,
                     $message,
                 ]);
@@ -388,6 +395,8 @@ final class ReservationsController extends Controller
                     'checkout_date' => $item['checkout_date'],
                     'adults' => $adults,
                     'children' => $children,
+                    'children_under5' => $childrenUnder5,
+                    'children_5to12' => $children5to12,
                     'property_name' => $item['property_name'],
                     'message' => $message,
                 ]);
@@ -551,20 +560,24 @@ final class ReservationsController extends Controller
             (int) ($input['property_id'] ?? 0),
             (string) ($input['property_name'] ?? '')
         );
+        $checkin = (string) ($input['checkin_date'] ?? '');
+        $checkout = (string) ($input['checkout_date'] ?? '');
         $variables = [
             'nom_client' => (string) ($input['client_name'] ?? ''),
             'email_client' => (string) ($input['client_email'] ?? ''),
             'telephone_client' => (string) ($input['client_phone'] ?? ''),
-            'dates' => (string) ($input['checkin_date'] ?? '') . ' → ' . (string) ($input['checkout_date'] ?? ''),
-            'date_arrivee' => (string) ($input['checkin_date'] ?? ''),
-            'date_depart' => (string) ($input['checkout_date'] ?? ''),
             'adultes' => (string) ($input['adults'] ?? 0),
-            'enfants' => (string) ($input['children'] ?? 0),
             'hebergement' => (string) ($input['property_name'] ?? ''),
             'message' => (string) ($input['message'] ?? ''),
             'partenaire' => (string) ($partner['name'] ?? ''),
             'photo_bien' => $photo['html'],
         ];
+        $variables += self::stayVariables(
+            $checkin,
+            $checkout,
+            (int) ($input['children_under5'] ?? 0),
+            (int) ($input['children_5to12'] ?? ($input['children'] ?? 0))
+        );
         $variables += self::signatureVariables((int) ($partner['id'] ?? 0));
         $embeds = $photo['embed'] !== null ? [$photo['embed']] : [];
 
@@ -599,16 +612,18 @@ final class ReservationsController extends Controller
         $variables = [
             'nom_client' => (string) $request['client_name'],
             'email_client' => (string) $request['client_email'],
-            'dates' => (string) $request['checkin_date'] . ' → ' . (string) $request['checkout_date'],
-            'date_arrivee' => (string) $request['checkin_date'],
-            'date_depart' => (string) $request['checkout_date'],
             'adultes' => (string) $request['adults'],
-            'enfants' => (string) $request['children'],
             'hebergement' => (string) $request['property_name'],
             'notes' => $notes ?? '',
             'partenaire' => (string) $partner['name'],
             'photo_bien' => $photo['html'],
         ];
+        $variables += self::stayVariables(
+            (string) $request['checkin_date'],
+            (string) $request['checkout_date'],
+            (int) ($request['children_under5'] ?? 0),
+            (int) ($request['children_5to12'] ?? ($request['children'] ?? 0))
+        );
         $variables += self::signatureVariables((int) ($partner['id'] ?? 0));
         $embeds = $photo['embed'] !== null ? [$photo['embed']] : [];
 
@@ -620,6 +635,83 @@ final class ReservationsController extends Controller
         if ($type === 'RESERVATION_CONFIRMED') {
             Mailer::sendRawEmail($partner, (string) $request['client_email'], 'Votre réservation est confirmée - ' . (string) $partner['name'], '<p>Bonjour ' . htmlspecialchars((string) $request['client_name']) . ',</p><p>Votre réservation pour ' . htmlspecialchars((string) $request['property_name']) . ' du ' . htmlspecialchars((string) $request['checkin_date']) . ' au ' . htmlspecialchars((string) $request['checkout_date']) . ' est confirmée.</p><p>Cordialement,<br>' . htmlspecialchars((string) $partner['name']) . '</p>');
         }
+    }
+
+    /**
+     * Builds the stay-related email variables shared by every reservation
+     * email: {{dates}}, {{date_arrivee}}, {{date_depart}} (formatted as
+     * "ddd dd mmm yyyy", e.g. "mer. 12 août 2026"), {{nuits}} (number of
+     * nights) and {{enfants}}/{{bebes}} (5-12 years / under 5 years),
+     * always defaulting numeric values to 0 instead of leaving the
+     * placeholder unresolved when a field is empty.
+     */
+    private static function stayVariables(string $checkin, string $checkout, int $childrenUnder5, int $children5to12): array
+    {
+        $childrenUnder5 = max(0, $childrenUnder5);
+        $children5to12 = max(0, $children5to12);
+        $formattedCheckin = self::formatDateFr($checkin);
+        $formattedCheckout = self::formatDateFr($checkout);
+        $nights = self::nightsBetween($checkin, $checkout);
+
+        return [
+            'dates' => 'Du ' . $formattedCheckin . ' -> ' . $formattedCheckout,
+            'date_arrivee' => $formattedCheckin,
+            'date_depart' => $formattedCheckout,
+            'nuits' => (string) $nights,
+            'enfants' => (string) $children5to12,
+            'bebes' => (string) $childrenUnder5,
+        ];
+    }
+
+    /**
+     * Formats an ISO ("Y-m-d") date as "ddd dd mmm yyyy" in French (e.g.
+     * "mer. 12 août 2026"), so reservation emails never show the raw
+     * database date format. Falls back to the original (unformatted) value
+     * when it isn't a valid date, rather than throwing.
+     */
+    private static function formatDateFr(string $isoDate): string
+    {
+        $isoDate = trim($isoDate);
+        if ($isoDate === '') {
+            return '';
+        }
+        try {
+            $date = new \DateTimeImmutable($isoDate);
+        } catch (Throwable $e) {
+            return $isoDate;
+        }
+
+        $days = ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.'];
+        $months = [
+            1 => 'janv.', 2 => 'févr.', 3 => 'mars', 4 => 'avr.', 5 => 'mai', 6 => 'juin',
+            7 => 'juil.', 8 => 'août', 9 => 'sept.', 10 => 'oct.', 11 => 'nov.', 12 => 'déc.',
+        ];
+
+        $dayName = $days[(int) $date->format('w')];
+        $monthName = $months[(int) $date->format('n')];
+
+        return $dayName . ' ' . $date->format('d') . ' ' . $monthName . ' ' . $date->format('Y');
+    }
+
+    /**
+     * Number of nights between two ISO dates, defaulting to 0 (rather than a
+     * negative number or an exception) whenever the dates are missing or
+     * invalid, so {{nuits}} always shows a sane value in emails.
+     */
+    private static function nightsBetween(string $checkin, string $checkout): int
+    {
+        if ($checkin === '' || $checkout === '') {
+            return 0;
+        }
+        try {
+            $checkinDate = new \DateTimeImmutable($checkin);
+            $checkoutDate = new \DateTimeImmutable($checkout);
+        } catch (Throwable $e) {
+            return 0;
+        }
+
+        $nights = (int) $checkinDate->diff($checkoutDate)->days;
+        return max(0, $nights);
     }
 
     private static function fetchPartner(int $partnerId): array
@@ -660,7 +752,11 @@ final class ReservationsController extends Controller
         }
 
         $cid = 'property-photo-' . $propertyId . '-' . bin2hex(random_bytes(4)) . '@local';
-        $html = '<img src="cid:' . htmlspecialchars($cid, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($propertyName, ENT_QUOTES, 'UTF-8') . '" width="320" style="display:block;max-width:320px;width:100%;height:auto;">';
+        // width:100% previously made the 320px thumbnail stretch to fill the
+        // surrounding email container in most mail clients (inline style
+        // wins over the width attribute), defeating the point of a fixed
+        // 320px thumbnail. Use a fixed width instead.
+        $html = '<img src="cid:' . htmlspecialchars($cid, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($propertyName, ENT_QUOTES, 'UTF-8') . '" width="320" style="display:block;width:320px;max-width:320px;height:auto;">';
 
         return [
             'html' => $html,

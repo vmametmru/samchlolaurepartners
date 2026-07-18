@@ -19,6 +19,14 @@ final class ImageCache
     public const THUMBNAIL_SUFFIX = '-320.jpg';
 
     /**
+     * Maximum width (px) allowed for a synced full-size photo. Images wider
+     * than this are downscaled (preserving aspect ratio and original
+     * format) before being written to images/listings/; images already at
+     * or below this width are left untouched at their original resolution.
+     */
+    public const MAX_PHOTO_WIDTH = 1920;
+
+    /**
      * Collects the reasons behind every cache() call that fell back to the
      * remote URL during the current request, so a manual sync can report
      * *why* images/listings/{id}/ ended up empty (permission denied, curl/SSL
@@ -115,6 +123,13 @@ final class ImageCache
             return $remoteUrl;
         }
 
+        // Downscale full-size photos wider than MAX_PHOTO_WIDTH before
+        // saving, so a single very large Lodgify export doesn't bloat the
+        // gallery/emails; images already narrower are kept at their
+        // original resolution (never upscaled). Failures here are
+        // non-fatal: the original bytes are saved as-is if resizing fails.
+        $data = self::resizeIfTooWide($data, self::MAX_PHOTO_WIDTH);
+
         $tmpPath = $localPath . '.tmp-' . bin2hex(random_bytes(6));
         if (@file_put_contents($tmpPath, $data) === false) {
             $lastError = error_get_last();
@@ -199,6 +214,73 @@ final class ImageCache
         }
 
         return true;
+    }
+
+    /**
+     * Downscales $data to at most $maxWidth px wide, preserving aspect ratio
+     * and the original image format (JPEG/PNG/GIF/WEBP), so the saved
+     * full-size photo keeps its original type instead of always becoming a
+     * JPEG like the email thumbnail does. Returns the original $data
+     * unchanged whenever: GD is unavailable, the image can't be decoded,
+     * its width is already <= $maxWidth (never upscaled), or re-encoding
+     * fails for any reason — resizing is a best-effort optimization, not a
+     * requirement for the photo to be saved.
+     */
+    private static function resizeIfTooWide(string $data, int $maxWidth): string
+    {
+        if (!function_exists('imagecreatefromstring')) {
+            return $data;
+        }
+
+        $info = @getimagesizefromstring($data);
+        if ($info === false) {
+            return $data;
+        }
+        [$srcWidth, $srcHeight] = $info;
+        $type = $info[2] ?? null;
+        if ($srcWidth <= 0 || $srcHeight <= 0 || $srcWidth <= $maxWidth) {
+            return $data;
+        }
+
+        $source = @imagecreatefromstring($data);
+        if ($source === false) {
+            self::recordError('could not decode image data while checking resize (width ' . $srcWidth . 'px)');
+            return $data;
+        }
+
+        $targetHeight = max(1, (int) round($srcHeight * ($maxWidth / $srcWidth)));
+        $resized = imagecreatetruecolor($maxWidth, $targetHeight);
+
+        // Preserve transparency for formats that support it instead of
+        // flattening onto a background color, since (unlike the email
+        // thumbnail) this stays in the original format.
+        if ($type === IMAGETYPE_PNG || $type === IMAGETYPE_GIF || (defined('IMAGETYPE_WEBP') && $type === IMAGETYPE_WEBP)) {
+            imagealphablending($resized, false);
+            imagesavealpha($resized, true);
+            $transparent = imagecolorallocatealpha($resized, 0, 0, 0, 127);
+            imagefill($resized, 0, 0, $transparent);
+        }
+
+        imagecopyresampled($resized, $source, 0, 0, 0, 0, $maxWidth, $targetHeight, $srcWidth, $srcHeight);
+        imagedestroy($source);
+
+        ob_start();
+        $ok = match ($type) {
+            IMAGETYPE_PNG => imagepng($resized, null, 9),
+            IMAGETYPE_GIF => imagegif($resized),
+            IMAGETYPE_WEBP => function_exists('imagewebp') ? imagewebp($resized, null, 90) : false,
+            IMAGETYPE_JPEG => imagejpeg($resized, null, 90),
+            default => false,
+        };
+        $encoded = ob_get_clean();
+        imagedestroy($resized);
+
+        if (!$ok || $encoded === false || $encoded === '') {
+            self::recordError('could not re-encode resized image (width ' . $srcWidth . 'px -> ' . $maxWidth . 'px)');
+            return $data;
+        }
+
+        return $encoded;
     }
 
     private static function extensionFromUrl(string $url): string
