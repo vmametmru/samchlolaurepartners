@@ -72,6 +72,7 @@ img { max-width: 100%; display: block; }
 .logo-preview-small { width: 56px; height: 56px; object-fit: contain; border: 1px solid var(--border); border-radius: .7rem; background: #fff; padding: .25rem; }
 .logo-remove-chip { display: inline-flex; align-items: center; gap: .3rem; font-size: .85rem; color: var(--muted); cursor: pointer; }
 .logo-remove-chip input { margin: 0; }
+.partner-logo-thumb { width: 40px; height: 40px; object-fit: contain; border: 1px solid var(--border); border-radius: .5rem; background: #fff; padding: .2rem; flex-shrink: 0; }
 .danger { color: var(--red); border-color: #fecaca; }
 .input, textarea, select { width: 100%; border: 1px solid #d1d5db; border-radius: .8rem; padding: .72rem .85rem; font: inherit; background: white; color: var(--text); }
 .input:focus, textarea:focus, select:focus { outline: 2px solid rgba(230,30,77,.18); border-color: var(--brand); }

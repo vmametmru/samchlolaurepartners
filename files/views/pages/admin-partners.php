@@ -14,7 +14,7 @@ $usersByPartner = $usersByPartner ?? [];
       <tbody>
       <?php foreach ($partners as $partnerRow): ?>
         <tr>
-          <td><?= \App\View::e($partnerRow['name']) ?></td>
+          <td style="display:flex;align-items:center;gap:.5rem;"><?php if (!empty($partnerRow['logo_url'])): ?><img class="partner-logo-thumb" src="<?= \App\View::e($partnerRow['logo_url']) ?>" alt=""><?php endif; ?><?= \App\View::e($partnerRow['name']) ?></td>
           <td><code><?= \App\View::e($partnerRow['subdomain']) ?></code></td>
           <td><?= \App\View::e($partnerRow['email']) ?></td>
           <td><?= \App\View::e((string) $partnerRow['markup_percent']) ?>%</td>
