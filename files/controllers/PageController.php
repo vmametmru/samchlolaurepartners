@@ -246,8 +246,8 @@ final class PageController extends Controller
         reset($dates);
 
         // To reserve several properties in a few clicks, the visitor must
-        // first tell us the party size (adults + children under 5 + children
-        // 5-12). The properties table is only loaded/shown once at least one
+        // first tell us the party size (adults + children under 3 + children
+        // 3-12). The properties table is only loaded/shown once at least one
         // adult is provided, so a property's capacity can be compared against
         // that party size before any date is even clickable.
         $adults = max(0, (int) ($_GET['adults'] ?? 0));

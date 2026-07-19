@@ -56,22 +56,22 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
             </label>
           </div>
           <div class="guest-slide-item" data-guest-slide-item="children_3to12">
-            <button type="button" class="guest-slide-summary" data-guest-slide-summary aria-label="Enfant(s) 5-12 ans">
+            <button type="button" class="guest-slide-summary" data-guest-slide-summary aria-label="Enfant(s) 3-12 ans">
               <span class="guest-slide-icon" aria-hidden="true">🧒</span>
               <span class="guest-slide-count" data-guest-slide-count><?= (int) $children3to12 ?></span>
             </button>
             <label class="guest-slide-input-wrap">
-              <span class="guest-slide-field-label">Enfant(s) 5-12 ans</span>
+              <span class="guest-slide-field-label">Enfant(s) 3-12 ans</span>
               <input class="input guest-slide-input" type="number" name="children_3to12" min="0" max="20" value="<?= (int) $children3to12 ?>" data-guest-slide-input>
             </label>
           </div>
           <div class="guest-slide-item" data-guest-slide-item="children_under3">
-            <button type="button" class="guest-slide-summary" data-guest-slide-summary aria-label="Bébé(s) -5 ans">
+            <button type="button" class="guest-slide-summary" data-guest-slide-summary aria-label="Bébé(s) -3 ans">
               <span class="guest-slide-icon" aria-hidden="true">👶</span>
               <span class="guest-slide-count" data-guest-slide-count><?= (int) $childrenUnder3 ?></span>
             </button>
             <label class="guest-slide-input-wrap">
-              <span class="guest-slide-field-label">Bébé(s) -5 ans</span>
+              <span class="guest-slide-field-label">Bébé(s) -3 ans</span>
               <input class="input guest-slide-input" type="number" name="children_under3" min="0" max="20" value="<?= (int) $childrenUnder3 ?>" data-guest-slide-input>
             </label>
           </div>

@@ -636,7 +636,7 @@ function initApiForms() {
         }
         const maxGuests = Number(form.dataset.maxGuests || 0);
         if (maxGuests > 0) {
-          const total = ['adults', 'children_3to12']
+          const total = ['adults', 'children_under3', 'children_3to12']
             .reduce((sum, name) => sum + Number(form.querySelector(`[name="${name}"]`)?.value || 0), 0);
           if (total > maxGuests) {
             if (feedback) feedback.textContent = `Ce logement peut accueillir au maximum ${maxGuests} personne(s). Veuillez réduire le nombre de voyageurs.`;
