@@ -39,6 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initHelpDialogs,
     initMultiPropertyCart,
     initPartnerCodeFromHash,
+    initHeroSearchCollapse,
   ].forEach(runInit);
 });
 
@@ -1509,6 +1510,21 @@ function initMultiPropertyCart() {
 // auto-filling the input (and the target sub-page, if any) and submitting
 // the real form so the server sets the partner_code cookie and redirects
 // there (see PageController::submitPartnerCode()).
+// On the homepage, once a search has been performed (server-rendered with
+// results below), collapse the tall fullscreen hero down to a slim search
+// bar so the results/map appear higher on the page — the background video
+// keeps playing (it's position:fixed, sized independently of .hero-video).
+// The section starts in its tall state and the 'hero-video--compact' class
+// is added a frame later so the CSS transition actually animates the
+// collapse instead of snapping straight to the compact state on load.
+function initHeroSearchCollapse() {
+  const hero = document.querySelector('.hero-video[data-searched="1"]');
+  if (!hero) return;
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => hero.classList.add('hero-video--compact'));
+  });
+}
+
 function initPartnerCodeFromHash() {
   const form = document.querySelector('form[action="/partner-code"]');
   if (!form) return;

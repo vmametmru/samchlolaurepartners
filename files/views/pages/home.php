@@ -22,7 +22,7 @@ try {
     // Keep the plain /calendrier fallback if dates are invalid.
 }
 ?>
-<section class="hero hero-video">
+<section class="hero hero-video"<?= $searched ? ' data-searched="1"' : '' ?>>
   <video class="hero-video-bg" src="/medias/home.mp4" autoplay muted loop playsinline preload="auto"></video>
   <div class="hero-video-overlay"></div>
   <div class="container hero-inner">
@@ -40,7 +40,8 @@ try {
     </form>
   </div>
 </section>
-<section class="container section-lg">
+<section class="home-results">
+  <div class="container section-lg">
   <?php if (!$searched): ?>
     <p class="empty-state">Utilisez la recherche ci-dessus pour trouver des hébergements disponibles.</p>
   <?php else: ?>
@@ -67,4 +68,5 @@ try {
       <?php endif; ?>
     </div>
   <?php endif; ?>
+  </div>
 </section>
