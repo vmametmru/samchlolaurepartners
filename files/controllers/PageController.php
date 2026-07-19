@@ -48,6 +48,7 @@ final class PageController extends Controller
 
         $properties = [];
         $searched = false;
+        $capacityExceeded = false;
         if (!empty($_GET['checkin']) && !empty($_GET['checkout'])) {
             $searched = true;
             $checkin = (string) $_GET['checkin'];
@@ -59,15 +60,21 @@ final class PageController extends Controller
             try {
                 $client = new LodgifyClient();
                 $allProperties = self::filterVisibleProperties($client->getProperties(), $partner, true);
-                $properties = array_values(array_filter(
+                $capacityFiltered = array_values(array_filter(
                     $allProperties,
-                    static function (array $property) use ($client, $checkin, $checkout, $guests): bool {
-                        if ($property['max_guests'] > 0 && $property['max_guests'] < $guests) {
-                            return false;
-                        }
+                    static function (array $property) use ($guests): bool {
+                        return !($property['max_guests'] > 0 && $property['max_guests'] < $guests);
+                    }
+                ));
+                $properties = array_values(array_filter(
+                    $capacityFiltered,
+                    static function (array $property) use ($client, $checkin, $checkout): bool {
                         return $client->isAvailableForRange((int) $property['id'], $checkin, $checkout);
                     }
                 ));
+                if ($properties === [] && count($capacityFiltered) < count($allProperties)) {
+                    $capacityExceeded = true;
+                }
             } catch (Throwable $e) {
                 Flash::set('Impossible de charger les hébergements pour le moment.', 'error');
             }
@@ -76,12 +83,14 @@ final class PageController extends Controller
             'pageTitle' => 'Accueil',
             'properties' => $properties,
             'searched' => $searched,
+            'capacityExceeded' => $capacityExceeded,
             'search' => [
                 'checkin' => $_GET['checkin'] ?? '',
                 'checkout' => $_GET['checkout'] ?? '',
                 'adults' => $_GET['adults'] ?? 2,
                 'children_under3' => $_GET['children_under3'] ?? 0,
                 'children_3to12' => $_GET['children_3to12'] ?? 0,
+                'totalGuests' => isset($_GET['checkin']) ? max(1, (int) ($_GET['adults'] ?? 1)) + max(0, (int) ($_GET['children_under3'] ?? 0)) + max(0, (int) ($_GET['children_3to12'] ?? 0)) : 0,
                 'nationality' => $_GET['nationality'] ?? '',
             ],
         ]);

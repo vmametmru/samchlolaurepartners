@@ -11,7 +11,7 @@
         <label><span>Date de Départ</span><input class="input" type="date" name="checkout" value="<?= \App\View::e($search['checkout']) ?>" required></label>
         <label><span>Adultes</span><input class="input" type="number" min="1" max="20" name="adults" value="<?= \App\View::e((string) $search['adults']) ?>"></label>
         <label><span>Enfants (&lt;3ans)</span><input class="input" type="number" min="0" max="20" name="children_under3" value="<?= \App\View::e((string) $search['children_under3']) ?>"></label>
-        <label><span>Enfant (3-&gt;12ans)</span><input class="input" type="number" min="0" max="20" name="children_3to12" value="<?= \App\View::e((string) $search['children_3to12']) ?>"></label>
+        <label><span>Enfants (3-11ans)</span><input class="input" type="number" min="0" max="20" name="children_3to12" value="<?= \App\View::e((string) $search['children_3to12']) ?>"></label>
         <button class="btn-primary search-button" type="submit">Rechercher</button>
       </div>
     </form>
@@ -25,7 +25,14 @@
       <div>
         <h2 class="section-title"><?= count($properties) ?> hébergement<?= count($properties) !== 1 ? 's' : '' ?> disponible<?= count($properties) !== 1 ? 's' : '' ?></h2>
         <?php if ($properties === []): ?>
-          <p class="empty-state">Aucun hébergement disponible pour ces dates.</p>
+          <?php if ($capacityExceeded): ?>
+            <p class="empty-state">La capacité individuelle de nos biens ne permettent pas d'acceuillir <?= (int) $search['totalGuests'] ?> personnes. Vous pouvez cependant combiner plusieurs logements. Beaucoup de nos logements sont à la même adresse. Nous vous confirmerons par email si tous les biens choisis sont à la même adresse.</p>
+            <div style="text-align:center;margin-top:1.5rem;">
+              <a class="btn-primary" href="/calendrier">Rechercher avec plusieurs biens</a>
+            </div>
+          <?php else: ?>
+            <p class="empty-state">Aucun hébergement disponible pour ces dates.</p>
+          <?php endif; ?>
         <?php else: ?>
           <div class="property-grid">
             <?php foreach ($properties as $property): require BASE_PATH . '/files/views/partials/property-card.php'; endforeach; ?>
