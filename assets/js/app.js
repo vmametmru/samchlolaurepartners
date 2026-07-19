@@ -1159,6 +1159,10 @@ function initBookingQuote() {
 
     function renderQuote(quote, currency) {
       const formatMoney = (amount) => `${Number(amount).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+      const setQuoteField = (name, value) => {
+        const field = form.querySelector(`[name="${name}"]`);
+        if (field) field.value = String(value ?? '');
+      };
       form.querySelector('[data-quote-nights]').textContent = quote.nights;
       form.querySelector('[data-quote-room]').textContent = formatMoney(quote.room_total);
       const extraLine = form.querySelector('[data-quote-extra-line]');
@@ -1188,6 +1192,13 @@ function initBookingQuote() {
           taxAmount.textContent = Number(quote.tourist_tax_total).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         }
       }
+      setQuoteField('quote_currency', currency);
+      setQuoteField('quote_nights', Number(quote.nights || 0));
+      setQuoteField('quote_room_total', Number(quote.room_total || 0));
+      setQuoteField('quote_extra_person_total', Number(quote.extra_person_total || 0));
+      setQuoteField('quote_cleaning_total', Number(quote.cleaning_total || 0));
+      setQuoteField('quote_total_without_tax', Number(quote.total_without_tax || 0));
+      setQuoteField('quote_tourist_tax_total', Number(quote.tourist_tax_total || 0));
       result.hidden = false;
     }
 

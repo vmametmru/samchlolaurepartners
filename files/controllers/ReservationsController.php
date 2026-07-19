@@ -726,6 +726,7 @@ final class ReservationsController extends Controller
         ];
         $childBreakdown = self::childBreakdownValues($input);
         $variables += self::stayVariables($checkin, $checkout, $childBreakdown['under3'], $childBreakdown['from3to12']);
+        $variables += self::requestQuoteVariables($input);
         $variables += self::signatureVariables((int) ($partner['id'] ?? 0));
         $embeds = $photo['embed'] !== null ? [$photo['embed']] : [];
 
@@ -734,17 +735,23 @@ final class ReservationsController extends Controller
         $stmt->execute([(int) $partner['id'], 'REQUEST_RECEIVED_PARTNER']);
         $partnerTemplate = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
         if ($partnerTemplate) {
+            if (strpos((string) ($partnerTemplate['body_html'] ?? ''), '{{tarif_bloc}}') === false) {
+                $partnerTemplate['body_html'] .= '{{tarif_bloc}}';
+            }
             Mailer::sendTemplatedEmail($partner, $partnerTemplate, (string) $partner['email'], $variables, $embeds);
         } else {
-            Mailer::sendRawEmail($partner, (string) $partner['email'], 'Nouvelle demande de réservation - ' . $variables['nom_client'], '<p>Nouvelle demande de ' . htmlspecialchars($variables['nom_client']) . ' (' . htmlspecialchars($variables['email_client']) . ') pour ' . htmlspecialchars($variables['hebergement'] !== '' ? $variables['hebergement'] : 'hébergement non spécifié') . ' du ' . htmlspecialchars($variables['date_arrivee']) . ' au ' . htmlspecialchars($variables['date_depart']) . '.</p>');
+            Mailer::sendRawEmail($partner, (string) $partner['email'], 'Nouvelle demande de réservation - ' . $variables['nom_client'], '<p>Nouvelle demande de ' . htmlspecialchars($variables['nom_client']) . ' (' . htmlspecialchars($variables['email_client']) . ') pour ' . htmlspecialchars($variables['hebergement'] !== '' ? $variables['hebergement'] : 'hébergement non spécifié') . ' du ' . htmlspecialchars($variables['date_arrivee']) . ' au ' . htmlspecialchars($variables['date_depart']) . '.</p>' . $variables['tarif_bloc']);
         }
 
         $stmt->execute([(int) $partner['id'], 'REQUEST_RECEIVED_CLIENT']);
         $clientTemplate = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
         if ($clientTemplate) {
+            if (strpos((string) ($clientTemplate['body_html'] ?? ''), '{{tarif_bloc}}') === false) {
+                $clientTemplate['body_html'] .= '{{tarif_bloc}}';
+            }
             Mailer::sendTemplatedEmail($partner, $clientTemplate, (string) $input['client_email'], $variables, $embeds);
         } else {
-            Mailer::sendRawEmail($partner, (string) $input['client_email'], 'Confirmation de votre demande - ' . (string) $partner['name'], '<p>Bonjour ' . htmlspecialchars((string) $input['client_name']) . ',</p><p>Nous avons bien reçu votre demande de réservation pour ' . htmlspecialchars((string) ($input['property_name'] ?? 'l\'hébergement')) . ' du ' . htmlspecialchars((string) $input['checkin_date']) . ' au ' . htmlspecialchars((string) $input['checkout_date']) . '. Nous vous contacterons très prochainement.</p><p>Cordialement,<br>' . htmlspecialchars((string) $partner['name']) . '</p>');
+            Mailer::sendRawEmail($partner, (string) $input['client_email'], 'Confirmation de votre demande - ' . (string) $partner['name'], '<p>Bonjour ' . htmlspecialchars((string) $input['client_name']) . ',</p><p>Nous avons bien reçu votre demande de réservation pour ' . htmlspecialchars((string) ($input['property_name'] ?? 'l\'hébergement')) . ' du ' . htmlspecialchars((string) $input['checkin_date']) . ' au ' . htmlspecialchars((string) $input['checkout_date']) . '.</p>' . $variables['tarif_bloc'] . '<p>Nous vous contacterons très prochainement.</p><p>Cordialement,<br>' . htmlspecialchars((string) $partner['name']) . '</p>');
         }
     }
 
@@ -861,6 +868,60 @@ final class ReservationsController extends Controller
 
         $nights = (int) $checkinDate->diff($checkoutDate)->days;
         return max(0, $nights);
+    }
+
+    /**
+     * Builds {{tarif_*}} variables from the quote values posted by the booking
+     * form so request emails include the same itemized amount as shown before
+     * submission (Tarif, Personnes supplémentaires, Nettoyage, Total, and the
+     * optional tourist-tax note).
+     */
+    private static function requestQuoteVariables(array $input): array
+    {
+        $currency = trim((string) ($input['quote_currency'] ?? 'EUR'));
+        if ($currency === '') {
+            $currency = 'EUR';
+        }
+
+        $roomTotal = self::toMoneyValue($input['quote_room_total'] ?? 0);
+        $extraPersonTotal = self::toMoneyValue($input['quote_extra_person_total'] ?? 0);
+        $cleaningTotal = self::toMoneyValue($input['quote_cleaning_total'] ?? 0);
+        $totalWithoutTax = self::toMoneyValue($input['quote_total_without_tax'] ?? 0);
+        $touristTaxTotal = self::toMoneyValue($input['quote_tourist_tax_total'] ?? 0);
+        $nights = max(0, (int) ($input['quote_nights'] ?? 0));
+
+        $tarifBloc = '<hr><h3 style="margin:12px 0 8px;font-size:16px;">Résumé tarifaire</h3>';
+        $tarifBloc .= '<p style="margin:0 0 4px;"><strong>Tarif (' . $nights . ' nuit(s)) :</strong> ' . self::formatMoneyFr($roomTotal, $currency) . '</p>';
+        if ($extraPersonTotal > 0) {
+            $tarifBloc .= '<p style="margin:0 0 4px;"><strong>Personne(s) supplémentaire(s) :</strong> ' . self::formatMoneyFr($extraPersonTotal, $currency) . '</p>';
+        }
+        $tarifBloc .= '<p style="margin:0 0 4px;"><strong>Nettoyage :</strong> ' . self::formatMoneyFr($cleaningTotal, $currency) . '</p>';
+        $tarifBloc .= '<p style="margin:0 0 4px;"><strong>Total :</strong> ' . self::formatMoneyFr($totalWithoutTax, $currency) . '</p>';
+        if ($touristTaxTotal > 0) {
+            $tarifBloc .= '<p style="margin:0;color:#6b7280;">Taxe touristique de '
+                . number_format($touristTaxTotal, 2, ',', ' ')
+                . ' Euros à régler à l\'arrivée (Non comprise dans le total)</p>';
+        }
+
+        return [
+            'tarif_nuits' => (string) $nights,
+            'tarif_hebergement' => self::formatMoneyFr($roomTotal, $currency),
+            'tarif_personnes_supplementaires' => self::formatMoneyFr($extraPersonTotal, $currency),
+            'tarif_nettoyage' => self::formatMoneyFr($cleaningTotal, $currency),
+            'tarif_total' => self::formatMoneyFr($totalWithoutTax, $currency),
+            'taxe_touristique' => self::formatMoneyFr($touristTaxTotal, 'EUR'),
+            'tarif_bloc' => $tarifBloc,
+        ];
+    }
+
+    private static function toMoneyValue(mixed $value): float
+    {
+        return round((float) $value, 2);
+    }
+
+    private static function formatMoneyFr(float $amount, string $currency): string
+    {
+        return number_format($amount, 2, ',', ' ') . ' ' . $currency;
     }
 
     private static function fetchPartner(int $partnerId): array

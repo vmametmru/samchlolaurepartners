@@ -11,6 +11,7 @@ INSERT IGNORE INTO email_templates (partner_id, type, subject, body_html) VALUES
 {{photo_bien}}
 <p><strong>Dates :</strong> {{dates}}</p>
 <p><strong>Voyageurs :</strong> {{adultes}} adulte(s), {{enfants}} enfant(s)</p>
+{{tarif_bloc}}
 <p><strong>Message :</strong><br>{{message}}</p>
 <hr>
 <p>Veuillez traiter cette demande depuis votre espace partenaire.</p>');
@@ -23,8 +24,9 @@ INSERT IGNORE INTO email_templates (partner_id, type, subject, body_html) VALUES
 <p>Bonjour {{nom_client}},</p>
 <p>Nous avons bien reçu votre demande pour <strong>{{hebergement}}</strong> du <strong>{{date_arrivee}}</strong> au <strong>{{date_depart}}</strong>.</p>
 {{photo_bien}}
-<p>Notre équipe vous contactera dans les plus brefs délais pour confirmer votre réservation.</p>
-<p>Cordialement,<br><strong>{{partenaire}}</strong></p>');
+ {{tarif_bloc}}
+ <p>Notre équipe vous contactera dans les plus brefs délais pour confirmer votre réservation.</p>
+ <p>Cordialement,<br><strong>{{partenaire}}</strong></p>');
 
 -- 3. Reservation confirmed
 INSERT IGNORE INTO email_templates (partner_id, type, subject, body_html) VALUES

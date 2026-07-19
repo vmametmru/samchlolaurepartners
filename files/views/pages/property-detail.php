@@ -202,6 +202,13 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
           <p class="quote-tax-note muted" data-quote-tax-line hidden>Taxe touristique de <span data-quote-tax-amount></span> Euros à régler à l'arrivée (Non comprise dans le total)</p>
         </div>
       </div>
+        <input type="hidden" name="quote_currency" value="">
+        <input type="hidden" name="quote_nights" value="">
+        <input type="hidden" name="quote_room_total" value="">
+        <input type="hidden" name="quote_extra_person_total" value="">
+        <input type="hidden" name="quote_cleaning_total" value="">
+        <input type="hidden" name="quote_total_without_tax" value="">
+        <input type="hidden" name="quote_tourist_tax_total" value="">
         <button class="btn-primary" type="submit">Envoyer ma demande</button>
         <p class="form-feedback" data-form-feedback></p>
       </div>
