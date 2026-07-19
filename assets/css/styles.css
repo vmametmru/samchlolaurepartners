@@ -411,8 +411,9 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 }
 @media (max-width: 760px) {
   .cols-2, .cols-3, .cols-4, .stats-grid, .quick-grid { grid-template-columns: 1fr; }
-  .navbar-inner, .section-header { align-items: flex-start; flex-direction: column; }
-  .navbar-links { width: 100%; justify-content: flex-start; }
+  .section-header { align-items: flex-start; flex-direction: column; }
+  .navbar-inner { align-items: center; flex-direction: row; flex-wrap: nowrap; }
+  .navbar-links { width: auto; max-width: 100%; justify-content: flex-start; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .calendar-legend-row { align-items: flex-start; }
   .calendar-view-selection-btn { margin-left: 0; }
   /* Larger, easier-to-tap arrival/departure calendar cells on phones (Apple's
