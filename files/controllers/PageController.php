@@ -914,8 +914,15 @@ final class PageController extends Controller
     {
         self::requireAdminUser();
         $client = new LodgifyClient();
+        $mode = (string) ($_GET['mode'] ?? 'photos');
         try {
-            $client->invalidate('lodgify:');
+            if ($mode === 'photos') {
+                $client->invalidate('lodgify:');
+            } elseif ($mode === 'texts') {
+                $client->invalidate('lodgify:v2:properties');
+            } else {
+                self::json(['error' => 'Bad Request', 'message' => 'Mode de synchronisation invalide.'], 400);
+            }
             $properties = $client->getPropertyIdsForSync();
         } catch (Throwable $e) {
             error_log('Lodgify sync: failed to start (' . $e->getMessage() . ')');
@@ -938,9 +945,12 @@ final class PageController extends Controller
         if ($propertyId <= 0) {
             self::json(['error' => 'Bad Request', 'message' => 'Identifiant de bien invalide.'], 400);
         }
+        $mode = (string) ($_GET['mode'] ?? 'photos');
+        if (!in_array($mode, ['photos', 'texts'], true)) {
+            self::json(['error' => 'Bad Request', 'message' => 'Mode de synchronisation invalide.'], 400);
+        }
         $client = new LodgifyClient();
-        $client->invalidateProperty($propertyId);
-        $result = $client->refreshPropertyDetail($propertyId);
+        $result = $client->refreshPropertyDetail($propertyId, $mode === 'photos');
         self::json(['data' => $result]);
     }
 
