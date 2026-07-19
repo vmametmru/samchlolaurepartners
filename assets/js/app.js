@@ -1219,6 +1219,7 @@ function initMultiPropertyCart() {
     if (cart.length === 0) return [];
     let minDate = cart[0].checkin;
     let maxDate = cart[0].checkout;
+    const babies = getBabies();
     cart.forEach((item) => {
       if (item.checkin < minDate) minDate = item.checkin;
       if (item.checkout > maxDate) maxDate = item.checkout;
@@ -1231,10 +1232,9 @@ function initMultiPropertyCart() {
       const propertiesOnDay = terms.filter((t) => t > 0).length;
       const adultOk = requestedGuests <= 0 || total >= requestedGuests;
       const babyCapacityOnDay = propertiesOnDay * 2;
-      const babies = getBabies();
       const babyOk = babies <= 0 || babies <= babyCapacityOnDay;
       const ok = adultOk && babyOk;
-      days.push({ date: cursor, terms, total, ok, adultOk, babyOk });
+      days.push({ date: cursor, terms, total, ok, adultOk, babyOk, babyCapacityOnDay });
       cursor = addDaysStr(cursor, 1);
     }
     return days;
@@ -1316,11 +1316,7 @@ function initMultiPropertyCart() {
 
     const overallOk = dailyCapacity.every((day) => day.ok);
     const propertyCount = distinctPropertyIds.size;
-
-    // Baby restriction: max 2 babies per property, so ceil(babies/2) properties needed.
     const babies = getBabies();
-    const babiesPropertiesNeeded = babies > 0 ? Math.ceil(babies / 2) : 0;
-    const babiesOk = babiesPropertiesNeeded <= 1 || propertyCount >= babiesPropertiesNeeded;
 
     if (summaryLineEl) {
       if (nightsPerItem.size <= 1) {
@@ -1332,31 +1328,21 @@ function initMultiPropertyCart() {
     }
     if (summaryTotalEl) summaryTotalEl.textContent = formatEuros(totalAmount);
     if (capacityHintEl) {
-      if (overallOk) {
-        capacityHintEl.textContent = '';
-      } else {
-        const guestDesc = babies > 0
-          ? `${requestedGuests} adulte(s) et ${babies} bébé(s)`
-          : `${requestedGuests} personne(s)`;
-        capacityHintEl.textContent = `Capacité insuffisante pour ${guestDesc} sur une ou plusieurs dates : sélectionnez un ou plusieurs biens supplémentaires.`;
-      }
-    }
-    // Show baby restriction note when more than 2 babies are in the search.
-    if (babyNoteEl) {
-      if (babies > 2) {
-        const missing = babiesPropertiesNeeded - propertyCount;
-        if (!babiesOk) {
-          babyNoteEl.textContent = `⚠ Restriction bébés : ${babies} bébé(s) — max. 2 par bien — nécessitent au minimum ${babiesPropertiesNeeded} bien(s). Veuillez sélectionner encore ${missing} bien(s) supplémentaire(s).`;
+      if (!overallOk) {
+        if (babies > 0) {
+          capacityHintEl.textContent = `Capacité insuffisante pour ${requestedGuests} Personnes >3ans + ${babies} bébé${babies > 1 ? 's' : ''} sur une ou plusieurs dates : sélectionnez un ou plusieurs biens supplémentaires.`;
         } else {
-          babyNoteEl.textContent = `ℹ Restriction bébés : ${babies} bébé(s) — max. 2 par bien — les ${babiesPropertiesNeeded} bien(s) sélectionné(s) couvrent ce besoin.`;
+          capacityHintEl.textContent = `Capacité insuffisante pour ${requestedGuests} Personnes >3ans sur une ou plusieurs dates : sélectionnez un ou plusieurs biens supplémentaires.`;
         }
-        babyNoteEl.hidden = false;
       } else {
-        babyNoteEl.textContent = '';
-        babyNoteEl.hidden = true;
+        capacityHintEl.textContent = '';
       }
     }
-    if (submitBtn) submitBtn.disabled = !overallOk || !babiesOk;
+    if (babyNoteEl) {
+      babyNoteEl.textContent = '';
+      babyNoteEl.hidden = true;
+    }
+    if (submitBtn) submitBtn.disabled = !overallOk;
     if (capacityTableEl) {
       capacityTableEl.innerHTML = '';
       dailyCapacity.forEach((day) => {
@@ -1370,18 +1356,28 @@ function initMultiPropertyCart() {
         li.appendChild(icon);
 
         const text = document.createElement('span');
-        let status;
-        if (day.ok) {
-          status = 'Ok';
-        } else if (!day.adultOk) {
-          status = 'Not Ok (Rajouter un ou plusieurs biens pour la même sélection)';
-        } else {
-          status = 'Not Ok (Nombre d\'adultes ok, mais la capacité maximal d\'accueil de bébé pour le bien est de 2. Il vous faut rajouter un autre bien)';
+        text.appendChild(document.createTextNode(`${formatFrLong(day.date)} : `));
+
+        const adultsStatus = document.createElement('span');
+        adultsStatus.className = `multi-cart-capacity-status ${day.adultOk ? 'cap-ok' : 'cap-warn'}`;
+        adultsStatus.textContent = `Personnes >3ans : ${requestedGuests} (${day.adultOk ? 'Vert' : 'Rouge'})`;
+        text.appendChild(adultsStatus);
+
+        if (babies > 0) {
+          text.appendChild(document.createTextNode(' | '));
+          const babyStatus = document.createElement('span');
+          babyStatus.className = `multi-cart-capacity-status ${day.babyOk ? 'cap-ok' : 'cap-warn'}`;
+          babyStatus.textContent = `Bébé(s) : ${babies}/${day.babyCapacityOnDay} (${day.babyOk ? 'Vert' : 'Rouge'})`;
+          text.appendChild(babyStatus);
         }
-        const guestFraction = babies > 0
-          ? `${requestedGuests} adulte(s) + ${babies} bébé(s)`
-          : `${requestedGuests} personne(s)`;
-        text.textContent = `${formatFrLong(day.date)} : ${day.terms.join(' + ')} = ${day.total} / ${guestFraction} - ${status}`;
+
+        if (!day.ok) {
+          text.appendChild(document.createTextNode(' | '));
+          const solution = document.createElement('span');
+          solution.className = 'multi-cart-capacity-status cap-warn';
+          solution.textContent = `Solution : ${!day.adultOk ? 'Rajouter un ou plusieurs biens' : 'Rajouter un bien'}`;
+          text.appendChild(solution);
+        }
         li.appendChild(text);
 
         capacityTableEl.appendChild(li);
