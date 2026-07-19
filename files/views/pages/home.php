@@ -1,5 +1,6 @@
 <?php declare(strict_types=1);
 $primaryColor = $partner['primary_color'] ?? '#E61E4D';
+$babiesExceeded = $babiesExceeded ?? false;
 $calendarSearchUrl = '/calendrier';
 $checkinRaw = (string) ($search['checkin'] ?? '');
 $checkoutRaw = (string) ($search['checkout'] ?? '');
@@ -50,7 +51,11 @@ try {
         <h2 class="section-title"><?= count($properties) ?> hébergement<?= count($properties) !== 1 ? 's' : '' ?> disponible<?= count($properties) !== 1 ? 's' : '' ?></h2>
         <?php if ($properties === []): ?>
           <?php if ($capacityExceeded): ?>
-            <p class="empty-state">La capacité individuelle de nos biens ne permettent pas d'acceuillir <?= (int) $search['totalGuests'] ?> personnes. Vous pouvez cependant combiner plusieurs logements. Beaucoup de nos logements sont à la même adresse. Nous vous confirmerons par email si tous les biens choisis sont à la même adresse.</p>
+            <?php if ($babiesExceeded): ?>
+              <p class="empty-state">Vous avez indiqué <?= (int) $search['children_under3'] ?> bébé(s) (moins de 3 ans). Le maximum est de 2 bébés par bien — il vous faudra au minimum <?= (int) ceil((int) $search['children_under3'] / 2) ?> bien(s) différent(s). Utilisez la recherche multi-biens ci-dessous pour composer votre séjour.</p>
+            <?php else: ?>
+              <p class="empty-state">La capacité individuelle de nos biens ne permettent pas d'acceuillir <?= (int) $search['totalGuests'] ?> personnes. Vous pouvez cependant combiner plusieurs logements. Beaucoup de nos logements sont à la même adresse. Nous vous confirmerons par email si tous les biens choisis sont à la même adresse.</p>
+            <?php endif; ?>
             <div style="text-align:center;margin-top:1.5rem;">
               <a class="btn-primary" href="<?= \App\View::e($calendarSearchUrl) ?>">Rechercher avec plusieurs biens</a>
             </div>

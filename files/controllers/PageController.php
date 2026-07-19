@@ -55,25 +55,36 @@ final class PageController extends Controller
             $checkout = (string) $_GET['checkout'];
             $childrenUnder3 = max(0, (int) ($_GET['children_under3'] ?? 0));
             $children3to12 = max(0, (int) ($_GET['children_3to12'] ?? 0));
-            $guests = max(1, (int) ($_GET['adults'] ?? 1)) + $childrenUnder3 + $children3to12;
+            // Babies (children under 3) do not count toward property capacity;
+            // only adults and children 3-12 are compared against max_guests.
+            $guests = max(1, (int) ($_GET['adults'] ?? 1)) + $children3to12;
+            // Max 2 babies per property: if more than 2 are requested, no single
+            // property can accommodate them → force the multi-property calendar.
+            $babiesExceeded = $childrenUnder3 > 2;
             $partner = Tenant::current();
             try {
                 $client = new LodgifyClient();
                 $allProperties = self::filterVisibleProperties($client->getProperties(), $partner, true);
-                $capacityFiltered = array_values(array_filter(
-                    $allProperties,
-                    static function (array $property) use ($guests): bool {
-                        return !($property['max_guests'] > 0 && $property['max_guests'] < $guests);
-                    }
-                ));
-                $properties = array_values(array_filter(
-                    $capacityFiltered,
-                    static function (array $property) use ($client, $checkin, $checkout): bool {
-                        return $client->isAvailableForRange((int) $property['id'], $checkin, $checkout);
-                    }
-                ));
-                if ($properties === [] && count($capacityFiltered) < count($allProperties)) {
+                if ($babiesExceeded) {
+                    // No single property can host more than 2 babies.
+                    $properties = [];
                     $capacityExceeded = true;
+                } else {
+                    $capacityFiltered = array_values(array_filter(
+                        $allProperties,
+                        static function (array $property) use ($guests): bool {
+                            return !($property['max_guests'] > 0 && $property['max_guests'] < $guests);
+                        }
+                    ));
+                    $properties = array_values(array_filter(
+                        $capacityFiltered,
+                        static function (array $property) use ($client, $checkin, $checkout): bool {
+                            return $client->isAvailableForRange((int) $property['id'], $checkin, $checkout);
+                        }
+                    ));
+                    if ($properties === [] && count($capacityFiltered) < count($allProperties)) {
+                        $capacityExceeded = true;
+                    }
                 }
             } catch (Throwable $e) {
                 Flash::set('Impossible de charger les hébergements pour le moment.', 'error');
@@ -84,6 +95,7 @@ final class PageController extends Controller
             'properties' => $properties,
             'searched' => $searched,
             'capacityExceeded' => $capacityExceeded,
+            'babiesExceeded' => $babiesExceeded ?? false,
             'search' => [
                 'checkin' => $_GET['checkin'] ?? '',
                 'checkout' => $_GET['checkout'] ?? '',
@@ -266,6 +278,9 @@ final class PageController extends Controller
         $childrenUnder3 = max(0, (int) ($_GET['children_under3'] ?? 0));
         $children3to12 = max(0, (int) ($_GET['children_3to12'] ?? 0));
         $totalGuests = $adults + $childrenUnder3 + $children3to12;
+        // Babies do not count toward property capacity; only adults and
+        // children 3-12 are compared against each property's max_guests.
+        $countedGuests = $adults + $children3to12;
 
         // The nightly price shown must include the cleaning fee configured for
         // the active partner (partners.cleaning_fee_per_person_per_night),
@@ -324,7 +339,7 @@ final class PageController extends Controller
                     'availability' => $availabilityMap,
                     'single_night' => $singleNightMap,
                     'rates' => $rateMap,
-                    'capacity_ok' => $maxGuests <= 0 || $maxGuests >= $totalGuests,
+                    'capacity_ok' => $maxGuests <= 0 || $maxGuests >= $countedGuests,
                     'load_failed' => $loadFailed,
                     'restricted' => $restricted,
                 ];
@@ -342,6 +357,7 @@ final class PageController extends Controller
             'childrenUnder3' => $childrenUnder3,
             'children3to12' => $children3to12,
             'totalGuests' => $totalGuests,
+            'countedGuests' => $countedGuests,
             'today' => $today,
         ]);
     }

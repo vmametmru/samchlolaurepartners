@@ -8,6 +8,7 @@
 /** @var int $childrenUnder3 */
 /** @var int $children3to12 */
 /** @var int $totalGuests */
+/** @var int $countedGuests */
 $visibleDays = $visibleDays ?? 31;
 $dateFrom = $dateFrom ?? '';
 $dateTo = $dateTo ?? '';
@@ -15,6 +16,7 @@ $adults = $adults ?? 0;
 $childrenUnder3 = $childrenUnder3 ?? 0;
 $children3to12 = $children3to12 ?? 0;
 $totalGuests = $totalGuests ?? 0;
+$countedGuests = $countedGuests ?? ($adults + $children3to12);
 $today = isset($today) && $today !== '' ? (string) $today : date('Y-m-d');
 $frenchDays = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
 $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'];
@@ -67,7 +69,7 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
       <button type="button" class="btn-primary calendar-view-selection-btn" data-multi-cart-view-btn hidden>Voir votre sélection</button>
     </div>
 
-    <div class="calendar-board cal-name-hidden" data-calendar-board data-multi-calendar-board data-total-guests="<?= (int) $totalGuests ?>" style="--cal-visible-days: <?= (int) $visibleDays ?>;">
+    <div class="calendar-board cal-name-hidden" data-calendar-board data-multi-calendar-board data-total-guests="<?= (int) $countedGuests ?>" data-babies="<?= (int) $childrenUnder3 ?>" style="--cal-visible-days: <?= (int) $visibleDays ?>;">
       <table class="calendar-board-table">
         <thead>
           <tr>
@@ -164,6 +166,7 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
       </div>
       <ul class="multi-cart-list" data-multi-cart-list></ul>
       <p class="form-feedback" data-multi-cart-gap-hint></p>
+      <p class="form-feedback" data-multi-cart-baby-note hidden></p>
       <div class="multi-cart-summary" data-multi-cart-summary>
         <div class="multi-cart-summary-body">
           <div class="multi-cart-summary-dates">
