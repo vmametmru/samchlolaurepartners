@@ -1105,6 +1105,7 @@ function initMultiPropertyCart() {
   const summaryTotalEl = cartRoot.querySelector('[data-multi-cart-summary-total]');
   const clearBtn = cartRoot.querySelector('[data-multi-cart-clear]');
   const viewBtn = document.querySelector('[data-multi-cart-view-btn]');
+  const submitBtn = checkoutForm ? checkoutForm.querySelector('[type="submit"]') : null;
   if (!listEl || !checkoutForm || !itemsInput) return;
 
   if (viewBtn) {
@@ -1305,6 +1306,7 @@ function initMultiPropertyCart() {
         ? ''
         : `Capacité insuffisante pour ${requestedGuests} personne(s) sur une ou plusieurs dates : sélectionnez un ou plusieurs biens supplémentaires.`;
     }
+    if (submitBtn) submitBtn.disabled = !overallOk;
     if (capacityTableEl) {
       capacityTableEl.innerHTML = '';
       dailyCapacity.forEach((day) => {
