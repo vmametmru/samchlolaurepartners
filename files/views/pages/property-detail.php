@@ -154,7 +154,7 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
                 <span class="guest-count-label">Enfant(s) -5 ans</span>
                 <div class="guest-count-controls">
                   <button type="button" class="stepper-btn" data-step="-1" aria-label="Diminuer le nombre d'enfants de moins de 5 ans">−</button>
-                  <input class="input guest-stepper-input" type="number" name="children_under5" min="0" max="20" value="0" aria-label="Enfants (moins de 5 ans)" title="Enfants (moins de 5 ans)">
+                  <input class="input guest-stepper-input" type="number" name="children_under3" min="0" max="20" value="0" aria-label="Enfants (moins de 5 ans)" title="Enfants (moins de 5 ans)">
                   <button type="button" class="stepper-btn" data-step="1" aria-label="Augmenter le nombre d'enfants de moins de 5 ans">+</button>
                 </div>
               </div>
@@ -162,7 +162,7 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
                 <span class="guest-count-label">Enfant(s) 5-12 ans</span>
                 <div class="guest-count-controls">
                   <button type="button" class="stepper-btn" data-step="-1" aria-label="Diminuer le nombre d'enfants de 5 à 12 ans">−</button>
-                  <input class="input guest-stepper-input" type="number" name="children_5to12" min="0" max="20" value="0" aria-label="Enfants (5 à 12 ans)" title="Enfants (5 à 12 ans)">
+                  <input class="input guest-stepper-input" type="number" name="children_3to12" min="0" max="20" value="0" aria-label="Enfants (5 à 12 ans)" title="Enfants (5 à 12 ans)">
                   <button type="button" class="stepper-btn" data-step="1" aria-label="Augmenter le nombre d'enfants de 5 à 12 ans">+</button>
                 </div>
               </div>

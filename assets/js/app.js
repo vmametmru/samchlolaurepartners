@@ -213,8 +213,8 @@ function initHelpDialogs() {
 }
 
 /**
- * Horizontally-sliding guest count fields (Adulte(s) / Enfant(s) 5-12 ans /
- * Bébé(s) -5 ans) on the /calendrier filter form: only one field is expanded
+ * Horizontally-sliding guest count fields (Adulte(s) / Enfant(s) 3-12 ans /
+ * Bébé(s) -3 ans) on the /calendrier filter form: only one field is expanded
  * (input visible) at a time, the others collapse to a small icon + count
  * button. Clicking a collapsed icon expands its field and collapses the
  * previously active one, keeping every value regardless of which field is
@@ -636,7 +636,7 @@ function initApiForms() {
         }
         const maxGuests = Number(form.dataset.maxGuests || 0);
         if (maxGuests > 0) {
-          const total = ['adults', 'children_under5', 'children_5to12']
+          const total = ['adults', 'children_3to12']
             .reduce((sum, name) => sum + Number(form.querySelector(`[name="${name}"]`)?.value || 0), 0);
           if (total > maxGuests) {
             if (feedback) feedback.textContent = `Ce logement peut accueillir au maximum ${maxGuests} personne(s). Veuillez réduire le nombre de voyageurs.`;
@@ -798,18 +798,18 @@ function initNationalities() {
     const form = wrap.closest('form');
     const adultsInput = form.querySelector('[name="adults"]');
     const childrenInput = form.querySelector('[name="children"]');
-    const childrenUnder5Input = form.querySelector('[name="children_under5"]');
-    const children5to12Input = form.querySelector('[name="children_5to12"]');
+    const childrenUnder3Input = form.querySelector('[name="children_under3"]');
+    const children3to12Input = form.querySelector('[name="children_3to12"]');
     // Some forms (property detail booking) split children into two age
-    // groups (< 5 ans / 5-12 ans) while others (contact form) only have a
+    // groups (< 3 ans / 3-12 ans) while others (contact form) only have a
     // single "children" field. Both are supported here.
-    const hasSplitChildren = Boolean(childrenUnder5Input || children5to12Input);
+    const hasSplitChildren = Boolean(childrenUnder3Input || children3to12Input);
 
     function render() {
       const adults = Number(adultsInput?.value || 0);
-      const under5 = hasSplitChildren ? Number(childrenUnder5Input?.value || 0) : 0;
-      const from5to12 = hasSplitChildren ? Number(children5to12Input?.value || 0) : Number(childrenInput?.value || 0);
-      const children = under5 + from5to12;
+      const under3 = hasSplitChildren ? Number(childrenUnder3Input?.value || 0) : 0;
+      const from3to12 = hasSplitChildren ? Number(children3to12Input?.value || 0) : Number(childrenInput?.value || 0);
+      const children = under3 + from3to12;
       if (hasSplitChildren && childrenInput) childrenInput.value = String(children);
       const total = adults + children;
       list.innerHTML = '';
@@ -823,12 +823,12 @@ function initNationalities() {
         if (i < adults) {
           label = `Adulte ${i + 1} — Nationalité`;
           type = 'adult';
-        } else if (hasSplitChildren && i < adults + under5) {
-          label = `Enfant (< 5 ans) ${i - adults + 1} — Nationalité`;
-          type = 'child_under5';
+        } else if (hasSplitChildren && i < adults + under3) {
+          label = `Enfant (< 3 ans) ${i - adults + 1} — Nationalité`;
+          type = 'child_under3';
         } else if (hasSplitChildren) {
-          label = `Enfant (5-12 ans) ${i - adults - under5 + 1} — Nationalité`;
-          type = 'child_5to12';
+          label = `Enfant (3-12 ans) ${i - adults - under3 + 1} — Nationalité`;
+          type = 'child_3to12';
         } else {
           label = `Enfant ${i - adults + 1} — Nationalité`;
           type = 'child';
@@ -840,7 +840,7 @@ function initNationalities() {
       }
     }
 
-    [adultsInput, childrenInput, childrenUnder5Input, children5to12Input, sameCheckbox].forEach((input) => {
+    [adultsInput, childrenInput, childrenUnder3Input, children3to12Input, sameCheckbox].forEach((input) => {
       input?.addEventListener('change', render);
       input?.addEventListener('input', render);
     });
@@ -1035,11 +1035,11 @@ function initBookingQuote() {
       const recap = form.querySelector('[data-quote-recap]');
       if (recap) {
         const adults = Number(form.querySelector('[name="adults"]')?.value || 0);
-        const under5 = Number(form.querySelector('[name="children_under5"]')?.value || 0);
-        const from5to12 = Number(form.querySelector('[name="children_5to12"]')?.value || 0);
+        const under3 = Number(form.querySelector('[name="children_under3"]')?.value || 0);
+        const from3to12 = Number(form.querySelector('[name="children_3to12"]')?.value || 0);
         const parts = [`${adults} Adulte(s)`];
-        if (under5 > 0) parts.push(`${under5} Enfant(s) -5 ans`);
-        if (from5to12 > 0) parts.push(`${from5to12} Enfant(s) 5-12 ans`);
+        if (under3 > 0) parts.push(`${under3} Enfant(s) -3 ans`);
+        if (from3to12 > 0) parts.push(`${from3to12} Enfant(s) 3-12 ans`);
         recap.textContent = parts.join(' · ');
       }
       const taxLine = form.querySelector('[data-quote-tax-line]');
@@ -1485,13 +1485,13 @@ function initMultiPropertyCart() {
       // reservation request) in sync with whatever the visitor last set,
       // not just what was submitted when the page loaded.
       const adultsInput = checkoutForm.querySelector('input[name="adults"]');
-      const under5Input = checkoutForm.querySelector('input[name="children_under5"]');
-      const to12Input = checkoutForm.querySelector('input[name="children_5to12"]');
+      const under3Input = checkoutForm.querySelector('input[name="children_under3"]');
+      const to12Input = checkoutForm.querySelector('input[name="children_3to12"]');
       const liveAdults = filterForm ? filterForm.querySelector('input[name="adults"]') : null;
-      const liveUnder5 = filterForm ? filterForm.querySelector('input[name="children_under5"]') : null;
-      const liveTo12 = filterForm ? filterForm.querySelector('input[name="children_5to12"]') : null;
+      const liveUnder3 = filterForm ? filterForm.querySelector('input[name="children_under3"]') : null;
+      const liveTo12 = filterForm ? filterForm.querySelector('input[name="children_3to12"]') : null;
       if (adultsInput && liveAdults) adultsInput.value = liveAdults.value;
-      if (under5Input && liveUnder5) under5Input.value = liveUnder5.value;
+      if (under3Input && liveUnder3) under3Input.value = liveUnder3.value;
       if (to12Input && liveTo12) to12Input.value = liveTo12.value;
     });
   });

@@ -251,9 +251,9 @@ final class PageController extends Controller
         // adult is provided, so a property's capacity can be compared against
         // that party size before any date is even clickable.
         $adults = max(0, (int) ($_GET['adults'] ?? 0));
-        $childrenUnder5 = max(0, (int) ($_GET['children_under5'] ?? 0));
-        $children5to12 = max(0, (int) ($_GET['children_5to12'] ?? 0));
-        $totalGuests = $adults + $childrenUnder5 + $children5to12;
+        $childrenUnder3 = max(0, (int) ($_GET['children_under3'] ?? 0));
+        $children3to12 = max(0, (int) ($_GET['children_3to12'] ?? 0));
+        $totalGuests = $adults + $childrenUnder3 + $children3to12;
 
         // The nightly price shown must include the cleaning fee configured for
         // the active partner (partners.cleaning_fee_per_person_per_night),
@@ -327,8 +327,8 @@ final class PageController extends Controller
             'dateFrom' => $dateFrom,
             'dateTo' => $dateTo,
             'adults' => $adults,
-            'childrenUnder5' => $childrenUnder5,
-            'children5to12' => $children5to12,
+            'childrenUnder3' => $childrenUnder3,
+            'children3to12' => $children3to12,
             'totalGuests' => $totalGuests,
             'today' => $today,
         ]);
