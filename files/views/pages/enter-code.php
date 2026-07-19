@@ -10,11 +10,3 @@
     </form>
   </div>
 </section>
-<?php // Start buffering the Accueil hero video in the background while the
-      // visitor is still on this gate page (see initPartnerCodeFromHash() in
-      // assets/js/app.js), so it plays instantly once the "#code" auto-submit
-      // (or manual code entry) lands them on /accueil. Hidden and never
-      // played here — the <link rel="preload"> in layout.php's <head>
-      // covers browsers that fetch that eagerly; this <video preload> tag
-      // is a fallback for browsers that don't act on a video preload link. ?>
-<video src="/medias/home.mp4" preload="auto" muted playsinline aria-hidden="true" style="display:none"></video>

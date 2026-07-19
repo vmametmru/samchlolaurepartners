@@ -1758,14 +1758,28 @@ function initHeroVideoLoading() {
   ['loadeddata', 'canplay', 'playing'].forEach((eventName) => {
     video.addEventListener(eventName, markReady, { once: true });
   });
-  if (video.readyState >= 3) markReady();
-
+  let playbackScheduled = false;
   const tryPlay = () => {
-    const maybePromise = video.play();
-    if (maybePromise && typeof maybePromise.catch === 'function') maybePromise.catch(() => {});
+    if (playbackScheduled) return;
+    playbackScheduled = true;
+    window.setTimeout(() => {
+      const maybePromise = video.play();
+      if (maybePromise && typeof maybePromise.catch === 'function') {
+        maybePromise.catch(() => {
+          playbackScheduled = false;
+        });
+      }
+    }, 600);
   };
-  tryPlay();
-  video.addEventListener('loadedmetadata', tryPlay, { once: true });
+  if (video.readyState >= 3) {
+    markReady();
+    tryPlay();
+  } else {
+    video.addEventListener('canplay', tryPlay, { once: true });
+    video.addEventListener('canplaythrough', tryPlay, { once: true });
+    if (video.preload !== 'auto') video.preload = 'auto';
+    try { video.load(); } catch (e) {}
+  }
 }
 
 function initHeroMobileSearchToggle() {

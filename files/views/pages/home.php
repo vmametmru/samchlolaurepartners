@@ -24,7 +24,7 @@ try {
 }
 ?>
 <section class="hero hero-video"<?= $searched ? ' data-searched="1"' : '' ?>>
-  <video class="hero-video-bg" src="/medias/home.mp4" autoplay muted loop playsinline preload="auto" data-hero-video></video>
+  <video class="hero-video-bg" src="/medias/home.mp4" muted loop playsinline preload="auto" data-hero-video></video>
   <div class="hero-video-overlay"></div>
   <div class="hero-video-loading" data-hero-video-loading>
     <div class="hero-video-loading-track"><span class="hero-video-loading-bar"></span></div>
