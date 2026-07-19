@@ -24,12 +24,16 @@ try {
 }
 ?>
 <section class="hero hero-video"<?= $searched ? ' data-searched="1"' : '' ?>>
-  <video class="hero-video-bg" src="/medias/home.mp4" autoplay muted loop playsinline preload="auto"></video>
+  <video class="hero-video-bg" src="/medias/home.mp4" muted loop playsinline preload="auto" data-hero-video></video>
   <div class="hero-video-overlay"></div>
+  <div class="hero-video-loading" data-hero-video-loading>
+    <div class="hero-video-loading-track"><span class="hero-video-loading-bar"></span></div>
+  </div>
   <div class="container hero-inner">
     <h1><?= \App\View::e($partner ? 'Bienvenue chez ' . ($partner['name'] ?? '') : 'Trouvez votre hébergement idéal') ?></h1>
     <p>Séjours exceptionnels à l'île Maurice</p>
-    <form class="search-card" method="get" action="/accueil">
+    <button class="btn-primary hero-search-mobile-toggle" type="button" aria-expanded="false" aria-controls="hero-search-form" data-hero-search-toggle>Rechercher</button>
+    <form class="search-card" method="get" action="/accueil" id="hero-search-form" data-hero-search-form>
       <div class="form-grid search-grid" data-date-range>
         <label><span>Date d'arrivée</span><input class="input" type="date" name="checkin" value="<?= \App\View::e($search['checkin']) ?>" required></label>
         <label><span>Date de départ</span><input class="input" type="date" name="checkout" value="<?= \App\View::e($search['checkout']) ?>" required></label>

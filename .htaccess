@@ -23,4 +23,7 @@ RewriteRule ^ index.php [QSA,L]
   <FilesMatch "^(styles\.css|app\.js)$">
     Header set Cache-Control "no-cache, must-revalidate"
   </FilesMatch>
+  <FilesMatch "\.mp4$">
+    Header set Cache-Control "public, max-age=86400"
+  </FilesMatch>
 </IfModule>

@@ -40,6 +40,9 @@ document.addEventListener('DOMContentLoaded', () => {
     initHelpDialogs,
     initMultiPropertyCart,
     initPartnerCodeFromHash,
+    initMobileNavbar,
+    initHeroVideoLoading,
+    initHeroMobileSearchToggle,
     initHeroSearchCollapse,
   ].forEach(runInit);
 });
@@ -1058,6 +1061,11 @@ function initDateRanges() {
       }
     });
 
+    checkout.addEventListener('change', () => {
+      const adults = wrap.querySelector('input[name="adults"]');
+      if (adults) adults.focus();
+    });
+
     syncCheckoutMin();
   });
 }
@@ -1704,6 +1712,109 @@ function initHeroSearchCollapse() {
   requestAnimationFrame(() => {
     requestAnimationFrame(() => hero.classList.add('hero-video--compact'));
   });
+}
+
+function initMobileNavbar() {
+  const nav = document.querySelector('.navbar');
+  const toggle = nav ? nav.querySelector('[data-mobile-nav-toggle]') : null;
+  const links = nav ? nav.querySelector('[data-mobile-nav-links]') : null;
+  const backdrop = nav ? nav.querySelector('[data-mobile-nav-backdrop]') : null;
+  if (!toggle || !links || !backdrop) return;
+
+  const media = window.matchMedia ? window.matchMedia('(max-width: 760px)') : null;
+  const isOpen = () => document.body.classList.contains('mobile-nav-open');
+  const setOpen = (open) => {
+    document.body.classList.toggle('mobile-nav-open', open);
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  };
+  const close = () => setOpen(false);
+
+  toggle.addEventListener('click', () => setOpen(!isOpen()));
+  backdrop.addEventListener('click', close);
+  links.querySelectorAll('a').forEach((anchor) => anchor.addEventListener('click', close));
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') close();
+  });
+
+  const closeOnDesktop = () => {
+    if (media && !media.matches) close();
+  };
+  if (media) {
+    if (typeof media.addEventListener === 'function') {
+      media.addEventListener('change', closeOnDesktop);
+    } else if (typeof media.addListener === 'function') {
+      media.addListener(closeOnDesktop);
+    }
+  }
+  closeOnDesktop();
+}
+
+function initHeroVideoLoading() {
+  const hero = document.querySelector('.hero-video');
+  const video = hero ? hero.querySelector('[data-hero-video]') : null;
+  if (!hero || !video) return;
+
+  const markReady = () => hero.classList.add('video-ready');
+  ['loadeddata', 'canplay', 'playing'].forEach((eventName) => {
+    video.addEventListener(eventName, markReady, { once: true });
+  });
+  let playbackScheduled = false;
+  const tryPlay = () => {
+    if (playbackScheduled) return;
+    playbackScheduled = true;
+    window.setTimeout(() => {
+      const maybePromise = video.play();
+      if (maybePromise && typeof maybePromise.catch === 'function') {
+        maybePromise.catch(() => {
+          playbackScheduled = false;
+        });
+      }
+    }, 600);
+  };
+  if (video.readyState >= 3) {
+    markReady();
+    tryPlay();
+  } else {
+    video.addEventListener('canplay', tryPlay, { once: true });
+    video.addEventListener('canplaythrough', tryPlay, { once: true });
+    if (video.preload !== 'auto') video.preload = 'auto';
+    try { video.load(); } catch (e) {}
+  }
+}
+
+function initHeroMobileSearchToggle() {
+  const hero = document.querySelector('.hero-video');
+  const toggle = hero ? hero.querySelector('[data-hero-search-toggle]') : null;
+  const form = hero ? hero.querySelector('[data-hero-search-form]') : null;
+  if (!hero || !toggle || !form) return;
+
+  const media = window.matchMedia ? window.matchMedia('(max-width: 760px)') : null;
+  const setOpen = (open) => {
+    hero.classList.toggle('hero-search-open', open);
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  };
+  const syncToViewport = () => {
+    if (!media || !media.matches) setOpen(true);
+    else setOpen(false);
+  };
+
+  toggle.addEventListener('click', () => {
+    const open = !hero.classList.contains('hero-search-open');
+    setOpen(open);
+    if (open) {
+      const firstField = form.querySelector('input, select, textarea, button');
+      if (firstField) firstField.focus();
+    }
+  });
+
+  if (media) {
+    if (typeof media.addEventListener === 'function') {
+      media.addEventListener('change', syncToViewport);
+    } else if (typeof media.addListener === 'function') {
+      media.addListener(syncToViewport);
+    }
+  }
+  syncToViewport();
 }
 
 function initPartnerCodeFromHash() {

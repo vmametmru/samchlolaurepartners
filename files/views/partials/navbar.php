@@ -17,7 +17,10 @@ $avatarInitial = strtoupper(substr($avatarInitialSource !== '' ? $avatarInitialS
         <span class="brand-name" style="color: <?= \App\View::e($primaryColor) ?>;"><?= \App\View::e($partner['name'] ?? 'Portail Partenaires') ?></span>
       <?php endif; ?>
     </a>
-    <div class="navbar-links">
+    <button class="navbar-mobile-toggle" type="button" aria-label="Ouvrir le menu" aria-expanded="false" aria-controls="navbar-links-panel" data-mobile-nav-toggle>
+      <span aria-hidden="true">☰</span>
+    </button>
+    <div class="navbar-links" id="navbar-links-panel" data-mobile-nav-links>
       <?php if (is_array($user) && in_array($user['role'] ?? '', ['partner', 'admin'], true)): ?><a href="/partner/dashboard">Dashboard</a><?php endif; ?>
       <?php if ($partner): ?>
         <?php if (is_array($user)): ?>
@@ -72,4 +75,5 @@ $avatarInitial = strtoupper(substr($avatarInitialSource !== '' ? $avatarInitialS
       <?php endif; ?>
     </div>
   </div>
+  <button class="navbar-mobile-backdrop" type="button" aria-label="Fermer le menu" data-mobile-nav-backdrop></button>
 </nav>

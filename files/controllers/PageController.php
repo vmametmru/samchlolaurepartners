@@ -33,7 +33,6 @@ final class PageController extends Controller
         View::render('pages/enter-code', [
             'pageTitle' => 'Bienvenue',
             'suppressPartner' => true,
-            'preloadHeroVideo' => true,
         ]);
     }
 
