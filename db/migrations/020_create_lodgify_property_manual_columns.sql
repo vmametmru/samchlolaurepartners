@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS lodgify_property_manual_columns (
+  property_id INT NOT NULL PRIMARY KEY,
+  sofa_bed_count INT DEFAULT NULL,
+  min_people INT DEFAULT NULL,
+  extra_person_fee DECIMAL(10,2) DEFAULT NULL,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);

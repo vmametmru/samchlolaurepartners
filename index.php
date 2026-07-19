@@ -260,6 +260,7 @@ try {
             break;
         case route($method, $path, 'POST', '#^/admin/lodgify-properties/manual$#'):
             PageController::adminSaveLodgifyPropertiesManual();
+            break;
         case route($method, $path, 'GET', '#^/admin/diagnostic$#'):
             PageController::adminDiagnostic();
             break;

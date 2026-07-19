@@ -19,6 +19,10 @@ $statusBadge = static function (?\DateTimeImmutable $updatedAt, bool $fresh): st
     return '<span class="badge ' . $badgeClass . '">' . $badgeLabel . '</span><br><span class="muted" style="font-size:.78rem">' . \App\View::e($label) . '</span>';
 };
 ?>
+<style>
+.manual-col { background: #fffbe6; }
+.manual-col input[type="number"] { width: 6rem; }
+</style>
 <section class="container section-lg">
   <div class="section-header">
     <h1>Biens Lodgify</h1>
@@ -32,6 +36,7 @@ $statusBadge = static function (?\DateTimeImmutable $updatedAt, bool $fresh): st
   <?php if ($rows === []): ?>
     <p class="empty-state">Aucun bien Lodgify disponible pour le moment.</p>
   <?php else: ?>
+    <form method="post" action="/admin/lodgify-properties/manual">
     <div class="card overflow-hidden">
       <table class="table">
         <thead>
@@ -40,10 +45,10 @@ $statusBadge = static function (?\DateTimeImmutable $updatedAt, bool $fresh): st
             <th>Titre</th>
             <th>Capacité max</th>
             <th>Nb de lits</th>
-            <th>Canapé lit</th>
-            <th>Min personnes (tarif de base)</th>
+            <th class="manual-col" title="Colonne manuelle — non synchronisée depuis Lodgify">Canapé lit ✎</th>
+            <th class="manual-col" title="Colonne manuelle — non synchronisée depuis Lodgify">Min personnes (tarif de base) ✎</th>
             <th>Frais de nettoyage</th>
-            <th>Frais pers. suppl. / nuit</th>
+            <th class="manual-col" title="Colonne manuelle — non synchronisée depuis Lodgify">Frais pers. suppl. / nuit ✎</th>
             <th>Coordonnées GPS</th>
             <th>Statut de la fiche</th>
             <th>Statut Prix</th>
@@ -51,30 +56,29 @@ $statusBadge = static function (?\DateTimeImmutable $updatedAt, bool $fresh): st
         </thead>
         <tbody>
           <?php foreach ($rows as $row):
+            $propertyId = (int) ($row['id'] ?? 0);
             $photo = $row['images'][0]['url'] ?? 'https://via.placeholder.com/56x40?text=%20';
             $hasCoords = $row['latitude'] !== null && $row['longitude'] !== null;
+            $sofaBedVal = $row['sofa_bed_count'] !== null ? (string) (int) $row['sofa_bed_count'] : '';
+            $minPeopleVal = $row['min_people'] !== null ? (string) (int) $row['min_people'] : '';
+            $extraFeeVal = $row['extra_person_fee'] !== null ? number_format((float) $row['extra_person_fee'], 2, '.', '') : '';
           ?>
             <tr>
               <td><img class="lodgify-thumb" src="<?= \App\View::e($photo) ?>" alt="<?= \App\View::e((string) $row['name']) ?>"></td>
               <td><?= \App\View::e((string) $row['name']) ?></td>
               <td><?= (int) $row['max_guests'] ?> pers.</td>
               <td><?= (int) $row['bedrooms'] ?></td>
-              <td>
-                <?php $sofaBedCount = (int) ($row['sofa_bed_count'] ?? 0); ?>
-                <?php if ($sofaBedCount > 0): ?>
-                  Oui (<?= $sofaBedCount ?>)
-                <?php else: ?>
-                  <span class="muted">Non</span>
-                <?php endif; ?>
-                <br><a href="/admin/lodgify-properties/<?= (int) ($row['id'] ?? 0) ?>/sofa-bed-debug" style="font-size:.78rem">Voir données brutes</a>
-                <br><a href="/admin/lodgify-properties/<?= (int) ($row['id'] ?? 0) ?>/pricing-debug" style="font-size:.78rem">Diagnostic tarifs JSON</a>
+              <td class="manual-col">
+                <input class="input" type="number" min="0" step="1"
+                  name="manual[<?= $propertyId ?>][sofa_bed_count]"
+                  value="<?= \App\View::e($sofaBedVal) ?>"
+                  placeholder="—">
               </td>
-              <td>
-                <?php if (isset($row['min_people']) && $row['min_people'] !== null): ?>
-                  <?= (int) $row['min_people'] ?> pers.
-                <?php else: ?>
-                  <span class="muted">—</span>
-                <?php endif; ?>
+              <td class="manual-col">
+                <input class="input" type="number" min="1" step="1"
+                  name="manual[<?= $propertyId ?>][min_people]"
+                  value="<?= \App\View::e($minPeopleVal) ?>"
+                  placeholder="—">
               </td>
               <td>
                 <?php if (isset($row['cleaning_fee']) && $row['cleaning_fee'] !== null): ?>
@@ -83,12 +87,11 @@ $statusBadge = static function (?\DateTimeImmutable $updatedAt, bool $fresh): st
                   <span class="muted">—</span>
                 <?php endif; ?>
               </td>
-              <td>
-                <?php if (isset($row['extra_person_fee']) && $row['extra_person_fee'] !== null): ?>
-                  <?= \App\View::e(number_format((float) $row['extra_person_fee'], 2)) ?> / nuit
-                <?php else: ?>
-                  <span class="muted">—</span>
-                <?php endif; ?>
+              <td class="manual-col">
+                <input class="input" type="number" min="0" step="0.01"
+                  name="manual[<?= $propertyId ?>][extra_person_fee]"
+                  value="<?= \App\View::e($extraFeeVal) ?>"
+                  placeholder="—">
               </td>
               <td>
                 <?php if ($hasCoords): ?>
@@ -109,5 +112,10 @@ $statusBadge = static function (?\DateTimeImmutable $updatedAt, bool $fresh): st
         </tbody>
       </table>
     </div>
+    <div style="margin-top:1rem">
+      <p class="muted" style="margin-bottom:.5rem">Les colonnes surlignées (✎) sont saisies manuellement et ne sont pas synchronisées depuis Lodgify.</p>
+      <button class="btn-primary" type="submit">Sauvegarder les colonnes manuelles</button>
+    </div>
+    </form>
   <?php endif; ?>
 </section>
