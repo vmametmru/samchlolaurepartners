@@ -545,6 +545,95 @@ final class LodgifyClient
     }
 
     /**
+     * Uncached diagnostic helper for pricing columns: returns raw Lodgify JSON
+     * from the relevant rate endpoints plus extracted pricing fields and the
+     * final mapped values used by the admin table.
+     */
+    public function getPricingDebug(int $propertyId): array
+    {
+        $result = [
+            'property_id' => $propertyId,
+            'fetched_at' => gmdate('c'),
+            'v2_rate_settings_property' => null,
+            'v2_rate_settings_property_error' => null,
+            'v2_rate_settings_legacy' => null,
+            'v2_rate_settings_legacy_error' => null,
+            'v2_rates_properties' => null,
+            'v2_rates_properties_error' => null,
+            'extracted' => [
+                'settings_property' => null,
+                'settings_legacy' => null,
+                'rates_first_period_with_extra_guest' => null,
+                'mapped_result' => null,
+            ],
+        ];
+
+        try {
+            $raw = $this->request('/rates/settings/properties/' . $propertyId);
+            $result['v2_rate_settings_property'] = $raw;
+            $payload = is_array($raw['rate_settings'] ?? null) ? $raw['rate_settings'] : $raw;
+            if (is_array($payload)) {
+                $result['extracted']['settings_property'] = [
+                    'people_from' => $payload['people_from'] ?? null,
+                    'min_people' => $payload['min_people'] ?? null,
+                    'extra_person_fee' => $payload['extra_person_fee'] ?? null,
+                    'extra_guest_fee' => $payload['extra_guest_fee'] ?? null,
+                ];
+            }
+        } catch (\Throwable $e) {
+            $result['v2_rate_settings_property_error'] = $e->getMessage();
+        }
+
+        try {
+            $raw = $this->request('/rates/settings', ['houseId' => $propertyId]);
+            $result['v2_rate_settings_legacy'] = $raw;
+            $payload = is_array($raw['rate_settings'] ?? null) ? $raw['rate_settings'] : $raw;
+            if (is_array($payload)) {
+                $result['extracted']['settings_legacy'] = [
+                    'people_from' => $payload['people_from'] ?? null,
+                    'min_people' => $payload['min_people'] ?? null,
+                    'extra_person_fee' => $payload['extra_person_fee'] ?? null,
+                    'extra_guest_fee' => $payload['extra_guest_fee'] ?? null,
+                ];
+            }
+        } catch (\Throwable $e) {
+            $result['v2_rate_settings_legacy_error'] = $e->getMessage();
+        }
+
+        try {
+            $raw = $this->request('/rates/properties/' . $propertyId);
+            $result['v2_rates_properties'] = $raw;
+            $periods = $raw['items'] ?? $raw['rates'] ?? $raw['periods'] ?? (array_is_list($raw) ? $raw : []);
+            foreach ($periods as $period) {
+                if (!is_array($period)) {
+                    continue;
+                }
+                if (
+                    isset($period['extra_guest_rate']) && $period['extra_guest_rate'] !== null && $period['extra_guest_rate'] !== ''
+                    || isset($period['extra_person_rate']) && $period['extra_person_rate'] !== null && $period['extra_person_rate'] !== ''
+                ) {
+                    $result['extracted']['rates_first_period_with_extra_guest'] = [
+                        'start_date' => $period['start_date'] ?? null,
+                        'end_date' => $period['end_date'] ?? null,
+                        'extra_guest_rate' => $period['extra_guest_rate'] ?? null,
+                        'extra_guest_rate_type' => $period['extra_guest_rate_type'] ?? null,
+                        'extra_guest_rate_from' => $period['extra_guest_rate_from'] ?? null,
+                        'extra_person_rate' => $period['extra_person_rate'] ?? null,
+                        'extra_person_rate_type' => $period['extra_person_rate_type'] ?? null,
+                    ];
+                    break;
+                }
+            }
+        } catch (\Throwable $e) {
+            $result['v2_rates_properties_error'] = $e->getMessage();
+        }
+
+        $result['extracted']['mapped_result'] = $this->getPropertyRateSettings($propertyId);
+
+        return $result;
+    }
+
+    /**
      * Fetches "/properties/{id}/rooms" for the given property and overwrites
      * bedrooms/bathrooms/max_guests/sofa_bed_count on the mapped property
      * with the sum of each room's real capacity (see sumRoomCapacity()).

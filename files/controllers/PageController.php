@@ -1020,6 +1020,22 @@ final class PageController extends Controller
         ]);
     }
 
+    /**
+     * Shows the raw Lodgify pricing payloads for one property so an admin can
+     * verify whether empty pricing columns come from upstream API data or from
+     * local mapping logic.
+     */
+    public static function adminLodgifyPricingDebug(int $propertyId): void
+    {
+        self::requireAdminUser();
+        $client = new LodgifyClient();
+        $debug = $client->getPricingDebug($propertyId);
+        View::render('pages/admin-lodgify-pricing-debug', [
+            'pageTitle' => 'Diagnostic tarifs Lodgify — bien #' . $propertyId,
+            'debug' => $debug,
+        ]);
+    }
+
     public static function adminDiagnostic(): void
     {
         self::requireAdminUser();

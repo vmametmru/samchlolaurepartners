@@ -67,6 +67,7 @@ $statusBadge = static function (?\DateTimeImmutable $updatedAt, bool $fresh): st
                   <span class="muted">Non</span>
                 <?php endif; ?>
                 <br><a href="/admin/lodgify-properties/<?= (int) ($row['id'] ?? 0) ?>/sofa-bed-debug" style="font-size:.78rem">Voir données brutes</a>
+                <br><a href="/admin/lodgify-properties/<?= (int) ($row['id'] ?? 0) ?>/pricing-debug" style="font-size:.78rem">Diagnostic tarifs JSON</a>
               </td>
               <td>
                 <?php if (isset($row['min_people']) && $row['min_people'] !== null): ?>
