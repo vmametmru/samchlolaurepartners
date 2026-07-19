@@ -228,8 +228,15 @@ try {
         case route($method, $path, 'GET', '#^/admin/fees$#'):
             PageController::adminFees();
             break;
+        case route($method, $path, 'GET', '#^/admin/smtp-settings$#'):
+            PageController::adminSmtpSettings();
+            break;
+        case route($method, $path, 'POST', '#^/admin/smtp-settings$#'):
+            PageController::adminSaveSmtpSettings();
         case route($method, $path, 'POST', '#^/admin/fees/tourist-tax$#'):
             PageController::adminSaveTax();
+        case route($method, $path, 'POST', '#^/admin/fees/cleaning-default$#'):
+            PageController::adminSaveDefaultCleaningFee();
         case route($method, $path, 'GET', '#^/admin/versions$#'):
             PageController::adminVersions();
             break;

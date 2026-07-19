@@ -13,10 +13,13 @@
   </div>
   <div class="card card-body stack-md">
     <h2 class="section-title">Frais de nettoyage</h2>
-    <?php if ($cleaningFees === []): ?>
-      <p class="muted">Aucun frais configuré. Utilisez l'API PUT /api/fees/cleaning/:propertyId pour en ajouter.</p>
-    <?php else: ?>
-      <table class="table"><thead><tr><th>Hébergement</th><th>Tarif (€/pers/nuit)</th></tr></thead><tbody><?php foreach ($cleaningFees as $fee): ?><tr><td><?= \App\View::e($fee['property_id'] ?? 'Par défaut') ?></td><td><?= \App\View::e((string) $fee['per_person_per_night']) ?></td></tr><?php endforeach; ?></tbody></table>
+    <form method="post" action="/admin/fees/cleaning-default" class="stack-md">
+      <label><span>Tarif par défaut (€/pers/nuit)</span><input class="input" type="number" step="0.01" min="0" name="per_person_per_night" value="<?= \App\View::e((string) ($defaultCleaningFee ?? 0)) ?>"></label>
+      <p class="muted">Cette valeur par défaut est utilisée uniquement si Lodgify ne renvoie aucun frais de nettoyage pour le bien demandé.</p>
+      <button class="btn-primary" type="submit">Sauvegarder</button>
+    </form>
+    <?php if (($propertyCleaningFees ?? []) !== []): ?>
+      <table class="table"><thead><tr><th>Hébergement</th><th>Tarif (€/pers/nuit)</th></tr></thead><tbody><?php foreach ($propertyCleaningFees as $fee): ?><tr><td><?= \App\View::e((string) $fee['property_id']) ?></td><td><?= \App\View::e((string) $fee['per_person_per_night']) ?></td></tr><?php endforeach; ?></tbody></table>
     <?php endif; ?>
   </div>
 </section>
