@@ -1061,6 +1061,11 @@ function initDateRanges() {
       }
     });
 
+    checkout.addEventListener('change', () => {
+      const adults = wrap.querySelector('input[name="adults"]');
+      if (adults) adults.focus();
+    });
+
     syncCheckoutMin();
   });
 }

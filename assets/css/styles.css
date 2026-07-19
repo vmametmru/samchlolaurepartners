@@ -48,7 +48,7 @@ img { max-width: 100%; display: block; }
 .search-card input[type=number] { -moz-appearance: textfield; }
 .card-body { padding: 1.25rem; }
 .card-header { padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); font-weight: 700; }
-.navbar { position: fixed; inset: 0 0 auto; height: 4.5rem; background: rgba(255,255,255,.94); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); z-index: 50; }
+.navbar { position: fixed; inset: 0 0 auto; height: 4.5rem; background: rgba(255,255,255,.94); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); z-index: 100; }
 .navbar-inner { display: flex; align-items: center; justify-content: space-between; min-height: 4.5rem; gap: 1rem; }
 .brand-name { font-weight: 700; font-size: 1.25rem; }
 .brand-logo { height: 3rem; max-height: 3rem; width: auto; object-fit: contain; }
@@ -438,7 +438,7 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
   .hero-search-mobile-toggle { display: inline-flex; width: 100%; }
   .hero-video .search-card { display: none; width: 100%; margin-top: .75rem; }
   .hero-video.hero-search-open .search-card { display: block; }
-  .hero-video.hero-search-open .hero-search-mobile-toggle { margin-bottom: .5rem; }
+  .hero-video.hero-search-open .hero-search-mobile-toggle { display: none; }
   .calendar-legend-row { align-items: flex-start; }
   .calendar-view-selection-btn { margin-left: 0; }
   /* Larger, easier-to-tap arrival/departure calendar cells on phones (Apple's
