@@ -154,7 +154,7 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
                 <span class="guest-count-label">Enfant(s) -3 ans</span>
                 <div class="guest-count-controls">
                   <button type="button" class="stepper-btn" data-step="-1" aria-label="Diminuer le nombre d'enfants de moins de 3 ans">−</button>
-                  <input class="input guest-stepper-input" type="number" name="children_under3" min="0" max="20" value="0" aria-label="Enfants (moins de 3 ans)" title="Enfants (moins de 3 ans)">
+                  <input class="input guest-stepper-input" type="number" name="children_under3" min="0" max="2" value="0" aria-label="Enfants (moins de 3 ans)" title="Enfants (moins de 3 ans)">
                   <button type="button" class="stepper-btn" data-step="1" aria-label="Augmenter le nombre d'enfants de moins de 3 ans">+</button>
                 </div>
               </div>
