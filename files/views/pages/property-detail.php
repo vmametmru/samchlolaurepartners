@@ -60,7 +60,7 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
     <button type="button" class="tab-btn" data-tab-btn="rates-availability">Tarifs &amp; Disponibilités</button>
   </nav>
 
-  <div class="detail-grid">
+  <div>
     <div class="stack-lg" data-tab-panels>
       <div data-tab-panel="description">
         <h2 class="section-title">Description</h2>
@@ -104,7 +104,10 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
       </div>
 
       <div data-tab-panel="rates-availability" hidden>
-        <h2 class="section-title">Tarifs &amp; Disponibilités</h2>
+        <div class="rates-tab-header">
+          <h2 class="section-title">Tarifs &amp; Disponibilités</h2>
+          <button type="button" class="rates-clear-dates-btn" data-clear-dates-btn hidden>Effacer les dates sélectionnées</button>
+        </div>
         <?php if (!empty($ratesRestricted)): ?>
           <p class="muted">Merci de contacter votre agence pour ce bien.</p>
         <?php else: ?>
@@ -118,25 +121,29 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
         <?php endif; ?>
       </div>
     </div>
-    <aside class="card card-body sticky-card" data-form-panel="rates-availability" hidden>
-      <form class="stack-md" data-api-form data-booking-form data-property-id="<?= (int) $property['id'] ?>" data-currency="<?= \App\View::e($currency) ?>" data-max-guests="<?= (int) $property['max_guests'] ?>" data-success-message="Demande envoyée ! Vous recevrez un email de confirmation." method="post" action="/api/reservations/request">
-        <input type="hidden" name="property_id" value="<?= (int) $property['id'] ?>">
-        <input type="hidden" name="property_name" value="<?= \App\View::e($property['name']) ?>">
+  </div>
 
-        <div class="stack-sm booking-dates-always-visible" data-booking-dates>
-          <span>Dates du séjour *</span>
-          <div class="booking-dates-summary" data-booking-dates-summary>
-            <p class="muted">Sélectionnez vos dates dans le calendrier (Tarifs &amp; Disponibilités) : 1er clic = arrivée, 2e clic = départ.</p>
+  <div class="booking-modal-overlay" data-booking-modal-overlay style="display:none">
+  <div class="booking-modal-panel" data-booking-modal-panel>
+    <button type="button" class="booking-modal-hide-btn" data-booking-modal-hide>Masquer</button>
+    <form class="booking-modal-form" data-api-form data-booking-form data-property-id="<?= (int) $property['id'] ?>" data-currency="<?= \App\View::e($currency) ?>" data-max-guests="<?= (int) $property['max_guests'] ?>" data-success-message="Demande envoyée ! Vous recevrez un email de confirmation." method="post" action="/api/reservations/request">
+      <input type="hidden" name="property_id" value="<?= (int) $property['id'] ?>">
+      <input type="hidden" name="property_name" value="<?= \App\View::e($property['name']) ?>">
+
+      <div class="booking-modal-top-row">
+        <div class="booking-section" data-booking-dates>
+          <span class="booking-section-title">Dates du séjour *</span>
+          <div class="booking-block-body">
+            <div class="booking-dates-summary" data-booking-dates-summary>
+              <p class="muted">Sélectionnez vos dates dans le calendrier (Tarifs &amp; Disponibilités) : 1er clic = arrivée, 2e clic = départ.</p>
+            </div>
+            <input type="hidden" name="checkin_date" data-booking-checkin>
+            <input type="hidden" name="checkout_date" data-booking-checkout>
           </div>
-          <input type="hidden" name="checkin_date" data-booking-checkin>
-          <input type="hidden" name="checkout_date" data-booking-checkout>
         </div>
 
-        <div class="booking-block" data-booking-block="guests">
-          <button type="button" class="booking-block-header" data-block-toggle>
-            <span>Nombre de Voyageur(s)</span>
-            <span class="booking-block-chevron" aria-hidden="true">▾</span>
-          </button>
+        <div class="booking-section" data-booking-block="guests">
+          <span class="booking-section-title">Nombre de Voyageur(s)</span>
           <div class="booking-block-body" data-block-body>
             <?php if ((int) $property['max_guests'] > 0): ?>
               <p class="muted">Capacité maximum : <?= (int) $property['max_guests'] ?> personne(s).</p>
@@ -171,34 +178,32 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
             <p class="muted guest-capacity-note" data-guest-capacity-note hidden></p>
           </div>
         </div>
+      </div>
 
-        <div class="booking-block" data-booking-block="traveler">
-          <button type="button" class="booking-block-header" data-block-toggle>
-            <span>Détails des Voyageurs</span>
-            <span class="booking-block-chevron" aria-hidden="true">▾</span>
-          </button>
-          <div class="booking-block-body stack-md" data-block-body hidden>
-            <label><span>Nom et prénom complet *</span><input class="input" type="text" name="client_name" required></label>
-            <label><span>Email *</span><input class="input" type="email" name="client_email" required></label>
-            <?php require BASE_PATH . '/files/views/partials/phone-input.php'; ?>
-            <?php require BASE_PATH . '/files/views/partials/nationalities.php'; ?>
-            <label><span>Message (optionnel)</span><textarea class="input" rows="3" name="message"></textarea></label>
+      <div class="booking-section" data-booking-block="traveler">
+        <span class="booking-section-title">Détails des Voyageurs</span>
+        <div class="booking-block-body stack-md" data-block-body>
+          <label><span>Nom et prénom complet *</span><input class="input" type="text" name="client_name" required></label>
+          <label><span>Email *</span><input class="input" type="email" name="client_email" required></label>
+          <?php require BASE_PATH . '/files/views/partials/phone-input.php'; ?>
+          <?php require BASE_PATH . '/files/views/partials/nationalities.php'; ?>
+          <label><span>Message (optionnel)</span><textarea class="input" rows="3" name="message"></textarea></label>
+        </div>
+      </div>
+
+      <div class="booking-block" data-booking-block="summary" hidden>
+        <div class="quote-box" data-quote-box hidden>
+          <div data-quote-result hidden>
+            <div class="quote-line"><span>Tarif pour <span data-quote-nights></span> nuit(s)</span><span data-quote-room></span></div>
+            <p class="quote-recap muted" data-quote-recap></p>
+            <div class="quote-line quote-total"><span>Sous total</span><span data-quote-total></span></div>
+            <p class="quote-tax-note muted" data-quote-tax-line hidden>Remarque : Taxe Touristique de <span data-quote-tax-amount></span> Euros à remettre au gérant ou au propriétaire du bien à l'arrivée, payable en Euros (<span data-quote-tax-rate></span> Euros par pers. / par nuit)</p>
           </div>
         </div>
-
-        <div class="booking-block" data-booking-block="summary" hidden>
-          <div class="quote-box" data-quote-box hidden>
-            <div data-quote-result hidden>
-              <div class="quote-line"><span>Tarif pour <span data-quote-nights></span> nuit(s)</span><span data-quote-room></span></div>
-              <p class="quote-recap muted" data-quote-recap></p>
-              <div class="quote-line quote-total"><span>Sous total</span><span data-quote-total></span></div>
-              <p class="quote-tax-note muted" data-quote-tax-line hidden>Remarque : Taxe Touristique de <span data-quote-tax-amount></span> Euros à remettre au gérant ou au propriétaire du bien à l'arrivée, payable en Euros (<span data-quote-tax-rate></span> Euros par pers. / par nuit)</p>
-            </div>
-          </div>
-          <button class="btn-primary" type="submit">Envoyer ma demande</button>
-          <p class="form-feedback" data-form-feedback></p>
-        </div>
-      </form>
-    </aside>
+        <button class="btn-primary" type="submit">Envoyer ma demande</button>
+        <p class="form-feedback" data-form-feedback></p>
+      </div>
+    </form>
   </div>
+</div>
 </section>
