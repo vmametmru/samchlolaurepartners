@@ -617,18 +617,22 @@ final class LodgifyClient
     }
 
     /**
-     * Fetches "/rates/settings" for a property's house id, which is the only
-     * place Lodgify exposes check-in/check-out hours and per-guest/per-stay fees
-     * (e.g. the extra-guest fee shown on Lodgify's own Tarifs tab).
+     * Fetches "/rates/settings/properties/{id}" for one property, which is the
+     * preferred Lodgify endpoint for check-in/check-out hours plus the base-rate
+     * headcount ("people_from") and default extra-person fee.
      */
     private function getRateSettingsFor(int $propertyId): array
     {
-        $default = ['check_in_hour' => null, 'check_out_hour' => null, 'min_people' => null, 'fees' => []];
+        $default = ['check_in_hour' => null, 'check_out_hour' => null, 'min_people' => null, 'extra_person_fee' => null, 'fees' => []];
         try {
-            $data = $this->request('/rates/settings', ['houseId' => $propertyId]);
+            $data = $this->request('/rates/settings/properties/' . $propertyId);
         } catch (\Throwable $e) {
-            error_log('Lodgify: failed to fetch rate settings for property ' . $propertyId . ': ' . $e->getMessage());
-            return $default;
+            try {
+                $data = $this->request('/rates/settings', ['houseId' => $propertyId]);
+            } catch (\Throwable $legacyException) {
+                error_log('Lodgify: failed to fetch rate settings for property ' . $propertyId . ': ' . $e->getMessage() . ' | fallback failed: ' . $legacyException->getMessage());
+                return $default;
+            }
         }
         $payload = is_array($data['rate_settings'] ?? null) ? $data['rate_settings'] : $data;
         $fees = [];
@@ -644,10 +648,12 @@ final class LodgifyClient
             ];
         }
         $minPeople = $payload['people_from'] ?? $payload['min_people'] ?? $payload['min_occupancy'] ?? $payload['minimum_people'] ?? null;
+        $extraPersonFee = $payload['extra_person_fee'] ?? $payload['extra_guest_fee'] ?? null;
         return [
             'check_in_hour' => isset($payload['check_in_hour']) ? (int) $payload['check_in_hour'] : null,
             'check_out_hour' => isset($payload['check_out_hour']) ? (int) $payload['check_out_hour'] : null,
             'min_people' => $minPeople !== null ? (int) $minPeople : null,
+            'extra_person_fee' => $extraPersonFee !== null && $extraPersonFee !== '' ? (float) $extraPersonFee : null,
             'fees' => $fees,
         ];
     }
@@ -666,7 +672,7 @@ final class LodgifyClient
         }
         $settings = $this->getRateSettingsFor($propertyId);
         $cleaningFee = null;
-        $extraPersonFee = null;
+        $extraPersonFee = $settings['extra_person_fee'] ?? null;
         foreach ($settings['fees'] as $fee) {
             $name = mb_strtolower($fee['name']);
             $chargeType = mb_strtolower(str_replace([' ', '-', '_'], '', $fee['charge_type']));
@@ -701,8 +707,9 @@ final class LodgifyClient
             $minPeople = $this->peopleBaseFromRooms($this->getPropertyRoomsDetails($propertyId));
         }
         // Fallback for extra_person_fee: read extra_guest_rate from the
-        // rates periods endpoint (GET /v2/rates/properties/{id}), which is
-        // the only place Lodgify reliably exposes this value.
+        // rates periods endpoint (GET /v2/rates/properties/{id}) when the
+        // default property-wide settings omit it and only seasonal periods
+        // expose the per-guest surcharge.
         if ($extraPersonFee === null) {
             $extraPersonFee = $this->fetchExtraGuestRateFromRatesApi($propertyId);
         }
