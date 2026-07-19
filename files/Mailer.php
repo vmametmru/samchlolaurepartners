@@ -52,12 +52,13 @@ final class Mailer
         }
 
         $config = [
-            'host' => $partner['smtp_host'] ?? Settings::get('SMTP_HOST', ''),
-            'port' => (int) ($partner['smtp_port'] ?? Settings::int('SMTP_PORT', 25)),
-            'user' => $partner['smtp_user'] ?? Settings::get('SMTP_USER', ''),
-            'pass' => $partner['smtp_pass'] ?? Settings::get('SMTP_PASS', ''),
-            'from_email' => (string) ($partner['email'] ?? Settings::get('SMTP_FROM_EMAIL', 'no-reply@example.com')),
+            'host' => self::firstNonEmpty($partner['smtp_host'] ?? null, Settings::get('SMTP_HOST', 'mail.grand-baie-maurice.com')),
+            'port' => (int) self::firstNonEmpty($partner['smtp_port'] ?? null, (string) Settings::int('SMTP_PORT', 465)),
+            'user' => self::firstNonEmpty($partner['smtp_user'] ?? null, Settings::get('SMTP_USER', 'infos@grand-baie-maurice.com')),
+            'pass' => self::firstNonEmpty($partner['smtp_pass'] ?? null, Settings::get('SMTP_PASS', '')),
+            'from_email' => self::firstNonEmpty($partner['smtp_user'] ?? null, Settings::get('SMTP_FROM_EMAIL', ''), Settings::get('SMTP_USER', 'infos@grand-baie-maurice.com')),
             'from_name' => (string) ($partner['name'] ?? Settings::get('SMTP_FROM_NAME', 'samchlolaurepartners')),
+            'security' => strtolower((string) Settings::get('SMTP_SECURITY', 'ssl')),
         ];
 
         if (!empty($config['host'])) {
@@ -119,9 +120,11 @@ final class Mailer
         self::expect($socket, [220]);
         self::command($socket, 'EHLO localhost', [250]);
 
-        if ($port === 587 && function_exists('stream_socket_enable_crypto')) {
+        if ($transport === $host && function_exists('stream_socket_enable_crypto')) {
             self::command($socket, 'STARTTLS', [220]);
-            stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT);
+            if (!stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
+                throw new RuntimeException('SMTP STARTTLS negotiation failed.');
+            }
             self::command($socket, 'EHLO localhost', [250]);
         }
 
@@ -237,5 +240,16 @@ final class Mailer
         if (!in_array($code, $okCodes, true)) {
             throw new RuntimeException('SMTP error: ' . trim($response));
         }
+    }
+
+    private static function firstNonEmpty(mixed ...$values): string
+    {
+        foreach ($values as $value) {
+            $candidate = trim((string) ($value ?? ''));
+            if ($candidate !== '') {
+                return $candidate;
+            }
+        }
+        return '';
     }
 }

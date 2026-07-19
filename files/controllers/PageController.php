@@ -21,6 +21,8 @@ use Throwable;
 
 final class PageController extends Controller
 {
+    private const ALLOWED_LOGO_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+
     /**
      * The root URL is hardcoded to always show the "enter your partner code"
      * gate, regardless of whether a partner_code cookie is already active:
@@ -517,22 +519,50 @@ final class PageController extends Controller
     {
         $user = self::requirePartnerUser();
         $partner = PartnersController::formData((int) $user['partner_id']);
-        View::render('pages/partner-settings', ['pageTitle' => 'Paramètres partenaire', 'partnerData' => $partner]);
+        $smtpDefaults = [
+            'smtp_host' => Settings::get('SMTP_HOST', 'mail.grand-baie-maurice.com'),
+            'smtp_port' => Settings::get('SMTP_PORT', '465'),
+            'smtp_user' => Settings::get('SMTP_USER', 'infos@grand-baie-maurice.com'),
+            'smtp_pass' => Settings::get('SMTP_PASS', ''),
+            'smtp_security' => Settings::get('SMTP_SECURITY', 'ssl'),
+            'smtp_from_email' => Settings::get('SMTP_FROM_EMAIL', 'infos@grand-baie-maurice.com'),
+        ];
+        View::render('pages/partner-settings', [
+            'pageTitle' => 'Paramètres partenaire',
+            'partnerData' => $partner,
+            'smtpDefaults' => $smtpDefaults,
+        ]);
     }
 
     public static function partnerSaveSettings(): never
     {
         $user = self::requirePartnerUser();
-        Database::connection()->prepare('UPDATE partners SET name = ?, email = ?, logo_url = ?, primary_color = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, updated_at = NOW() WHERE id = ?')->execute([
+        $partnerId = (int) $user['partner_id'];
+        $existing = PartnersController::formData($partnerId);
+        $logoUrl = (string) ($existing['logo_url'] ?? '');
+        if (isset($_POST['remove_logo']) && $_POST['remove_logo'] === '1') {
+            self::deleteLocalAsset($logoUrl, '/images/logo/');
+            $logoUrl = '';
+        }
+        if (!empty($_FILES['logo']['name'])) {
+            self::deleteLocalAsset($logoUrl, '/images/logo/');
+            $logoUrl = self::storePartnerLogo($partnerId) ?? '';
+        }
+
+        Database::connection()->prepare('UPDATE partners SET name = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, logo_url = ?, primary_color = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, updated_at = NOW() WHERE id = ?')->execute([
             trim((string) ($_POST['name'] ?? '')),
             trim((string) ($_POST['email'] ?? '')),
-            trim((string) ($_POST['logo_url'] ?? '')) ?: null,
+            trim((string) ($_POST['phone'] ?? '')) ?: null,
+            trim((string) ($_POST['facebook_url'] ?? '')) ?: null,
+            trim((string) ($_POST['tiktok_url'] ?? '')) ?: null,
+            trim((string) ($_POST['instagram_url'] ?? '')) ?: null,
+            $logoUrl !== '' ? $logoUrl : null,
             trim((string) ($_POST['primary_color'] ?? '#E61E4D')),
             trim((string) ($_POST['smtp_host'] ?? '')) ?: null,
             ($_POST['smtp_port'] ?? '') !== '' ? (int) $_POST['smtp_port'] : null,
             trim((string) ($_POST['smtp_user'] ?? '')) ?: null,
             trim((string) ($_POST['smtp_pass'] ?? '')) ?: null,
-            $user['partner_id'],
+            $partnerId,
         ]);
         self::redirect('/partner/settings', 'Paramètres sauvegardés.');
     }
@@ -636,7 +666,17 @@ final class PageController extends Controller
     public static function adminPartnerForm(?int $id = null): void
     {
         self::requireAdminUser();
-        $partner = $id ? PartnersController::formData($id) : ['primary_color' => '#E61E4D', 'markup_percent' => 0, 'cleaning_fee_per_person_per_night' => 0, 'tourist_tax_per_person_per_night' => 0, 'active' => 1];
+        $partner = $id ? PartnersController::formData($id) : [
+            'primary_color' => '#E61E4D',
+            'markup_percent' => 0,
+            'cleaning_fee_per_person_per_night' => 0,
+            'tourist_tax_per_person_per_night' => 0,
+            'active' => 1,
+            'phone' => '',
+            'facebook_url' => '',
+            'tiktok_url' => '',
+            'instagram_url' => '',
+        ];
         View::render('pages/admin-partner-form', ['pageTitle' => $id ? 'Modifier partenaire' : 'Nouveau partenaire', 'partnerData' => $partner, 'editing' => $id !== null]);
     }
 
@@ -644,12 +684,16 @@ final class PageController extends Controller
     {
         self::requireAdminUser();
         if ($id === null) {
-            Database::connection()->prepare('INSERT INTO partners (subdomain, name, logo_url, primary_color, email, markup_percent, cleaning_fee_per_person_per_night, tourist_tax_per_person_per_night, smtp_host, smtp_port, smtp_user, smtp_pass, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([
+            Database::connection()->prepare('INSERT INTO partners (subdomain, name, logo_url, primary_color, email, phone, facebook_url, tiktok_url, instagram_url, markup_percent, cleaning_fee_per_person_per_night, tourist_tax_per_person_per_night, smtp_host, smtp_port, smtp_user, smtp_pass, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([
                 trim((string) ($_POST['subdomain'] ?? '')),
                 trim((string) ($_POST['name'] ?? '')),
                 trim((string) ($_POST['logo_url'] ?? '')) ?: null,
                 trim((string) ($_POST['primary_color'] ?? '#E61E4D')),
                 trim((string) ($_POST['email'] ?? '')),
+                trim((string) ($_POST['phone'] ?? '')) ?: null,
+                trim((string) ($_POST['facebook_url'] ?? '')) ?: null,
+                trim((string) ($_POST['tiktok_url'] ?? '')) ?: null,
+                trim((string) ($_POST['instagram_url'] ?? '')) ?: null,
                 (float) ($_POST['markup_percent'] ?? 0),
                 (float) ($_POST['cleaning_fee_per_person_per_night'] ?? 0),
                 (float) ($_POST['tourist_tax_per_person_per_night'] ?? 0),
@@ -660,11 +704,15 @@ final class PageController extends Controller
                 isset($_POST['active']) ? 1 : 0,
             ]);
         } else {
-            Database::connection()->prepare('UPDATE partners SET name = ?, logo_url = ?, primary_color = ?, email = ?, markup_percent = ?, cleaning_fee_per_person_per_night = ?, tourist_tax_per_person_per_night = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?')->execute([
+            Database::connection()->prepare('UPDATE partners SET name = ?, logo_url = ?, primary_color = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, markup_percent = ?, cleaning_fee_per_person_per_night = ?, tourist_tax_per_person_per_night = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?')->execute([
                 trim((string) ($_POST['name'] ?? '')),
                 trim((string) ($_POST['logo_url'] ?? '')) ?: null,
                 trim((string) ($_POST['primary_color'] ?? '#E61E4D')),
                 trim((string) ($_POST['email'] ?? '')),
+                trim((string) ($_POST['phone'] ?? '')) ?: null,
+                trim((string) ($_POST['facebook_url'] ?? '')) ?: null,
+                trim((string) ($_POST['tiktok_url'] ?? '')) ?: null,
+                trim((string) ($_POST['instagram_url'] ?? '')) ?: null,
                 (float) ($_POST['markup_percent'] ?? 0),
                 (float) ($_POST['cleaning_fee_per_person_per_night'] ?? 0),
                 (float) ($_POST['tourist_tax_per_person_per_night'] ?? 0),
@@ -692,6 +740,36 @@ final class PageController extends Controller
         $tax = Database::connection()->query('SELECT * FROM tourist_tax LIMIT 1')->fetch(PDO::FETCH_ASSOC) ?: ['per_person_per_night' => 0, 'applies_to_foreigners_only' => 1, 'applies_to_children' => 0];
         $cleaningFees = Database::connection()->query('SELECT * FROM cleaning_fees ORDER BY property_id')->fetchAll(PDO::FETCH_ASSOC);
         View::render('pages/admin-fees', ['pageTitle' => 'Frais & taxes', 'tax' => $tax, 'cleaningFees' => $cleaningFees]);
+    }
+
+    public static function adminSmtpSettings(): void
+    {
+        self::requireAdminUser();
+        View::render('pages/admin-smtp-settings', [
+            'pageTitle' => 'SMTP par défaut',
+            'smtpDefaults' => [
+                'SMTP_HOST' => Settings::get('SMTP_HOST', 'mail.grand-baie-maurice.com'),
+                'SMTP_PORT' => Settings::get('SMTP_PORT', '465'),
+                'SMTP_USER' => Settings::get('SMTP_USER', 'infos@grand-baie-maurice.com'),
+                'SMTP_PASS' => Settings::get('SMTP_PASS', ''),
+                'SMTP_FROM_EMAIL' => Settings::get('SMTP_FROM_EMAIL', 'infos@grand-baie-maurice.com'),
+                'SMTP_FROM_NAME' => Settings::get('SMTP_FROM_NAME', 'Grand Baie Maurice'),
+            ],
+        ]);
+    }
+
+    public static function adminSaveSmtpSettings(): never
+    {
+        self::requireAdminUser();
+        Settings::set('SMTP_HOST', trim((string) ($_POST['smtp_host'] ?? '')) ?: 'mail.grand-baie-maurice.com');
+        Settings::set('SMTP_PORT', trim((string) ($_POST['smtp_port'] ?? '')) ?: '465');
+        Settings::set('SMTP_USER', trim((string) ($_POST['smtp_user'] ?? '')) ?: 'infos@grand-baie-maurice.com');
+        Settings::set('SMTP_PASS', (string) ($_POST['smtp_pass'] ?? ''));
+        Settings::set('SMTP_FROM_EMAIL', trim((string) ($_POST['smtp_from_email'] ?? '')) ?: 'infos@grand-baie-maurice.com');
+        Settings::set('SMTP_FROM_NAME', trim((string) ($_POST['smtp_from_name'] ?? '')) ?: 'Grand Baie Maurice');
+        Settings::set('SMTP_SECURITY', 'ssl');
+        Settings::reload();
+        self::redirect('/admin/smtp-settings', 'SMTP par défaut sauvegardé.');
     }
 
     public static function adminSaveTax(): never
@@ -1093,6 +1171,51 @@ final class PageController extends Controller
             return ['ok' => true, 'rows' => $rows];
         } catch (Throwable $e) {
             return ['ok' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    private static function storePartnerLogo(int $partnerId): ?string
+    {
+        $file = $_FILES['logo'] ?? null;
+        if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            return null;
+        }
+        if (!is_uploaded_file((string) $file['tmp_name'])) {
+            return null;
+        }
+
+        $originalName = (string) ($file['name'] ?? '');
+        $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+        if (!in_array($extension, self::ALLOWED_LOGO_EXTENSIONS, true)) {
+            throw new HttpException(400, 'Bad Request', 'Format de logo non supporté (jpg, jpeg, png, gif, webp).');
+        }
+        if ((int) ($file['size'] ?? 0) > 5 * 1024 * 1024) {
+            throw new HttpException(400, 'Bad Request', 'Le logo ne doit pas dépasser 5 Mo.');
+        }
+
+        $dir = BASE_PATH . '/images/logo';
+        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+            throw new HttpException(500, 'Internal Server Error', 'Impossible de créer le dossier de stockage des logos.');
+        }
+
+        $filename = 'partner-' . $partnerId . '-' . bin2hex(random_bytes(8)) . '.' . $extension;
+        $destination = $dir . '/' . $filename;
+        if (!move_uploaded_file((string) $file['tmp_name'], $destination)) {
+            throw new HttpException(500, 'Internal Server Error', 'Impossible d\'enregistrer le logo.');
+        }
+
+        return '/images/logo/' . $filename;
+    }
+
+    private static function deleteLocalAsset(string $publicPath, string $allowedPrefix): void
+    {
+        $publicPath = trim($publicPath);
+        if ($publicPath === '' || !str_starts_with($publicPath, $allowedPrefix)) {
+            return;
+        }
+        $fullPath = BASE_PATH . $publicPath;
+        if (is_file($fullPath)) {
+            @unlink($fullPath);
         }
     }
 

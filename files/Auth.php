@@ -13,6 +13,7 @@ final class Auth
 {
     private const COOKIE_NAME = 'auth_token';
     private const EXPIRY_SECONDS = 604800;
+    private const INACTIVITY_SECONDS = 600;
 
     public static function login(string $email, string $password): ?array
     {
@@ -51,7 +52,10 @@ final class Auth
     {
         $header = self::base64UrlEncode(json_encode(['alg' => 'HS256', 'typ' => 'JWT'], JSON_THROW_ON_ERROR));
         $issuedAt = time();
-        $claims = $payload + ['iat' => $issuedAt, 'exp' => $issuedAt + self::EXPIRY_SECONDS];
+        $claims = $payload + ['iat' => $issuedAt, 'lat' => $issuedAt, 'exp' => $issuedAt + self::EXPIRY_SECONDS];
+        $claims['iat'] = $issuedAt;
+        $claims['lat'] = $issuedAt;
+        $claims['exp'] = $issuedAt + self::EXPIRY_SECONDS;
         $body = self::base64UrlEncode(json_encode($claims, JSON_THROW_ON_ERROR));
         $signature = self::base64UrlEncode(hash_hmac('sha256', $header . '.' . $body, self::secret(), true));
         return $header . '.' . $body . '.' . $signature;
@@ -60,7 +64,14 @@ final class Auth
     public static function user(): ?array
     {
         $token = self::tokenFromRequest();
-        return $token ? self::verifyToken($token) : null;
+        if (!$token) {
+            return null;
+        }
+        $user = self::verifyToken($token);
+        if ($user && self::isCookieToken($token)) {
+            self::setAuthCookie(self::issueToken($user));
+        }
+        return $user;
     }
 
     /**
@@ -93,6 +104,9 @@ final class Auth
         if ($adminOnly && ($user['role'] ?? null) !== 'admin') {
             throw new HttpException(403, 'Forbidden', 'Admin access required');
         }
+        if (self::isCookieToken($token)) {
+            self::setAuthCookie(self::issueToken($user));
+        }
         return $user;
     }
 
@@ -113,8 +127,12 @@ final class Auth
         if (!is_array($payload) || !isset($payload['exp']) || (int) $payload['exp'] < time()) {
             return null;
         }
+        $lastActivity = isset($payload['lat']) ? (int) $payload['lat'] : (isset($payload['iat']) ? (int) $payload['iat'] : 0);
+        if ($lastActivity > 0 && $lastActivity + self::INACTIVITY_SECONDS < time()) {
+            return null;
+        }
 
-        unset($payload['iat'], $payload['exp']);
+        unset($payload['iat'], $payload['lat'], $payload['exp']);
         return $payload;
     }
 
@@ -179,6 +197,12 @@ final class Auth
 
         $cookie = $_COOKIE[self::COOKIE_NAME] ?? null;
         return is_string($cookie) && $cookie !== '' ? $cookie : null;
+    }
+
+    private static function isCookieToken(string $token): bool
+    {
+        $cookie = $_COOKIE[self::COOKIE_NAME] ?? null;
+        return is_string($cookie) && $cookie !== '' && hash_equals($cookie, $token);
     }
 
     private static function userPayload(array $user): array
