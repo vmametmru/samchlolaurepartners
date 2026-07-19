@@ -298,7 +298,8 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .multi-cart-capacity-icon { flex-shrink: 0; font-weight: 700; }
 .multi-cart-capacity-row.cap-ok .multi-cart-capacity-icon { color: var(--green); }
 .multi-cart-capacity-row.cap-warn .multi-cart-capacity-icon { color: var(--red); }
-.multi-cart-capacity-row.cap-warn { color: var(--red); }
+.multi-cart-capacity-status.cap-ok { color: var(--green); font-weight: 700; }
+.multi-cart-capacity-status.cap-warn { color: var(--red); font-weight: 700; }
 .multi-cart-checkout { margin-top: .75rem; }
 
 

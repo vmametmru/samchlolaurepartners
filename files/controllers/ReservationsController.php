@@ -324,10 +324,10 @@ final class ReservationsController extends Controller
      * All items share the same party size and client info. Distinct
      * properties can be combined to reach the requested party size, so no
      * single item is rejected for having an individually insufficient
-     * capacity; instead the *combined* max capacity of every distinct
-     * selected property is checked once against the total party size before
-     * anything is inserted, and the whole request is rejected only if that
-     * combined capacity is still insufficient.
+     * capacity; instead the full selection is re-checked night by night
+     * before insert: adults + children 3-12 must fit within the active
+     * properties' combined max_guests for that date, and babies must also
+     * respect the max-2-per-property rule on every night.
      */
     public static function requestMultiple(): never
     {
@@ -338,6 +338,7 @@ final class ReservationsController extends Controller
         $childBreakdown = self::childBreakdownValues($input);
         $childrenUnder3 = $childBreakdown['under3'];
         $children3to12 = $childBreakdown['from3to12'];
+        $countedGuests = $adults + $children3to12;
         $totalGuests = $adults + $childrenUnder3 + $children3to12;
         $children = $childrenUnder3 + $children3to12;
 
@@ -359,12 +360,9 @@ final class ReservationsController extends Controller
 
         $client = new LodgifyClient();
         $normalizedItems = [];
-        // Distinct properties can be combined to reach the requested party
-        // size (e.g. 8 guests split across two 4-person properties), so
-        // capacity is no longer rejected per item; instead the *combined*
-        // max capacity of every distinct selected property is checked once
-        // all items have been read.
         $capacityByProperty = [];
+        $earliestCheckin = null;
+        $latestCheckout = null;
         foreach ($items as $item) {
             if (!is_array($item)) {
                 self::json(['error' => 'Bad Request', 'message' => 'Invalid item in selection'], 400);
@@ -407,18 +405,53 @@ final class ReservationsController extends Controller
                 'checkin_date' => $checkinDate->format('Y-m-d'),
                 'checkout_date' => $checkoutDate->format('Y-m-d'),
             ];
+            if ($earliestCheckin === null || $checkinDate < $earliestCheckin) {
+                $earliestCheckin = $checkinDate;
+            }
+            if ($latestCheckout === null || $checkoutDate > $latestCheckout) {
+                $latestCheckout = $checkoutDate;
+            }
         }
 
-        // A property with an unknown/zero max_guests is treated as having no
-        // capacity limit (consistent with the capacity_ok display logic), so
-        // it never blocks the combined total below.
-        $combinedCapacity = array_sum($capacityByProperty);
-        $hasUnlimitedProperty = in_array(0, $capacityByProperty, true);
-        if (!$hasUnlimitedProperty && $totalGuests > $combinedCapacity) {
-            self::json([
-                'error' => 'Bad Request',
-                'message' => "La capacité maximum cumulée des biens sélectionnés ({$combinedCapacity} personne(s)) est insuffisante pour {$totalGuests} personne(s). Ajoutez un ou plusieurs biens supplémentaires à votre sélection.",
-            ], 400);
+        if ($earliestCheckin !== null && $latestCheckout !== null) {
+            for ($cursor = $earliestCheckin; $cursor < $latestCheckout; $cursor = $cursor->modify('+1 day')) {
+                $day = $cursor->format('Y-m-d');
+                $activePropertyIds = [];
+                foreach ($normalizedItems as $item) {
+                    if ($day >= $item['checkin_date'] && $day < $item['checkout_date']) {
+                        $activePropertyIds[(int) $item['property_id']] = true;
+                    }
+                }
+
+                $activeCapacity = 0;
+                $hasUnlimitedProperty = false;
+                foreach (array_keys($activePropertyIds) as $activePropertyId) {
+                    $propertyCapacity = (int) ($capacityByProperty[$activePropertyId] ?? 0);
+                    if ($propertyCapacity <= 0) {
+                        $hasUnlimitedProperty = true;
+                        continue;
+                    }
+                    $activeCapacity += $propertyCapacity;
+                }
+
+                $adultOk = $countedGuests <= 0 || $hasUnlimitedProperty || $activeCapacity >= $countedGuests;
+                $babyCapacity = count($activePropertyIds) * 2;
+                $babyOk = $childrenUnder3 <= 0 || $childrenUnder3 <= $babyCapacity;
+                if ($adultOk && $babyOk) {
+                    continue;
+                }
+
+                $message = "Capacité insuffisante pour {$countedGuests} Personnes >3ans";
+                if ($childrenUnder3 > 0) {
+                    $message .= " + {$childrenUnder3} bébé" . ($childrenUnder3 > 1 ? 's' : '');
+                }
+                $message .= ' sur une ou plusieurs dates : sélectionnez un ou plusieurs biens supplémentaires.';
+
+                self::json([
+                    'error' => 'Bad Request',
+                    'message' => $message,
+                ], 400);
+            }
         }
 
         $partner = self::requirePartnerContext();
