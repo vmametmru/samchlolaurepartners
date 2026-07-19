@@ -7,7 +7,7 @@
       <label><span>Tarif par personne / nuit (€)</span><input class="input" type="number" step="0.01" name="per_person_per_night" value="<?= \App\View::e((string) ($tax['per_person_per_night'] ?? 0)) ?>"></label>
       <label class="inline-check"><input type="checkbox" name="applies_to_foreigners_only" <?= !empty($tax['applies_to_foreigners_only']) ? 'checked' : '' ?>> Applicable aux étrangers uniquement (les Mauriciens sont exonérés)</label>
       <label class="inline-check"><input type="checkbox" name="applies_to_children" <?= !empty($tax['applies_to_children']) ? 'checked' : '' ?>> Applicable aux enfants de moins de 12 ans</label>
-      <p class="muted">Rappel : les enfants de moins de 5 ans sont toujours gratuits et les enfants de moins de 12 ans sont exonérés de la taxe touristique pour les étrangers. Pour les résidents mauriciens, le séjour est gratuit de taxe.</p>
+      <p class="muted">Rappel : les enfants de moins de 3 ans sont toujours gratuits et les enfants de moins de 12 ans sont exonérés de la taxe touristique pour les étrangers. Pour les résidents mauriciens, le séjour est gratuit de taxe.</p>
       <button class="btn-primary" type="submit">Sauvegarder</button>
     </form>
   </div>

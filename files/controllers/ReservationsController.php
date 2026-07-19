@@ -14,39 +14,71 @@ use Throwable;
 
 final class ReservationsController extends Controller
 {
-    /**
-     * Cached result of the reservation_requests.children_under5/children_5to12
-     * column-existence check (see hasChildrenBreakdownColumns()).
-     */
-    private static ?bool $hasChildrenBreakdownColumns = null;
+    /** @var array{under3: string, from3to12: string}|null */
+    private static ?array $childrenBreakdownColumns = null;
+    private static bool $childrenBreakdownColumnsResolved = false;
 
     /**
-     * Whether the reservation_requests table already has the
-     * children_under5/children_5to12 columns (migration 018). Migrator::run()
-     * applies pending migrations automatically on every request, but on some
-     * shared-hosting setups the ALTER TABLE can fail (e.g. a restricted DB
-     * user without ALTER privilege) or simply not have run yet right after a
-     * deploy. Previously the INSERT below always referenced these columns
-     * unconditionally, so a missing migration turned every reservation
-     * request into a hard 500 ("Failed to submit request") and the
-     * notification email was never even attempted. Checking for the columns
-     * first lets the request (and its emails) succeed either way, and the
-     * breakdown columns get populated automatically as soon as the
-     * migration does apply.
+     * Resolves which reservation_requests child-breakdown columns are
+     * available. The UI/API now uses the < 3 / 3-12 split, but production may
+     * still have the legacy migration-018 column names
+     * children_under5/children_5to12. Supporting both keeps new requests and
+     * later status emails working without requiring an immediate schema rename.
      */
-    private static function hasChildrenBreakdownColumns(PDO $pdo): bool
+    private static function childrenBreakdownColumns(PDO $pdo): ?array
     {
-        if (self::$hasChildrenBreakdownColumns !== null) {
-            return self::$hasChildrenBreakdownColumns;
+        if (self::$childrenBreakdownColumnsResolved) {
+            return self::$childrenBreakdownColumns;
         }
+        self::$childrenBreakdownColumnsResolved = true;
+
         try {
-            $stmt = $pdo->query("SHOW COLUMNS FROM reservation_requests LIKE 'children_under5'");
-            self::$hasChildrenBreakdownColumns = $stmt !== false && $stmt->fetch() !== false;
+            foreach (
+                [
+                    ['under3' => 'children_under3', 'from3to12' => 'children_3to12'],
+                    ['under3' => 'children_under5', 'from3to12' => 'children_5to12'],
+                ] as $candidate
+            ) {
+                if (
+                    self::reservationRequestColumnExists($pdo, $candidate['under3'])
+                    && self::reservationRequestColumnExists($pdo, $candidate['from3to12'])
+                ) {
+                    self::$childrenBreakdownColumns = $candidate;
+                    break;
+                }
+            }
         } catch (Throwable $e) {
-            self::$hasChildrenBreakdownColumns = false;
+            self::$childrenBreakdownColumns = null;
         }
 
-        return self::$hasChildrenBreakdownColumns;
+        return self::$childrenBreakdownColumns;
+    }
+
+    private static function reservationRequestColumnExists(PDO $pdo, string $column): bool
+    {
+        $stmt = $pdo->query("SHOW COLUMNS FROM reservation_requests LIKE " . $pdo->quote($column));
+        return $stmt !== false && $stmt->fetch() !== false;
+    }
+
+    private static function childCount(array $source, string $primaryField, string $legacyField, int $fallback = 0): int
+    {
+        return max(0, (int) ($source[$primaryField] ?? $source[$legacyField] ?? $fallback));
+    }
+
+    /**
+     * @return array{under3: int, from3to12: int}
+     */
+    private static function childBreakdownValues(array $source): array
+    {
+        return [
+            'under3' => self::childCount($source, 'children_under3', 'children_under5'),
+            'from3to12' => self::childCount(
+                $source,
+                'children_3to12',
+                'children_5to12',
+                (int) ($source['children'] ?? 0)
+            ),
+        ];
     }
 
     /**
@@ -62,8 +94,9 @@ final class ReservationsController extends Controller
         $checkin = trim((string) ($input['checkin_date'] ?? ''));
         $checkout = trim((string) ($input['checkout_date'] ?? ''));
         $adults = max(0, (int) ($input['adults'] ?? 0));
-        $childrenUnder5 = max(0, (int) ($input['children_under5'] ?? 0));
-        $children5to12 = max(0, (int) ($input['children_5to12'] ?? 0));
+        $childBreakdown = self::childBreakdownValues($input);
+        $childrenUnder3 = $childBreakdown['under3'];
+        $children3to12 = $childBreakdown['from3to12'];
         $guests = is_array($input['guests'] ?? null) ? $input['guests'] : [];
 
         if ($propertyId <= 0 || $checkin === '' || $checkout === '' || $adults < 1) {
@@ -81,7 +114,7 @@ final class ReservationsController extends Controller
             self::json(['error' => 'Bad Request', 'message' => 'checkout_date must be after checkin_date'], 400);
         }
 
-        $totalGuests = $adults + $childrenUnder5 + $children5to12;
+        $totalGuests = $adults + $childrenUnder3 + $children3to12;
         $client = new LodgifyClient();
 
         // Every property has a maximum occupancy (Lodgify's max_guests); a
@@ -198,8 +231,9 @@ final class ReservationsController extends Controller
         $checkout = trim((string) ($input['checkout_date'] ?? ''));
         $adults = (int) ($input['adults'] ?? 0);
         $propertyId = (int) ($input['property_id'] ?? 0);
-        $childrenUnder5 = max(0, (int) ($input['children_under5'] ?? 0));
-        $children5to12 = max(0, (int) ($input['children_5to12'] ?? 0));
+        $childBreakdown = self::childBreakdownValues($input);
+        $childrenUnder3 = $childBreakdown['under3'];
+        $children3to12 = $childBreakdown['from3to12'];
 
         if ($clientName === '' || $clientEmail === '' || $checkin === '' || $checkout === '' || $adults === 0) {
             self::json(['error' => 'Bad Request', 'message' => 'Required fields missing'], 400);
@@ -213,7 +247,7 @@ final class ReservationsController extends Controller
         // exceeds it, so a visitor cannot book more guests than the
         // property can actually accommodate.
         if ($propertyId > 0) {
-            $totalGuests = $adults + $childrenUnder5 + $children5to12;
+            $totalGuests = $adults + $childrenUnder3 + $children3to12;
             try {
                 $property = (new LodgifyClient())->getProperty($propertyId);
                 $maxGuests = (int) ($property['max_guests'] ?? 0);
@@ -231,7 +265,7 @@ final class ReservationsController extends Controller
         $partner = self::requirePartnerContext();
         $pdo = Database::connection();
 
-        $hasBreakdown = self::hasChildrenBreakdownColumns($pdo);
+        $breakdownColumns = self::childrenBreakdownColumns($pdo);
         $columns = ['partner_id', 'property_id', 'property_name', 'client_name', 'client_email', 'client_phone', 'checkin_date', 'checkout_date', 'adults', 'children'];
         $params = [
             (int) $partner['id'],
@@ -245,11 +279,11 @@ final class ReservationsController extends Controller
             $adults,
             (int) ($input['children'] ?? 0),
         ];
-        if ($hasBreakdown) {
-            $columns[] = 'children_under5';
-            $columns[] = 'children_5to12';
-            $params[] = $childrenUnder5;
-            $params[] = $children5to12;
+        if ($breakdownColumns !== null) {
+            $columns[] = $breakdownColumns['under3'];
+            $columns[] = $breakdownColumns['from3to12'];
+            $params[] = $childrenUnder3;
+            $params[] = $children3to12;
         }
         $columns[] = 'guests';
         $columns[] = 'message';
@@ -274,8 +308,8 @@ final class ReservationsController extends Controller
         // visitor, who would then wrongly believe nothing was recorded.
         try {
             self::sendRequestEmails($partner, $input + [
-                'children_under5' => $childrenUnder5,
-                'children_5to12' => $children5to12,
+                'children_under3' => $childrenUnder3,
+                'children_3to12' => $children3to12,
             ]);
         } catch (Throwable $e) {
             error_log('Failed to send reservation request emails: ' . $e);
@@ -301,10 +335,11 @@ final class ReservationsController extends Controller
         $clientName = trim((string) ($input['client_name'] ?? ''));
         $clientEmail = trim((string) ($input['client_email'] ?? ''));
         $adults = max(0, (int) ($input['adults'] ?? 0));
-        $childrenUnder5 = max(0, (int) ($input['children_under5'] ?? 0));
-        $children5to12 = max(0, (int) ($input['children_5to12'] ?? 0));
-        $totalGuests = $adults + $childrenUnder5 + $children5to12;
-        $children = $childrenUnder5 + $children5to12;
+        $childBreakdown = self::childBreakdownValues($input);
+        $childrenUnder3 = $childBreakdown['under3'];
+        $children3to12 = $childBreakdown['from3to12'];
+        $totalGuests = $adults + $childrenUnder3 + $children3to12;
+        $children = $childrenUnder3 + $children3to12;
 
         $items = $input['items'] ?? [];
         if (is_string($items)) {
@@ -395,11 +430,11 @@ final class ReservationsController extends Controller
 
         try {
             $pdo->beginTransaction();
-            $hasBreakdown = self::hasChildrenBreakdownColumns($pdo);
+            $breakdownColumns = self::childrenBreakdownColumns($pdo);
             $columns = ['partner_id', 'property_id', 'property_name', 'client_name', 'client_email', 'client_phone', 'checkin_date', 'checkout_date', 'adults', 'children'];
-            if ($hasBreakdown) {
-                $columns[] = 'children_under5';
-                $columns[] = 'children_5to12';
+            if ($breakdownColumns !== null) {
+                $columns[] = $breakdownColumns['under3'];
+                $columns[] = $breakdownColumns['from3to12'];
             }
             $columns[] = 'guests';
             $columns[] = 'message';
@@ -420,9 +455,9 @@ final class ReservationsController extends Controller
                     $adults,
                     $children,
                 ];
-                if ($hasBreakdown) {
-                    $params[] = $childrenUnder5;
-                    $params[] = $children5to12;
+                if ($breakdownColumns !== null) {
+                    $params[] = $childrenUnder3;
+                    $params[] = $children3to12;
                 }
                 $params[] = $guestsJson;
                 $params[] = $message;
@@ -451,8 +486,8 @@ final class ReservationsController extends Controller
                     'checkout_date' => $item['checkout_date'],
                     'adults' => $adults,
                     'children' => $children,
-                    'children_under5' => $childrenUnder5,
-                    'children_5to12' => $children5to12,
+                    'children_under3' => $childrenUnder3,
+                    'children_3to12' => $children3to12,
                     'property_name' => $item['property_name'],
                     'message' => $message,
                 ]);
@@ -628,12 +663,8 @@ final class ReservationsController extends Controller
             'partenaire' => (string) ($partner['name'] ?? ''),
             'photo_bien' => $photo['html'],
         ];
-        $variables += self::stayVariables(
-            $checkin,
-            $checkout,
-            (int) ($input['children_under5'] ?? 0),
-            (int) ($input['children_5to12'] ?? ($input['children'] ?? 0))
-        );
+        $childBreakdown = self::childBreakdownValues($input);
+        $variables += self::stayVariables($checkin, $checkout, $childBreakdown['under3'], $childBreakdown['from3to12']);
         $variables += self::signatureVariables((int) ($partner['id'] ?? 0));
         $embeds = $photo['embed'] !== null ? [$photo['embed']] : [];
 
@@ -674,11 +705,12 @@ final class ReservationsController extends Controller
             'partenaire' => (string) $partner['name'],
             'photo_bien' => $photo['html'],
         ];
+        $childBreakdown = self::childBreakdownValues($request);
         $variables += self::stayVariables(
             (string) $request['checkin_date'],
             (string) $request['checkout_date'],
-            (int) ($request['children_under5'] ?? 0),
-            (int) ($request['children_5to12'] ?? ($request['children'] ?? 0))
+            $childBreakdown['under3'],
+            $childBreakdown['from3to12']
         );
         $variables += self::signatureVariables((int) ($partner['id'] ?? 0));
         $embeds = $photo['embed'] !== null ? [$photo['embed']] : [];
@@ -697,14 +729,14 @@ final class ReservationsController extends Controller
      * Builds the stay-related email variables shared by every reservation
      * email: {{dates}}, {{date_arrivee}}, {{date_depart}} (formatted as
      * "ddd dd mmm yyyy", e.g. "mer. 12 août 2026"), {{nuits}} (number of
-     * nights) and {{enfants}}/{{bebes}} (5-12 years / under 5 years),
+     * nights) and {{enfants}}/{{bebes}} (3-12 years / under 3 years),
      * always defaulting numeric values to 0 instead of leaving the
      * placeholder unresolved when a field is empty.
      */
-    private static function stayVariables(string $checkin, string $checkout, int $childrenUnder5, int $children5to12): array
+    private static function stayVariables(string $checkin, string $checkout, int $childrenUnder3, int $children3to12): array
     {
-        $childrenUnder5 = max(0, $childrenUnder5);
-        $children5to12 = max(0, $children5to12);
+        $childrenUnder3 = max(0, $childrenUnder3);
+        $children3to12 = max(0, $children3to12);
         $formattedCheckin = self::formatDateFr($checkin);
         $formattedCheckout = self::formatDateFr($checkout);
         $nights = self::nightsBetween($checkin, $checkout);
@@ -714,8 +746,8 @@ final class ReservationsController extends Controller
             'date_arrivee' => $formattedCheckin,
             'date_depart' => $formattedCheckout,
             'nuits' => (string) $nights,
-            'enfants' => (string) $children5to12,
-            'bebes' => (string) $childrenUnder5,
+            'enfants' => (string) $children3to12,
+            'bebes' => (string) $childrenUnder3,
         ];
     }
 
