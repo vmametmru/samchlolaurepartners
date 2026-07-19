@@ -701,6 +701,36 @@ function initMaps() {
   });
 }
 
+function showTransientFormPopup(form, message, state = 'success') {
+  const popupId = form.dataset.feedbackPopupId || '';
+  if (!popupId) return;
+  const popup = document.getElementById(popupId);
+  if (!popup) return;
+
+  const box = popup.querySelector('[data-form-status-popup-box]');
+  const messageEl = popup.querySelector('[data-form-status-popup-message]');
+  if (messageEl) messageEl.textContent = message;
+  if (box) {
+    box.classList.toggle('success', state === 'success');
+    box.classList.toggle('error', state === 'error');
+  }
+
+  if (popup._hideTimer) window.clearTimeout(popup._hideTimer);
+  if (popup._hideTransitionTimer) window.clearTimeout(popup._hideTransitionTimer);
+
+  popup.hidden = false;
+  requestAnimationFrame(() => {
+    popup.classList.add('visible');
+  });
+
+  popup._hideTimer = window.setTimeout(() => {
+    popup.classList.remove('visible');
+    popup._hideTransitionTimer = window.setTimeout(() => {
+      if (!popup.classList.contains('visible')) popup.hidden = true;
+    }, 200);
+  }, 3000);
+}
+
 function initApiForms() {
   document.querySelectorAll('[data-api-form]').forEach((form) => {
     form.addEventListener('submit', async (event) => {
@@ -750,8 +780,10 @@ function initApiForms() {
           feedback.textContent = form.dataset.successMessage || payload.message || 'Succès';
           feedback.classList.add('success');
         }
+        showTransientFormPopup(form, form.dataset.successMessage || payload.message || 'Succès', 'success');
       } catch (error) {
         if (feedback) feedback.textContent = error.message || 'Une erreur est survenue.';
+        showTransientFormPopup(form, error.message || 'Une erreur est survenue.', 'error');
       }
     });
   });

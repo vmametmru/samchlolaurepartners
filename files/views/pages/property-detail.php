@@ -126,7 +126,7 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
   <div class="booking-modal-overlay" data-booking-modal-overlay style="display:none">
   <div class="booking-modal-panel" data-booking-modal-panel>
     <button type="button" class="booking-modal-hide-btn" data-booking-modal-hide>Masquer</button>
-    <form class="booking-modal-form" data-api-form data-booking-form data-property-id="<?= (int) $property['id'] ?>" data-currency="<?= \App\View::e($currency) ?>" data-max-guests="<?= (int) $property['max_guests'] ?>" data-success-message="Demande envoyée ! Vous recevrez un email de confirmation." method="post" action="/api/reservations/request">
+    <form class="booking-modal-form" data-api-form data-booking-form data-property-id="<?= (int) $property['id'] ?>" data-currency="<?= \App\View::e($currency) ?>" data-max-guests="<?= (int) $property['max_guests'] ?>" data-success-message="Demande envoyée ! Vous recevrez un email de confirmation." data-feedback-popup-id="booking-status-popup-<?= (int) $property['id'] ?>" method="post" action="/api/reservations/request">
       <input type="hidden" name="property_id" value="<?= (int) $property['id'] ?>">
       <input type="hidden" name="property_name" value="<?= \App\View::e($property['name']) ?>">
 
@@ -204,6 +204,11 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
         <p class="form-feedback" data-form-feedback></p>
       </div>
     </form>
+  </div>
+</div>
+<div class="booking-status-popup" id="booking-status-popup-<?= (int) $property['id'] ?>" data-form-status-popup hidden aria-live="polite" aria-atomic="true">
+  <div class="booking-status-popup-box" data-form-status-popup-box>
+    <p class="booking-status-popup-message" data-form-status-popup-message></p>
   </div>
 </div>
 </section>
