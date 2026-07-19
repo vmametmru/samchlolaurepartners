@@ -996,8 +996,14 @@ final class PageController extends Controller
             $propertyId = (int) ($property['id'] ?? 0);
             $priceSnapshot = $client->getPriceStatusSnapshot($propertyId);
             $cacheStatus = $client->getCacheStatus($propertyId);
+            $rateSettings = $client->getPropertyRateSettings($propertyId);
             $manual = $manualOverrides[$propertyId] ?? ['sofa_bed_count' => null, 'min_people' => null, 'extra_person_fee' => null];
-            $rows[] = $property + $priceSnapshot + $cacheStatus + $manual;
+            $row = $property + $priceSnapshot + $cacheStatus + ['cleaning_fee' => $rateSettings['cleaning_fee']];
+            // Manual columns override Lodgify values (use explicit assignment, not +, to guarantee override)
+            $row['sofa_bed_count'] = $manual['sofa_bed_count'];
+            $row['min_people'] = $manual['min_people'];
+            $row['extra_person_fee'] = $manual['extra_person_fee'];
+            $rows[] = $row;
         }
         View::render('pages/admin-lodgify-properties', [
             'pageTitle' => 'Biens Lodgify',
