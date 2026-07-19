@@ -571,6 +571,7 @@ final class PageController extends Controller
     {
         self::requireAdminUser();
         $partners = Database::connection()->query('SELECT * FROM partners ORDER BY name')->fetchAll(PDO::FETCH_ASSOC);
+        $globalTouristTax = (float) (Database::connection()->query('SELECT per_person_per_night FROM tourist_tax LIMIT 1')->fetchColumn() ?: 0);
         $properties = [];
         try {
             $properties = (new LodgifyClient())->getProperties();
@@ -587,6 +588,7 @@ final class PageController extends Controller
         View::render('pages/admin-partners', [
             'pageTitle' => 'Partenaires',
             'partners' => $partners,
+            'globalTouristTax' => $globalTouristTax,
             'properties' => $properties,
             'visibilityByPartner' => $visibilityByPartner,
             'usersByPartner' => $usersByPartner,
@@ -670,7 +672,6 @@ final class PageController extends Controller
             'primary_color' => '#E61E4D',
             'markup_percent' => 0,
             'cleaning_fee_per_person_per_night' => 0,
-            'tourist_tax_per_person_per_night' => 0,
             'active' => 1,
             'phone' => '',
             'facebook_url' => '',
@@ -698,7 +699,7 @@ final class PageController extends Controller
         }
 
         if ($id === null) {
-            Database::connection()->prepare('INSERT INTO partners (subdomain, name, logo_url, primary_color, email, phone, facebook_url, tiktok_url, instagram_url, markup_percent, cleaning_fee_per_person_per_night, tourist_tax_per_person_per_night, smtp_host, smtp_port, smtp_user, smtp_pass, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([
+            Database::connection()->prepare('INSERT INTO partners (subdomain, name, logo_url, primary_color, email, phone, facebook_url, tiktok_url, instagram_url, markup_percent, cleaning_fee_per_person_per_night, smtp_host, smtp_port, smtp_user, smtp_pass, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([
                 trim((string) ($_POST['subdomain'] ?? '')),
                 trim((string) ($_POST['name'] ?? '')),
                 $logoUrl !== '' ? $logoUrl : null,
@@ -710,7 +711,6 @@ final class PageController extends Controller
                 trim((string) ($_POST['instagram_url'] ?? '')) ?: null,
                 (float) ($_POST['markup_percent'] ?? 0),
                 (float) ($_POST['cleaning_fee_per_person_per_night'] ?? 0),
-                (float) ($_POST['tourist_tax_per_person_per_night'] ?? 0),
                 trim((string) ($_POST['smtp_host'] ?? '')) ?: null,
                 ($_POST['smtp_port'] ?? '') !== '' ? (int) $_POST['smtp_port'] : null,
                 trim((string) ($_POST['smtp_user'] ?? '')) ?: null,
@@ -718,7 +718,7 @@ final class PageController extends Controller
                 isset($_POST['active']) ? 1 : 0,
             ]);
         } else {
-            Database::connection()->prepare('UPDATE partners SET name = ?, logo_url = ?, primary_color = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, markup_percent = ?, cleaning_fee_per_person_per_night = ?, tourist_tax_per_person_per_night = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?')->execute([
+            Database::connection()->prepare('UPDATE partners SET name = ?, logo_url = ?, primary_color = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, markup_percent = ?, cleaning_fee_per_person_per_night = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?')->execute([
                 trim((string) ($_POST['name'] ?? '')),
                 $logoUrl !== '' ? $logoUrl : null,
                 trim((string) ($_POST['primary_color'] ?? '#E61E4D')),
@@ -729,7 +729,6 @@ final class PageController extends Controller
                 trim((string) ($_POST['instagram_url'] ?? '')) ?: null,
                 (float) ($_POST['markup_percent'] ?? 0),
                 (float) ($_POST['cleaning_fee_per_person_per_night'] ?? 0),
-                (float) ($_POST['tourist_tax_per_person_per_night'] ?? 0),
                 trim((string) ($_POST['smtp_host'] ?? '')) ?: null,
                 ($_POST['smtp_port'] ?? '') !== '' ? (int) $_POST['smtp_port'] : null,
                 trim((string) ($_POST['smtp_user'] ?? '')) ?: null,
@@ -753,7 +752,16 @@ final class PageController extends Controller
         self::requireAdminUser();
         $tax = Database::connection()->query('SELECT * FROM tourist_tax LIMIT 1')->fetch(PDO::FETCH_ASSOC) ?: ['per_person_per_night' => 0, 'applies_to_foreigners_only' => 1, 'applies_to_children' => 0];
         $cleaningFees = Database::connection()->query('SELECT * FROM cleaning_fees ORDER BY property_id')->fetchAll(PDO::FETCH_ASSOC);
-        View::render('pages/admin-fees', ['pageTitle' => 'Frais & taxes', 'tax' => $tax, 'cleaningFees' => $cleaningFees]);
+        $defaultCleaningFee = 0.0;
+        $propertyCleaningFees = [];
+        foreach ($cleaningFees as $fee) {
+            if (($fee['property_id'] ?? null) === null) {
+                $defaultCleaningFee = (float) ($fee['per_person_per_night'] ?? 0);
+                continue;
+            }
+            $propertyCleaningFees[] = $fee;
+        }
+        View::render('pages/admin-fees', ['pageTitle' => 'Frais & taxes', 'tax' => $tax, 'defaultCleaningFee' => $defaultCleaningFee, 'propertyCleaningFees' => $propertyCleaningFees]);
     }
 
     public static function adminSmtpSettings(): void
@@ -799,6 +807,19 @@ final class PageController extends Controller
             isset($_POST['applies_to_children']) ? 1 : 0,
         ]);
         self::redirect('/admin/fees', 'Taxe touristique sauvegardée.');
+    }
+
+    public static function adminSaveDefaultCleaningFee(): never
+    {
+        self::requireAdminUser();
+        $amount = (float) ($_POST['per_person_per_night'] ?? 0);
+        $existingId = Database::connection()->query('SELECT id FROM cleaning_fees WHERE property_id IS NULL LIMIT 1')->fetchColumn();
+        if ($existingId === false) {
+            Database::connection()->prepare('INSERT INTO cleaning_fees (property_id, per_person_per_night) VALUES (NULL, ?)')->execute([$amount]);
+        } else {
+            Database::connection()->prepare('UPDATE cleaning_fees SET per_person_per_night = ?, updated_at = NOW() WHERE id = ?')->execute([$amount, (int) $existingId]);
+        }
+        self::redirect('/admin/fees', 'Frais de nettoyage par défaut sauvegardés.');
     }
 
     public static function adminVersions(): void

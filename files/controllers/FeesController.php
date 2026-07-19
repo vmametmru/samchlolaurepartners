@@ -27,11 +27,26 @@ final class FeesController extends Controller
             self::json(['error' => 'Bad Request', 'message' => 'per_person_per_night is required'], 400);
         }
         try {
-            Database::connection()->prepare(
-                'INSERT INTO cleaning_fees (property_id, per_person_per_night)
-                 VALUES (?, ?)
-                 ON DUPLICATE KEY UPDATE per_person_per_night = VALUES(per_person_per_night), updated_at = NOW()'
-            )->execute([$propertyId === 'default' ? null : $propertyId, (float) $input['per_person_per_night']]);
+            $amount = (float) $input['per_person_per_night'];
+            if ($propertyId === 'default') {
+                $existingId = Database::connection()->query('SELECT id FROM cleaning_fees WHERE property_id IS NULL LIMIT 1')->fetchColumn();
+                if ($existingId === false) {
+                    Database::connection()->prepare(
+                        'INSERT INTO cleaning_fees (property_id, per_person_per_night)
+                         VALUES (NULL, ?)'
+                    )->execute([$amount]);
+                } else {
+                    Database::connection()->prepare(
+                        'UPDATE cleaning_fees SET per_person_per_night = ?, updated_at = NOW() WHERE id = ?'
+                    )->execute([$amount, (int) $existingId]);
+                }
+            } else {
+                Database::connection()->prepare(
+                    'INSERT INTO cleaning_fees (property_id, per_person_per_night)
+                     VALUES (?, ?)
+                     ON DUPLICATE KEY UPDATE per_person_per_night = VALUES(per_person_per_night), updated_at = NOW()'
+                )->execute([$propertyId, $amount]);
+            }
             self::json(['data' => null, 'message' => 'Cleaning fee updated']);
         } catch (Throwable $e) {
             self::json(['error' => 'Internal Server Error', 'message' => 'Failed to update cleaning fee'], 500);

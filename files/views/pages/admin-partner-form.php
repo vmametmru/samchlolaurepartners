@@ -11,7 +11,6 @@
     <label><span>Page Instagram</span><input class="input" type="url" name="instagram_url" value="<?= \App\View::e($partnerData['instagram_url'] ?? '') ?>"></label>
     <label><span>Marge % *</span><input class="input" type="number" name="markup_percent" min="0" max="100" step="0.5" value="<?= \App\View::e((string) ($partnerData['markup_percent'] ?? 0)) ?>"></label>
     <label><span>Nettoyage (coût par nuit et par personne) *</span><input class="input" type="number" name="cleaning_fee_per_person_per_night" min="0" step="0.01" value="<?= \App\View::e((string) ($partnerData['cleaning_fee_per_person_per_night'] ?? 0)) ?>"></label>
-    <label><span>Taxe touristique (par nuit et par personne, étrangers de plus de 12 ans uniquement, non applicable aux Mauriciens) *</span><input class="input" type="number" name="tourist_tax_per_person_per_night" min="0" step="0.01" value="<?= \App\View::e((string) ($partnerData['tourist_tax_per_person_per_night'] ?? 0)) ?>"></label>
     <div class="logo-upload-card">
       <label><span>Logo</span><input class="input" type="file" name="logo" accept="image/png,image/jpeg,image/gif,image/webp"></label>
       <?php if (!empty($partnerData['logo_url'])): ?>
