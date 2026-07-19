@@ -181,22 +181,24 @@ final class ReservationsController extends Controller
         $cleaningTotal = round($cleaningRate * $countedGuests * $nights, 2);
 
         // Extra-person fee: applies when the number of counted guests (persons
-        // > 3 years) exceeds the base-rate headcount defined in Lodgify
-        // ("people_from" / min_people). The rate and base count are fetched
-        // from getPropertyRateSettings() which already uses cached data.
+        // > 3 years) exceeds the base-rate headcount (min_people). Both values
+        // are stored locally in lodgify_property_manual_columns, set via the
+        // admin "Biens Lodgify" table — no Lodgify API call is needed here.
         $extraPersonTotal = 0.0;
         $extraPersonFeeRate = 0.0;
         $extraPersonsCount = 0;
-        try {
-            $rateSettings = $client->getPropertyRateSettings($propertyId);
-            $minPeople = $rateSettings['min_people'];
-            $extraPersonFeeRate = (float) ($rateSettings['extra_person_fee'] ?? 0);
+        $manualStmt = $pdo->prepare(
+            'SELECT min_people, extra_person_fee FROM lodgify_property_manual_columns WHERE property_id = ? LIMIT 1'
+        );
+        $manualStmt->execute([$propertyId]);
+        $manualRow = $manualStmt->fetch(\PDO::FETCH_ASSOC);
+        if ($manualRow) {
+            $minPeople = $manualRow['min_people'] !== null ? (int) $manualRow['min_people'] : null;
+            $extraPersonFeeRate = $manualRow['extra_person_fee'] !== null ? (float) $manualRow['extra_person_fee'] : 0.0;
             if ($minPeople !== null && $countedGuests > $minPeople && $extraPersonFeeRate > 0) {
                 $extraPersonsCount = $countedGuests - $minPeople;
                 $extraPersonTotal = round($extraPersonFeeRate * $extraPersonsCount * $nights, 2);
             }
-        } catch (Throwable $e) {
-            error_log('Lodgify: failed to fetch rate settings for extra-person fee: ' . $e->getMessage());
         }
 
         $taxRow = $pdo->query('SELECT * FROM tourist_tax LIMIT 1')->fetch(PDO::FETCH_ASSOC) ?: [
