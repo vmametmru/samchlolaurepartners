@@ -1228,8 +1228,13 @@ function initMultiPropertyCart() {
     while (cursor < maxDate) {
       const terms = cart.map((item) => (cursor >= item.checkin && cursor < item.checkout ? item.maxGuests : 0));
       const total = terms.reduce((sum, n) => sum + n, 0);
-      const ok = requestedGuests <= 0 || total >= requestedGuests;
-      days.push({ date: cursor, terms, total, ok });
+      const propertiesOnDay = terms.filter((t) => t > 0).length;
+      const adultOk = requestedGuests <= 0 || total >= requestedGuests;
+      const babyCapacityOnDay = propertiesOnDay * 2;
+      const babies = getBabies();
+      const babyOk = babies <= 0 || babies <= babyCapacityOnDay;
+      const ok = adultOk && babyOk;
+      days.push({ date: cursor, terms, total, ok, adultOk, babyOk });
       cursor = addDaysStr(cursor, 1);
     }
     return days;
@@ -1327,9 +1332,14 @@ function initMultiPropertyCart() {
     }
     if (summaryTotalEl) summaryTotalEl.textContent = formatEuros(totalAmount);
     if (capacityHintEl) {
-      capacityHintEl.textContent = overallOk
-        ? ''
-        : `Capacité insuffisante pour ${requestedGuests} personne(s) sur une ou plusieurs dates : sélectionnez un ou plusieurs biens supplémentaires.`;
+      if (overallOk) {
+        capacityHintEl.textContent = '';
+      } else {
+        const guestDesc = babies > 0
+          ? `${requestedGuests} adulte(s) et ${babies} bébé(s)`
+          : `${requestedGuests} personne(s)`;
+        capacityHintEl.textContent = `Capacité insuffisante pour ${guestDesc} sur une ou plusieurs dates : sélectionnez un ou plusieurs biens supplémentaires.`;
+      }
     }
     // Show baby restriction note when more than 2 babies are in the search.
     if (babyNoteEl) {
@@ -1360,8 +1370,18 @@ function initMultiPropertyCart() {
         li.appendChild(icon);
 
         const text = document.createElement('span');
-        const status = day.ok ? 'Ok' : 'Not Ok (Rajouter un ou plusieurs biens pour la même sélection)';
-        text.textContent = `${formatFrLong(day.date)} : ${day.terms.join(' + ')} = ${day.total} / ${requestedGuests} personne(s) - ${status}`;
+        let status;
+        if (day.ok) {
+          status = 'Ok';
+        } else if (!day.adultOk) {
+          status = 'Not Ok (Rajouter un ou plusieurs biens pour la même sélection)';
+        } else {
+          status = 'Not Ok (Nombre d\'adultes ok, mais la capacité maximal d\'accueil de bébé pour le bien est de 2. Il vous faut rajouter un autre bien)';
+        }
+        const guestFraction = babies > 0
+          ? `${requestedGuests} adulte(s) + ${babies} bébé(s)`
+          : `${requestedGuests} personne(s)`;
+        text.textContent = `${formatFrLong(day.date)} : ${day.terms.join(' + ')} = ${day.total} / ${guestFraction} - ${status}`;
         li.appendChild(text);
 
         capacityTableEl.appendChild(li);
