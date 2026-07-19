@@ -42,7 +42,8 @@ img { max-width: 100%; display: block; }
 .navbar { position: fixed; inset: 0 0 auto; height: 4.5rem; background: rgba(255,255,255,.94); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); z-index: 50; }
 .navbar-inner { display: flex; align-items: center; justify-content: space-between; min-height: 4.5rem; gap: 1rem; }
 .brand-name { font-weight: 700; font-size: 1.25rem; }
-.brand-logo { height: 2rem; width: auto; }
+.brand-logo { height: 3rem; max-height: 3rem; width: auto; object-fit: contain; }
+.brand { display: inline-flex; align-items: center; gap: .5rem; text-decoration: none; }
 .navbar-links { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
 .navbar-user-info { font-size: .85rem; color: var(--text-muted, #6b7280); text-decoration: none; }
 .navbar-user-info:hover { text-decoration: underline; }

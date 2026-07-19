@@ -621,7 +621,7 @@ final class LodgifyClient
      */
     private function getRateSettingsFor(int $propertyId): array
     {
-        $default = ['check_in_hour' => null, 'check_out_hour' => null, 'fees' => []];
+        $default = ['check_in_hour' => null, 'check_out_hour' => null, 'min_people' => null, 'fees' => []];
         try {
             $data = $this->request('/rates/settings', ['houseId' => $propertyId]);
         } catch (\Throwable $e) {
@@ -640,11 +640,63 @@ final class LodgifyClient
                 'amount' => isset($fee['price']['amount']) ? (float) $fee['price']['amount'] : null,
             ];
         }
+        $minPeople = $data['people_from'] ?? $data['min_people'] ?? $data['min_occupancy'] ?? $data['minimum_people'] ?? null;
         return [
             'check_in_hour' => isset($data['check_in_hour']) ? (int) $data['check_in_hour'] : null,
             'check_out_hour' => isset($data['check_out_hour']) ? (int) $data['check_out_hour'] : null,
+            'min_people' => $minPeople !== null ? (int) $minPeople : null,
             'fees' => $fees,
         ];
+    }
+
+    /**
+     * Returns a subset of the rate settings for a property — minimum persons
+     * for the base rate, cleaning fee, and extra-person-per-night fee — cached
+     * with the same long FICHE_TTL as other property data so repeated calls
+     * from the admin Lodgify-properties page don't hammer the API.
+     */
+    public function getPropertyRateSettings(int $propertyId): array
+    {
+        $default = ['min_people' => null, 'cleaning_fee' => null, 'extra_person_fee' => null];
+        if ($propertyId <= 0) {
+            return $default;
+        }
+        $cached = $this->remember('lodgify:v2:ratesettings:' . $propertyId, self::FICHE_TTL, function () use ($propertyId): array {
+            $settings = $this->getRateSettingsFor($propertyId);
+            $cleaningFee = null;
+            $extraPersonFee = null;
+            foreach ($settings['fees'] as $fee) {
+                $name = mb_strtolower($fee['name']);
+                $chargeType = mb_strtolower(str_replace([' ', '-', '_'], '', $fee['charge_type']));
+                // Cleaning fee: recognised by name (cleaning / nettoyage / ménage / menage)
+                if ($cleaningFee === null && (
+                    str_contains($name, 'clean') ||
+                    str_contains($name, 'nettoy') ||
+                    str_contains($name, 'ménage') ||
+                    str_contains($name, 'menage')
+                )) {
+                    $cleaningFee = $fee['amount'];
+                }
+                // Extra-person fee: recognised by charge_type containing "person" and "night"
+                // or by name containing "additional" / "supplémentaire" / "extra"
+                if ($extraPersonFee === null && (
+                    (str_contains($chargeType, 'person') && str_contains($chargeType, 'night')) ||
+                    str_contains($name, 'additional') ||
+                    str_contains($name, 'supplément') ||
+                    str_contains($name, 'supplementaire') ||
+                    str_contains($name, 'extra guest') ||
+                    str_contains($name, 'extra person')
+                )) {
+                    $extraPersonFee = $fee['amount'];
+                }
+            }
+            return [
+                'min_people' => $settings['min_people'],
+                'cleaning_fee' => $cleaningFee,
+                'extra_person_fee' => $extraPersonFee,
+            ];
+        });
+        return is_array($cached) ? $cached : $default;
     }
 
     public function getAvailability(int $propertyId, string $from, string $to): array

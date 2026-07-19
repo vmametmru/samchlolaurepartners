@@ -12,6 +12,7 @@ $avatarInitial = strtoupper(substr($avatarInitialSource !== '' ? $avatarInitialS
     <a href="<?= \App\View::e($brandHref) ?>" class="brand">
       <?php if (!empty($partner['logo_url'])): ?>
         <img src="<?= \App\View::e($partner['logo_url']) ?>" alt="<?= \App\View::e($partner['name'] ?? 'Partner') ?>" class="brand-logo">
+        <span class="brand-name" style="color: <?= \App\View::e($primaryColor) ?>;"><?= \App\View::e($partner['name'] ?? '') ?></span>
       <?php else: ?>
         <span class="brand-name" style="color: <?= \App\View::e($primaryColor) ?>;"><?= \App\View::e($partner['name'] ?? 'Portail Partenaires') ?></span>
       <?php endif; ?>

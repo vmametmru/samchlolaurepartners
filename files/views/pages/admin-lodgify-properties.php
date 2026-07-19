@@ -41,6 +41,9 @@ $statusBadge = static function (?\DateTimeImmutable $updatedAt, bool $fresh): st
             <th>Capacité max</th>
             <th>Nb de lits</th>
             <th>Canapé lit</th>
+            <th>Min personnes (tarif de base)</th>
+            <th>Frais de nettoyage</th>
+            <th>Frais pers. suppl. / nuit</th>
             <th>Coordonnées GPS</th>
             <th>Statut de la fiche</th>
             <th>Statut Prix</th>
@@ -64,6 +67,27 @@ $statusBadge = static function (?\DateTimeImmutable $updatedAt, bool $fresh): st
                   <span class="muted">Non</span>
                 <?php endif; ?>
                 <br><a href="/admin/lodgify-properties/<?= (int) ($row['id'] ?? 0) ?>/sofa-bed-debug" style="font-size:.78rem">Voir données brutes</a>
+              </td>
+              <td>
+                <?php if (isset($row['min_people']) && $row['min_people'] !== null): ?>
+                  <?= (int) $row['min_people'] ?> pers.
+                <?php else: ?>
+                  <span class="muted">—</span>
+                <?php endif; ?>
+              </td>
+              <td>
+                <?php if (isset($row['cleaning_fee']) && $row['cleaning_fee'] !== null): ?>
+                  <?= \App\View::e(number_format((float) $row['cleaning_fee'], 0)) ?>
+                <?php else: ?>
+                  <span class="muted">—</span>
+                <?php endif; ?>
+              </td>
+              <td>
+                <?php if (isset($row['extra_person_fee']) && $row['extra_person_fee'] !== null): ?>
+                  <?= \App\View::e(number_format((float) $row['extra_person_fee'], 2)) ?> / nuit
+                <?php else: ?>
+                  <span class="muted">—</span>
+                <?php endif; ?>
               </td>
               <td>
                 <?php if ($hasCoords): ?>
