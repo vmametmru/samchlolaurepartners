@@ -1315,6 +1315,8 @@ function initMultiPropertyCart() {
     });
 
     const overallOk = dailyCapacity.every((day) => day.ok);
+    // Track adult-only and baby-only issues separately so messages are targeted.
+    const overallAdultOk = dailyCapacity.every((day) => day.adultOk);
     const propertyCount = distinctPropertyIds.size;
 
     // Baby restriction: max 2 babies per property, so ceil(babies/2) properties needed.
@@ -1331,25 +1333,26 @@ function initMultiPropertyCart() {
       }
     }
     if (summaryTotalEl) summaryTotalEl.textContent = formatEuros(totalAmount);
+    // Capacity hint: only shown for adult capacity issues; baby-specific issues
+    // are handled exclusively by babyNoteEl below to avoid a confusing message
+    // that mixes adults (which count toward max_guests) with babies (which don't).
     if (capacityHintEl) {
-      if (overallOk) {
-        capacityHintEl.textContent = '';
+      if (!overallAdultOk) {
+        capacityHintEl.textContent = `Capacité insuffisante pour ${requestedGuests} personne(s) sur une ou plusieurs dates : sélectionnez un ou plusieurs biens supplémentaires.`;
       } else {
-        const guestDesc = babies > 0
-          ? `${requestedGuests} adulte(s) et ${babies} bébé(s)`
-          : `${requestedGuests} personne(s)`;
-        capacityHintEl.textContent = `Capacité insuffisante pour ${guestDesc} sur une ou plusieurs dates : sélectionnez un ou plusieurs biens supplémentaires.`;
+        capacityHintEl.textContent = '';
       }
     }
-    // Show baby restriction note when more than 2 babies are in the search.
+    // Baby restriction note: show a warning whenever the selected properties
+    // cannot accommodate all babies (regardless of whether babies > 2), and
+    // an informational note once enough properties have been added.
     if (babyNoteEl) {
-      if (babies > 2) {
-        const missing = babiesPropertiesNeeded - propertyCount;
-        if (!babiesOk) {
-          babyNoteEl.textContent = `⚠ Restriction bébés : ${babies} bébé(s) — max. 2 par bien — nécessitent au minimum ${babiesPropertiesNeeded} bien(s). Veuillez sélectionner encore ${missing} bien(s) supplémentaire(s).`;
-        } else {
-          babyNoteEl.textContent = `ℹ Restriction bébés : ${babies} bébé(s) — max. 2 par bien — les ${babiesPropertiesNeeded} bien(s) sélectionné(s) couvrent ce besoin.`;
-        }
+      if (babies > 0 && !babiesOk) {
+        const missing = Math.max(0, babiesPropertiesNeeded - propertyCount);
+        babyNoteEl.textContent = `⚠ Restriction bébés : ${babies} bébé(s) — max. 2 par bien — nécessitent au minimum ${babiesPropertiesNeeded} bien(s). Veuillez sélectionner encore ${missing} bien(s) supplémentaire(s).`;
+        babyNoteEl.hidden = false;
+      } else if (babies > 2 && babiesOk) {
+        babyNoteEl.textContent = `ℹ Restriction bébés : ${babies} bébé(s) — max. 2 par bien — les ${babiesPropertiesNeeded} bien(s) sélectionné(s) couvrent ce besoin.`;
         babyNoteEl.hidden = false;
       } else {
         babyNoteEl.textContent = '';
