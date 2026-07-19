@@ -52,7 +52,9 @@ final class PageController extends Controller
             $searched = true;
             $checkin = (string) $_GET['checkin'];
             $checkout = (string) $_GET['checkout'];
-            $guests = max(1, (int) ($_GET['adults'] ?? 1)) + max(0, (int) ($_GET['children'] ?? 0));
+            $childrenUnder3 = max(0, (int) ($_GET['children_under3'] ?? 0));
+            $children3to12 = max(0, (int) ($_GET['children_3to12'] ?? 0));
+            $guests = max(1, (int) ($_GET['adults'] ?? 1)) + $childrenUnder3 + $children3to12;
             $partner = Tenant::current();
             try {
                 $client = new LodgifyClient();
@@ -78,7 +80,8 @@ final class PageController extends Controller
                 'checkin' => $_GET['checkin'] ?? '',
                 'checkout' => $_GET['checkout'] ?? '',
                 'adults' => $_GET['adults'] ?? 2,
-                'children' => $_GET['children'] ?? 0,
+                'children_under3' => $_GET['children_under3'] ?? 0,
+                'children_3to12' => $_GET['children_3to12'] ?? 0,
                 'nationality' => $_GET['nationality'] ?? '',
             ],
         ]);

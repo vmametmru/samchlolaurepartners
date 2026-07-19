@@ -7,10 +7,11 @@
     <p>Séjours exceptionnels à l'île Maurice</p>
     <form class="search-card" method="get" action="/accueil">
       <div class="form-grid search-grid" data-date-range>
-        <label><span>Arrivée</span><input class="input" type="date" name="checkin" value="<?= \App\View::e($search['checkin']) ?>" required></label>
-        <label><span>Départ</span><input class="input" type="date" name="checkout" value="<?= \App\View::e($search['checkout']) ?>" required></label>
+        <label><span>Date d'arrivée</span><input class="input" type="date" name="checkin" value="<?= \App\View::e($search['checkin']) ?>" required></label>
+        <label><span>Date de Départ</span><input class="input" type="date" name="checkout" value="<?= \App\View::e($search['checkout']) ?>" required></label>
         <label><span>Adultes</span><input class="input" type="number" min="1" max="20" name="adults" value="<?= \App\View::e((string) $search['adults']) ?>"></label>
-        <label><span>Enfants (&lt;12)</span><input class="input" type="number" min="0" max="20" name="children" value="<?= \App\View::e((string) $search['children']) ?>"></label>
+        <label><span>Enfants (&lt;3ans)</span><input class="input" type="number" min="0" max="20" name="children_under3" value="<?= \App\View::e((string) $search['children_under3']) ?>"></label>
+        <label><span>Enfant (3-&gt;12ans)</span><input class="input" type="number" min="0" max="20" name="children_3to12" value="<?= \App\View::e((string) $search['children_3to12']) ?>"></label>
         <button class="btn-primary search-button" type="submit">Rechercher</button>
       </div>
     </form>
