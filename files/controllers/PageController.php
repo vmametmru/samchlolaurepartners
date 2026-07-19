@@ -914,8 +914,15 @@ final class PageController extends Controller
     {
         self::requireAdminUser();
         $client = new LodgifyClient();
+        $mode = (string) ($_GET['mode'] ?? 'photos');
         try {
-            $client->invalidate('lodgify:');
+            if ($mode === 'photos') {
+                $client->invalidate('lodgify:');
+            } elseif ($mode === 'texts') {
+                $client->invalidate('lodgify:v2:properties');
+            } else {
+                self::json(['error' => 'Bad Request', 'message' => 'Mode de synchronisation invalide.'], 400);
+            }
             $properties = $client->getPropertyIdsForSync();
         } catch (Throwable $e) {
             error_log('Lodgify sync: failed to start (' . $e->getMessage() . ')');
@@ -938,9 +945,12 @@ final class PageController extends Controller
         if ($propertyId <= 0) {
             self::json(['error' => 'Bad Request', 'message' => 'Identifiant de bien invalide.'], 400);
         }
+        $mode = (string) ($_GET['mode'] ?? 'photos');
+        if (!in_array($mode, ['photos', 'texts'], true)) {
+            self::json(['error' => 'Bad Request', 'message' => 'Mode de synchronisation invalide.'], 400);
+        }
         $client = new LodgifyClient();
-        $client->invalidateProperty($propertyId);
-        $result = $client->refreshPropertyDetail($propertyId);
+        $result = $client->refreshPropertyDetail($propertyId, $mode === 'photos');
         self::json(['data' => $result]);
     }
 
@@ -979,13 +989,21 @@ final class PageController extends Controller
         @set_time_limit(0);
         $client = new LodgifyClient();
         $properties = $client->getProperties();
+        $propertyIds = array_values(array_filter(array_map(static fn(array $property): int => (int) ($property['id'] ?? 0), $properties)));
+        $manualOverrides = self::manualLodgifyColumnsByPropertyId($propertyIds);
         $rows = [];
         foreach ($properties as $property) {
             $propertyId = (int) ($property['id'] ?? 0);
             $priceSnapshot = $client->getPriceStatusSnapshot($propertyId);
             $cacheStatus = $client->getCacheStatus($propertyId);
             $rateSettings = $client->getPropertyRateSettings($propertyId);
-            $rows[] = $property + $priceSnapshot + $cacheStatus + $rateSettings;
+            $manual = $manualOverrides[$propertyId] ?? ['sofa_bed_count' => null, 'min_people' => null, 'extra_person_fee' => null];
+            $row = $property + $priceSnapshot + $cacheStatus + ['cleaning_fee' => $rateSettings['cleaning_fee']];
+            // Manual columns override Lodgify values (use explicit assignment, not +, to guarantee override)
+            $row['sofa_bed_count'] = $manual['sofa_bed_count'];
+            $row['min_people'] = $manual['min_people'];
+            $row['extra_person_fee'] = $manual['extra_person_fee'];
+            $rows[] = $row;
         }
         View::render('pages/admin-lodgify-properties', [
             'pageTitle' => 'Biens Lodgify',
@@ -993,21 +1011,101 @@ final class PageController extends Controller
         ]);
     }
 
-    /**
-     * Shows the raw Lodgify v1 payloads used to derive the sofa-bed count
-     * for one property, so an admin can see exactly what Lodgify returns
-     * when the "Canapé lit" column doesn't match what's configured in
-     * Lodgify's own back-office.
-     */
-    public static function adminLodgifySofaBedDebug(int $propertyId): void
+    public static function adminSaveLodgifyPropertiesManual(): never
     {
         self::requireAdminUser();
+        @set_time_limit(0);
         $client = new LodgifyClient();
-        $debug = $client->getSofaBedDebug($propertyId);
-        View::render('pages/admin-lodgify-sofa-bed-debug', [
-            'pageTitle' => 'Débogage canapé-lit — bien #' . $propertyId,
-            'debug' => $debug,
-        ]);
+        $properties = $client->getProperties();
+        $manualInput = $_POST['manual'] ?? [];
+        if (!is_array($manualInput)) {
+            $manualInput = [];
+        }
+        $pdo = Database::connection();
+        $save = $pdo->prepare(
+            'INSERT INTO lodgify_property_manual_columns (property_id, sofa_bed_count, min_people, extra_person_fee)
+             VALUES (?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE sofa_bed_count = VALUES(sofa_bed_count), min_people = VALUES(min_people), extra_person_fee = VALUES(extra_person_fee), updated_at = NOW()'
+        );
+        $delete = $pdo->prepare('DELETE FROM lodgify_property_manual_columns WHERE property_id = ?');
+
+        foreach ($properties as $property) {
+            $propertyId = (int) ($property['id'] ?? 0);
+            if ($propertyId <= 0) {
+                continue;
+            }
+            $raw = $manualInput[(string) $propertyId] ?? null;
+            if (!is_array($raw)) {
+                $delete->execute([$propertyId]);
+                continue;
+            }
+            $sofa = self::parseNullableInt($raw['sofa_bed_count'] ?? null);
+            $minPeople = self::parseNullableInt($raw['min_people'] ?? null);
+            $extraPersonFee = self::parseNullableFloat($raw['extra_person_fee'] ?? null);
+            if ($sofa === null && $minPeople === null && $extraPersonFee === null) {
+                $delete->execute([$propertyId]);
+                continue;
+            }
+            $save->execute([$propertyId, $sofa, $minPeople, $extraPersonFee]);
+        }
+        self::redirect('/admin/lodgify-properties', 'Colonnes manuelles sauvegardées.');
+    }
+
+    /**
+     * @param array<int> $propertyIds
+     * @return array<int, array{sofa_bed_count: ?int, min_people: ?int, extra_person_fee: ?float}>
+     */
+    private static function manualLodgifyColumnsByPropertyId(array $propertyIds): array
+    {
+        $ids = array_values(array_filter(array_map('intval', $propertyIds), static fn(int $id): bool => $id > 0));
+        if ($ids === []) {
+            return [];
+        }
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = Database::connection()->prepare(
+            'SELECT property_id, sofa_bed_count, min_people, extra_person_fee
+             FROM lodgify_property_manual_columns
+             WHERE property_id IN (' . $placeholders . ')'
+        );
+        $stmt->execute($ids);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $result = [];
+        foreach ($rows as $row) {
+            $propertyId = (int) ($row['property_id'] ?? 0);
+            if ($propertyId <= 0) {
+                continue;
+            }
+            $result[$propertyId] = [
+                'sofa_bed_count' => isset($row['sofa_bed_count']) ? (int) $row['sofa_bed_count'] : null,
+                'min_people' => isset($row['min_people']) ? (int) $row['min_people'] : null,
+                'extra_person_fee' => isset($row['extra_person_fee']) ? (float) $row['extra_person_fee'] : null,
+            ];
+        }
+        return $result;
+    }
+
+    private static function parseNullableInt(mixed $value): ?int
+    {
+        if ($value === null) {
+            return null;
+        }
+        $raw = trim((string) $value);
+        if ($raw === '') {
+            return null;
+        }
+        return max(0, (int) $raw);
+    }
+
+    private static function parseNullableFloat(mixed $value): ?float
+    {
+        if ($value === null) {
+            return null;
+        }
+        $raw = trim((string) $value);
+        if ($raw === '') {
+            return null;
+        }
+        return max(0, (float) str_replace(',', '.', $raw));
     }
 
     public static function adminDiagnostic(): void

@@ -306,6 +306,7 @@ final class LodgifyClient
                 }
             }
             $sofaBedCount = $this->countSofaBeds($item);
+            $peopleBase = isset($item['people_base']) && $item['people_base'] !== null ? (int) $item['people_base'] : null;
             $rooms[] = [
                 'id' => (int) ($item['id'] ?? 0),
                 'name' => (string) ($item['name'] ?? ''),
@@ -320,6 +321,7 @@ final class LodgifyClient
                 'adults_only' => (bool) ($item['adults_only'] ?? false),
                 'amenities_by_category' => $amenitiesByCategory,
                 'sofa_bed_count' => $sofaBedCount,
+                'people_base' => $peopleBase,
             ];
         }
         return $rooms;
@@ -543,6 +545,95 @@ final class LodgifyClient
     }
 
     /**
+     * Uncached diagnostic helper for pricing columns: returns raw Lodgify JSON
+     * from the relevant rate endpoints plus extracted pricing fields and the
+     * final mapped values used by the admin table.
+     */
+    public function getPricingDebug(int $propertyId): array
+    {
+        $result = [
+            'property_id' => $propertyId,
+            'fetched_at' => gmdate('c'),
+            'v2_rate_settings_property' => null,
+            'v2_rate_settings_property_error' => null,
+            'v2_rate_settings_legacy' => null,
+            'v2_rate_settings_legacy_error' => null,
+            'v2_rates_properties' => null,
+            'v2_rates_properties_error' => null,
+            'extracted' => [
+                'settings_property' => null,
+                'settings_legacy' => null,
+                'rates_first_period_with_extra_guest' => null,
+                'mapped_result' => null,
+            ],
+        ];
+
+        try {
+            $raw = $this->request('/rates/settings/properties/' . $propertyId);
+            $result['v2_rate_settings_property'] = $raw;
+            $payload = is_array($raw['rate_settings'] ?? null) ? $raw['rate_settings'] : $raw;
+            if (is_array($payload)) {
+                $result['extracted']['settings_property'] = [
+                    'people_from' => $payload['people_from'] ?? null,
+                    'min_people' => $payload['min_people'] ?? null,
+                    'extra_person_fee' => $payload['extra_person_fee'] ?? null,
+                    'extra_guest_fee' => $payload['extra_guest_fee'] ?? null,
+                ];
+            }
+        } catch (\Throwable $e) {
+            $result['v2_rate_settings_property_error'] = $e->getMessage();
+        }
+
+        try {
+            $raw = $this->request('/rates/settings', ['houseId' => $propertyId]);
+            $result['v2_rate_settings_legacy'] = $raw;
+            $payload = is_array($raw['rate_settings'] ?? null) ? $raw['rate_settings'] : $raw;
+            if (is_array($payload)) {
+                $result['extracted']['settings_legacy'] = [
+                    'people_from' => $payload['people_from'] ?? null,
+                    'min_people' => $payload['min_people'] ?? null,
+                    'extra_person_fee' => $payload['extra_person_fee'] ?? null,
+                    'extra_guest_fee' => $payload['extra_guest_fee'] ?? null,
+                ];
+            }
+        } catch (\Throwable $e) {
+            $result['v2_rate_settings_legacy_error'] = $e->getMessage();
+        }
+
+        try {
+            $raw = $this->request('/rates/properties/' . $propertyId);
+            $result['v2_rates_properties'] = $raw;
+            $periods = $raw['items'] ?? $raw['rates'] ?? $raw['periods'] ?? (array_is_list($raw) ? $raw : []);
+            foreach ($periods as $period) {
+                if (!is_array($period)) {
+                    continue;
+                }
+                if (
+                    isset($period['extra_guest_rate']) && $period['extra_guest_rate'] !== null && $period['extra_guest_rate'] !== ''
+                    || isset($period['extra_person_rate']) && $period['extra_person_rate'] !== null && $period['extra_person_rate'] !== ''
+                ) {
+                    $result['extracted']['rates_first_period_with_extra_guest'] = [
+                        'start_date' => $period['start_date'] ?? null,
+                        'end_date' => $period['end_date'] ?? null,
+                        'extra_guest_rate' => $period['extra_guest_rate'] ?? null,
+                        'extra_guest_rate_type' => $period['extra_guest_rate_type'] ?? null,
+                        'extra_guest_rate_from' => $period['extra_guest_rate_from'] ?? null,
+                        'extra_person_rate' => $period['extra_person_rate'] ?? null,
+                        'extra_person_rate_type' => $period['extra_person_rate_type'] ?? null,
+                    ];
+                    break;
+                }
+            }
+        } catch (\Throwable $e) {
+            $result['v2_rates_properties_error'] = $e->getMessage();
+        }
+
+        $result['extracted']['mapped_result'] = $this->getPropertyRateSettings($propertyId);
+
+        return $result;
+    }
+
+    /**
      * Fetches "/properties/{id}/rooms" for the given property and overwrites
      * bedrooms/bathrooms/max_guests/sofa_bed_count on the mapped property
      * with the sum of each room's real capacity (see sumRoomCapacity()).
@@ -615,21 +706,26 @@ final class LodgifyClient
     }
 
     /**
-     * Fetches "/rates/settings" for a property's house id, which is the only
-     * place Lodgify exposes check-in/check-out hours and per-guest/per-stay fees
-     * (e.g. the extra-guest fee shown on Lodgify's own Tarifs tab).
+     * Fetches "/rates/settings/properties/{id}" for one property, which is the
+     * preferred Lodgify endpoint for check-in/check-out hours plus the base-rate
+     * headcount ("people_from") and default extra-person fee.
      */
     private function getRateSettingsFor(int $propertyId): array
     {
-        $default = ['check_in_hour' => null, 'check_out_hour' => null, 'min_people' => null, 'fees' => []];
+        $default = ['check_in_hour' => null, 'check_out_hour' => null, 'min_people' => null, 'extra_person_fee' => null, 'fees' => []];
         try {
-            $data = $this->request('/rates/settings', ['houseId' => $propertyId]);
+            $data = $this->request('/rates/settings/properties/' . $propertyId);
         } catch (\Throwable $e) {
-            error_log('Lodgify: failed to fetch rate settings for property ' . $propertyId . ': ' . $e->getMessage());
-            return $default;
+            try {
+                $data = $this->request('/rates/settings', ['houseId' => $propertyId]);
+            } catch (\Throwable $legacyException) {
+                error_log('Lodgify: failed to fetch rate settings for property ' . $propertyId . ': ' . $e->getMessage() . ' | fallback failed: ' . $legacyException->getMessage());
+                return $default;
+            }
         }
+        $payload = is_array($data['rate_settings'] ?? null) ? $data['rate_settings'] : $data;
         $fees = [];
-        foreach (($data['fees'] ?? []) as $fee) {
+        foreach (($payload['fees'] ?? []) as $fee) {
             if (!is_array($fee)) {
                 continue;
             }
@@ -640,20 +736,22 @@ final class LodgifyClient
                 'amount' => isset($fee['price']['amount']) ? (float) $fee['price']['amount'] : null,
             ];
         }
-        $minPeople = $data['people_from'] ?? $data['min_people'] ?? $data['min_occupancy'] ?? $data['minimum_people'] ?? null;
+        $minPeople = $payload['people_from'] ?? $payload['min_people'] ?? $payload['min_occupancy'] ?? $payload['minimum_people'] ?? null;
+        $extraPersonFee = $payload['extra_person_fee'] ?? $payload['extra_guest_fee'] ?? null;
         return [
-            'check_in_hour' => isset($data['check_in_hour']) ? (int) $data['check_in_hour'] : null,
-            'check_out_hour' => isset($data['check_out_hour']) ? (int) $data['check_out_hour'] : null,
+            'check_in_hour' => isset($payload['check_in_hour']) ? (int) $payload['check_in_hour'] : null,
+            'check_out_hour' => isset($payload['check_out_hour']) ? (int) $payload['check_out_hour'] : null,
             'min_people' => $minPeople !== null ? (int) $minPeople : null,
+            'extra_person_fee' => $extraPersonFee !== null && $extraPersonFee !== '' ? (float) $extraPersonFee : null,
             'fees' => $fees,
         ];
     }
 
     /**
      * Returns a subset of the rate settings for a property — minimum persons
-     * for the base rate, cleaning fee, and extra-person-per-night fee — cached
-     * with the same long FICHE_TTL as other property data so repeated calls
-     * from the admin Lodgify-properties page don't hammer the API.
+     * for the base rate, cleaning fee, and extra-person-per-night fee.
+     * Tariffs are read on each request so the admin table does not stay
+     * stuck with stale/empty values from an old long-lived cache entry.
      */
     public function getPropertyRateSettings(int $propertyId): array
     {
@@ -661,42 +759,114 @@ final class LodgifyClient
         if ($propertyId <= 0) {
             return $default;
         }
-        $cached = $this->remember('lodgify:v2:ratesettings:' . $propertyId, self::FICHE_TTL, function () use ($propertyId): array {
-            $settings = $this->getRateSettingsFor($propertyId);
-            $cleaningFee = null;
-            $extraPersonFee = null;
-            foreach ($settings['fees'] as $fee) {
-                $name = mb_strtolower($fee['name']);
-                $chargeType = mb_strtolower(str_replace([' ', '-', '_'], '', $fee['charge_type']));
-                // Cleaning fee: recognised by name (cleaning / nettoyage / ménage / menage)
-                if ($cleaningFee === null && (
-                    str_contains($name, 'clean') ||
-                    str_contains($name, 'nettoy') ||
-                    str_contains($name, 'ménage') ||
-                    str_contains($name, 'menage')
-                )) {
-                    $cleaningFee = $fee['amount'];
-                }
-                // Extra-person fee: recognised by charge_type containing "person" and "night"
-                // or by name containing "additional" / "supplémentaire" / "extra"
-                if ($extraPersonFee === null && (
-                    (str_contains($chargeType, 'person') && str_contains($chargeType, 'night')) ||
-                    str_contains($name, 'additional') ||
-                    str_contains($name, 'supplément') ||
-                    str_contains($name, 'supplementaire') ||
-                    str_contains($name, 'extra guest') ||
-                    str_contains($name, 'extra person')
-                )) {
-                    $extraPersonFee = $fee['amount'];
-                }
+        $settings = $this->getRateSettingsFor($propertyId);
+        $cleaningFee = null;
+        $extraPersonFee = $settings['extra_person_fee'] ?? null;
+        foreach ($settings['fees'] as $fee) {
+            $name = mb_strtolower($fee['name']);
+            $chargeType = mb_strtolower(str_replace([' ', '-', '_'], '', $fee['charge_type']));
+            // Cleaning fee: recognised by name (cleaning / nettoyage / ménage / menage)
+            if ($cleaningFee === null && (
+                str_contains($name, 'clean') ||
+                str_contains($name, 'nettoy') ||
+                str_contains($name, 'ménage') ||
+                str_contains($name, 'menage')
+            )) {
+                $cleaningFee = $fee['amount'];
             }
-            return [
-                'min_people' => $settings['min_people'],
-                'cleaning_fee' => $cleaningFee,
-                'extra_person_fee' => $extraPersonFee,
-            ];
-        });
-        return is_array($cached) ? $cached : $default;
+            // Extra-person fee: recognised by charge_type containing "person" and "night"
+            // or by name containing "additional" / "supplémentaire" / "extra"
+            if ($extraPersonFee === null && (
+                (str_contains($chargeType, 'person') && str_contains($chargeType, 'night')) ||
+                str_contains($name, 'additional') ||
+                str_contains($name, 'supplément') ||
+                str_contains($name, 'supplementaire') ||
+                str_contains($name, 'extra guest') ||
+                str_contains($name, 'extra person')
+            )) {
+                $extraPersonFee = $fee['amount'];
+            }
+        }
+        // Fallback for min_people: read people_base from the room-type data
+        // (GET /v2/properties/{id}/rooms), which is the authoritative source
+        // for the base-rate headcount — the /rates/settings endpoint often
+        // omits people_from entirely for whole-unit listings.
+        $minPeople = $settings['min_people'];
+        if ($minPeople === null) {
+            $minPeople = $this->peopleBaseFromRooms($this->getPropertyRoomsDetails($propertyId));
+        }
+        // Fallback for extra_person_fee: read extra_guest_rate from the
+        // rates periods endpoint (GET /v2/rates/properties/{id}) when the
+        // default property-wide settings omit it and only seasonal periods
+        // expose the per-guest surcharge.
+        if ($extraPersonFee === null) {
+            $extraPersonFee = $this->fetchExtraGuestRateFromRatesApi($propertyId);
+        }
+        return [
+            'min_people' => $minPeople,
+            'cleaning_fee' => $cleaningFee,
+            'extra_person_fee' => $extraPersonFee,
+        ];
+    }
+
+    /**
+     * Returns the minimum people_base value across all room types for a
+     * property (from the already-cached "/properties/{id}/rooms" data).
+     * For whole-unit listings Lodgify provides exactly one room type, so
+     * this is equivalent to reading people_base from that single entry.
+     */
+    private function peopleBaseFromRooms(array $rooms): ?int
+    {
+        $min = null;
+        foreach ($rooms as $room) {
+            if (!is_array($room) || !isset($room['people_base']) || $room['people_base'] === null) {
+                continue;
+            }
+            $val = (int) $room['people_base'];
+            if ($min === null || $val < $min) {
+                $min = $val;
+            }
+        }
+        return $min;
+    }
+
+    /**
+     * Fetches GET /v2/rates/properties/{propertyId} and returns the first
+     * non-null extra_guest_rate found across the rate periods — this is the
+     * authoritative source for the extra-guest-per-night charge in Lodgify,
+     * and it is NOT exposed by /rates/settings (the endpoint used for
+     * check-in/out hours and per-stay fees).
+     *
+     * We only use a rate whose extra_guest_rate_type indicates a per-guest
+     * charge (type value containing "guest" or "person", case-insensitive);
+     * if the type field is absent we accept the value anyway so that a
+     * non-standard enum label doesn't silently suppress the fee.
+     */
+    private function fetchExtraGuestRateFromRatesApi(int $propertyId): ?float
+    {
+        try {
+            $data = $this->request('/rates/properties/' . $propertyId);
+        } catch (\Throwable $e) {
+            error_log('Lodgify: failed to fetch rates/properties for property ' . $propertyId . ': ' . $e->getMessage());
+            return null;
+        }
+        // The response may be a direct array of rate periods or wrapped under a key.
+        $periods = $data['items'] ?? $data['rates'] ?? $data['periods'] ?? (array_is_list($data) ? $data : []);
+        foreach ($periods as $period) {
+            if (!is_array($period)) {
+                continue;
+            }
+            $rate = $period['extra_guest_rate'] ?? $period['extra_person_rate'] ?? null;
+            if ($rate === null || $rate === '' || $rate === 0 || $rate === 0.0) {
+                continue;
+            }
+            $type = mb_strtolower(str_replace([' ', '-', '_'], '', (string) ($period['extra_guest_rate_type'] ?? $period['extra_person_rate_type'] ?? 'guest')));
+            // Accept if type is absent/empty or explicitly per-guest/per-person.
+            if ($type === '' || str_contains($type, 'guest') || str_contains($type, 'person') || str_contains($type, 'perguest') || str_contains($type, 'perperson')) {
+                return (float) $rate;
+            }
+        }
+        return null;
     }
 
     public function getAvailability(int $propertyId, string $from, string $to): array
@@ -1192,12 +1362,13 @@ final class LodgifyClient
      */
     public function invalidateProperty(int $propertyId): void
     {
-        $stmt = Database::connection()->prepare('DELETE FROM lodgify_cache WHERE cache_key IN (?, ?, ?, ?)');
+        $stmt = Database::connection()->prepare('DELETE FROM lodgify_cache WHERE cache_key IN (?, ?, ?, ?, ?)');
         $stmt->execute([
             'lodgify:v2:property:' . $propertyId,
             'lodgify:v2:rooms:' . $propertyId,
             'lodgify:v2:roomtype:' . $propertyId,
             'lodgify:v1:sofabeds:' . $propertyId,
+            'lodgify:v2:ratesettings:' . $propertyId,
         ]);
     }
 
@@ -1250,28 +1421,67 @@ final class LodgifyClient
      *         real reason instead of a silent "done" with nothing actually
      *         cached.
      */
-    public function refreshPropertyDetail(int $propertyId): array
+    public function refreshPropertyDetail(int $propertyId, bool $withPhotos = true): array
     {
         $photoErrors = [];
         unset($this->roomFetchErrors[$propertyId], $this->noPhotosWarnings[$propertyId]);
         $ok = true;
+        $existingProperty = null;
+        if (!$withPhotos) {
+            $existingProperty = $this->cacheGet('lodgify:v2:property:' . $propertyId);
+        }
+        $this->invalidateProperty($propertyId);
         try {
-            $this->getProperty($propertyId);
+            if ($withPhotos) {
+                $this->getProperty($propertyId);
+            } else {
+                $this->remember('lodgify:v2:property:' . $propertyId, self::FICHE_TTL, function () use ($propertyId, $existingProperty): array {
+                    $property = $this->mapProperty($this->request('/properties/' . $propertyId));
+                    $rooms = $this->getPropertyRoomsDetails($propertyId);
+                    $property['images'] = is_array($existingProperty['images'] ?? null) ? $existingProperty['images'] : $property['images'];
+                    $property['photo_rooms'] = is_array($existingProperty['photo_rooms'] ?? null) ? $existingProperty['photo_rooms'] : [];
+                    $property['room_details'] = $rooms;
+                    $property = $this->sumRoomCapacity($property, $rooms, $propertyId);
+                    $rateSettings = $this->getRateSettingsFor($propertyId);
+                    $property['checkin_hour'] = $rateSettings['check_in_hour'];
+                    $property['checkout_hour'] = $rateSettings['check_out_hour'];
+                    $property['fees'] = $rateSettings['fees'];
+                    $amenitiesByCategory = [];
+                    foreach ($rooms as $room) {
+                        foreach ($room['amenities_by_category'] as $category => $names) {
+                            $amenitiesByCategory[$category] = array_values(array_unique(array_merge($amenitiesByCategory[$category] ?? [], $names)));
+                        }
+                    }
+                    $property['amenities_by_category'] = $amenitiesByCategory;
+                    if ($property['amenities'] === [] && $amenitiesByCategory !== []) {
+                        foreach ($amenitiesByCategory as $names) {
+                            foreach ($names as $name) {
+                                $property['amenities'][] = ['name' => $name];
+                            }
+                        }
+                    }
+                    return $property;
+                });
+            }
         } catch (\Throwable $e) {
             $ok = false;
             error_log('Lodgify sync: failed to refresh property ' . $propertyId . ': ' . $e->getMessage());
-            $photoErrors[] = 'Bien #' . $propertyId . ': échec du rafraîchissement (' . $e->getMessage() . '), aucune photo récupérée';
+            $photoErrors[] = $withPhotos
+                ? 'Bien #' . $propertyId . ': échec du rafraîchissement (' . $e->getMessage() . '), aucune photo récupérée'
+                : 'Bien #' . $propertyId . ': échec du rafraîchissement des textes (' . $e->getMessage() . ')';
         }
-        if (isset($this->roomFetchErrors[$propertyId])) {
+        if ($withPhotos && isset($this->roomFetchErrors[$propertyId])) {
             $photoErrors[] = 'Bien #' . $propertyId . ': échec de récupération des photos (rooms API : ' . $this->roomFetchErrors[$propertyId] . ')';
             unset($this->roomFetchErrors[$propertyId]);
         }
-        foreach (ImageCache::drainErrors() as $error) {
-            $photoErrors[] = 'Bien #' . $propertyId . ': ' . $error;
-        }
-        if (isset($this->noPhotosWarnings[$propertyId])) {
-            $photoErrors[] = 'Bien #' . $propertyId . ': aucune photo disponible sur Lodgify (ni via /rooms, ni via image_url) — le dossier images/listings/' . $propertyId . '/ n\'est donc jamais créé, ce n\'est pas une erreur de synchronisation.';
-            unset($this->noPhotosWarnings[$propertyId]);
+        if ($withPhotos) {
+            foreach (ImageCache::drainErrors() as $error) {
+                $photoErrors[] = 'Bien #' . $propertyId . ': ' . $error;
+            }
+            if (isset($this->noPhotosWarnings[$propertyId])) {
+                $photoErrors[] = 'Bien #' . $propertyId . ': aucune photo disponible sur Lodgify (ni via /rooms, ni via image_url) — le dossier images/listings/' . $propertyId . '/ n\'est donc jamais créé, ce n\'est pas une erreur de synchronisation.';
+                unset($this->noPhotosWarnings[$propertyId]);
+            }
         }
         return ['ok' => $ok, 'photo_errors' => $photoErrors];
     }

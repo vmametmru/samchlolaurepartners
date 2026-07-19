@@ -258,8 +258,8 @@ try {
         case route($method, $path, 'GET', '#^/admin/lodgify-properties$#'):
             PageController::adminLodgifyProperties();
             break;
-        case route($method, $path, 'GET', '#^/admin/lodgify-properties/(\d+)/sofa-bed-debug$#', $matches):
-            PageController::adminLodgifySofaBedDebug((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/admin/lodgify-properties/manual$#'):
+            PageController::adminSaveLodgifyPropertiesManual();
             break;
         case route($method, $path, 'GET', '#^/admin/diagnostic$#'):
             PageController::adminDiagnostic();
