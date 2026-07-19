@@ -51,7 +51,7 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
   <?php elseif ($rows === []): ?>
     <p class="muted">Aucun hébergement à afficher.</p>
   <?php else: ?>
-    <p class="muted calendar-price-note">Prix de la nuité en Euros. Le prix inclus les frais de nettoyage 2 fois par semaine.</p>
+    <p class="muted calendar-price-note">Prix de la nuité en Euros. Le prix inclus les frais de nettoyage 2 fois par semaine. Cliquez sur les dates que vous souhaitez afin de faire préparer votre demande.</p>
     <label class="calendar-name-toggle">
       <input type="checkbox" data-calendar-name-toggle>
       Afficher le nom du bien
@@ -64,7 +64,7 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
         <span class="dot dot-yellow"></span> Bloquée
         <span class="dot dot-gray"></span> Non réservable / Non renseigné
       </div>
-      <button type="button" class="btn-secondary calendar-view-selection-btn" data-multi-cart-view-btn hidden>Voir votre sélection</button>
+      <button type="button" class="btn-primary calendar-view-selection-btn" data-multi-cart-view-btn hidden>Voir votre sélection</button>
     </div>
 
     <div class="calendar-board cal-name-hidden" data-calendar-board data-multi-calendar-board data-total-guests="<?= (int) $totalGuests ?>" style="--cal-visible-days: <?= (int) $visibleDays ?>;">
