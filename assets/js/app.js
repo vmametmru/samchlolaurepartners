@@ -1104,7 +1104,14 @@ function initMultiPropertyCart() {
   const capacityHintEl = cartRoot.querySelector('[data-multi-cart-capacity-hint]');
   const summaryTotalEl = cartRoot.querySelector('[data-multi-cart-summary-total]');
   const clearBtn = cartRoot.querySelector('[data-multi-cart-clear]');
+  const viewBtn = document.querySelector('[data-multi-cart-view-btn]');
   if (!listEl || !checkoutForm || !itemsInput) return;
+
+  if (viewBtn) {
+    viewBtn.addEventListener('click', () => {
+      cartRoot.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
 
   // The requested party size must stay live: a visitor can change the guest
   // count fields above the table after already clicking "Afficher les
@@ -1216,6 +1223,7 @@ function initMultiPropertyCart() {
     listEl.innerHTML = '';
     if (cart.length === 0) {
       cartRoot.hidden = true;
+      if (viewBtn) viewBtn.hidden = true;
       checkoutForm.hidden = true;
       if (summaryEl) summaryEl.hidden = true;
       if (gapHintEl) gapHintEl.textContent = '';
@@ -1224,6 +1232,7 @@ function initMultiPropertyCart() {
       return;
     }
     cartRoot.hidden = false;
+    if (viewBtn) viewBtn.hidden = false;
     checkoutForm.hidden = false;
     if (summaryEl) summaryEl.hidden = false;
 

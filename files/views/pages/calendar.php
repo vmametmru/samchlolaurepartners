@@ -57,11 +57,14 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
       Afficher le nom du bien
     </label>
 
-    <div class="calendar-legend">
-      <span class="dot dot-green"></span> Disponible
-      <span class="dot dot-red"></span> Indisponible
-      <span class="dot dot-yellow"></span> Bloquée
-      <span class="dot dot-gray"></span> Non réservable / Non renseigné
+    <div class="calendar-legend-row">
+      <div class="calendar-legend">
+        <span class="dot dot-green"></span> Disponible
+        <span class="dot dot-red"></span> Indisponible
+        <span class="dot dot-yellow"></span> Bloquée
+        <span class="dot dot-gray"></span> Non réservable / Non renseigné
+      </div>
+      <button type="button" class="btn-secondary calendar-view-selection-btn" data-multi-cart-view-btn hidden>Voir votre sélection</button>
     </div>
 
     <div class="calendar-board cal-name-hidden" data-calendar-board data-multi-calendar-board data-total-guests="<?= (int) $totalGuests ?>" style="--cal-visible-days: <?= (int) $visibleDays ?>;">
@@ -154,7 +157,7 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
       </table>
     </div>
 
-    <div class="multi-booking-cart" data-multi-cart hidden>
+    <div class="multi-booking-cart" id="multi-cart-selection" data-multi-cart hidden>
       <div class="multi-cart-header">
         <h2 class="section-title">Votre sélection</h2>
         <button type="button" class="btn-secondary" data-multi-cart-clear>Effacer les sélections</button>
@@ -177,14 +180,16 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
       <p class="form-feedback" data-multi-cart-feedback></p>
       <form class="stack-md multi-cart-checkout" data-multi-cart-form data-api-form data-success-message="Vos demandes de réservation ont été envoyées ! Vous recevrez un email de confirmation." method="post" action="/api/reservations/request-multiple" hidden>
         <input type="hidden" name="adults" value="<?= (int) $adults ?>">
+        <input type="hidden" name="children" value="<?= (int) ($childrenUnder3 + $children3to12) ?>">
         <input type="hidden" name="children_under3" value="<?= (int) $childrenUnder3 ?>">
         <input type="hidden" name="children_3to12" value="<?= (int) $children3to12 ?>">
         <input type="hidden" name="items" data-multi-cart-items>
         <div class="form-grid cols-2">
           <label><span>Nom et prénom complet *</span><input class="input" type="text" name="client_name" required></label>
           <label><span>Email *</span><input class="input" type="email" name="client_email" required></label>
-          <label><span>Téléphone</span><input class="input" type="tel" name="client_phone"></label>
         </div>
+        <?php require BASE_PATH . '/files/views/partials/phone-input.php'; ?>
+        <?php require BASE_PATH . '/files/views/partials/nationalities.php'; ?>
         <label><span>Message (optionnel)</span><textarea class="input" rows="3" name="message"></textarea></label>
         <button class="btn-primary" type="submit">Envoyer mes demandes de réservation</button>
         <p class="form-feedback" data-form-feedback></p>
