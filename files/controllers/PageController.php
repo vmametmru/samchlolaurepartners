@@ -226,7 +226,7 @@ final class PageController extends Controller
             try {
                 $fromDate = (new \DateTimeImmutable($requestedFrom))->setTime(0, 0);
                 $toDate = (new \DateTimeImmutable($requestedTo))->setTime(0, 0);
-                if ($fromDate >= $start && $toDate > $fromDate) {
+                if ($toDate > $fromDate) {
                     $dateFrom = $fromDate->format('Y-m-d');
                     $dateTo = $toDate->format('Y-m-d');
                 }

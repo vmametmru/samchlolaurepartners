@@ -176,7 +176,9 @@ function initCalendarFilterSubmitState() {
 
   const dateFrom = form.querySelector('input[name="date_from"]');
   const dateTo = form.querySelector('input[name="date_to"]');
-  const guestInputs = Array.from(form.querySelectorAll('[data-guest-slide-input]'));
+  const guestInputs = Array.from(
+    form.querySelectorAll('[data-guest-slide-input], [data-calendar-guest-input]')
+  );
 
   function totalGuests() {
     return guestInputs.reduce((sum, input) => sum + (parseInt(input.value || '0', 10) || 0), 0);
@@ -1110,7 +1112,9 @@ function initMultiPropertyCart() {
   // warning — instead of staying frozen at the value from the last page
   // load (board.dataset.totalGuests).
   const filterForm = document.querySelector('[data-calendar-filter-form]');
-  const guestInputs = filterForm ? Array.from(filterForm.querySelectorAll('[data-guest-slide-input]')) : [];
+  const guestInputs = filterForm
+    ? Array.from(filterForm.querySelectorAll('[data-guest-slide-input], [data-calendar-guest-input]'))
+    : [];
 
   function getRequestedGuests() {
     if (guestInputs.length) {
