@@ -115,6 +115,9 @@ final class ReservationsController extends Controller
         }
 
         $totalGuests = $adults + $childrenUnder3 + $children3to12;
+        // Persons counted for cleaning and extra-person fees: adults + children
+        // 3+ years (children under 3 are not charged for these items).
+        $countedGuests = $adults + $children3to12;
         $client = new LodgifyClient();
 
         // Every property has a maximum occupancy (Lodgify's max_guests); a
@@ -175,7 +178,26 @@ final class ReservationsController extends Controller
             }
             $cleaningRate = $cleaningRate !== false ? (float) $cleaningRate : 0.0;
         }
-        $cleaningTotal = round($cleaningRate * $totalGuests * $nights, 2);
+        $cleaningTotal = round($cleaningRate * $countedGuests * $nights, 2);
+
+        // Extra-person fee: applies when the number of counted guests (persons
+        // > 3 years) exceeds the base-rate headcount defined in Lodgify
+        // ("people_from" / min_people). The rate and base count are fetched
+        // from getPropertyRateSettings() which already uses cached data.
+        $extraPersonTotal = 0.0;
+        $extraPersonFeeRate = 0.0;
+        $extraPersonsCount = 0;
+        try {
+            $rateSettings = $client->getPropertyRateSettings($propertyId);
+            $minPeople = $rateSettings['min_people'];
+            $extraPersonFeeRate = (float) ($rateSettings['extra_person_fee'] ?? 0);
+            if ($minPeople !== null && $countedGuests > $minPeople && $extraPersonFeeRate > 0) {
+                $extraPersonsCount = $countedGuests - $minPeople;
+                $extraPersonTotal = round($extraPersonFeeRate * $extraPersonsCount * $nights, 2);
+            }
+        } catch (Throwable $e) {
+            error_log('Lodgify: failed to fetch rate settings for extra-person fee: ' . $e->getMessage());
+        }
 
         $taxRow = $pdo->query('SELECT * FROM tourist_tax LIMIT 1')->fetch(PDO::FETCH_ASSOC) ?: [
             'per_person_per_night' => 0,
@@ -202,18 +224,22 @@ final class ReservationsController extends Controller
             }
         } else {
             // No per-guest nationality detail provided: fall back to a
-            // conservative estimate assuming all guests may be liable.
+            // conservative estimate. Tourist tax applies to persons > 11 years
+            // (adults), non-Mauriciens only.
             $qualifyingGuests = $appliesToChildren ? $totalGuests : $adults;
         }
         $touristTaxTotal = round($taxRate * $qualifyingGuests * $nights, 2);
 
-        $grandTotal = round($roomTotal + $cleaningTotal + $touristTaxTotal, 2);
-        $totalWithoutTax = round($roomTotal + $cleaningTotal, 2);
+        $totalWithoutTax = round($roomTotal + $extraPersonTotal + $cleaningTotal, 2);
+        $grandTotal = round($totalWithoutTax + $touristTaxTotal, 2);
 
         self::json(['data' => [
             'nights' => $nights,
             'currency' => $currency,
             'room_total' => round($roomTotal, 2),
+            'extra_person_total' => $extraPersonTotal,
+            'extra_person_fee_rate' => $extraPersonFeeRate,
+            'extra_persons_count' => $extraPersonsCount,
             'cleaning_total' => $cleaningTotal,
             'tourist_tax_total' => $touristTaxTotal,
             'tourist_tax_rate' => $taxRate,

@@ -194,12 +194,14 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
       <div class="booking-block" data-booking-block="summary" hidden>
         <div class="quote-box" data-quote-box hidden>
           <div data-quote-result hidden>
-            <div class="quote-line"><span>Tarif pour <span data-quote-nights></span> nuit(s)</span><span data-quote-room></span></div>
-            <p class="quote-recap muted" data-quote-recap></p>
-            <div class="quote-line quote-total"><span>Sous total</span><span data-quote-total></span></div>
-            <p class="quote-tax-note muted" data-quote-tax-line hidden>Remarque : Taxe Touristique de <span data-quote-tax-amount></span> Euros à remettre au gérant ou au propriétaire du bien à l'arrivée, payable en Euros (<span data-quote-tax-rate></span> Euros par pers. / par nuit)</p>
-          </div>
+          <div class="quote-line"><span>Tarif (<span data-quote-nights></span> nuit(s))</span><span data-quote-room></span></div>
+          <div class="quote-line" data-quote-extra-line hidden><span>Personne(s) supplémentaire(s)</span><span data-quote-extra></span></div>
+          <div class="quote-line"><span>Nettoyage</span><span data-quote-cleaning></span></div>
+          <p class="quote-recap muted" data-quote-recap></p>
+          <div class="quote-line quote-total"><span>Total</span><span data-quote-total></span></div>
+          <p class="quote-tax-note muted" data-quote-tax-line hidden>Taxe touristique de <span data-quote-tax-amount></span> Euros à régler à l'arrivée (Non comprise dans le total)</p>
         </div>
+      </div>
         <button class="btn-primary" type="submit">Envoyer ma demande</button>
         <p class="form-feedback" data-form-feedback></p>
       </div>

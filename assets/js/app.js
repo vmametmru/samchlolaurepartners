@@ -1160,10 +1160,14 @@ function initBookingQuote() {
     function renderQuote(quote, currency) {
       const formatMoney = (amount) => `${Number(amount).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
       form.querySelector('[data-quote-nights]').textContent = quote.nights;
-      // The cleaning fee is folded into the room line instead of shown
-      // separately, matching the amount already used to compute the total.
-      const roomWithCleaning = Number(quote.room_total) + Number(quote.cleaning_total);
-      form.querySelector('[data-quote-room]').textContent = formatMoney(roomWithCleaning);
+      form.querySelector('[data-quote-room]').textContent = formatMoney(quote.room_total);
+      const extraLine = form.querySelector('[data-quote-extra-line]');
+      const extraEl = form.querySelector('[data-quote-extra]');
+      const extraApplies = Number(quote.extra_person_total) > 0;
+      if (extraLine) extraLine.hidden = !extraApplies;
+      if (extraEl) extraEl.textContent = formatMoney(quote.extra_person_total || 0);
+      const cleaningEl = form.querySelector('[data-quote-cleaning]');
+      if (cleaningEl) cleaningEl.textContent = formatMoney(quote.cleaning_total);
       form.querySelector('[data-quote-total]').textContent = formatMoney(quote.total_without_tax);
       const recap = form.querySelector('[data-quote-recap]');
       if (recap) {
@@ -1182,10 +1186,6 @@ function initBookingQuote() {
         const taxAmount = form.querySelector('[data-quote-tax-amount]');
         if (taxAmount) {
           taxAmount.textContent = Number(quote.tourist_tax_total).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        }
-        const taxRate = form.querySelector('[data-quote-tax-rate]');
-        if (taxRate) {
-          taxRate.textContent = Number(quote.tourist_tax_rate || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         }
       }
       result.hidden = false;
