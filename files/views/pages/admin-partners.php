@@ -12,6 +12,18 @@ $formatFee = static fn (float $value): string => rtrim(rtrim(number_format($valu
   <div class="section-header"><h1>Gestion des partenaires</h1><a class="btn-primary" href="/admin/partners/new">+ Nouveau partenaire</a></div>
   <div class="card overflow-hidden">
     <table class="table partners-table">
+      <colgroup>
+        <col class="partners-col-name">
+        <col class="partners-col-code">
+        <col class="partners-col-email">
+        <col class="partners-col-markup">
+        <col class="partners-col-cleaning">
+        <col class="partners-col-tax">
+        <col class="partners-col-status">
+        <col class="partners-col-properties">
+        <col class="partners-col-users">
+        <col class="partners-col-actions">
+      </colgroup>
       <thead><tr><th>Partenaire</th><th>Code Partenaire</th><th>Email</th><th>Marge %</th><th>Nettoyage</th><th>Taxe Touristique</th><th>Actif</th><th>Biens</th><th>Utilisateurs</th><th></th></tr></thead>
       <tbody>
       <?php foreach ($partners as $partnerRow): ?>
@@ -23,8 +35,8 @@ $formatFee = static fn (float $value): string => rtrim(rtrim(number_format($valu
           <td><?= \App\View::e($formatFee((float) ($partnerRow['cleaning_fee_per_person_per_night'] ?? 0))) ?></td>
           <td><?= \App\View::e($formatFee($globalTouristTax)) ?></td>
           <td><?= !empty($partnerRow['active']) ? '<span class="badge badge-confirmed">Actif</span>' : '<span class="badge badge-cancelled">Inactif</span>' ?></td>
-          <td><button type="button" class="partner-table-btn" data-help-trigger="assoc-<?= (int) $partnerRow['id'] ?>"><span aria-hidden="true">🏠</span><span>Associer</span></button></td>
-          <td><button type="button" class="partner-table-btn" data-help-trigger="users-<?= (int) $partnerRow['id'] ?>"><span aria-hidden="true">👤</span><span>Utilisateurs</span><span class="partner-table-count"><?= count($usersByPartner[(int) $partnerRow['id']] ?? []) ?></span></button></td>
+          <td><button type="button" class="partner-table-btn partner-table-btn-icon" data-help-trigger="assoc-<?= (int) $partnerRow['id'] ?>" title="Associer les biens" aria-label="Associer les biens"><span aria-hidden="true">🏠</span><span class="sr-only">Associer les biens</span></button></td>
+          <td><button type="button" class="partner-table-btn partner-table-btn-icon" data-help-trigger="users-<?= (int) $partnerRow['id'] ?>" title="Utilisateurs (<?= count($usersByPartner[(int) $partnerRow['id']] ?? []) ?>)" aria-label="Utilisateurs (<?= count($usersByPartner[(int) $partnerRow['id']] ?? []) ?>)"><span aria-hidden="true">👤</span><span class="sr-only">Utilisateurs (<?= count($usersByPartner[(int) $partnerRow['id']] ?? []) ?>)</span></button></td>
           <td class="actions partner-actions"><a class="action-icon-btn" href="/admin/partners/<?= (int) $partnerRow['id'] ?>/edit" title="Éditer le partenaire" aria-label="Éditer le partenaire"><span aria-hidden="true">✏️</span></a>
             <form method="post" action="/admin/partners/<?= (int) $partnerRow['id'] ?>/delete" onsubmit="return confirm('Supprimer définitivement ce partenaire ? Cette action est irréversible.');"><button class="action-icon-btn danger" type="submit" title="Supprimer le partenaire" aria-label="Supprimer le partenaire"><span aria-hidden="true">🗑️</span></button></form></td>
         </tr>
