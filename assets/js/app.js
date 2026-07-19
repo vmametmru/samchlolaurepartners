@@ -29,6 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initPhoneInputs,
     initGuestSteppers,
     initCalendarGuestPricing,
+    initBookingModal,
     initBookingAccordion,
     initBookingQuote,
     initCalendarBoard,
@@ -524,6 +525,12 @@ function initBookingCalendarSelection() {
       checkout = null;
       update();
     });
+
+    form.addEventListener('booking-clear-dates', () => {
+      checkin = null;
+      checkout = null;
+      update();
+    });
   });
 }
 
@@ -566,6 +573,79 @@ function initCalendarGuestPricing() {
 
     guestInputs.forEach((input) => input.addEventListener('input', updatePrices));
     form.addEventListener('reset', () => setTimeout(updatePrices, 0));
+  });
+}
+
+/**
+ * Controls the slide-in booking modal on the property-detail "Tarifs &
+ * Disponibilités" tab: the modal appears (slides from the right with a 20%
+ * background overlay) as soon as both arrival and departure dates are set,
+ * and hides when:
+ *  - the "Masquer" button inside the modal is clicked (allows the visitor to
+ *    go back to the calendar to change dates; the modal re-opens on the next
+ *    complete date selection),
+ *  - "Effacer les dates sélectionnées" is clicked (also clears the calendar
+ *    selection but keeps Nombre de Voyageurs / Détails des Voyageurs data).
+ */
+function initBookingModal() {
+  document.querySelectorAll('[data-booking-modal-overlay]').forEach((overlay) => {
+    const form = overlay.querySelector('[data-booking-form]');
+    if (!form) return;
+
+    const propertyId = form.dataset.propertyId;
+    const calendarWidget = propertyId
+      ? document.querySelector(`[data-calendar-widget][data-property-id="${propertyId}"]`)
+      : null;
+    const ratesPanel = calendarWidget
+      ? calendarWidget.closest('[data-tab-panel="rates-availability"]')
+      : null;
+    const clearBtn = ratesPanel ? ratesPanel.querySelector('[data-clear-dates-btn]') : null;
+    const hideBtn = overlay.querySelector('[data-booking-modal-hide]');
+
+    let isOpen = false;
+
+    function openModal() {
+      if (isOpen) return;
+      isOpen = true;
+      overlay.style.removeProperty('display');
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          overlay.classList.add('booking-modal-open');
+        });
+      });
+    }
+
+    function closeModal() {
+      if (!isOpen) return;
+      isOpen = false;
+      overlay.classList.remove('booking-modal-open');
+      overlay.addEventListener('transitionend', () => {
+        if (!isOpen) overlay.style.display = 'none';
+      }, { once: true });
+    }
+
+    function updateFromDates() {
+      const checkin = form.querySelector('[data-booking-checkin]')?.value || '';
+      const checkout = form.querySelector('[data-booking-checkout]')?.value || '';
+      if (checkin && checkout) {
+        openModal();
+      } else {
+        closeModal();
+      }
+      if (clearBtn) clearBtn.hidden = !(checkin || checkout);
+    }
+
+    form.addEventListener('booking-dates-changed', updateFromDates);
+
+    if (hideBtn) {
+      hideBtn.addEventListener('click', closeModal);
+    }
+
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        form.dispatchEvent(new CustomEvent('booking-clear-dates'));
+      });
+    }
   });
 }
 
@@ -621,6 +701,36 @@ function initMaps() {
   });
 }
 
+function showTransientFormPopup(form, message, state = 'success') {
+  const popupId = form.dataset.feedbackPopupId || '';
+  if (!popupId) return;
+  const popup = document.getElementById(popupId);
+  if (!popup) return;
+
+  const box = popup.querySelector('[data-form-status-popup-box]');
+  const messageEl = popup.querySelector('[data-form-status-popup-message]');
+  if (messageEl) messageEl.textContent = message;
+  if (box) {
+    box.classList.toggle('success', state === 'success');
+    box.classList.toggle('error', state === 'error');
+  }
+
+  if (popup._hideTimer) window.clearTimeout(popup._hideTimer);
+  if (popup._hideTransitionTimer) window.clearTimeout(popup._hideTransitionTimer);
+
+  popup.hidden = false;
+  requestAnimationFrame(() => {
+    popup.classList.add('visible');
+  });
+
+  popup._hideTimer = window.setTimeout(() => {
+    popup.classList.remove('visible');
+    popup._hideTransitionTimer = window.setTimeout(() => {
+      if (!popup.classList.contains('visible')) popup.hidden = true;
+    }, 200);
+  }, 3000);
+}
+
 function initApiForms() {
   document.querySelectorAll('[data-api-form]').forEach((form) => {
     form.addEventListener('submit', async (event) => {
@@ -670,8 +780,10 @@ function initApiForms() {
           feedback.textContent = form.dataset.successMessage || payload.message || 'Succès';
           feedback.classList.add('success');
         }
+        showTransientFormPopup(form, form.dataset.successMessage || payload.message || 'Succès', 'success');
       } catch (error) {
         if (feedback) feedback.textContent = error.message || 'Une erreur est survenue.';
+        showTransientFormPopup(form, error.message || 'Une erreur est survenue.', 'error');
       }
     });
   });
@@ -767,11 +879,13 @@ function initGuestSteppers() {
  * other. The dates block above is always visible (not part of the
  * accordion). The summary block (3rd, submit) visibility is handled
  * separately by initBookingQuote() once the required fields are filled in.
+ * When the booking form uses the slide-in modal layout (no [data-block-toggle]
+ * buttons), this function is a no-op so it does not hide any block bodies.
  */
 function initBookingAccordion() {
   document.querySelectorAll('[data-booking-form]').forEach((form) => {
     const blocks = Array.from(form.querySelectorAll('[data-booking-block]')).filter(
-      (block) => block.dataset.bookingBlock !== 'summary'
+      (block) => block.dataset.bookingBlock !== 'summary' && block.querySelector('[data-block-toggle]')
     );
     if (blocks.length < 2) return;
 
