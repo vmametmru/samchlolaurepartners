@@ -997,9 +997,111 @@ function collectGuests(form) {
 }
 
 function initTemplateEditor() {
+  const mediaTemplates = {
+    photo1: { src: '{{photo1_url}}', alt: '{{hebergement}}', label: 'photo1', defaultSize: 320, shape: 'rect' },
+    photo2: { src: '{{photo2_url}}', alt: '{{hebergement}}', label: 'photo2', defaultSize: 320, shape: 'rect' },
+    photo3: { src: '{{photo3_url}}', alt: '{{hebergement}}', label: 'photo3', defaultSize: 320, shape: 'rect' },
+    logo_partenaire: { src: '{{logo_partenaire_url}}', alt: '{{partenaire}}', label: 'logo', defaultSize: 80, shape: 'rect' },
+    signature_photo: { src: '{{signature_photo_url}}', alt: '{{signature_nom}}', label: 'photo profil', defaultSize: 64, shape: 'circle' }
+  };
+
+  function placeholderDataUrl(label, width, shape = 'rect') {
+    const safeWidth = Math.max(24, Math.min(1200, width || 320));
+    const safeHeight = shape === 'circle' ? safeWidth : Math.max(80, Math.round(safeWidth * 0.56));
+    const radius = shape === 'circle' ? Math.round(safeWidth / 2) : 16;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${safeWidth}" height="${safeHeight}" viewBox="0 0 ${safeWidth} ${safeHeight}"><rect width="${safeWidth}" height="${safeHeight}" rx="${radius}" fill="#f3f4f6" stroke="#d1d5db"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#6b7280" font-family="Arial,Helvetica,sans-serif" font-size="${Math.max(14, Math.round(safeWidth / 12))}">${label}</text></svg>`;
+    return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+  }
+
+  function mediaTemplateBySource(source) {
+    return Object.values(mediaTemplates).find((item) => item.src === source) || null;
+  }
+
+  function previewImageSource(source, width, shape = 'rect') {
+    const template = mediaTemplateBySource(source);
+    if (template) return placeholderDataUrl(template.label, width, shape || template.shape);
+    return source;
+  }
+
+  function normalizeImageWidth(raw, fallback) {
+    const width = parseInt(String(raw || fallback || 320), 10);
+    if (!Number.isFinite(width) || width <= 0) return fallback || 320;
+    return Math.max(24, Math.min(1200, width));
+  }
+
+  function detectImagePosition(img) {
+    const marginLeft = img.style.marginLeft || '';
+    const marginRight = img.style.marginRight || '';
+    if (marginLeft === 'auto' && marginRight === 'auto') return 'center';
+    if (marginLeft === 'auto') return 'right';
+    return 'left';
+  }
+
+  function applyImageLayout(img, width, position, shape = 'rect') {
+    img.setAttribute('width', String(width));
+    img.style.width = `${width}px`;
+    img.style.maxWidth = '100%';
+    img.style.display = 'block';
+    img.style.height = shape === 'circle' ? `${width}px` : 'auto';
+    img.style.marginTop = '0';
+    img.style.marginBottom = '0';
+    img.style.marginLeft = position === 'center' || position === 'right' ? 'auto' : '0';
+    img.style.marginRight = position === 'center' ? 'auto' : (position === 'left' ? 'auto' : '0');
+    if (shape === 'circle') {
+      img.setAttribute('height', String(width));
+      img.style.borderRadius = '50%';
+      img.style.objectFit = 'cover';
+    }
+  }
+
+  function buildImageSnippet(variableName, width) {
+    const template = mediaTemplates[variableName];
+    if (!template) return `{{${variableName}:${width}}}`;
+    const resolvedWidth = normalizeImageWidth(width, template.defaultSize);
+    const style = template.shape === 'circle'
+      ? `display:block;width:${resolvedWidth}px;max-width:100%;height:${resolvedWidth}px;margin:0 auto;border-radius:50%;object-fit:cover;`
+      : `display:block;width:${resolvedWidth}px;max-width:100%;height:auto;margin:0 auto;`;
+    const heightAttr = template.shape === 'circle' ? ` height="${resolvedWidth}"` : '';
+    return `<img src="${template.src}" alt="${template.alt}" width="${resolvedWidth}"${heightAttr} style="${style}">`;
+  }
+
+  function decoratePreviewHtml(html) {
+    let output = html;
+
+    output = output.replace(
+      /<img\b([^>]*?)\ssrc=(['"])\{\{(photo[123]_url|logo_partenaire_url|signature_photo_url)\}\}\2([^>]*)>/gi,
+      (match, before, quote, tokenName, after) => {
+        const source = `{{${tokenName}}}`;
+        const template = mediaTemplateBySource(source);
+        const widthMatch = match.match(/\bwidth=(['"])?(\d{1,4})\1?/i);
+        const width = normalizeImageWidth(widthMatch ? widthMatch[2] : '', template?.defaultSize || 320);
+        const shape = template?.shape || 'rect';
+        return `<img${before} src="${previewImageSource(source, width, shape)}" data-template-original-src="${source}" data-template-editable="1" data-template-shape="${shape}"${after}>`;
+      }
+    );
+
+    output = output.replace(/\{\{(photo[123]|logo_partenaire|signature_photo)(?::(\d{1,4}))?\}\}/g, (match, variableName, widthRaw) => {
+      const template = mediaTemplates[variableName];
+      if (!template) return match;
+      const width = normalizeImageWidth(widthRaw, template.defaultSize);
+      const heightAttr = template.shape === 'circle' ? ` height="${width}"` : '';
+      const style = template.shape === 'circle'
+        ? `display:block;width:${width}px;max-width:100%;height:${width}px;margin:0 auto;border-radius:50%;object-fit:cover;`
+        : `display:block;width:${width}px;max-width:100%;height:auto;margin:0 auto;`;
+      return `<img src="${previewImageSource(template.src, width, template.shape)}" alt="${template.alt}" width="${width}"${heightAttr} style="${style}" data-template-original-src="${template.src}" data-template-editable="1" data-template-shape="${template.shape}">`;
+    });
+
+    return output;
+  }
+
   document.querySelectorAll('[data-template-editor]').forEach((form) => {
     const textarea = form.querySelector('[data-template-body]');
     const preview = form.querySelector('[data-template-preview]');
+
+    function renderPreview() {
+      if (!textarea || !preview) return;
+      preview.srcdoc = decoratePreviewHtml(textarea.value);
+    }
 
     function insertAtCursor(text) {
       if (!textarea) return;
@@ -1009,8 +1111,59 @@ function initTemplateEditor() {
       const pos = start + text.length;
       textarea.setSelectionRange(pos, pos);
       textarea.focus();
-      if (preview) preview.srcdoc = textarea.value;
+      renderPreview();
     }
+
+    function syncTextareaFromPreview() {
+      if (!textarea || !preview?.contentDocument?.body) return;
+      const bodyClone = preview.contentDocument.body.cloneNode(true);
+      bodyClone.querySelectorAll('img').forEach((img) => {
+        const originalSrc = img.getAttribute('data-template-original-src');
+        if (originalSrc) img.setAttribute('src', originalSrc);
+        [...img.attributes].forEach((attribute) => {
+          if (attribute.name.startsWith('data-template-')) {
+            img.removeAttribute(attribute.name);
+          }
+        });
+      });
+      textarea.value = bodyClone.innerHTML;
+    }
+
+    function editPreviewImage(img) {
+      const shape = img.getAttribute('data-template-shape') || 'rect';
+      const currentSource = img.getAttribute('data-template-original-src') || img.getAttribute('src') || '';
+      const source = window.prompt('Source de l’image (URL ou variable {{photo1_url}}, {{logo_partenaire_url}}, ...)', currentSource);
+      if (source === null || source.trim() === '') return;
+
+      const currentWidth = normalizeImageWidth(img.getAttribute('width') || img.style.width, 320);
+      const widthAnswer = window.prompt('Largeur de l’image en pixels', String(currentWidth));
+      if (widthAnswer === null) return;
+      const width = normalizeImageWidth(widthAnswer, currentWidth);
+
+      const currentPosition = detectImagePosition(img);
+      const positionAnswer = window.prompt('Position de l’image: left, center ou right', currentPosition);
+      if (positionAnswer === null) return;
+      const position = ['left', 'center', 'right'].includes(positionAnswer.trim().toLowerCase()) ? positionAnswer.trim().toLowerCase() : currentPosition;
+
+      img.setAttribute('data-template-original-src', source.trim());
+      img.setAttribute('src', previewImageSource(source.trim(), width, shape));
+      applyImageLayout(img, width, position, shape);
+      syncTextareaFromPreview();
+      renderPreview();
+    }
+
+    preview?.addEventListener('load', () => {
+      const doc = preview.contentDocument;
+      if (!doc) return;
+      doc.querySelectorAll('img').forEach((img) => {
+        img.style.cursor = 'pointer';
+        img.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          editPreviewImage(img);
+        });
+      });
+    });
 
     form.querySelectorAll('[data-insert-variable]').forEach((button) => {
       button.addEventListener('click', () => {
@@ -1021,10 +1174,16 @@ function initTemplateEditor() {
           if (answer === null) return;
           const width = parseInt(answer, 10);
           if (!Number.isFinite(width) || width <= 0) return;
-          insertAtCursor(`{{${variableName}:${width}}}`);
+          insertAtCursor(buildImageSnippet(variableName, width));
           return;
         }
         insertAtCursor(button.dataset.insertVariable || '');
+      });
+    });
+
+    form.querySelectorAll('[data-insert-html]').forEach((button) => {
+      button.addEventListener('click', () => {
+        insertAtCursor(button.dataset.insertHtml || '');
       });
     });
 
@@ -1041,8 +1200,10 @@ function initTemplateEditor() {
     }
 
     textarea?.addEventListener('input', () => {
-      if (preview) preview.srcdoc = textarea.value;
+      renderPreview();
     });
+
+    renderPreview();
   });
 }
 

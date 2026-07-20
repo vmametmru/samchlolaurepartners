@@ -256,6 +256,10 @@ try {
             PageController::adminCreateAllTemplate();
         case route($method, $path, 'POST', '#^/admin/templates/import$#'):
             PageController::adminImportAllTemplate();
+        case route($method, $path, 'POST', '#^/admin/templates/assets/upload$#'):
+            PageController::adminUploadTemplateGalleryAsset();
+        case route($method, $path, 'POST', '#^/admin/templates/assets/delete$#'):
+            PageController::adminDeleteTemplateGalleryAsset();
         case route($method, $path, 'POST', '#^/admin/templates/(\d+)/(\d+)$#', $matches):
             PageController::adminSaveAllTemplate((int) $matches[1], (int) $matches[2]);
         case route($method, $path, 'GET', '#^/admin/mise-a-jour$#'):

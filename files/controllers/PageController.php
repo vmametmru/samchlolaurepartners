@@ -22,6 +22,7 @@ use Throwable;
 final class PageController extends Controller
 {
     private const ALLOWED_LOGO_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+    private const ALLOWED_TEMPLATE_ASSET_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
 
     /**
      * The root URL is hardcoded to always show the "enter your partner code"
@@ -1378,6 +1379,73 @@ final class PageController extends Controller
         return '/images/logo/' . $filename;
     }
 
+    private static function storePartnerTemplateAsset(int $partnerId): ?string
+    {
+        $file = $_FILES['asset'] ?? null;
+        if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            return null;
+        }
+        if (!is_uploaded_file((string) $file['tmp_name'])) {
+            return null;
+        }
+
+        $originalName = (string) ($file['name'] ?? '');
+        $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+        if (!in_array($extension, self::ALLOWED_TEMPLATE_ASSET_EXTENSIONS, true)) {
+            throw new HttpException(400, 'Bad Request', 'Format d’image non supporté (jpg, jpeg, png, gif, webp).');
+        }
+        if ((int) ($file['size'] ?? 0) > 5 * 1024 * 1024) {
+            throw new HttpException(400, 'Bad Request', 'L’image ne doit pas dépasser 5 Mo.');
+        }
+
+        $dir = BASE_PATH . '/images/others/email-template-assets/partner-' . $partnerId;
+        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+            throw new HttpException(500, 'Internal Server Error', 'Impossible de créer le dossier de galerie.');
+        }
+
+        $filename = 'asset-' . bin2hex(random_bytes(8)) . '.' . $extension;
+        $destination = $dir . '/' . $filename;
+        if (!move_uploaded_file((string) $file['tmp_name'], $destination)) {
+            throw new HttpException(500, 'Internal Server Error', 'Impossible d’enregistrer l’image.');
+        }
+
+        return '/images/others/email-template-assets/partner-' . $partnerId . '/' . $filename;
+    }
+
+    /**
+     * @return array<int, array{name: string, url: string}>
+     */
+    private static function templateGalleryAssets(int $partnerId): array
+    {
+        if ($partnerId <= 0) {
+            return [];
+        }
+
+        $dir = BASE_PATH . '/images/others/email-template-assets/partner-' . $partnerId;
+        if (!is_dir($dir)) {
+            return [];
+        }
+
+        $assets = [];
+        foreach (glob($dir . '/*') ?: [] as $path) {
+            if (!is_file($path) || filesize($path) <= 0) {
+                continue;
+            }
+            $basename = basename($path);
+            $extension = strtolower(pathinfo($basename, PATHINFO_EXTENSION));
+            if (!in_array($extension, self::ALLOWED_TEMPLATE_ASSET_EXTENSIONS, true)) {
+                continue;
+            }
+            $assets[] = [
+                'name' => $basename,
+                'url' => '/images/others/email-template-assets/partner-' . $partnerId . '/' . $basename,
+            ];
+        }
+
+        usort($assets, static fn (array $a, array $b): int => strcmp($a['name'], $b['name']));
+        return $assets;
+    }
+
     private static function deleteLocalAsset(string $publicPath, string $allowedPrefix): void
     {
         $publicPath = trim($publicPath);
@@ -1490,6 +1558,7 @@ final class PageController extends Controller
         $selectedPartnerName = null;
         $creatableTemplates = [];
         $importTemplates = [];
+        $galleryAssets = [];
 
         if ($selectedPartnerId !== null) {
             $templates = EmailTemplatesController::listForPartner($selectedPartnerId);
@@ -1524,6 +1593,7 @@ final class PageController extends Controller
             );
             $importStmt->execute([$selectedPartnerId]);
             $importTemplates = $importStmt->fetchAll(PDO::FETCH_ASSOC);
+            $galleryAssets = self::templateGalleryAssets($selectedPartnerId);
         }
 
         View::render('pages/admin-all-templates', [
@@ -1536,6 +1606,7 @@ final class PageController extends Controller
             'templateCatalog' => $templateCatalog,
             'creatableTemplates' => $creatableTemplates,
             'importTemplates' => $importTemplates,
+            'galleryAssets' => $galleryAssets,
         ]);
     }
 
@@ -1634,6 +1705,31 @@ final class PageController extends Controller
         self::redirect('/admin/templates?partner_id=' . $partnerId . '&id=' . $targetId, 'Template importé.');
     }
 
+    public static function adminUploadTemplateGalleryAsset(): never
+    {
+        self::requireAdminUser();
+        $partnerId = (int) ($_POST['partner_id'] ?? 0);
+        if ($partnerId <= 0) {
+            self::redirect('/admin/templates', 'Partenaire invalide.', 'error');
+        }
+        if (self::storePartnerTemplateAsset($partnerId) === null) {
+            self::redirect('/admin/templates?partner_id=' . $partnerId, 'Aucune image valide envoyée.', 'error');
+        }
+        self::redirect('/admin/templates?partner_id=' . $partnerId, 'Élément graphique ajouté à la galerie.');
+    }
+
+    public static function adminDeleteTemplateGalleryAsset(): never
+    {
+        self::requireAdminUser();
+        $partnerId = (int) ($_POST['partner_id'] ?? 0);
+        $assetUrl = trim((string) ($_POST['asset_url'] ?? ''));
+        if ($partnerId <= 0) {
+            self::redirect('/admin/templates', 'Partenaire invalide.', 'error');
+        }
+        self::deleteLocalAsset($assetUrl, '/images/others/email-template-assets/partner-' . $partnerId . '/');
+        self::redirect('/admin/templates?partner_id=' . $partnerId, 'Élément graphique supprimé.');
+    }
+
     /**
      * @return array<string, array{label: string, subject: string, body_html: string}>
      */
@@ -1647,7 +1743,7 @@ final class PageController extends Controller
 <h2>Nouvelle demande de réservation</h2>
 <p><strong>Client :</strong> {{nom_client}} ({{email_client}})</p>
 <p><strong>Hébergement :</strong> {{hebergement}}</p>
-{{photo1:320}}
+<img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;">
 <p><strong>Dates :</strong> {{dates}}</p>
 <p><strong>Voyageurs :</strong> {{adultes}} adulte(s), {{enfants}} enfant(s)</p>
 {{tarif_bloc}}
@@ -1662,11 +1758,11 @@ HTML,
                 'body_html' => <<<'HTML'
 <div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
 <div style="text-align:center;padding:28px 24px 16px;">
-{{logo_partenaire:80}}
+<img src="{{logo_partenaire_url}}" alt="{{partenaire}}" width="80" style="display:block;width:80px;max-width:100%;height:auto;margin:0 auto;">
 <p style="margin:14px 0 8px;font-size:17px;color:#374151;">Votre demande de séjour est bien reçue !</p>
 <h2 style="margin:4px 0 0;font-size:22px;color:#111827;">{{hebergement}}</h2>
 </div>
-<div style="text-align:center;padding:0 24px 20px;">{{photo1:320}}</div>
+<div style="text-align:center;padding:0 24px 20px;"><img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;"></div>
 <div style="padding:4px 24px 16px;">
 <p style="margin:0 0 10px;font-size:15px;color:#111827;">Bonjour <strong>{{nom_client}}</strong>,</p>
 <p style="margin:0;font-size:15px;color:#374151;">Un grand merci pour votre intérêt ! Nous avons bien reçu votre demande de réservation pour <strong>{{hebergement}}</strong>.</p>
@@ -1689,7 +1785,7 @@ HTML,
 <div style="padding:16px 24px 24px;font-size:13px;color:#374151;">
 <p style="margin:0 0 10px;">Cordialement,</p>
 <table style="border-collapse:collapse;"><tr>
-<td style="vertical-align:top;padding-right:14px;">{{signature_photo:64}}</td>
+<td style="vertical-align:top;padding-right:14px;"><img src="{{signature_photo_url}}" alt="{{signature_nom}}" width="64" height="64" style="display:block;width:64px;max-width:100%;height:64px;margin:0 auto;border-radius:50%;object-fit:cover;"></td>
 <td style="vertical-align:middle;">
 <p style="margin:0 0 3px;font-weight:bold;font-size:14px;color:#111827;">{{signature_nom}}</p>
 <p style="margin:0 0 3px;">{{email_partenaire}} | {{telephone_partenaire}}</p>
@@ -1707,7 +1803,7 @@ HTML,
 <h2>Réservation confirmée</h2>
 <p>Bonjour {{nom_client}},</p>
 <p>Nous avons le plaisir de vous confirmer votre réservation :</p>
-{{photo1:320}}
+<img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;">
 <ul>
   <li><strong>Hébergement :</strong> {{hebergement}}</li>
   <li><strong>Arrivée :</strong> {{date_arrivee}}</li>
@@ -1726,7 +1822,7 @@ HTML,
 <h2>Votre réservation a été annulée</h2>
 <p>Bonjour {{nom_client}},</p>
 <p>Nous vous informons que votre réservation pour <strong>{{hebergement}}</strong> ({{dates}}) a malheureusement dû être annulée.</p>
-{{photo1:320}}
+<img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;">
 <p>N'hésitez pas à nous contacter pour explorer d'autres options.</p>
 <p>Cordialement,<br><strong>{{partenaire}}</strong></p>
 HTML,
@@ -1737,7 +1833,7 @@ HTML,
                 'body_html' => <<<'HTML'
 <h2>Votre séjour approche !</h2>
 <p>Bonjour {{nom_client}},</p>
-<div style="margin:18px 0;">{{photo1:320}}</div>
+<div style="margin:18px 0;"><img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;"></div>
 <p>Nous vous rappelons que votre séjour à <strong>{{hebergement}}</strong> approche :</p>
 <ul>
   <li><strong>Arrivée :</strong> {{date_arrivee}}</li>

@@ -34,7 +34,7 @@ $baseUrl = '/admin/templates';
 
         <div class="form-grid cols-2">
           <div class="card card-body stack-md">
-            <h2 class="section-title">Nouveau template</h2>
+            <h2 class="section-title">Nouveaux templates</h2>
             <?php if (($creatableTemplates ?? []) === []): ?>
               <p class="empty-state">Les 5 templates existent déjà pour ce partenaire.</p>
             <?php else: ?>
@@ -48,7 +48,7 @@ $baseUrl = '/admin/templates';
                     <?php endforeach; ?>
                   </select>
                 </label>
-                <button class="btn-primary" type="submit">➕ Nouveau template</button>
+                <button class="btn-primary" type="submit">➕ Créer le template</button>
               </form>
             <?php endif; ?>
           </div>
@@ -72,6 +72,40 @@ $baseUrl = '/admin/templates';
               </form>
             <?php endif; ?>
           </div>
+        </div>
+
+        <div class="card card-body stack-md">
+          <h2 class="section-title">Mini galerie graphique</h2>
+          <p class="text-muted">Ajoutez ici les éléments graphiques du template (coins, icônes, séparateurs, badges...). Les photos d’hébergement restent dans les variables.</p>
+          <form method="post" action="<?= $baseUrl ?>/assets/upload" enctype="multipart/form-data" class="form-grid cols-3">
+            <input type="hidden" name="partner_id" value="<?= (int) $selectedPartnerId ?>">
+            <label class="col-span-2">
+              <span>Image</span>
+              <input class="input" type="file" name="asset" accept=".jpg,.jpeg,.png,.gif,.webp" required>
+            </label>
+            <button class="btn-secondary" type="submit">🖼️ Ajouter à la galerie</button>
+          </form>
+          <?php if (($galleryAssets ?? []) === []): ?>
+            <p class="empty-state">Aucun élément graphique enregistré pour ce partenaire.</p>
+          <?php else: ?>
+            <div class="form-grid cols-3">
+              <?php foreach ($galleryAssets as $asset): ?>
+                <?php $snippet = '<img src=&quot;' . \App\View::e($asset['url']) . '&quot; alt=&quot;&quot; width=&quot;120&quot; style=&quot;display:block;width:120px;max-width:100%;height:auto;&quot;>'; ?>
+                <div class="card card-body stack-sm">
+                  <img src="<?= \App\View::e($asset['url']) ?>" alt="<?= \App\View::e($asset['name']) ?>" style="display:block;max-width:100%;height:auto;border-radius:.5rem;border:1px solid #e5e7eb;">
+                  <code><?= \App\View::e($asset['name']) ?></code>
+                  <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
+                    <button type="button" class="btn-secondary btn-sm" data-insert-html="<?= $snippet ?>">Insérer</button>
+                    <form method="post" action="<?= $baseUrl ?>/assets/delete" onsubmit="return confirm('Supprimer cet élément graphique ?');">
+                      <input type="hidden" name="partner_id" value="<?= (int) $selectedPartnerId ?>">
+                      <input type="hidden" name="asset_url" value="<?= \App\View::e($asset['url']) ?>">
+                      <button class="link-warning" type="submit">Supprimer</button>
+                    </form>
+                  </div>
+                </div>
+              <?php endforeach; ?>
+            </div>
+          <?php endif; ?>
         </div>
 
         <?php if ($templates === []): ?>
@@ -115,11 +149,12 @@ $baseUrl = '/admin/templates';
                         </div>
                       </div>
                     </div>
-                    <p class="text-muted" style="margin:.25rem 0 .75rem;">Exemple inséré: <code>{{photo1:320}}</code> ou <code>{{logo_partenaire:120}}</code>.</p>
+                    <p class="text-muted" style="margin:.25rem 0 .75rem;">Les variables image insèrent un bloc <code>&lt;img&gt;</code> modifiable directement dans l’aperçu HTML.</p>
                     <textarea class="input codearea" rows="16" name="body_html" data-template-body><?= \App\View::e($selected['body_html']) ?></textarea>
                   </div>
                   <details class="preview-box" open>
                     <summary>Aperçu HTML</summary>
+                    <p class="text-muted" style="margin:.5rem 0 1rem;">Cliquez sur une image dans l’aperçu pour modifier sa source, sa taille et sa position.</p>
                     <iframe class="preview-frame" sandbox="" data-template-preview srcdoc="<?= \App\View::e($selected['body_html']) ?>"></iframe>
                   </details>
                   <button class="btn-primary" type="submit">Sauvegarder</button>
