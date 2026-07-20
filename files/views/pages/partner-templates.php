@@ -7,15 +7,20 @@ $labels = [
   'REMINDER' => 'Rappel avant arrivée',
 ];
 $variables = ['{{nom_client}}','{{email_client}}','{{telephone_client}}','{{dates}}','{{date_arrivee}}','{{date_depart}}','{{nuits}}','{{adultes}}','{{enfants}}','{{bebes}}','{{hebergement}}','{{photo_bien}}','{{partenaire}}','{{notes}}','{{message}}','{{tarif_nuits}}','{{tarif_hebergement}}','{{tarif_personnes_supplementaires}}','{{tarif_nettoyage}}','{{tarif_total}}','{{taxe_touristique}}','{{tarif_bloc}}','{{signature_photo}}','{{signature_nom}}','{{logo_partenaire}}','{{email_partenaire}}','{{lien_partenaire}}','{{telephone_partenaire}}'];
+$isAdmin = isset($adminPartnerId);
+$baseUrl = $isAdmin ? '/admin/partners/' . (int) $adminPartnerId . '/templates' : '/partner/templates';
 ?>
 <section class="container section-lg">
-  <h1>Templates d'emails</h1>
+  <?php if ($isAdmin): ?>
+  <nav class="breadcrumb"><a href="/admin/partners">Partenaires</a> › <span>Templates · <?= \App\View::e($adminPartnerName ?? '') ?></span></nav>
+  <?php endif; ?>
+  <h1><?= $isAdmin ? 'Templates email · ' . \App\View::e($adminPartnerName ?? '') : 'Templates d\'emails' ?></h1>
   <div class="two-panel">
     <div class="card overflow-hidden side-list">
       <?php if ($templates === []): ?>
         <p class="empty-state">Aucun template. Contactez l'administrateur.</p>
       <?php else: foreach ($templates as $template): ?>
-        <a href="/partner/templates?id=<?= (int) $template['id'] ?>" class="<?= $selected && (int) $selected['id'] === (int) $template['id'] ? 'active' : '' ?>"><?= \App\View::e($labels[$template['type']] ?? $template['type']) ?></a>
+        <a href="<?= $baseUrl ?>?id=<?= (int) $template['id'] ?>" class="<?= $selected && (int) $selected['id'] === (int) $template['id'] ? 'active' : '' ?>"><?= \App\View::e($labels[$template['type']] ?? $template['type']) ?></a>
       <?php endforeach; endif; ?>
     </div>
     <div class="card card-body">
@@ -23,13 +28,22 @@ $variables = ['{{nom_client}}','{{email_client}}','{{telephone_client}}','{{date
         <p class="empty-state">Sélectionnez un template à éditer.</p>
       <?php else: ?>
         <h2 class="section-title"><?= \App\View::e($labels[$selected['type']] ?? $selected['type']) ?></h2>
-        <form method="post" action="/partner/templates/<?= (int) $selected['id'] ?>" class="stack-md" data-template-editor>
+        <form method="post" action="<?= $baseUrl ?>/<?= (int) $selected['id'] ?>" class="stack-md" data-template-editor>
           <label><span>Objet de l'email</span><input class="input" type="text" name="subject" value="<?= \App\View::e($selected['subject']) ?>"></label>
           <div>
-            <span class="label-inline">Variables disponibles</span>
-            <div class="chips"><?php foreach ($variables as $variable): ?><button type="button" class="chip" data-insert-variable="<?= \App\View::e($variable) ?>"><?= \App\View::e($variable) ?></button><?php endforeach; ?></div>
+            <div class="template-toolbar">
+              <span class="label-inline">Corps de l'email (HTML)</span>
+              <div class="insert-var-dropdown">
+                <button type="button" class="btn-secondary btn-sm" data-insert-dropdown-toggle>📋 Insérer variable ▾</button>
+                <div class="insert-var-menu" hidden>
+                  <?php foreach ($variables as $variable): ?>
+                    <button type="button" class="insert-var-item" data-insert-variable="<?= \App\View::e($variable) ?>"><?= \App\View::e($variable) ?></button>
+                  <?php endforeach; ?>
+                </div>
+              </div>
+            </div>
+            <textarea class="input codearea" rows="16" name="body_html" data-template-body><?= \App\View::e($selected['body_html']) ?></textarea>
           </div>
-          <label><span>Corps de l'email (HTML)</span><textarea class="input codearea" rows="12" name="body_html" data-template-body><?= \App\View::e($selected['body_html']) ?></textarea></label>
           <details class="preview-box" open>
             <summary>Aperçu HTML</summary>
             <iframe class="preview-frame" sandbox="" data-template-preview srcdoc="<?= \App\View::e($selected['body_html']) ?>"></iframe>
@@ -40,3 +54,4 @@ $variables = ['{{nom_client}}','{{email_client}}','{{telephone_client}}','{{date
     </div>
   </div>
 </section>
+

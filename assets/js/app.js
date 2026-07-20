@@ -1000,12 +1000,36 @@ function initTemplateEditor() {
   document.querySelectorAll('[data-template-editor]').forEach((form) => {
     const textarea = form.querySelector('[data-template-body]');
     const preview = form.querySelector('[data-template-preview]');
+
+    function insertAtCursor(text) {
+      if (!textarea) return;
+      const start = textarea.selectionStart ?? textarea.value.length;
+      const end = textarea.selectionEnd ?? start;
+      textarea.value = textarea.value.slice(0, start) + text + textarea.value.slice(end);
+      const pos = start + text.length;
+      textarea.setSelectionRange(pos, pos);
+      textarea.focus();
+      if (preview) preview.srcdoc = textarea.value;
+    }
+
     form.querySelectorAll('[data-insert-variable]').forEach((button) => {
       button.addEventListener('click', () => {
-        textarea.value += button.dataset.insertVariable || '';
-        if (preview) preview.srcdoc = textarea.value;
+        insertAtCursor(button.dataset.insertVariable || '');
       });
     });
+
+    // Dropdown toggle
+    const dropdownToggle = form.querySelector('[data-insert-dropdown-toggle]');
+    const dropdownMenu = form.querySelector('.insert-var-menu');
+    if (dropdownToggle && dropdownMenu) {
+      dropdownToggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        dropdownMenu.hidden = !dropdownMenu.hidden;
+      });
+      document.addEventListener('click', () => { dropdownMenu.hidden = true; });
+      dropdownMenu.addEventListener('click', (e) => { e.stopPropagation(); });
+    }
+
     textarea?.addEventListener('input', () => {
       if (preview) preview.srcdoc = textarea.value;
     });

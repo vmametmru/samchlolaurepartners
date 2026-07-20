@@ -664,6 +664,44 @@ final class PageController extends Controller
         self::redirect('/admin/partners', 'Utilisateur supprimé.');
     }
 
+    public static function adminPartnerTemplates(int $partnerId): void
+    {
+        self::requireAdminUser();
+        $partnerStmt = Database::connection()->prepare('SELECT name FROM partners WHERE id = ? LIMIT 1');
+        $partnerStmt->execute([$partnerId]);
+        $partnerName = (string) ($partnerStmt->fetchColumn() ?: 'Partenaire #' . $partnerId);
+        $templates = EmailTemplatesController::listForPartner($partnerId);
+        $selectedId = (int) ($_GET['id'] ?? ($templates[0]['id'] ?? 0));
+        $selected = null;
+        foreach ($templates as $template) {
+            if ((int) $template['id'] === $selectedId) {
+                $selected = $template;
+                break;
+            }
+        }
+        View::render('pages/partner-templates', [
+            'pageTitle' => 'Templates email · ' . $partnerName,
+            'templates' => $templates,
+            'selected' => $selected,
+            'adminPartnerId' => $partnerId,
+            'adminPartnerName' => $partnerName,
+        ]);
+    }
+
+    public static function adminSavePartnerTemplate(int $partnerId, int $id): never
+    {
+        self::requireAdminUser();
+        Database::connection()->prepare(
+            'UPDATE email_templates SET subject = ?, body_html = ?, updated_at = NOW() WHERE id = ? AND partner_id = ?'
+        )->execute([
+            (string) ($_POST['subject'] ?? ''),
+            (string) ($_POST['body_html'] ?? ''),
+            $id,
+            $partnerId,
+        ]);
+        self::redirect('/admin/partners/' . $partnerId . '/templates?id=' . $id, 'Template sauvegardé.');
+    }
+
     public static function adminPartnerForm(?int $id = null): void
     {
         self::requireAdminUser();
