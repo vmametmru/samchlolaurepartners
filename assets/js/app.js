@@ -1002,8 +1002,64 @@ function initTemplateEditor() {
     photo2: { src: '{{photo2_url}}', alt: '{{hebergement}}', label: 'photo2', defaultSize: 320, shape: 'rect' },
     photo3: { src: '{{photo3_url}}', alt: '{{hebergement}}', label: 'photo3', defaultSize: 320, shape: 'rect' },
     logo_partenaire: { src: '{{logo_partenaire_url}}', alt: '{{partenaire}}', label: 'logo', defaultSize: 80, shape: 'rect' },
-    signature_photo: { src: '{{signature_photo_url}}', alt: '{{signature_nom}}', label: 'photo profil', defaultSize: 64, shape: 'circle' }
+    signature_photo: { src: '{{signature_photo_url}}', alt: '{{signature_nom}}', label: 'photo profil', defaultSize: 64, shape: 'circle' },
+    // photo_bien is generated server-side as a full <img> tag (no separate
+    // "_url" variable exists for it), so it can only be shown as a preview
+    // placeholder — it isn't click-editable like the variables above.
+    photo_bien: { src: '{{photo_bien}}', alt: '{{hebergement}}', label: 'photo du bien', defaultSize: 320, shape: 'rect', editable: false }
   };
+
+  // Sample values used only to populate the HTML preview so every plain-text
+  // variable shows realistic temporary data instead of the raw {{token}}.
+  const sampleTextValues = {
+    nom_client: 'Jean Dupont',
+    email_client: 'jean.dupont@example.com',
+    telephone_client: '+230 5712 3456',
+    dates: 'Du 12 juil. 2026 au 19 juil. 2026',
+    date_arrivee: '12 juillet 2026',
+    date_depart: '19 juillet 2026',
+    nuits: '7',
+    adultes: '2',
+    enfants: '1',
+    bebes: '0',
+    hebergement: 'Villa Bleu Océan',
+    partenaire: 'Grand Baie Escapes',
+    notes: 'Merci de prévoir un lit bébé supplémentaire.',
+    message: 'Nous avons hâte de vous accueillir !',
+    tarif_nuits: '7',
+    tarif_hebergement: '1 200,00 €',
+    tarif_personnes_supplementaires: '80,00 €',
+    tarif_nettoyage: '60,00 €',
+    tarif_total: '1 340,00 €',
+    taxe_touristique: '14,00 €',
+    signature_nom: 'Marie Lemoine',
+    email_partenaire: 'contact@grandbaie-escapes.com',
+    lien_partenaire: 'https://exemple-partenaire.grand-baie-maurice.com/espace',
+    telephone_partenaire: '+230 5698 7412'
+  };
+
+  // These tokens are rendered as real <img> elements (or a dedicated block,
+  // for tarif_bloc) earlier in decoratePreviewHtml/substituteVariablesInPreview,
+  // so the generic text-variable substitution must ignore them.
+  const nonTextVariableNames = new Set([
+    'photo1', 'photo2', 'photo3', 'logo_partenaire', 'signature_photo', 'photo_bien', 'tarif_bloc'
+  ]);
+
+  function buildSampleTarifBlocHtml() {
+    return '<div data-template-var="tarif_bloc" contenteditable="false" style="padding:12px 24px 16px;border:1px dashed #93c5fd;border-radius:8px;" title="Bloc généré automatiquement (aperçu avec données temporaires)">'
+      + '<p style="margin:0 0 10px;font-weight:bold;font-size:14px;color:#111827;">Résumé Tarifaire :</p>'
+      + '<table style="width:100%;border-collapse:collapse;font-size:14px;"><tbody>'
+      + '<tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;color:#374151;">Tarif</td><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;color:#374151;">1 200,00 €</td></tr>'
+      + '<tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;color:#374151;">Personne(s) supplémentaire(s)</td><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;color:#374151;">80,00 €</td></tr>'
+      + '<tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;color:#374151;">Nettoyage</td><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;color:#374151;">60,00 €</td></tr>'
+      + '<tr><td style="padding:8px 0;font-weight:bold;color:#111827;">Total</td><td style="padding:8px 0;font-weight:bold;text-align:right;color:#111827;">1 340,00 €</td></tr>'
+      + '</tbody></table>'
+      + '<div style="margin-top:12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:6px;padding:12px 14px;"><table style="width:100%;border-collapse:collapse;"><tbody><tr>'
+      + '<td style="width:28px;vertical-align:top;font-size:18px;padding-right:8px;">⚠️</td>'
+      + '<td style="font-size:13px;color:#92400e;vertical-align:top;"><strong>Attention</strong><br>Taxe touristique de 14,00 Euros à régler à l\u2019arrivée<br>(Non comprise dans le total)</td>'
+      + '</tr></tbody></table></div>'
+      + '</div>';
+  }
 
   function placeholderDataUrl(label, width, shape = 'rect') {
     const safeWidth = Math.max(24, Math.min(1200, width || 320));
@@ -1054,6 +1110,15 @@ function initTemplateEditor() {
     }
 
     const element = node;
+
+    // Atomic preview-only placeholders (plain-text variable chips, the
+    // tarif_bloc quote block, and non-editable image variables like
+    // photo_bien) always serialize back to their original {{variable}}
+    // token, regardless of the sample content currently displayed.
+    if (element.hasAttribute('data-template-var')) {
+      return `{{${element.getAttribute('data-template-var')}}}`;
+    }
+
     const tagName = element.tagName.toLowerCase();
     const isVoidElement = ['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'].includes(tagName);
     const attributes = [];
@@ -1134,7 +1199,7 @@ function initTemplateEditor() {
       }
     );
 
-    output = output.replace(/\{\{(photo[123]|logo_partenaire|signature_photo)(?::(\d{1,4}))?\}\}/g, (match, variableName, widthRaw) => {
+    output = output.replace(/\{\{(photo[123]|logo_partenaire|signature_photo|photo_bien)(?::(\d{1,4}))?\}\}/g, (match, variableName, widthRaw) => {
       const template = mediaTemplates[variableName];
       if (!template) return match;
       const width = normalizeImageWidth(widthRaw, template.defaultSize);
@@ -1142,10 +1207,74 @@ function initTemplateEditor() {
       const style = template.shape === 'circle'
         ? `display:block;width:${width}px;max-width:100%;height:${width}px;margin:0 auto;border-radius:50%;object-fit:cover;`
         : `display:block;width:${width}px;max-width:100%;height:auto;margin:0 auto;`;
-      return `<img src="${previewImageSource(template.src, width, template.shape)}" alt="${template.alt}" width="${width}"${heightAttr} style="${style}" data-template-original-src="${template.src}" data-template-editable="1" data-template-shape="${template.shape}">`;
+      const editableAttrs = template.editable === false
+        ? ` data-template-var="${variableName}"`
+        : ` data-template-original-src="${template.src}" data-template-editable="1"`;
+      return `<img src="${previewImageSource(template.src, width, template.shape)}" alt="${template.alt}" width="${width}"${heightAttr} style="${style}"${editableAttrs} data-template-shape="${template.shape}">`;
     });
 
     return output;
+  }
+
+  function substituteVariablesInPreview(doc) {
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null);
+    const textNodes = [];
+    let node;
+    while ((node = walker.nextNode())) {
+      if (/\{\{\s*[a-zA-Z0-9_]+\s*\}\}/.test(node.nodeValue || '')) {
+        textNodes.push(node);
+      }
+    }
+
+    textNodes.forEach((textNode) => {
+      const parent = textNode.parentNode;
+      if (!parent || !parent.tagName) return;
+      const parentTag = parent.tagName.toLowerCase();
+      if (parentTag === 'script' || parentTag === 'style') return;
+      if (parent.closest && parent.closest('[data-template-var]')) return;
+
+      const text = textNode.nodeValue || '';
+      const regex = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g;
+      let lastIndex = 0;
+      let match;
+      let matched = false;
+      const fragment = doc.createDocumentFragment();
+
+      while ((match = regex.exec(text)) !== null) {
+        const name = match[1].trim();
+        // Image tokens are already converted to real <img> elements earlier
+        // (in decoratePreviewHtml); leave any leftover occurrence untouched.
+        if (nonTextVariableNames.has(name) && name !== 'tarif_bloc') continue;
+        matched = true;
+        if (match.index > lastIndex) {
+          fragment.appendChild(doc.createTextNode(text.slice(lastIndex, match.index)));
+        }
+
+        if (name === 'tarif_bloc') {
+          const wrapper = doc.createElement('div');
+          wrapper.innerHTML = buildSampleTarifBlocHtml();
+          fragment.appendChild(wrapper.firstElementChild);
+        } else {
+          const span = doc.createElement('span');
+          span.setAttribute('data-template-var', name);
+          span.setAttribute('contenteditable', 'false');
+          span.style.background = '#fce7f3';
+          span.style.color = '#9d174d';
+          span.style.borderRadius = '4px';
+          span.style.padding = '0 3px';
+          span.title = `Variable {{${name}}} — donnée temporaire pour l’aperçu`;
+          span.textContent = Object.prototype.hasOwnProperty.call(sampleTextValues, name) ? sampleTextValues[name] : `« ${name} »`;
+          fragment.appendChild(span);
+        }
+        lastIndex = match.index + match[0].length;
+      }
+
+      if (!matched) return;
+      if (lastIndex < text.length) {
+        fragment.appendChild(doc.createTextNode(text.slice(lastIndex)));
+      }
+      parent.replaceChild(fragment, textNode);
+    });
   }
 
   document.querySelectorAll('[data-template-editor]').forEach((form) => {
@@ -1199,11 +1328,22 @@ function initTemplateEditor() {
       renderPreview();
     }
 
-    function isEditableTextLeaf(el) {
+    const NEVER_EDITABLE_TAGS = new Set([
+      'IMG', 'SCRIPT', 'STYLE', 'BR', 'HR', 'INPUT', 'TEXTAREA', 'SELECT', 'IFRAME', 'NOSCRIPT',
+      'TABLE', 'TBODY', 'THEAD', 'TFOOT', 'TR', 'UL', 'OL', 'FORM', 'HTML', 'HEAD', 'BODY'
+    ]);
+
+    function isEditableTextContainer(el) {
       if (!el || !el.tagName) return false;
-      const tag = el.tagName.toLowerCase();
-      if (['img', 'script', 'style', 'br', 'hr', 'input', 'button'].includes(tag)) return false;
-      if (el.children.length !== 0) return false;
+      // Variable chips / computed blocks (tarif_bloc, photo_bien, ...) stay
+      // atomic — their content must never be typed into directly.
+      if (el.hasAttribute('data-template-var')) return false;
+      if (el.closest && el.closest('[data-template-var]')) return false;
+      if (NEVER_EDITABLE_TAGS.has(el.tagName.toUpperCase())) return false;
+      // Skip layout containers: only the innermost element holding the
+      // actual text (a table cell, paragraph, link, span, heading, ...)
+      // should become directly editable.
+      if (el.querySelector('table, tr, td, th, tbody, thead, tfoot, ul, ol, form')) return false;
       return (el.textContent || '').trim() !== '';
     }
 
@@ -1246,14 +1386,19 @@ function initTemplateEditor() {
       const doc = preview.contentDocument;
       if (!doc) return;
 
+      substituteVariablesInPreview(doc);
+
       if (!doc.getElementById('template-editor-hint-style')) {
         const style = doc.createElement('style');
         style.id = 'template-editor-hint-style';
-        style.textContent = '[data-template-hoverable]{cursor:pointer}[data-template-hoverable]:hover{outline:1px dashed #ec4899;outline-offset:1px}';
+        style.textContent = '[data-template-hoverable]{cursor:pointer}[data-template-hoverable]:hover{outline:1px dashed #ec4899;outline-offset:1px}[data-template-var]{cursor:default}';
         doc.head?.appendChild(style);
       }
 
       doc.querySelectorAll('img').forEach((img) => {
+        // Atomic image variables (e.g. photo_bien) are server-computed and
+        // shown for preview only — they aren't click-editable.
+        if (img.hasAttribute('data-template-var')) return;
         img.setAttribute('data-template-hoverable', '1');
         img.addEventListener('click', (event) => {
           event.preventDefault();
@@ -1263,7 +1408,7 @@ function initTemplateEditor() {
       });
 
       doc.querySelectorAll('body *').forEach((el) => {
-        if (!isEditableTextLeaf(el)) return;
+        if (!isEditableTextContainer(el)) return;
         el.setAttribute('data-template-hoverable', '1');
         el.addEventListener('click', (event) => {
           if (el.isContentEditable) return;

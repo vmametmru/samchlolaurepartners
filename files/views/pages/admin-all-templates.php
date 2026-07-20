@@ -149,7 +149,7 @@ $baseUrl = '/admin/templates';
                         </div>
                       </div>
                     </div>
-                    <p class="text-muted" style="margin:.25rem 0 .75rem;">Les variables image insèrent un bloc <code>&lt;img&gt;</code> modifiable directement dans l’aperçu HTML.</p>
+                    <p class="text-muted" style="margin:.25rem 0 .75rem;">Toutes les variables (texte, photo, image) affichent une donnée temporaire dans l’aperçu. Cliquez sur un texte ou une image pour le modifier directement.</p>
                     <textarea class="input codearea" rows="16" name="body_html" data-template-body><?= \App\View::e($selected['body_html']) ?></textarea>
                   </div>
                   <details class="preview-box" open>
