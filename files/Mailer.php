@@ -10,8 +10,17 @@ final class Mailer
 {
     public static function renderTemplate(string $template, array $variables): string
     {
-        return preg_replace_callback('/\{\{(\w+)\}\}/', static function (array $matches) use ($variables): string {
-            return (string) ($variables[$matches[1]] ?? $matches[0]);
+        return preg_replace_callback('/\{\{([a-zA-Z0-9_]+)(?::(\d{1,4}))?\}\}/', static function (array $matches) use ($variables): string {
+            $name = (string) $matches[1];
+            $size = isset($matches[2]) ? (int) $matches[2] : null;
+            $value = $variables[$name] ?? null;
+            if ($value === null) {
+                return $matches[0];
+            }
+            if ($value instanceof \Closure || (is_object($value) && is_callable($value))) {
+                return (string) $value($size);
+            }
+            return (string) $value;
         }, $template) ?? $template;
     }
 

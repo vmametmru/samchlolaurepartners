@@ -1473,6 +1473,7 @@ final class PageController extends Controller
     public static function adminAllTemplates(): void
     {
         self::requireAdminUser();
+        $templateCatalog = self::adminTemplateCatalog();
 
         $stmt = Database::connection()->query(
             'SELECT p.id, p.name, COUNT(et.id) AS template_count
@@ -1487,6 +1488,8 @@ final class PageController extends Controller
         $templates = [];
         $selected = null;
         $selectedPartnerName = null;
+        $creatableTemplates = [];
+        $importTemplates = [];
 
         if ($selectedPartnerId !== null) {
             $templates = EmailTemplatesController::listForPartner($selectedPartnerId);
@@ -1496,6 +1499,15 @@ final class PageController extends Controller
                     break;
                 }
             }
+            $existingTypes = [];
+            foreach ($templates as $template) {
+                $existingTypes[(string) $template['type']] = true;
+            }
+            foreach ($templateCatalog as $type => $definition) {
+                if (!isset($existingTypes[$type])) {
+                    $creatableTemplates[$type] = $definition;
+                }
+            }
             $selectedId = isset($_GET['id']) ? (int) $_GET['id'] : (int) ($templates[0]['id'] ?? 0);
             foreach ($templates as $tpl) {
                 if ((int) $tpl['id'] === $selectedId) {
@@ -1503,6 +1515,15 @@ final class PageController extends Controller
                     break;
                 }
             }
+            $importStmt = Database::connection()->prepare(
+                'SELECT et.id, et.type, et.subject, p.name AS partner_name
+                 FROM email_templates et
+                 JOIN partners p ON p.id = et.partner_id
+                 WHERE et.partner_id <> ?
+                 ORDER BY p.name, et.type'
+            );
+            $importStmt->execute([$selectedPartnerId]);
+            $importTemplates = $importStmt->fetchAll(PDO::FETCH_ASSOC);
         }
 
         View::render('pages/admin-all-templates', [
@@ -1512,6 +1533,9 @@ final class PageController extends Controller
             'selectedPartnerName' => $selectedPartnerName,
             'templates' => $templates,
             'selected' => $selected,
+            'templateCatalog' => $templateCatalog,
+            'creatableTemplates' => $creatableTemplates,
+            'importTemplates' => $importTemplates,
         ]);
     }
 
@@ -1527,6 +1551,203 @@ final class PageController extends Controller
             $partnerId,
         ]);
         self::redirect('/admin/templates?partner_id=' . $partnerId . '&id=' . $id, 'Template sauvegardé.');
+    }
+
+    public static function adminCreateAllTemplate(): never
+    {
+        self::requireAdminUser();
+        $partnerId = (int) ($_POST['partner_id'] ?? 0);
+        $type = trim((string) ($_POST['type'] ?? ''));
+        $templateCatalog = self::adminTemplateCatalog();
+        if ($partnerId <= 0 || !isset($templateCatalog[$type])) {
+            self::redirect('/admin/templates?partner_id=' . $partnerId, 'Template invalide.', 'error');
+        }
+
+        $existingStmt = Database::connection()->prepare('SELECT id FROM email_templates WHERE partner_id = ? AND type = ? LIMIT 1');
+        $existingStmt->execute([$partnerId, $type]);
+        if ($existingId = (int) ($existingStmt->fetchColumn() ?: 0)) {
+            self::redirect('/admin/templates?partner_id=' . $partnerId . '&id=' . $existingId, 'Ce template existe déjà.', 'info');
+        }
+
+        $definition = $templateCatalog[$type];
+        Database::connection()->prepare(
+            'INSERT INTO email_templates (partner_id, type, subject, body_html) VALUES (?, ?, ?, ?)'
+        )->execute([
+            $partnerId,
+            $type,
+            $definition['subject'],
+            $definition['body_html'],
+        ]);
+
+        self::redirect('/admin/templates?partner_id=' . $partnerId . '&id=' . (int) Database::connection()->lastInsertId(), 'Nouveau template créé.');
+    }
+
+    public static function adminImportAllTemplate(): never
+    {
+        self::requireAdminUser();
+        $partnerId = (int) ($_POST['partner_id'] ?? 0);
+        $sourceTemplateId = (int) ($_POST['source_template_id'] ?? 0);
+        if ($partnerId <= 0 || $sourceTemplateId <= 0) {
+            self::redirect('/admin/templates?partner_id=' . $partnerId, 'Import invalide.', 'error');
+        }
+
+        $sourceStmt = Database::connection()->prepare(
+            'SELECT et.type, et.subject, et.body_html, et.partner_id, p.name AS partner_name
+             FROM email_templates et
+             JOIN partners p ON p.id = et.partner_id
+             WHERE et.id = ? LIMIT 1'
+        );
+        $sourceStmt->execute([$sourceTemplateId]);
+        $source = $sourceStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if ($source === null) {
+            self::redirect('/admin/templates?partner_id=' . $partnerId, 'Template source introuvable.', 'error');
+        }
+        if ((int) $source['partner_id'] === $partnerId) {
+            self::redirect('/admin/templates?partner_id=' . $partnerId, 'Choisissez un autre partenaire source.', 'error');
+        }
+
+        $targetStmt = Database::connection()->prepare('SELECT id FROM email_templates WHERE partner_id = ? AND type = ? LIMIT 1');
+        $targetStmt->execute([$partnerId, (string) $source['type']]);
+        $targetId = (int) ($targetStmt->fetchColumn() ?: 0);
+
+        if ($targetId > 0) {
+            Database::connection()->prepare(
+                'UPDATE email_templates SET subject = ?, body_html = ?, updated_at = NOW() WHERE id = ? AND partner_id = ?'
+            )->execute([
+                (string) $source['subject'],
+                (string) $source['body_html'],
+                $targetId,
+                $partnerId,
+            ]);
+        } else {
+            Database::connection()->prepare(
+                'INSERT INTO email_templates (partner_id, type, subject, body_html) VALUES (?, ?, ?, ?)'
+            )->execute([
+                $partnerId,
+                (string) $source['type'],
+                (string) $source['subject'],
+                (string) $source['body_html'],
+            ]);
+            $targetId = (int) Database::connection()->lastInsertId();
+        }
+
+        self::redirect('/admin/templates?partner_id=' . $partnerId . '&id=' . $targetId, 'Template importé.');
+    }
+
+    /**
+     * @return array<string, array{label: string, subject: string, body_html: string}>
+     */
+    private static function adminTemplateCatalog(): array
+    {
+        return [
+            'REQUEST_RECEIVED_PARTNER' => [
+                'label' => 'Demande reçue (partenaire)',
+                'subject' => 'Nouvelle demande de réservation - {{nom_client}}',
+                'body_html' => <<<'HTML'
+<h2>Nouvelle demande de réservation</h2>
+<p><strong>Client :</strong> {{nom_client}} ({{email_client}})</p>
+<p><strong>Hébergement :</strong> {{hebergement}}</p>
+{{photo1:320}}
+<p><strong>Dates :</strong> {{dates}}</p>
+<p><strong>Voyageurs :</strong> {{adultes}} adulte(s), {{enfants}} enfant(s)</p>
+{{tarif_bloc}}
+<p><strong>Message :</strong><br>{{message}}</p>
+<hr>
+<p>Veuillez traiter cette demande depuis votre espace partenaire.</p>
+HTML,
+            ],
+            'REQUEST_RECEIVED_CLIENT' => [
+                'label' => 'Accusé réception (client)',
+                'subject' => 'Votre demande de séjour est bien reçue - {{hebergement}}',
+                'body_html' => <<<'HTML'
+<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+<div style="text-align:center;padding:28px 24px 16px;">
+{{logo_partenaire:80}}
+<p style="margin:14px 0 8px;font-size:17px;color:#374151;">Votre demande de séjour est bien reçue !</p>
+<h2 style="margin:4px 0 0;font-size:22px;color:#111827;">{{hebergement}}</h2>
+</div>
+<div style="text-align:center;padding:0 24px 20px;">{{photo1:320}}</div>
+<div style="padding:4px 24px 16px;">
+<p style="margin:0 0 10px;font-size:15px;color:#111827;">Bonjour <strong>{{nom_client}}</strong>,</p>
+<p style="margin:0;font-size:15px;color:#374151;">Un grand merci pour votre intérêt ! Nous avons bien reçu votre demande de réservation pour <strong>{{hebergement}}</strong>.</p>
+</div>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:0 24px;">
+<div style="padding:16px 24px 8px;">
+<p style="margin:0 0 8px;font-weight:bold;font-size:14px;color:#111827;">Vos Dates :</p>
+<p style="margin:0;font-size:14px;color:#374151;">Du {{date_arrivee}} au {{date_depart}} =&gt; {{nuits}} nuit(s)</p>
+</div>
+<div style="padding:12px 24px 16px;">
+<p style="margin:0 0 10px;font-weight:bold;font-size:14px;color:#111827;">Vos Voyageurs :</p>
+<table style="width:100%;border-collapse:collapse;font-size:14px;">
+<tr><td style="padding:5px 0;border-bottom:1px solid #f3f4f6;color:#374151;">Nombre d'adulte(s):</td><td style="padding:5px 0;border-bottom:1px solid #f3f4f6;text-align:right;font-weight:bold;color:#111827;">{{adultes}}</td></tr>
+<tr><td style="padding:5px 0;border-bottom:1px solid #f3f4f6;color:#374151;">Nombre d'enfant(s) &lt; 12 ans:</td><td style="padding:5px 0;border-bottom:1px solid #f3f4f6;text-align:right;font-weight:bold;color:#111827;">{{enfants}}</td></tr>
+<tr><td style="padding:5px 0;color:#374151;">Nombre bébé(s) &lt; 3 ans:</td><td style="padding:5px 0;text-align:right;font-weight:bold;color:#111827;">{{bebes}}</td></tr>
+</table>
+</div>
+{{tarif_bloc}}
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:0 24px;">
+<div style="padding:16px 24px 24px;font-size:13px;color:#374151;">
+<p style="margin:0 0 10px;">Cordialement,</p>
+<table style="border-collapse:collapse;"><tr>
+<td style="vertical-align:top;padding-right:14px;">{{signature_photo:64}}</td>
+<td style="vertical-align:middle;">
+<p style="margin:0 0 3px;font-weight:bold;font-size:14px;color:#111827;">{{signature_nom}}</p>
+<p style="margin:0 0 3px;">{{email_partenaire}} | {{telephone_partenaire}}</p>
+<p style="margin:0;"><a href="{{lien_partenaire}}" style="color:#3b82f6;text-decoration:none;">{{lien_partenaire}}</a></p>
+</td>
+</tr></table>
+</div>
+</div>
+HTML,
+            ],
+            'RESERVATION_CONFIRMED' => [
+                'label' => 'Réservation confirmée (client)',
+                'subject' => 'Votre réservation est confirmée ! 🎉',
+                'body_html' => <<<'HTML'
+<h2>Réservation confirmée</h2>
+<p>Bonjour {{nom_client}},</p>
+<p>Nous avons le plaisir de vous confirmer votre réservation :</p>
+{{photo1:320}}
+<ul>
+  <li><strong>Hébergement :</strong> {{hebergement}}</li>
+  <li><strong>Arrivée :</strong> {{date_arrivee}}</li>
+  <li><strong>Départ :</strong> {{date_depart}}</li>
+  <li><strong>Voyageurs :</strong> {{adultes}} adulte(s), {{enfants}} enfant(s)</li>
+</ul>
+{{notes}}
+<p>À très bientôt à l'île Maurice !</p>
+<p>Cordialement,<br><strong>{{partenaire}}</strong></p>
+HTML,
+            ],
+            'RESERVATION_CANCELLED' => [
+                'label' => 'Réservation annulée (client)',
+                'subject' => 'Annulation de votre réservation',
+                'body_html' => <<<'HTML'
+<h2>Votre réservation a été annulée</h2>
+<p>Bonjour {{nom_client}},</p>
+<p>Nous vous informons que votre réservation pour <strong>{{hebergement}}</strong> ({{dates}}) a malheureusement dû être annulée.</p>
+{{photo1:320}}
+<p>N'hésitez pas à nous contacter pour explorer d'autres options.</p>
+<p>Cordialement,<br><strong>{{partenaire}}</strong></p>
+HTML,
+            ],
+            'REMINDER' => [
+                'label' => 'Rappel avant arrivée',
+                'subject' => 'Rappel : votre séjour approche ! 🌴',
+                'body_html' => <<<'HTML'
+<h2>Votre séjour approche !</h2>
+<p>Bonjour {{nom_client}},</p>
+<div style="margin:18px 0;">{{photo1:320}}</div>
+<p>Nous vous rappelons que votre séjour à <strong>{{hebergement}}</strong> approche :</p>
+<ul>
+  <li><strong>Arrivée :</strong> {{date_arrivee}}</li>
+  <li><strong>Départ :</strong> {{date_depart}}</li>
+</ul>
+<p>N'hésitez pas à nous contacter si vous avez des questions.</p>
+<p>À bientôt,<br><strong>{{partenaire}}</strong></p>
+HTML,
+            ],
+        ];
     }
 
     // -------------------------------------------------------------------------

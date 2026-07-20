@@ -1,12 +1,16 @@
 <?php declare(strict_types=1);
-$labels = [
-  'REQUEST_RECEIVED_PARTNER' => 'Demande reçue (partenaire)',
-  'REQUEST_RECEIVED_CLIENT' => 'Accusé réception (client)',
-  'RESERVATION_CONFIRMED' => 'Réservation confirmée (client)',
-  'RESERVATION_CANCELLED' => 'Réservation annulée (client)',
-  'REMINDER' => 'Rappel avant arrivée',
+$labels = [];
+foreach (($templateCatalog ?? []) as $type => $definition) {
+  $labels[$type] = $definition['label'] ?? $type;
+}
+$plainVariables = ['{{nom_client}}','{{email_client}}','{{telephone_client}}','{{dates}}','{{date_arrivee}}','{{date_depart}}','{{nuits}}','{{adultes}}','{{enfants}}','{{bebes}}','{{hebergement}}','{{photo_bien}}','{{partenaire}}','{{notes}}','{{message}}','{{tarif_nuits}}','{{tarif_hebergement}}','{{tarif_personnes_supplementaires}}','{{tarif_nettoyage}}','{{tarif_total}}','{{taxe_touristique}}','{{tarif_bloc}}','{{signature_nom}}','{{email_partenaire}}','{{lien_partenaire}}','{{telephone_partenaire}}'];
+$resizableVariables = [
+  ['name' => 'photo1', 'label' => '{{photo1}}', 'default' => 320],
+  ['name' => 'photo2', 'label' => '{{photo2}}', 'default' => 320],
+  ['name' => 'photo3', 'label' => '{{photo3}}', 'default' => 320],
+  ['name' => 'logo_partenaire', 'label' => '{{logo_partenaire}}', 'default' => 80],
+  ['name' => 'signature_photo', 'label' => '{{signature_photo}}', 'default' => 64],
 ];
-$variables = ['{{nom_client}}','{{email_client}}','{{telephone_client}}','{{dates}}','{{date_arrivee}}','{{date_depart}}','{{nuits}}','{{adultes}}','{{enfants}}','{{bebes}}','{{hebergement}}','{{photo_bien}}','{{partenaire}}','{{notes}}','{{message}}','{{tarif_nuits}}','{{tarif_hebergement}}','{{tarif_personnes_supplementaires}}','{{tarif_nettoyage}}','{{tarif_total}}','{{taxe_touristique}}','{{tarif_bloc}}','{{signature_photo}}','{{signature_nom}}','{{logo_partenaire}}','{{email_partenaire}}','{{lien_partenaire}}','{{telephone_partenaire}}'];
 $baseUrl = '/admin/templates';
 ?>
 <section class="container section-lg">
@@ -27,6 +31,49 @@ $baseUrl = '/admin/templates';
         <p class="empty-state">Sélectionnez un partenaire pour voir ses templates.</p>
       <?php else: ?>
         <nav class="breadcrumb"><a href="<?= $baseUrl ?>">Templates</a> › <span><?= \App\View::e($selectedPartnerName ?? '') ?></span></nav>
+
+        <div class="form-grid cols-2">
+          <div class="card card-body stack-md">
+            <h2 class="section-title">Nouveau template</h2>
+            <?php if (($creatableTemplates ?? []) === []): ?>
+              <p class="empty-state">Les 5 templates existent déjà pour ce partenaire.</p>
+            <?php else: ?>
+              <form method="post" action="<?= $baseUrl ?>/create" class="stack-md">
+                <input type="hidden" name="partner_id" value="<?= (int) $selectedPartnerId ?>">
+                <label>
+                  <span>Type de template</span>
+                  <select class="input" name="type" required>
+                    <?php foreach ($creatableTemplates as $type => $definition): ?>
+                      <option value="<?= \App\View::e((string) $type) ?>"><?= \App\View::e($definition['label'] ?? (string) $type) ?></option>
+                    <?php endforeach; ?>
+                  </select>
+                </label>
+                <button class="btn-primary" type="submit">➕ Nouveau template</button>
+              </form>
+            <?php endif; ?>
+          </div>
+
+          <div class="card card-body stack-md">
+            <h2 class="section-title">Importer depuis un autre partenaire</h2>
+            <?php if (($importTemplates ?? []) === []): ?>
+              <p class="empty-state">Aucun template disponible à importer.</p>
+            <?php else: ?>
+              <form method="post" action="<?= $baseUrl ?>/import" class="stack-md">
+                <input type="hidden" name="partner_id" value="<?= (int) $selectedPartnerId ?>">
+                <label>
+                  <span>Template source</span>
+                  <select class="input" name="source_template_id" required>
+                    <?php foreach ($importTemplates as $template): ?>
+                      <option value="<?= (int) $template['id'] ?>"><?= \App\View::e($template['partner_name']) ?> — <?= \App\View::e($labels[$template['type']] ?? $template['type']) ?></option>
+                    <?php endforeach; ?>
+                  </select>
+                </label>
+                <button class="btn-secondary" type="submit">📥 Importer</button>
+              </form>
+            <?php endif; ?>
+          </div>
+        </div>
+
         <?php if ($templates === []): ?>
           <p class="empty-state">Aucun template pour ce partenaire.</p>
         <?php else: ?>
@@ -52,12 +99,23 @@ $baseUrl = '/admin/templates';
                       <div class="insert-var-dropdown">
                         <button type="button" class="btn-secondary btn-sm" data-insert-dropdown-toggle>📋 Insérer variable ▾</button>
                         <div class="insert-var-menu" hidden>
-                          <?php foreach ($variables as $variable): ?>
+                          <?php foreach ($plainVariables as $variable): ?>
                             <button type="button" class="insert-var-item" data-insert-variable="<?= \App\View::e($variable) ?>"><?= \App\View::e($variable) ?></button>
+                          <?php endforeach; ?>
+                          <div style="padding:.4rem .9rem;font-size:.8rem;color:#6b7280;border-top:1px solid #e5e7eb;">Variables image avec taille</div>
+                          <?php foreach ($resizableVariables as $variable): ?>
+                            <button
+                              type="button"
+                              class="insert-var-item"
+                              data-insert-variable="<?= \App\View::e($variable['name']) ?>"
+                              data-variable-resizable="1"
+                              data-variable-default-size="<?= (int) $variable['default'] ?>"
+                            ><?= \App\View::e($variable['label']) ?> · taille</button>
                           <?php endforeach; ?>
                         </div>
                       </div>
                     </div>
+                    <p class="text-muted" style="margin:.25rem 0 .75rem;">Exemple inséré: <code>{{photo1:320}}</code> ou <code>{{logo_partenaire:120}}</code>.</p>
                     <textarea class="input codearea" rows="16" name="body_html" data-template-body><?= \App\View::e($selected['body_html']) ?></textarea>
                   </div>
                   <details class="preview-box" open>

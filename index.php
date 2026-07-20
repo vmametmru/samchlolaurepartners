@@ -252,6 +252,10 @@ try {
         case route($method, $path, 'GET', '#^/admin/templates$#'):
             PageController::adminAllTemplates();
             break;
+        case route($method, $path, 'POST', '#^/admin/templates/create$#'):
+            PageController::adminCreateAllTemplate();
+        case route($method, $path, 'POST', '#^/admin/templates/import$#'):
+            PageController::adminImportAllTemplate();
         case route($method, $path, 'POST', '#^/admin/templates/(\d+)/(\d+)$#', $matches):
             PageController::adminSaveAllTemplate((int) $matches[1], (int) $matches[2]);
         case route($method, $path, 'GET', '#^/admin/mise-a-jour$#'):

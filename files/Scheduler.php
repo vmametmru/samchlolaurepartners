@@ -23,6 +23,7 @@ SELECT
   rr.checkout_date,
   rr.adults,
   rr.children,
+  rr.property_id,
   rr.property_name,
   p.*
 FROM email_schedules es
@@ -53,14 +54,23 @@ SQL;
             $variables = [
                 'nom_client' => (string) $row['client_name'],
                 'email_client' => (string) $row['client_email'],
-                'dates' => (string) $row['checkin_date'] . ' → ' . (string) $row['checkout_date'],
-                'date_arrivee' => (string) $row['checkin_date'],
-                'date_depart' => (string) $row['checkout_date'],
                 'adultes' => (string) $row['adults'],
                 'enfants' => (string) $row['children'],
                 'hebergement' => (string) $row['property_name'],
                 'partenaire' => (string) $row['name'],
+                'photo_bien' => \App\controllers\ReservationsController::propertyPhotoVariable((int) ($row['property_id'] ?? 0), (string) $row['property_name'], 1),
+                'photo1' => \App\controllers\ReservationsController::propertyPhotoVariable((int) ($row['property_id'] ?? 0), (string) $row['property_name'], 1),
+                'photo2' => \App\controllers\ReservationsController::propertyPhotoVariable((int) ($row['property_id'] ?? 0), (string) $row['property_name'], 2),
+                'photo3' => \App\controllers\ReservationsController::propertyPhotoVariable((int) ($row['property_id'] ?? 0), (string) $row['property_name'], 3),
+                'logo_partenaire' => \App\controllers\ReservationsController::partnerLogoVariable((string) ($row['logo_url'] ?? ''), (string) $row['name']),
+                'email_partenaire' => (string) ($row['email'] ?? ''),
             ];
+            $variables += \App\controllers\ReservationsController::stayVariables(
+                (string) $row['checkin_date'],
+                (string) $row['checkout_date'],
+                0,
+                (int) ($row['children'] ?? 0)
+            );
             $variables += \App\controllers\ReservationsController::signatureVariables((int) $row['id']);
 
             try {

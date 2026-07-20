@@ -1014,6 +1014,16 @@ function initTemplateEditor() {
 
     form.querySelectorAll('[data-insert-variable]').forEach((button) => {
       button.addEventListener('click', () => {
+        if (button.dataset.variableResizable === '1') {
+          const variableName = button.dataset.insertVariable || '';
+          const defaultSize = button.dataset.variableDefaultSize || '320';
+          const answer = window.prompt('Largeur de l’image en pixels', defaultSize);
+          if (answer === null) return;
+          const width = parseInt(answer, 10);
+          if (!Number.isFinite(width) || width <= 0) return;
+          insertAtCursor(`{{${variableName}:${width}}}`);
+          return;
+        }
         insertAtCursor(button.dataset.insertVariable || '');
       });
     });

@@ -723,8 +723,11 @@ final class ReservationsController extends Controller
             'message' => (string) ($input['message'] ?? ''),
             'partenaire' => (string) ($partner['name'] ?? ''),
             'photo_bien' => $photo['html'],
+            'photo1' => self::propertyPhotoVariable((int) ($input['property_id'] ?? 0), (string) ($input['property_name'] ?? ''), 1),
+            'photo2' => self::propertyPhotoVariable((int) ($input['property_id'] ?? 0), (string) ($input['property_name'] ?? ''), 2),
+            'photo3' => self::propertyPhotoVariable((int) ($input['property_id'] ?? 0), (string) ($input['property_name'] ?? ''), 3),
             'email_partenaire' => (string) ($partner['email'] ?? ''),
-            'logo_partenaire' => self::partnerLogoTag(
+            'logo_partenaire' => self::partnerLogoVariable(
                 (string) ($partner['logo_url'] ?? ''),
                 (string) ($partner['name'] ?? '')
             ),
@@ -777,8 +780,11 @@ final class ReservationsController extends Controller
             'notes' => $notes ?? '',
             'partenaire' => (string) $partner['name'],
             'photo_bien' => $photo['html'],
+            'photo1' => self::propertyPhotoVariable((int) ($request['property_id'] ?? 0), (string) $request['property_name'], 1),
+            'photo2' => self::propertyPhotoVariable((int) ($request['property_id'] ?? 0), (string) $request['property_name'], 2),
+            'photo3' => self::propertyPhotoVariable((int) ($request['property_id'] ?? 0), (string) $request['property_name'], 3),
             'email_partenaire' => (string) ($partner['email'] ?? ''),
-            'logo_partenaire' => self::partnerLogoTag(
+            'logo_partenaire' => self::partnerLogoVariable(
                 (string) ($partner['logo_url'] ?? ''),
                 (string) ($partner['name'] ?? '')
             ),
@@ -811,7 +817,7 @@ final class ReservationsController extends Controller
      * always defaulting numeric values to 0 instead of leaving the
      * placeholder unresolved when a field is empty.
      */
-    private static function stayVariables(string $checkin, string $checkout, int $childrenUnder3, int $children3to12): array
+    public static function stayVariables(string $checkin, string $checkout, int $childrenUnder3, int $children3to12): array
     {
         $childrenUnder3 = max(0, $childrenUnder3);
         $children3to12 = max(0, $children3to12);
@@ -1014,10 +1020,35 @@ final class ReservationsController extends Controller
 
         return [
             'signature_nom' => $fullName,
-            'signature_photo' => self::signaturePhotoTag($photoUrl, $fullName !== '' ? $fullName : 'Photo'),
+            'signature_photo' => self::signaturePhotoVariable($photoUrl, $fullName !== '' ? $fullName : 'Photo'),
             'lien_partenaire' => self::partnerLink($partnerId),
             'telephone_partenaire' => $phone,
         ];
+    }
+
+    public static function propertyPhotoVariable(int $propertyId, string $propertyName, int $photoIndex): callable
+    {
+        return static fn (?int $size = null): string => self::propertyPhotoHtml($propertyId, $propertyName, $photoIndex, $size);
+    }
+
+    private static function propertyPhotoHtml(int $propertyId, string $propertyName, int $photoIndex, ?int $size): string
+    {
+        $photoUrl = (new LodgifyClient())->getPropertyPhotoUrlByIndex($propertyId, $photoIndex);
+        if ($photoUrl === '') {
+            return '';
+        }
+        $photoUrl = self::absoluteUrl($photoUrl);
+        if ($photoUrl === '') {
+            return '';
+        }
+        $width = self::normalizeImageWidth($size, 320);
+        return '<img src="' . htmlspecialchars($photoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($propertyName, ENT_QUOTES, 'UTF-8') . '" width="' . $width . '" style="display:block;width:' . $width . 'px;max-width:100%;height:auto;">';
+    }
+
+    private static function normalizeImageWidth(?int $size, int $default): int
+    {
+        $width = $size ?? $default;
+        return max(24, min(1200, $width));
     }
 
     private static function fetchPartnerUser(int $partnerId): ?array
@@ -1031,6 +1062,16 @@ final class ReservationsController extends Controller
 
     private static function signaturePhotoTag(string $photoUrl, string $alt): string
     {
+        return self::signaturePhotoHtml($photoUrl, $alt, null);
+    }
+
+    private static function signaturePhotoVariable(string $photoUrl, string $alt): callable
+    {
+        return static fn (?int $size = null): string => self::signaturePhotoHtml($photoUrl, $alt, $size);
+    }
+
+    private static function signaturePhotoHtml(string $photoUrl, string $alt, ?int $size): string
+    {
         if ($photoUrl === '') {
             return '';
         }
@@ -1040,10 +1081,21 @@ final class ReservationsController extends Controller
             return '';
         }
 
-        return '<img src="' . htmlspecialchars($photoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($alt, ENT_QUOTES, 'UTF-8') . '" width="64" height="64" style="display:inline-block;width:64px;height:64px;border-radius:50%;object-fit:cover;">';
+        $width = self::normalizeImageWidth($size, 64);
+        return '<img src="' . htmlspecialchars($photoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($alt, ENT_QUOTES, 'UTF-8') . '" width="' . $width . '" height="' . $width . '" style="display:inline-block;width:' . $width . 'px;height:' . $width . 'px;border-radius:50%;object-fit:cover;">';
     }
 
     private static function partnerLogoTag(string $logoUrl, string $alt): string
+    {
+        return self::partnerLogoHtml($logoUrl, $alt, null);
+    }
+
+    public static function partnerLogoVariable(string $logoUrl, string $alt): callable
+    {
+        return static fn (?int $size = null): string => self::partnerLogoHtml($logoUrl, $alt, $size);
+    }
+
+    private static function partnerLogoHtml(string $logoUrl, string $alt, ?int $size): string
     {
         if ($logoUrl === '') {
             return '';
@@ -1052,7 +1104,8 @@ final class ReservationsController extends Controller
         if ($logoUrl === '') {
             return '';
         }
-        return '<img src="' . htmlspecialchars($logoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($alt, ENT_QUOTES, 'UTF-8') . '" width="80" style="display:block;margin:0 auto;width:80px;max-width:80px;height:auto;">';
+        $width = self::normalizeImageWidth($size, 80);
+        return '<img src="' . htmlspecialchars($logoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($alt, ENT_QUOTES, 'UTF-8') . '" width="' . $width . '" style="display:block;margin:0 auto;width:' . $width . 'px;max-width:100%;height:auto;">';
     }
 
     /**
