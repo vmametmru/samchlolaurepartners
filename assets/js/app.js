@@ -1495,6 +1495,80 @@ function initTemplateEditor() {
       return toolbar;
     }
 
+    let variableModal = null;
+    let pendingVariableRange = null;
+    let modalInteracting = false;
+
+    function closeVariableModal() {
+      if (variableModal) variableModal.style.display = 'none';
+      pendingVariableRange = null;
+      modalInteracting = false;
+      if (activeEditableEl) activeEditableEl.focus();
+    }
+
+    function ensureVariableModal() {
+      if (variableModal) return variableModal;
+      const overlay = document.createElement('div');
+      overlay.className = 'template-var-modal-overlay';
+      overlay.innerHTML = `
+        <div class="template-var-modal" role="dialog" aria-modal="true" aria-label="Insérer une variable">
+          <div class="template-var-modal-header">
+            <span>Choisir une variable à insérer</span>
+            <button type="button" class="template-var-modal-close" aria-label="Fermer">✕</button>
+          </div>
+          <div class="template-var-modal-body"></div>
+        </div>`;
+      document.body.appendChild(overlay);
+      overlay.addEventListener('mousedown', (event) => {
+        if (event.target === overlay) closeVariableModal();
+      });
+      overlay.querySelector('.template-var-modal-close').addEventListener('click', closeVariableModal);
+      variableModal = overlay;
+      return overlay;
+    }
+
+    function chooseVariableFromModal(rawToken, resizable, defaultSize) {
+      const range = pendingVariableRange;
+      closeVariableModal();
+      if (!range || !activeEditableEl) return;
+      if (resizable) {
+        const answer = window.prompt('Largeur de l’image en pixels', defaultSize || '320');
+        if (answer === null) return;
+        const width = parseInt(answer, 10);
+        if (!Number.isFinite(width) || width <= 0) return;
+        lastKnownRange = range;
+        insertAtCursor(buildImageSnippet(rawToken, width));
+        return;
+      }
+      const nameMatch = (rawToken || '').match(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/);
+      if (!nameMatch) return;
+      lastKnownRange = range;
+      insertAtCursor(variableChipHtml(nameMatch[1]));
+    }
+
+    function openVariableModalForInsertion(range) {
+      const modal = ensureVariableModal();
+      pendingVariableRange = range;
+      modalInteracting = true;
+      const body = modal.querySelector('.template-var-modal-body');
+      body.innerHTML = '';
+      const sourceMenu = form.querySelector('.insert-var-menu');
+      if (sourceMenu) {
+        [...sourceMenu.children].forEach((node) => {
+          if (node.tagName === 'BUTTON') {
+            const clone = node.cloneNode(true);
+            clone.addEventListener('click', () => {
+              chooseVariableFromModal(clone.dataset.insertVariable || '', clone.dataset.variableResizable === '1', clone.dataset.variableDefaultSize || '320');
+            });
+            body.appendChild(clone);
+          } else {
+            body.appendChild(node.cloneNode(true));
+          }
+        });
+      }
+      modal.style.display = 'flex';
+    }
+
     function editPreviewText(el) {
       el.setAttribute('contenteditable', 'true');
       el.style.outline = '2px solid #ec4899';
@@ -1508,10 +1582,33 @@ function initTemplateEditor() {
       selection?.removeAllRanges();
       selection?.addRange(range);
 
+      // Typing "{}" (e.g. replacing a selection with the shorthand) opens a
+      // modal to pick a variable to insert in place of the two characters.
+      const onInput = () => {
+        const doc = preview.contentDocument;
+        const sel = preview.contentWindow?.getSelection();
+        if (!doc || !sel || !sel.rangeCount) return;
+        const caretRange = sel.getRangeAt(0);
+        if (!caretRange.collapsed) return;
+        const node = caretRange.startContainer;
+        if (node.nodeType !== Node.TEXT_NODE) return;
+        const offset = caretRange.startOffset;
+        const textBefore = node.textContent.slice(0, offset);
+        if (!textBefore.endsWith('{}')) return;
+        node.textContent = textBefore.slice(0, -2) + node.textContent.slice(offset);
+        const insertRange = doc.createRange();
+        insertRange.setStart(node, offset - 2);
+        insertRange.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(insertRange);
+        openVariableModalForInsertion(insertRange.cloneRange());
+      };
+
       const onBlur = () => {
-        if (toolbarInteracting) return;
+        if (toolbarInteracting || modalInteracting) return;
         el.removeEventListener('blur', onBlur);
         el.removeEventListener('keydown', onKeydown);
+        el.removeEventListener('input', onInput);
         finishTextEdit(el);
       };
       const onKeydown = (event) => {
@@ -1525,6 +1622,7 @@ function initTemplateEditor() {
       };
       el.addEventListener('blur', onBlur);
       el.addEventListener('keydown', onKeydown);
+      el.addEventListener('input', onInput);
     }
 
     function wireEditablePreview() {

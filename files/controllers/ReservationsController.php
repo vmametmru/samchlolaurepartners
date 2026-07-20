@@ -747,9 +747,6 @@ final class ReservationsController extends Controller
         $stmt->execute([(int) $partner['id'], 'REQUEST_RECEIVED_PARTNER']);
         $partnerTemplate = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
         if ($partnerTemplate) {
-            if (strpos((string) ($partnerTemplate['body_html'] ?? ''), '{{tarif_bloc}}') === false) {
-                $partnerTemplate['body_html'] .= '{{tarif_bloc}}';
-            }
             Mailer::sendTemplatedEmail($partner, $partnerTemplate, (string) $partner['email'], $variables, $embeds);
         } else {
             Mailer::sendRawEmail($partner, (string) $partner['email'], 'Nouvelle demande de réservation - ' . $variables['nom_client'], '<p>Nouvelle demande de ' . htmlspecialchars($variables['nom_client']) . ' (' . htmlspecialchars($variables['email_client']) . ') pour ' . htmlspecialchars($variables['hebergement'] !== '' ? $variables['hebergement'] : 'hébergement non spécifié') . ' du ' . htmlspecialchars($variables['date_arrivee']) . ' au ' . htmlspecialchars($variables['date_depart']) . '.</p>' . $variables['tarif_bloc']);
@@ -758,9 +755,6 @@ final class ReservationsController extends Controller
         $stmt->execute([(int) $partner['id'], 'REQUEST_RECEIVED_CLIENT']);
         $clientTemplate = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
         if ($clientTemplate) {
-            if (strpos((string) ($clientTemplate['body_html'] ?? ''), '{{tarif_bloc}}') === false) {
-                $clientTemplate['body_html'] .= '{{tarif_bloc}}';
-            }
             Mailer::sendTemplatedEmail($partner, $clientTemplate, (string) $input['client_email'], $variables, $embeds);
         } else {
             Mailer::sendRawEmail($partner, (string) $input['client_email'], 'Confirmation de votre demande - ' . (string) $partner['name'], '<p>Bonjour ' . htmlspecialchars((string) $input['client_name']) . ',</p><p>Nous avons bien reçu votre demande de réservation pour ' . htmlspecialchars((string) ($input['property_name'] ?? 'l\'hébergement')) . ' du ' . htmlspecialchars((string) $input['checkin_date']) . ' au ' . htmlspecialchars((string) $input['checkout_date']) . '.</p>' . $variables['tarif_bloc'] . '<p>Nous vous contacterons très prochainement.</p><p>Cordialement,<br>' . htmlspecialchars((string) $partner['name']) . '</p>');

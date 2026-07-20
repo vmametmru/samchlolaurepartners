@@ -136,9 +136,9 @@ $baseUrl = '/admin/templates';
                 </form>
                 <form method="post" action="<?= $baseUrl ?>/<?= $selectedPartnerId ?>/<?= (int) $selected['id'] ?>" class="stack-md" data-template-editor>
                   <label><span>Objet de l'email</span><input class="input" type="text" name="subject" value="<?= \App\View::e($selected['subject']) ?>"></label>
-                  <div>
+                  <details class="code-box">
+                    <summary>Corps de l'email (HTML)</summary>
                     <div class="template-toolbar">
-                      <span class="label-inline">Corps de l'email (HTML)</span>
                       <div class="insert-var-dropdown">
                         <button type="button" class="btn-secondary btn-sm" data-insert-dropdown-toggle>📋 Insérer variable ▾</button>
                         <div class="insert-var-menu" hidden>
@@ -160,7 +160,7 @@ $baseUrl = '/admin/templates';
                     </div>
                     <p class="text-muted" style="margin:.25rem 0 .75rem;">Toutes les variables (texte, photo, image) affichent une donnée temporaire dans l’aperçu. Cliquez sur un texte ou une image pour le modifier directement.</p>
                     <textarea class="input codearea" rows="16" name="body_html" data-template-body><?= \App\View::e($selected['body_html']) ?></textarea>
-                  </div>
+                  </details>
                   <details class="preview-box" open>
                     <summary>Aperçu HTML</summary>
                     <p class="text-muted" style="margin:.5rem 0 1rem;">Cliquez sur une image pour modifier sa source, sa taille et sa position, ou sur un texte pour le modifier directement.</p>
