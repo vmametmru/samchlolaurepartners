@@ -492,3 +492,7 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .template-var-modal-close { border: 0; background: none; font-size: 1.1rem; line-height: 1; cursor: pointer; color: var(--muted); }
 .template-var-modal-close:hover { color: var(--text); }
 .template-var-modal-body { overflow-y: auto; padding: .4rem 0; }
+.accordion > summary { cursor: pointer; list-style: none; }
+.accordion > summary::-webkit-details-marker { display: none; }
+.accordion > summary::before { content: '▸ '; color: var(--muted); }
+.accordion[open] > summary::before { content: '▾ '; }

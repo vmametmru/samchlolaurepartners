@@ -74,39 +74,41 @@ $baseUrl = '/admin/templates';
           </div>
         </div>
 
-        <div class="card card-body stack-md">
-          <h2 class="section-title">Mini galerie graphique</h2>
-          <p class="text-muted">Ajoutez ici les éléments graphiques du template (coins, icônes, séparateurs, badges...). Les photos d’hébergement restent dans les variables.</p>
-          <form method="post" action="<?= $baseUrl ?>/assets/upload" enctype="multipart/form-data" class="form-grid cols-3">
-            <input type="hidden" name="partner_id" value="<?= (int) $selectedPartnerId ?>">
-            <label class="col-span-2">
-              <span>Image</span>
-              <input class="input" type="file" name="asset" accept=".jpg,.jpeg,.png,.gif,.webp" required>
-            </label>
-            <button class="btn-secondary" type="submit">🖼️ Ajouter à la galerie</button>
-          </form>
-          <?php if (($galleryAssets ?? []) === []): ?>
-            <p class="empty-state">Aucun élément graphique enregistré pour ce partenaire.</p>
-          <?php else: ?>
-            <div class="form-grid cols-3">
-              <?php foreach ($galleryAssets as $asset): ?>
-                <?php $snippet = '<img src=&quot;' . \App\View::e($asset['url']) . '&quot; alt=&quot;&quot; width=&quot;120&quot; style=&quot;display:block;width:120px;max-width:100%;height:auto;&quot;>'; ?>
-                <div class="card card-body stack-sm">
-                  <img src="<?= \App\View::e($asset['url']) ?>" alt="<?= \App\View::e($asset['name']) ?>" style="display:block;max-width:100%;height:auto;border-radius:.5rem;border:1px solid #e5e7eb;">
-                  <code><?= \App\View::e($asset['name']) ?></code>
-                  <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
-                    <button type="button" class="btn-secondary btn-sm" data-insert-html="<?= $snippet ?>">Insérer</button>
-                    <form method="post" action="<?= $baseUrl ?>/assets/delete" onsubmit="return confirm('Supprimer cet élément graphique ?');">
-                      <input type="hidden" name="partner_id" value="<?= (int) $selectedPartnerId ?>">
-                      <input type="hidden" name="asset_url" value="<?= \App\View::e($asset['url']) ?>">
-                      <button class="link-warning" type="submit">Supprimer</button>
-                    </form>
+        <details class="card card-body accordion">
+          <summary class="section-title">Mini galerie graphique</summary>
+          <div class="stack-md" style="margin-top:.75rem;">
+            <p class="text-muted">Ajoutez ici les éléments graphiques du template (coins, icônes, séparateurs, badges...). Les photos d’hébergement restent dans les variables.</p>
+            <form method="post" action="<?= $baseUrl ?>/assets/upload" enctype="multipart/form-data" class="form-grid cols-3">
+              <input type="hidden" name="partner_id" value="<?= (int) $selectedPartnerId ?>">
+              <label class="col-span-2">
+                <span>Image</span>
+                <input class="input" type="file" name="asset" accept=".jpg,.jpeg,.png,.gif,.webp" required>
+              </label>
+              <button class="btn-secondary" type="submit">🖼️ Ajouter à la galerie</button>
+            </form>
+            <?php if (($galleryAssets ?? []) === []): ?>
+              <p class="empty-state">Aucun élément graphique enregistré pour ce partenaire.</p>
+            <?php else: ?>
+              <div class="form-grid cols-3">
+                <?php foreach ($galleryAssets as $asset): ?>
+                  <?php $snippet = '<img src=&quot;' . \App\View::e($asset['url']) . '&quot; alt=&quot;&quot; width=&quot;120&quot; style=&quot;display:block;width:120px;max-width:100%;height:auto;&quot;>'; ?>
+                  <div class="card card-body stack-sm">
+                    <img src="<?= \App\View::e($asset['url']) ?>" alt="<?= \App\View::e($asset['name']) ?>" style="display:block;max-width:100%;height:auto;border-radius:.5rem;border:1px solid #e5e7eb;">
+                    <code><?= \App\View::e($asset['name']) ?></code>
+                    <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
+                      <button type="button" class="btn-secondary btn-sm" data-insert-html="<?= $snippet ?>">Insérer</button>
+                      <form method="post" action="<?= $baseUrl ?>/assets/delete" onsubmit="return confirm('Supprimer cet élément graphique ?');">
+                        <input type="hidden" name="partner_id" value="<?= (int) $selectedPartnerId ?>">
+                        <input type="hidden" name="asset_url" value="<?= \App\View::e($asset['url']) ?>">
+                        <button class="link-warning" type="submit">Supprimer</button>
+                      </form>
+                    </div>
                   </div>
-                </div>
-              <?php endforeach; ?>
-            </div>
-          <?php endif; ?>
-        </div>
+                <?php endforeach; ?>
+              </div>
+            <?php endif; ?>
+          </div>
+        </details>
 
         <?php if ($templates === []): ?>
           <p class="empty-state">Aucun template pour ce partenaire.</p>
