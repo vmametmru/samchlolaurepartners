@@ -1063,7 +1063,7 @@ function initTemplateEditor() {
 
   function placeholderDataUrl(label, width, shape = 'rect') {
     const safeWidth = Math.max(24, Math.min(1200, width || 320));
-    const safeHeight = shape === 'circle' ? safeWidth : Math.max(80, Math.round(safeWidth * 0.56));
+    const safeHeight = shape === 'circle' ? safeWidth : Math.round(safeWidth * 3 / 4);
     const radius = shape === 'circle' ? Math.round(safeWidth / 2) : 16;
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${safeWidth}" height="${safeHeight}" viewBox="0 0 ${safeWidth} ${safeHeight}"><rect width="${safeWidth}" height="${safeHeight}" rx="${radius}" fill="#f3f4f6" stroke="#d1d5db"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#6b7280" font-family="Arial,Helvetica,sans-serif" font-size="${Math.max(14, Math.round(safeWidth / 12))}">${label}</text></svg>`;
     return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
@@ -1167,27 +1167,38 @@ function initTemplateEditor() {
     img.style.width = `${width}px`;
     img.style.maxWidth = '100%';
     img.style.display = 'block';
-    img.style.height = shape === 'circle' ? `${width}px` : 'auto';
     img.style.marginTop = '0';
     img.style.marginBottom = '0';
     img.style.marginLeft = position === 'center' || position === 'right' ? 'auto' : '0';
     img.style.marginRight = position === 'center' ? 'auto' : (position === 'left' ? 'auto' : '0');
     if (shape === 'circle') {
+      img.style.height = `${width}px`;
       img.setAttribute('height', String(width));
       img.style.borderRadius = '50%';
       img.style.objectFit = 'cover';
+      return;
     }
+    // Non-circular images (photos) are fit into a fixed 4:3 box: the photo
+    // is cropped (object-fit: cover) rather than stretched or squished.
+    const height = Math.round(width * 3 / 4);
+    img.style.height = `${height}px`;
+    img.setAttribute('height', String(height));
+    img.style.objectFit = 'cover';
+    img.style.borderRadius = '8px';
   }
 
   function buildImageSnippet(variableName, width) {
     const template = mediaTemplates[variableName];
     if (!template) return `{{${variableName}:${width}}}`;
     const resolvedWidth = normalizeImageWidth(width, template.defaultSize);
-    const style = template.shape === 'circle'
-      ? `display:block;width:${resolvedWidth}px;max-width:100%;height:${resolvedWidth}px;margin:0 auto;border-radius:50%;object-fit:cover;`
-      : `display:block;width:${resolvedWidth}px;max-width:100%;height:auto;margin:0 auto;`;
-    const heightAttr = template.shape === 'circle' ? ` height="${resolvedWidth}"` : '';
-    return `<img src="${template.src}" alt="${template.alt}" width="${resolvedWidth}"${heightAttr} style="${style}">`;
+    if (template.shape === 'circle') {
+      const style = `display:block;width:${resolvedWidth}px;max-width:100%;height:${resolvedWidth}px;margin:0 auto;border-radius:50%;object-fit:cover;`;
+      return `<img src="${template.src}" alt="${template.alt}" width="${resolvedWidth}" height="${resolvedWidth}" style="${style}">`;
+    }
+    // Photos are fit into a 4:3 box (cropped, never stretched/squished).
+    const resolvedHeight = Math.round(resolvedWidth * 3 / 4);
+    const style = `display:block;width:${resolvedWidth}px;max-width:100%;height:${resolvedHeight}px;margin:0 auto;object-fit:cover;border-radius:8px;`;
+    return `<img src="${template.src}" alt="${template.alt}" width="${resolvedWidth}" height="${resolvedHeight}" style="${style}">`;
   }
 
   function variableChipHtml(name) {
@@ -1214,14 +1225,15 @@ function initTemplateEditor() {
       const template = mediaTemplates[variableName];
       if (!template) return match;
       const width = normalizeImageWidth(widthRaw, template.defaultSize);
-      const heightAttr = template.shape === 'circle' ? ` height="${width}"` : '';
-      const style = template.shape === 'circle'
-        ? `display:block;width:${width}px;max-width:100%;height:${width}px;margin:0 auto;border-radius:50%;object-fit:cover;`
-        : `display:block;width:${width}px;max-width:100%;height:auto;margin:0 auto;`;
+      const isCircle = template.shape === 'circle';
+      const height = isCircle ? width : Math.round(width * 3 / 4);
+      const style = isCircle
+        ? `display:block;width:${width}px;max-width:100%;height:${height}px;margin:0 auto;border-radius:50%;object-fit:cover;`
+        : `display:block;width:${width}px;max-width:100%;height:${height}px;margin:0 auto;object-fit:cover;border-radius:8px;`;
       const editableAttrs = template.editable === false
         ? ` data-template-var="${variableName}"`
         : ` data-template-original-src="${template.src}" data-template-editable="1"`;
-      return `<img src="${previewImageSource(template.src, width, template.shape)}" alt="${template.alt}" width="${width}"${heightAttr} style="${style}"${editableAttrs} data-template-shape="${template.shape}">`;
+      return `<img src="${previewImageSource(template.src, width, template.shape)}" alt="${template.alt}" width="${width}" height="${height}" style="${style}"${editableAttrs} data-template-shape="${template.shape}">`;
     });
 
     return output;
@@ -1332,30 +1344,147 @@ function initTemplateEditor() {
     }
 
 
-    function editPreviewImage(img) {
-      const shape = img.getAttribute('data-template-shape') || 'rect';
-      const currentSource = img.getAttribute('data-template-original-src') || img.getAttribute('src') || '';
-      const source = window.prompt('Source de l’image (URL ou variable {{photo1_url}}, {{logo_partenaire_url}}, ...)', currentSource);
-      if (source === null || source.trim() === '') return;
+    let imageModal = null;
+    let imageModalTargetImg = null;
+
+    function closeImageModal() {
+      if (imageModal) imageModal.style.display = 'none';
+      imageModalTargetImg = null;
+    }
+
+    function ensureImageModal() {
+      if (imageModal) return imageModal;
+      const overlay = document.createElement('div');
+      overlay.className = 'template-var-modal-overlay';
+      const variableOptions = Object.entries(mediaTemplates)
+        .filter(([, tpl]) => tpl.editable !== false)
+        .map(([key, tpl]) => `<option value="${key}">${escapeHtmlText(tpl.label)}</option>`)
+        .join('');
+      overlay.innerHTML = `
+        <div class="template-var-modal" role="dialog" aria-modal="true" aria-label="Modifier l’image">
+          <div class="template-var-modal-header">
+            <span>Modifier l’image</span>
+            <button type="button" class="template-var-modal-close" aria-label="Fermer">✕</button>
+          </div>
+          <div class="template-var-modal-body" style="padding:1rem;display:flex;flex-direction:column;gap:.85rem;">
+            <label>
+              <span class="label-inline">Source de l’image</span>
+              <select class="input" data-field="variable">
+                <option value="">— Choisir une variable —</option>
+                ${variableOptions}
+                <option value="__custom">URL personnalisée…</option>
+              </select>
+            </label>
+            <label data-custom-url-wrap hidden>
+              <span class="label-inline">URL de l’image</span>
+              <input class="input" type="text" data-field="custom-url" placeholder="/images/... ou https://...">
+            </label>
+            <label>
+              <span class="label-inline">Largeur (px)</span>
+              <input class="input" type="number" data-field="width" min="24" max="1200" step="10">
+            </label>
+            <label>
+              <span class="label-inline">Position</span>
+              <select class="input" data-field="position">
+                <option value="left">Gauche</option>
+                <option value="center">Centre</option>
+                <option value="right">Droite</option>
+              </select>
+            </label>
+            <p class="text-muted" style="font-size:.8rem;margin:0;">La photo est automatiquement ajustée dans un cadre au format 4:3 (recadrage, sans déformation).</p>
+            <div style="display:flex;justify-content:flex-end;gap:.5rem;">
+              <button type="button" class="btn-secondary btn-sm" data-action="cancel">Annuler</button>
+              <button type="button" class="btn-primary btn-sm" data-action="apply">Appliquer</button>
+            </div>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+      overlay.addEventListener('mousedown', (event) => {
+        if (event.target === overlay) closeImageModal();
+      });
+      overlay.querySelector('.template-var-modal-close').addEventListener('click', closeImageModal);
+      overlay.querySelector('[data-action="cancel"]').addEventListener('click', closeImageModal);
+      const variableSelect = overlay.querySelector('[data-field="variable"]');
+      const customUrlWrap = overlay.querySelector('[data-custom-url-wrap]');
+      variableSelect.addEventListener('change', () => {
+        customUrlWrap.hidden = variableSelect.value !== '__custom';
+        if (variableSelect.value && variableSelect.value !== '__custom') {
+          const tpl = mediaTemplates[variableSelect.value];
+          const widthInput = overlay.querySelector('[data-field="width"]');
+          if (tpl) widthInput.value = String(tpl.defaultSize);
+        }
+      });
+      overlay.querySelector('[data-action="apply"]').addEventListener('click', () => {
+        applyImageModal(overlay);
+      });
+      imageModal = overlay;
+      return overlay;
+    }
+
+    function applyImageModal(overlay) {
+      const img = imageModalTargetImg;
+      if (!img) return;
+      const variableSelect = overlay.querySelector('[data-field="variable"]');
+      const customUrlInput = overlay.querySelector('[data-field="custom-url"]');
+      const widthInput = overlay.querySelector('[data-field="width"]');
+      const positionSelect = overlay.querySelector('[data-field="position"]');
+
+      let source = '';
+      let shape = 'rect';
+      if (variableSelect.value === '__custom') {
+        source = customUrlInput.value;
+      } else if (variableSelect.value) {
+        const tpl = mediaTemplates[variableSelect.value];
+        source = tpl ? tpl.src : '';
+        shape = tpl ? tpl.shape : 'rect';
+      }
       const safeSource = sanitizeTemplateImageSource(source);
-      if (!safeSource) return;
-
-      const currentWidth = normalizeImageWidth(img.getAttribute('width') || img.style.width, 320);
-      const widthAnswer = window.prompt('Largeur de l’image en pixels', String(currentWidth));
-      if (widthAnswer === null) return;
-      const width = normalizeImageWidth(widthAnswer, currentWidth);
-
-      const currentPosition = detectImagePosition(img);
-      const positionAnswer = window.prompt('Position de l’image: left, center ou right', currentPosition);
-      if (positionAnswer === null) return;
-      const position = ['left', 'center', 'right'].includes(positionAnswer.trim().toLowerCase()) ? positionAnswer.trim().toLowerCase() : currentPosition;
+      if (!safeSource) {
+        window.alert('Veuillez choisir une variable ou saisir une URL d’image valide.');
+        return;
+      }
+      const width = normalizeImageWidth(widthInput.value, 320);
+      const position = ['left', 'center', 'right'].includes(positionSelect.value) ? positionSelect.value : 'left';
 
       img.setAttribute('data-template-original-src', safeSource);
+      img.setAttribute('data-template-shape', shape);
       img.setAttribute('src', previewImageSource(safeSource, width, shape));
       applyImageLayout(img, width, position, shape);
+      closeImageModal();
       syncTextareaFromPreview();
       renderPreview();
     }
+
+    function openImageModalForEditing(img) {
+      const overlay = ensureImageModal();
+      imageModalTargetImg = img;
+      const currentSource = img.getAttribute('data-template-original-src') || img.getAttribute('src') || '';
+      const matchedTemplate = mediaTemplateBySource(currentSource);
+      const variableSelect = overlay.querySelector('[data-field="variable"]');
+      const customUrlWrap = overlay.querySelector('[data-custom-url-wrap]');
+      const customUrlInput = overlay.querySelector('[data-field="custom-url"]');
+      const widthInput = overlay.querySelector('[data-field="width"]');
+      const positionSelect = overlay.querySelector('[data-field="position"]');
+
+      if (matchedTemplate) {
+        const key = Object.keys(mediaTemplates).find((k) => mediaTemplates[k] === matchedTemplate);
+        variableSelect.value = key || '';
+        customUrlWrap.hidden = true;
+        customUrlInput.value = '';
+      } else {
+        variableSelect.value = '__custom';
+        customUrlWrap.hidden = false;
+        customUrlInput.value = currentSource;
+      }
+      widthInput.value = String(normalizeImageWidth(img.getAttribute('width') || img.style.width, matchedTemplate ? matchedTemplate.defaultSize : 320));
+      positionSelect.value = detectImagePosition(img);
+      overlay.style.display = 'flex';
+    }
+
+    function editPreviewImage(img) {
+      openImageModalForEditing(img);
+    }
+
 
     const NEVER_EDITABLE_TAGS = new Set([
       'IMG', 'SCRIPT', 'STYLE', 'BR', 'HR', 'INPUT', 'TEXTAREA', 'SELECT', 'IFRAME', 'NOSCRIPT',
