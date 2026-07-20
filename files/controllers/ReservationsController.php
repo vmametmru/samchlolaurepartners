@@ -723,6 +723,11 @@ final class ReservationsController extends Controller
             'message' => (string) ($input['message'] ?? ''),
             'partenaire' => (string) ($partner['name'] ?? ''),
             'photo_bien' => $photo['html'],
+            'email_partenaire' => (string) ($partner['email'] ?? ''),
+            'logo_partenaire' => self::partnerLogoTag(
+                (string) ($partner['logo_url'] ?? ''),
+                (string) ($partner['name'] ?? '')
+            ),
         ];
         $childBreakdown = self::childBreakdownValues($input);
         $variables += self::stayVariables($checkin, $checkout, $childBreakdown['under3'], $childBreakdown['from3to12']);
@@ -772,6 +777,11 @@ final class ReservationsController extends Controller
             'notes' => $notes ?? '',
             'partenaire' => (string) $partner['name'],
             'photo_bien' => $photo['html'],
+            'email_partenaire' => (string) ($partner['email'] ?? ''),
+            'logo_partenaire' => self::partnerLogoTag(
+                (string) ($partner['logo_url'] ?? ''),
+                (string) ($partner['name'] ?? '')
+            ),
         ];
         $childBreakdown = self::childBreakdownValues($request);
         $variables += self::stayVariables(
@@ -890,18 +900,31 @@ final class ReservationsController extends Controller
         $touristTaxTotal = self::toMoneyValue($input['quote_tourist_tax_total'] ?? 0);
         $nights = max(0, (int) ($input['quote_nights'] ?? 0));
 
-        $tarifBloc = '<hr><h3 style="margin:12px 0 8px;font-size:16px;">Résumé tarifaire</h3>';
-        $tarifBloc .= '<p style="margin:0 0 4px;"><strong>Tarif (' . $nights . ' nuit(s)) :</strong> ' . self::formatMoneyFr($roomTotal, $currency) . '</p>';
+        $tarifBloc = '<div style="padding:12px 24px 16px;">'
+            . '<p style="margin:0 0 10px;font-weight:bold;font-size:14px;color:#111827;">Résumé Tarifaire :</p>'
+            . '<table style="width:100%;border-collapse:collapse;font-size:14px;">'
+            . '<tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;color:#374151;">Tarif</td>'
+            . '<td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;color:#374151;">' . self::formatMoneyFr($roomTotal, $currency) . '</td></tr>';
         if ($extraPersonTotal > 0) {
-            $tarifBloc .= '<p style="margin:0 0 4px;"><strong>Personne(s) supplémentaire(s) :</strong> ' . self::formatMoneyFr($extraPersonTotal, $currency) . '</p>';
+            $tarifBloc .= '<tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;color:#374151;">Personne(s) supplémentaire(s)</td>'
+                . '<td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;color:#374151;">' . self::formatMoneyFr($extraPersonTotal, $currency) . '</td></tr>';
         }
-        $tarifBloc .= '<p style="margin:0 0 4px;"><strong>Nettoyage :</strong> ' . self::formatMoneyFr($cleaningTotal, $currency) . '</p>';
-        $tarifBloc .= '<p style="margin:0 0 4px;"><strong>Total :</strong> ' . self::formatMoneyFr($totalWithoutTax, $currency) . '</p>';
+        $tarifBloc .= '<tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;color:#374151;">Nettoyage</td>'
+            . '<td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;color:#374151;">' . self::formatMoneyFr($cleaningTotal, $currency) . '</td></tr>'
+            . '<tr><td style="padding:8px 0;font-weight:bold;color:#111827;">Total</td>'
+            . '<td style="padding:8px 0;font-weight:bold;text-align:right;color:#111827;">' . self::formatMoneyFr($totalWithoutTax, $currency) . '</td></tr>'
+            . '</table>';
         if ($touristTaxTotal > 0) {
-            $tarifBloc .= '<p style="margin:0;color:#6b7280;">Taxe touristique de '
+            $tarifBloc .= '<div style="margin-top:12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:6px;padding:12px 14px;">'
+                . '<table style="width:100%;border-collapse:collapse;"><tr>'
+                . '<td style="width:28px;vertical-align:top;font-size:18px;padding-right:8px;">&#9888;&#xFE0F;</td>'
+                . '<td style="font-size:13px;color:#92400e;vertical-align:top;">'
+                . '<strong>Attention</strong><br>Taxe touristique de '
                 . number_format($touristTaxTotal, 2, ',', ' ')
-                . ' Euros à régler à l\'arrivée (Non comprise dans le total)</p>';
+                . ' Euros à régler à l\'arrivée<br>(Non comprise dans le total)'
+                . '</td></tr></table></div>';
         }
+        $tarifBloc .= '</div>';
 
         return [
             'tarif_nuits' => (string) $nights,
@@ -1018,6 +1041,18 @@ final class ReservationsController extends Controller
         }
 
         return '<img src="' . htmlspecialchars($photoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($alt, ENT_QUOTES, 'UTF-8') . '" width="64" height="64" style="display:inline-block;width:64px;height:64px;border-radius:50%;object-fit:cover;">';
+    }
+
+    private static function partnerLogoTag(string $logoUrl, string $alt): string
+    {
+        if ($logoUrl === '') {
+            return '';
+        }
+        $logoUrl = self::absoluteUrl($logoUrl);
+        if ($logoUrl === '') {
+            return '';
+        }
+        return '<img src="' . htmlspecialchars($logoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($alt, ENT_QUOTES, 'UTF-8') . '" width="80" style="display:block;margin:0 auto;width:80px;max-width:80px;height:auto;">';
     }
 
     /**
