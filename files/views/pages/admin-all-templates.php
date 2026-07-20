@@ -154,8 +154,8 @@ $baseUrl = '/admin/templates';
                   </div>
                   <details class="preview-box" open>
                     <summary>Aperçu HTML</summary>
-                    <p class="text-muted" style="margin:.5rem 0 1rem;">Cliquez sur une image dans l’aperçu pour modifier sa source, sa taille et sa position.</p>
-                    <iframe class="preview-frame" sandbox="" data-template-preview srcdoc="<?= \App\View::e($selected['body_html']) ?>"></iframe>
+                    <p class="text-muted" style="margin:.5rem 0 1rem;">Cliquez sur une image pour modifier sa source, sa taille et sa position, ou sur un texte pour le modifier directement.</p>
+                    <iframe class="preview-frame" sandbox="allow-same-origin" data-template-preview srcdoc="<?= \App\View::e($selected['body_html']) ?>"></iframe>
                   </details>
                   <button class="btn-primary" type="submit">Sauvegarder</button>
                 </form>
