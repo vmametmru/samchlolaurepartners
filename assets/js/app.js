@@ -1023,6 +1023,60 @@ function initTemplateEditor() {
     return source;
   }
 
+  function sanitizeTemplateImageSource(source) {
+    const value = String(source || '').trim();
+    if (!value) return '';
+    if (mediaTemplateBySource(value)) return value;
+    if (/^\/images\/[a-zA-Z0-9/_\-.]+$/.test(value)) return value;
+    if (/^https?:\/\/[^\s"'<>]+$/i.test(value)) return value;
+    return '';
+  }
+
+  function escapeHtmlText(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function escapeHtmlAttribute(value) {
+    return escapeHtmlText(value)
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function serializeTemplateNode(node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return escapeHtmlText(node.textContent || '');
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      return '';
+    }
+
+    const element = node;
+    const tagName = element.tagName.toLowerCase();
+    const isVoidElement = ['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'].includes(tagName);
+    const attributes = [];
+
+    if (tagName === 'img') {
+      const safeSource = sanitizeTemplateImageSource(element.getAttribute('data-template-original-src') || element.getAttribute('src') || '');
+      if (!safeSource) return '';
+      attributes.push(`src="${escapeHtmlAttribute(safeSource)}"`);
+    }
+
+    [...element.attributes].forEach((attribute) => {
+      if (attribute.name === 'src' || attribute.name.startsWith('data-template-')) return;
+      attributes.push(`${attribute.name}="${escapeHtmlAttribute(attribute.value)}"`);
+    });
+
+    const openingTag = `<${tagName}${attributes.length ? ` ${attributes.join(' ')}` : ''}>`;
+    if (isVoidElement) {
+      return openingTag;
+    }
+
+    return `${openingTag}${[...element.childNodes].map((childNode) => serializeTemplateNode(childNode)).join('')}</${tagName}>`;
+  }
+
   function normalizeImageWidth(raw, fallback) {
     const width = parseInt(String(raw || fallback || 320), 10);
     if (!Number.isFinite(width) || width <= 0) return fallback || 320;
@@ -1117,16 +1171,7 @@ function initTemplateEditor() {
     function syncTextareaFromPreview() {
       if (!textarea || !preview?.contentDocument?.body) return;
       const bodyClone = preview.contentDocument.body.cloneNode(true);
-      bodyClone.querySelectorAll('img').forEach((img) => {
-        const originalSrc = img.getAttribute('data-template-original-src');
-        if (originalSrc) img.setAttribute('src', originalSrc);
-        [...img.attributes].forEach((attribute) => {
-          if (attribute.name.startsWith('data-template-')) {
-            img.removeAttribute(attribute.name);
-          }
-        });
-      });
-      textarea.value = bodyClone.innerHTML;
+      textarea.value = [...bodyClone.childNodes].map((childNode) => serializeTemplateNode(childNode)).join('');
     }
 
     function editPreviewImage(img) {
@@ -1134,6 +1179,8 @@ function initTemplateEditor() {
       const currentSource = img.getAttribute('data-template-original-src') || img.getAttribute('src') || '';
       const source = window.prompt('Source de l’image (URL ou variable {{photo1_url}}, {{logo_partenaire_url}}, ...)', currentSource);
       if (source === null || source.trim() === '') return;
+      const safeSource = sanitizeTemplateImageSource(source);
+      if (!safeSource) return;
 
       const currentWidth = normalizeImageWidth(img.getAttribute('width') || img.style.width, 320);
       const widthAnswer = window.prompt('Largeur de l’image en pixels', String(currentWidth));
@@ -1145,8 +1192,8 @@ function initTemplateEditor() {
       if (positionAnswer === null) return;
       const position = ['left', 'center', 'right'].includes(positionAnswer.trim().toLowerCase()) ? positionAnswer.trim().toLowerCase() : currentPosition;
 
-      img.setAttribute('data-template-original-src', source.trim());
-      img.setAttribute('src', previewImageSource(source.trim(), width, shape));
+      img.setAttribute('data-template-original-src', safeSource);
+      img.setAttribute('src', previewImageSource(safeSource, width, shape));
       applyImageLayout(img, width, position, shape);
       syncTextareaFromPreview();
       renderPreview();
