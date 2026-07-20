@@ -59,12 +59,12 @@ $baseUrl = $isAdmin ? '/admin/partners/' . (int) $adminPartnerId . '/templates' 
                 </div>
               </div>
             </div>
-            <p class="text-muted" style="margin:.25rem 0 .75rem;">Les variables image insèrent un bloc <code>&lt;img&gt;</code> modifiable directement dans l’aperçu HTML.</p>
+            <p class="text-muted" style="margin:.25rem 0 .75rem;">Les variables image insèrent un bloc <code>&lt;img&gt;</code> modifiable directement dans l’aperçu HTML. Cliquez sur une image pour changer sa source/taille, ou sur un texte pour le modifier directement dans l’aperçu.</p>
             <textarea class="input codearea" rows="16" name="body_html" data-template-body><?= \App\View::e($selected['body_html']) ?></textarea>
           </div>
           <details class="preview-box" open>
             <summary>Aperçu HTML</summary>
-            <iframe class="preview-frame" sandbox="" data-template-preview srcdoc="<?= \App\View::e($selected['body_html']) ?>"></iframe>
+            <iframe class="preview-frame" sandbox="allow-same-origin" data-template-preview srcdoc="<?= \App\View::e($selected['body_html']) ?>"></iframe>
           </details>
           <button class="btn-primary" type="submit">Sauvegarder</button>
         </form>

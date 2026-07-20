@@ -1199,18 +1199,82 @@ function initTemplateEditor() {
       renderPreview();
     }
 
-    preview?.addEventListener('load', () => {
+    function isEditableTextLeaf(el) {
+      if (!el || !el.tagName) return false;
+      const tag = el.tagName.toLowerCase();
+      if (['img', 'script', 'style', 'br', 'hr', 'input', 'button'].includes(tag)) return false;
+      if (el.children.length !== 0) return false;
+      return (el.textContent || '').trim() !== '';
+    }
+
+    function finishTextEdit(el) {
+      el.removeAttribute('contenteditable');
+      el.style.outline = '';
+      syncTextareaFromPreview();
+      renderPreview();
+    }
+
+    function editPreviewText(el) {
+      el.setAttribute('contenteditable', 'true');
+      el.style.outline = '2px solid #ec4899';
+      el.focus();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const selection = preview.contentWindow?.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+
+      const onBlur = () => {
+        el.removeEventListener('blur', onBlur);
+        el.removeEventListener('keydown', onKeydown);
+        finishTextEdit(el);
+      };
+      const onKeydown = (event) => {
+        if (event.key === 'Enter' && !event.shiftKey) {
+          event.preventDefault();
+          el.blur();
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          el.blur();
+        }
+      };
+      el.addEventListener('blur', onBlur);
+      el.addEventListener('keydown', onKeydown);
+    }
+
+    function wireEditablePreview() {
       const doc = preview.contentDocument;
       if (!doc) return;
+
+      if (!doc.getElementById('template-editor-hint-style')) {
+        const style = doc.createElement('style');
+        style.id = 'template-editor-hint-style';
+        style.textContent = '[data-template-hoverable]{cursor:pointer}[data-template-hoverable]:hover{outline:1px dashed #ec4899;outline-offset:1px}';
+        doc.head?.appendChild(style);
+      }
+
       doc.querySelectorAll('img').forEach((img) => {
-        img.style.cursor = 'pointer';
+        img.setAttribute('data-template-hoverable', '1');
         img.addEventListener('click', (event) => {
           event.preventDefault();
           event.stopPropagation();
           editPreviewImage(img);
         });
       });
-    });
+
+      doc.querySelectorAll('body *').forEach((el) => {
+        if (!isEditableTextLeaf(el)) return;
+        el.setAttribute('data-template-hoverable', '1');
+        el.addEventListener('click', (event) => {
+          if (el.isContentEditable) return;
+          event.preventDefault();
+          event.stopPropagation();
+          editPreviewText(el);
+        });
+      });
+    }
+
+    preview?.addEventListener('load', wireEditablePreview);
 
     form.querySelectorAll('[data-insert-variable]').forEach((button) => {
       button.addEventListener('click', () => {
