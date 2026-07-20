@@ -726,11 +726,15 @@ final class ReservationsController extends Controller
             'photo1' => self::propertyPhotoVariable((int) ($input['property_id'] ?? 0), (string) ($input['property_name'] ?? ''), 1),
             'photo2' => self::propertyPhotoVariable((int) ($input['property_id'] ?? 0), (string) ($input['property_name'] ?? ''), 2),
             'photo3' => self::propertyPhotoVariable((int) ($input['property_id'] ?? 0), (string) ($input['property_name'] ?? ''), 3),
+            'photo1_url' => self::propertyPhotoUrlValue((int) ($input['property_id'] ?? 0), 1),
+            'photo2_url' => self::propertyPhotoUrlValue((int) ($input['property_id'] ?? 0), 2),
+            'photo3_url' => self::propertyPhotoUrlValue((int) ($input['property_id'] ?? 0), 3),
             'email_partenaire' => (string) ($partner['email'] ?? ''),
             'logo_partenaire' => self::partnerLogoVariable(
                 (string) ($partner['logo_url'] ?? ''),
                 (string) ($partner['name'] ?? '')
             ),
+            'logo_partenaire_url' => self::partnerLogoUrlValue((string) ($partner['logo_url'] ?? '')),
         ];
         $childBreakdown = self::childBreakdownValues($input);
         $variables += self::stayVariables($checkin, $checkout, $childBreakdown['under3'], $childBreakdown['from3to12']);
@@ -783,11 +787,15 @@ final class ReservationsController extends Controller
             'photo1' => self::propertyPhotoVariable((int) ($request['property_id'] ?? 0), (string) $request['property_name'], 1),
             'photo2' => self::propertyPhotoVariable((int) ($request['property_id'] ?? 0), (string) $request['property_name'], 2),
             'photo3' => self::propertyPhotoVariable((int) ($request['property_id'] ?? 0), (string) $request['property_name'], 3),
+            'photo1_url' => self::propertyPhotoUrlValue((int) ($request['property_id'] ?? 0), 1),
+            'photo2_url' => self::propertyPhotoUrlValue((int) ($request['property_id'] ?? 0), 2),
+            'photo3_url' => self::propertyPhotoUrlValue((int) ($request['property_id'] ?? 0), 3),
             'email_partenaire' => (string) ($partner['email'] ?? ''),
             'logo_partenaire' => self::partnerLogoVariable(
                 (string) ($partner['logo_url'] ?? ''),
                 (string) ($partner['name'] ?? '')
             ),
+            'logo_partenaire_url' => self::partnerLogoUrlValue((string) ($partner['logo_url'] ?? '')),
         ];
         $childBreakdown = self::childBreakdownValues($request);
         $variables += self::stayVariables(
@@ -1021,6 +1029,7 @@ final class ReservationsController extends Controller
         return [
             'signature_nom' => $fullName,
             'signature_photo' => self::signaturePhotoVariable($photoUrl, $fullName !== '' ? $fullName : 'Photo'),
+            'signature_photo_url' => self::signaturePhotoUrlValue($photoUrl),
             'lien_partenaire' => self::partnerLink($partnerId),
             'telephone_partenaire' => $phone,
         ];
@@ -1031,18 +1040,30 @@ final class ReservationsController extends Controller
         return static fn (?int $size = null): string => self::propertyPhotoHtml($propertyId, $propertyName, $photoIndex, $size);
     }
 
-    private static function propertyPhotoHtml(int $propertyId, string $propertyName, int $photoIndex, ?int $size): string
+    public static function propertyPhotoUrlValue(int $propertyId, int $photoIndex): string
     {
         $photoUrl = (new LodgifyClient())->getPropertyPhotoUrlByIndex($propertyId, $photoIndex);
-        if ($photoUrl === '') {
-            return '';
-        }
-        $photoUrl = self::absoluteUrl($photoUrl);
+        return $photoUrl !== '' ? self::absoluteUrl($photoUrl) : '';
+    }
+
+    private static function propertyPhotoHtml(int $propertyId, string $propertyName, int $photoIndex, ?int $size): string
+    {
+        $photoUrl = self::propertyPhotoUrlValue($propertyId, $photoIndex);
         if ($photoUrl === '') {
             return '';
         }
         $width = self::normalizeImageWidth($size, 320);
         return '<img src="' . htmlspecialchars($photoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($propertyName, ENT_QUOTES, 'UTF-8') . '" width="' . $width . '" style="display:block;width:' . $width . 'px;max-width:100%;height:auto;">';
+    }
+
+    public static function partnerLogoUrlValue(string $logoUrl): string
+    {
+        return $logoUrl !== '' ? self::absoluteUrl($logoUrl) : '';
+    }
+
+    public static function signaturePhotoUrlValue(string $photoUrl): string
+    {
+        return $photoUrl !== '' ? self::absoluteUrl($photoUrl) : '';
     }
 
     private static function normalizeImageWidth(?int $size, int $default): int
