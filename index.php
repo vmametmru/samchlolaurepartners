@@ -256,6 +256,8 @@ try {
             PageController::adminCreateAllTemplate();
         case route($method, $path, 'POST', '#^/admin/templates/import$#'):
             PageController::adminImportAllTemplate();
+        case route($method, $path, 'POST', '#^/admin/templates/import-zip$#'):
+            PageController::adminImportTemplateZip();
         case route($method, $path, 'POST', '#^/admin/templates/assets/upload$#'):
             PageController::adminUploadTemplateGalleryAsset();
         case route($method, $path, 'POST', '#^/admin/templates/assets/delete$#'):

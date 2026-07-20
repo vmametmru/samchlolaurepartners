@@ -1111,6 +1111,12 @@ function initTemplateEditor() {
 
     const element = node;
 
+    // The floating format toolbar and style tags are internal editor UI —
+    // never persist them into the saved template HTML.
+    if (element.hasAttribute('data-template-toolbar') || element.id === 'template-editor-hint-style') {
+      return '';
+    }
+
     // Atomic preview-only placeholders (plain-text variable chips, the
     // tarif_bloc quote block, and non-editable image variables like
     // photo_bien) always serialize back to their original {{variable}}
@@ -1184,6 +1190,11 @@ function initTemplateEditor() {
     return `<img src="${template.src}" alt="${template.alt}" width="${resolvedWidth}"${heightAttr} style="${style}">`;
   }
 
+  function variableChipHtml(name) {
+    const sampleValue = Object.prototype.hasOwnProperty.call(sampleTextValues, name) ? sampleTextValues[name] : `« ${name} »`;
+    return `<span data-template-var="${name}" contenteditable="false" style="background:#fce7f3;color:#9d174d;border-radius:4px;padding:0 3px;" title="Variable {{${name}}} — donnée temporaire pour l’aperçu">${escapeHtmlText(sampleValue)}</span>`;
+  }
+
   function decoratePreviewHtml(html) {
     let output = html;
 
@@ -1255,16 +1266,9 @@ function initTemplateEditor() {
           wrapper.innerHTML = buildSampleTarifBlocHtml();
           fragment.appendChild(wrapper.firstElementChild);
         } else {
-          const span = doc.createElement('span');
-          span.setAttribute('data-template-var', name);
-          span.setAttribute('contenteditable', 'false');
-          span.style.background = '#fce7f3';
-          span.style.color = '#9d174d';
-          span.style.borderRadius = '4px';
-          span.style.padding = '0 3px';
-          span.title = `Variable {{${name}}} — donnée temporaire pour l’aperçu`;
-          span.textContent = Object.prototype.hasOwnProperty.call(sampleTextValues, name) ? sampleTextValues[name] : `« ${name} »`;
-          fragment.appendChild(span);
+          const wrapper = doc.createElement('span');
+          wrapper.innerHTML = variableChipHtml(name);
+          fragment.appendChild(wrapper.firstElementChild);
         }
         lastIndex = match.index + match[0].length;
       }
@@ -1280,13 +1284,37 @@ function initTemplateEditor() {
   document.querySelectorAll('[data-template-editor]').forEach((form) => {
     const textarea = form.querySelector('[data-template-body]');
     const preview = form.querySelector('[data-template-preview]');
+    let activeEditableEl = null;
+    let lastKnownRange = null;
 
     function renderPreview() {
       if (!textarea || !preview) return;
       preview.srcdoc = decoratePreviewHtml(textarea.value);
     }
 
+    function insertHtmlIntoActiveEditable(html) {
+      const doc = preview?.contentDocument;
+      if (!doc || !activeEditableEl) return false;
+      const selection = doc.getSelection();
+      if (lastKnownRange) {
+        selection.removeAllRanges();
+        selection.addRange(lastKnownRange);
+      }
+      if (!selection.rangeCount || !activeEditableEl.contains(selection.getRangeAt(0).commonAncestorContainer)) {
+        const range = doc.createRange();
+        range.selectNodeContents(activeEditableEl);
+        range.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+      doc.execCommand('insertHTML', false, html);
+      lastKnownRange = selection.rangeCount ? selection.getRangeAt(0).cloneRange() : null;
+      syncTextareaFromPreview();
+      return true;
+    }
+
     function insertAtCursor(text) {
+      if (activeEditableEl && insertHtmlIntoActiveEditable(text)) return;
       if (!textarea) return;
       const start = textarea.selectionStart ?? textarea.value.length;
       const end = textarea.selectionEnd ?? start;
@@ -1302,6 +1330,7 @@ function initTemplateEditor() {
       const bodyClone = preview.contentDocument.body.cloneNode(true);
       textarea.value = [...bodyClone.childNodes].map((childNode) => serializeTemplateNode(childNode)).join('');
     }
+
 
     function editPreviewImage(img) {
       const shape = img.getAttribute('data-template-shape') || 'rect';
@@ -1350,14 +1379,129 @@ function initTemplateEditor() {
     function finishTextEdit(el) {
       el.removeAttribute('contenteditable');
       el.style.outline = '';
+      if (activeEditableEl === el) {
+        activeEditableEl = null;
+        lastKnownRange = null;
+      }
+      hideFormatToolbar();
       syncTextareaFromPreview();
       renderPreview();
+    }
+
+    let formatToolbar = null;
+    let toolbarInteracting = false;
+
+    function hideFormatToolbar() {
+      if (formatToolbar) formatToolbar.style.display = 'none';
+    }
+
+    function ensureFormatToolbar(doc) {
+      let toolbar = doc.getElementById('template-format-toolbar');
+      if (toolbar) return toolbar;
+      toolbar = doc.createElement('div');
+      toolbar.id = 'template-format-toolbar';
+      toolbar.setAttribute('data-template-toolbar', '1');
+      toolbar.setAttribute('contenteditable', 'false');
+      toolbar.style.cssText = 'display:none;position:fixed;z-index:99999;background:#1f2937;color:#fff;border-radius:6px;padding:4px;box-shadow:0 4px 14px rgba(0,0,0,.25);gap:4px;align-items:center;font:13px/1.4 system-ui,sans-serif;';
+      toolbar.style.display = 'none';
+      toolbar.innerHTML = `
+        <button type="button" data-cmd="bold" title="Gras" style="font-weight:bold;background:none;border:none;color:#fff;padding:4px 8px;cursor:pointer;border-radius:4px;">G</button>
+        <button type="button" data-cmd="italic" title="Italique" style="font-style:italic;background:none;border:none;color:#fff;padding:4px 8px;cursor:pointer;border-radius:4px;">I</button>
+        <button type="button" data-cmd="underline" title="Souligné" style="text-decoration:underline;background:none;border:none;color:#fff;padding:4px 8px;cursor:pointer;border-radius:4px;">S</button>
+        <select data-cmd="fontName" title="Police" style="background:#374151;color:#fff;border:none;border-radius:4px;padding:3px 4px;">
+          <option value="">Police…</option>
+          <option value="Arial, Helvetica, sans-serif">Arial</option>
+          <option value="Georgia, serif">Georgia</option>
+          <option value="'Times New Roman', serif">Times New Roman</option>
+          <option value="Verdana, sans-serif">Verdana</option>
+          <option value="'Courier New', monospace">Courier New</option>
+          <option value="'Trebuchet MS', sans-serif">Trebuchet MS</option>
+        </select>`;
+      toolbar.addEventListener('mousedown', (event) => {
+        if (event.target.tagName === 'SELECT') {
+          toolbarInteracting = true;
+          return;
+        }
+        event.preventDefault();
+      });
+      toolbar.querySelectorAll('button[data-cmd]').forEach((button) => {
+        button.addEventListener('click', () => {
+          doc.execCommand(button.dataset.cmd, false, null);
+          syncTextareaFromPreview();
+        });
+      });
+      const fontSelect = toolbar.querySelector('select[data-cmd]');
+      fontSelect?.addEventListener('change', () => {
+        const value = fontSelect.value;
+        fontSelect.value = '';
+        if (!value || !activeEditableEl) {
+          toolbarInteracting = false;
+          return;
+        }
+        const selection = doc.getSelection();
+        if (lastKnownRange) {
+          selection.removeAllRanges();
+          selection.addRange(lastKnownRange);
+        }
+        doc.execCommand('styleWithCSS', false, true);
+        doc.execCommand('fontName', false, value);
+        doc.execCommand('styleWithCSS', false, false);
+        activeEditableEl.focus();
+        toolbarInteracting = false;
+        syncTextareaFromPreview();
+      });
+      fontSelect?.addEventListener('blur', () => {
+        setTimeout(() => {
+          if (activeEditableEl && doc.activeElement !== activeEditableEl && doc.activeElement !== fontSelect) {
+            toolbarInteracting = false;
+            finishTextEdit(activeEditableEl);
+          }
+        }, 0);
+      });
+      doc.body.appendChild(toolbar);
+      formatToolbar = toolbar;
+
+      doc.addEventListener('selectionchange', () => {
+        if (!activeEditableEl) {
+          hideFormatToolbar();
+          return;
+        }
+        const selection = doc.getSelection();
+        if (!selection || !selection.rangeCount || selection.isCollapsed) {
+          hideFormatToolbar();
+          return;
+        }
+        const range = selection.getRangeAt(0);
+        if (!activeEditableEl.contains(range.commonAncestorContainer)) {
+          hideFormatToolbar();
+          return;
+        }
+        lastKnownRange = range.cloneRange();
+        const rect = range.getBoundingClientRect();
+        if (!rect || (rect.width === 0 && rect.height === 0)) {
+          hideFormatToolbar();
+          return;
+        }
+        toolbar.style.display = 'flex';
+        const toolbarRect = toolbar.getBoundingClientRect();
+        let top = rect.top - toolbarRect.height - 8;
+        if (top < 4) top = rect.bottom + 8;
+        let left = rect.left + rect.width / 2 - toolbarRect.width / 2;
+        left = Math.max(4, Math.min(left, doc.defaultView.innerWidth - toolbarRect.width - 4));
+        toolbar.style.top = `${top}px`;
+        toolbar.style.left = `${left}px`;
+      });
+
+      return toolbar;
     }
 
     function editPreviewText(el) {
       el.setAttribute('contenteditable', 'true');
       el.style.outline = '2px solid #ec4899';
       el.focus();
+      activeEditableEl = el;
+      lastKnownRange = null;
+      ensureFormatToolbar(preview.contentDocument);
       const range = document.createRange();
       range.selectNodeContents(el);
       const selection = preview.contentWindow?.getSelection();
@@ -1365,6 +1509,7 @@ function initTemplateEditor() {
       selection?.addRange(range);
 
       const onBlur = () => {
+        if (toolbarInteracting) return;
         el.removeEventListener('blur', onBlur);
         el.removeEventListener('keydown', onKeydown);
         finishTextEdit(el);
@@ -1433,7 +1578,15 @@ function initTemplateEditor() {
           insertAtCursor(buildImageSnippet(variableName, width));
           return;
         }
-        insertAtCursor(button.dataset.insertVariable || '');
+        const rawToken = button.dataset.insertVariable || '';
+        if (activeEditableEl) {
+          const nameMatch = rawToken.match(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/);
+          if (nameMatch) {
+            insertAtCursor(variableChipHtml(nameMatch[1]));
+            return;
+          }
+        }
+        insertAtCursor(rawToken);
       });
     });
 

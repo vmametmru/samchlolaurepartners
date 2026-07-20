@@ -125,6 +125,15 @@ $baseUrl = '/admin/templates';
                 <p class="empty-state">Sélectionnez un template à éditer.</p>
               <?php else: ?>
                 <h2 class="section-title"><?= \App\View::e($labels[$selected['type']] ?? $selected['type']) ?></h2>
+                <form method="post" action="<?= $baseUrl ?>/import-zip" enctype="multipart/form-data" class="form-grid cols-3" style="margin-bottom:1rem;align-items:end;">
+                  <input type="hidden" name="partner_id" value="<?= (int) $selectedPartnerId ?>">
+                  <input type="hidden" name="id" value="<?= (int) $selected['id'] ?>">
+                  <label class="col-span-2">
+                    <span>Importer un template Canva (ZIP : HTML + images)</span>
+                    <input class="input" type="file" name="template_zip" accept=".zip" required>
+                  </label>
+                  <button class="btn-secondary" type="submit" onclick="return confirm('Remplacer le corps de l\'email actuel par le contenu de ce ZIP ?');">📦 Importer le ZIP</button>
+                </form>
                 <form method="post" action="<?= $baseUrl ?>/<?= $selectedPartnerId ?>/<?= (int) $selected['id'] ?>" class="stack-md" data-template-editor>
                   <label><span>Objet de l'email</span><input class="input" type="text" name="subject" value="<?= \App\View::e($selected['subject']) ?>"></label>
                   <div>
