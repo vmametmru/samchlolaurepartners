@@ -55,6 +55,7 @@ jobs:
           # them to exist, so create them in the package.
           mkdir -p artifact-package/files/storage/logs
           mkdir -p artifact-package/files/storage/cache
+          mkdir -p artifact-package/files/storage/updates
 
       - name: Verify package completeness
         run: |
@@ -87,7 +88,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: deployment-package-${{ steps.ts.outputs.value }}
-          path: deployment-package-${{ steps.ts.outputs.value }}.zip
+          path: artifact-package/
           retention-days: 30
 
       - name: Attach zip to release

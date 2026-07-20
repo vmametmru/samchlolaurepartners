@@ -1465,4 +1465,308 @@ final class PageController extends Controller
             ];
         }, $rawRates);
     }
+
+    // -------------------------------------------------------------------------
+    // Admin: All Templates
+    // -------------------------------------------------------------------------
+
+    public static function adminAllTemplates(): void
+    {
+        self::requireAdminUser();
+
+        $stmt = Database::connection()->query(
+            'SELECT p.id, p.name, COUNT(et.id) AS template_count
+             FROM partners p
+             LEFT JOIN email_templates et ON et.partner_id = p.id
+             GROUP BY p.id, p.name
+             ORDER BY p.name'
+        );
+        $partners = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $selectedPartnerId = isset($_GET['partner_id']) ? (int) $_GET['partner_id'] : null;
+        $templates = [];
+        $selected = null;
+        $selectedPartnerName = null;
+
+        if ($selectedPartnerId !== null) {
+            $templates = EmailTemplatesController::listForPartner($selectedPartnerId);
+            foreach ($partners as $p) {
+                if ((int) $p['id'] === $selectedPartnerId) {
+                    $selectedPartnerName = (string) $p['name'];
+                    break;
+                }
+            }
+            $selectedId = isset($_GET['id']) ? (int) $_GET['id'] : (int) ($templates[0]['id'] ?? 0);
+            foreach ($templates as $tpl) {
+                if ((int) $tpl['id'] === $selectedId) {
+                    $selected = $tpl;
+                    break;
+                }
+            }
+        }
+
+        View::render('pages/admin-all-templates', [
+            'pageTitle' => 'Templates email',
+            'partners' => $partners,
+            'selectedPartnerId' => $selectedPartnerId,
+            'selectedPartnerName' => $selectedPartnerName,
+            'templates' => $templates,
+            'selected' => $selected,
+        ]);
+    }
+
+    public static function adminSaveAllTemplate(int $partnerId, int $id): never
+    {
+        self::requireAdminUser();
+        Database::connection()->prepare(
+            'UPDATE email_templates SET subject = ?, body_html = ?, updated_at = NOW() WHERE id = ? AND partner_id = ?'
+        )->execute([
+            (string) ($_POST['subject'] ?? ''),
+            (string) ($_POST['body_html'] ?? ''),
+            $id,
+            $partnerId,
+        ]);
+        self::redirect('/admin/templates?partner_id=' . $partnerId . '&id=' . $id, 'Template sauvegardé.');
+    }
+
+    // -------------------------------------------------------------------------
+    // Admin: Mise à jour (self-update via ZIP upload)
+    // -------------------------------------------------------------------------
+
+    public static function adminMiseAJour(): void
+    {
+        self::requireAdminUser();
+
+        $updatesDir = BASE_PATH . '/files/storage/updates';
+        $backups = [];
+        if (is_dir($updatesDir)) {
+            $files = glob($updatesDir . '/backup_*.zip') ?: [];
+            rsort($files);
+            foreach ($files as $f) {
+                $name = basename($f);
+                // Extract timestamp from backup_YYYYMMDDHHmmss.zip
+                if (preg_match('/backup_(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})\.zip$/', $name, $m)) {
+                    $label = $m[1] . '-' . $m[2] . '-' . $m[3] . ' ' . $m[4] . ':' . $m[5] . ':' . $m[6];
+                } else {
+                    $label = $name;
+                }
+                $backups[] = ['file' => $name, 'label' => $label];
+            }
+        }
+
+        View::render('pages/admin-update', [
+            'pageTitle' => 'Mise à jour',
+            'backups' => $backups,
+        ]);
+    }
+
+    public static function adminApplyUpdate(): never
+    {
+        self::requireAdminUser();
+
+        if (
+            empty($_FILES['update_zip']['tmp_name']) ||
+            ($_FILES['update_zip']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK
+        ) {
+            self::redirect('/admin/mise-a-jour', 'Aucun fichier ZIP valide fourni.', 'error');
+        }
+
+        $tmpZip = (string) $_FILES['update_zip']['tmp_name'];
+
+        $zip = new \ZipArchive();
+        if ($zip->open($tmpZip) !== true) {
+            self::redirect('/admin/mise-a-jour', 'Le fichier uploadé n\'est pas un ZIP valide.', 'error');
+        }
+        $zip->close();
+
+        $updatesDir = BASE_PATH . '/files/storage/updates';
+        if (!is_dir($updatesDir)) {
+            @mkdir($updatesDir, 0755, true);
+        }
+
+        $ts = date('YmdHis');
+
+        // Backup current application files before overwriting
+        $backupFile = $updatesDir . '/backup_' . $ts . '.zip';
+        try {
+            self::createAppBackup($backupFile);
+        } catch (\Throwable $e) {
+            error_log('Mise à jour: backup failed (continuing): ' . $e->getMessage());
+        }
+
+        // Extract uploaded ZIP to temp dir
+        $tmpDir = sys_get_temp_dir() . '/update_' . $ts;
+        if (!@mkdir($tmpDir, 0755, true)) {
+            self::redirect('/admin/mise-a-jour', 'Impossible de créer le répertoire temporaire d\'extraction.', 'error');
+        }
+
+        $zip = new \ZipArchive();
+        $zip->open($tmpZip);
+        $zip->extractTo($tmpDir);
+        $zip->close();
+
+        // Copy extracted files to webroot, skipping protected paths
+        $protected = ['images', '.env', 'files/storage'];
+        try {
+            self::copyDirToWebroot($tmpDir, BASE_PATH, $protected);
+        } catch (\Throwable $e) {
+            self::cleanupTmpDir($tmpDir);
+            self::redirect('/admin/mise-a-jour', 'Erreur lors de l\'application : ' . $e->getMessage(), 'error');
+        }
+
+        self::cleanupTmpDir($tmpDir);
+        self::redirect('/admin/mise-a-jour', 'Mise à jour appliquée avec succès.');
+    }
+
+    public static function adminRollbackUpdate(): never
+    {
+        self::requireAdminUser();
+
+        $updatesDir = BASE_PATH . '/files/storage/updates';
+        $backups = glob($updatesDir . '/backup_*.zip') ?: [];
+
+        if (empty($backups)) {
+            self::redirect('/admin/mise-a-jour', 'Aucune sauvegarde disponible pour restaurer.', 'error');
+        }
+
+        rsort($backups);
+        $latestBackup = $backups[0];
+
+        $zip = new \ZipArchive();
+        if ($zip->open($latestBackup) !== true) {
+            self::redirect('/admin/mise-a-jour', 'Impossible d\'ouvrir la sauvegarde.', 'error');
+        }
+
+        $ts = date('YmdHis');
+        $tmpDir = sys_get_temp_dir() . '/restore_' . $ts;
+        if (!@mkdir($tmpDir, 0755, true)) {
+            $zip->close();
+            self::redirect('/admin/mise-a-jour', 'Impossible de créer le répertoire temporaire de restauration.', 'error');
+        }
+        $zip->extractTo($tmpDir);
+        $zip->close();
+
+        $protected = ['images', '.env', 'files/storage'];
+        try {
+            self::copyDirToWebroot($tmpDir, BASE_PATH, $protected);
+        } catch (\Throwable $e) {
+            self::cleanupTmpDir($tmpDir);
+            self::redirect('/admin/mise-a-jour', 'Erreur lors de la restauration : ' . $e->getMessage(), 'error');
+        }
+
+        self::cleanupTmpDir($tmpDir);
+        self::redirect('/admin/mise-a-jour', 'Version précédente restaurée avec succès.');
+    }
+
+    /**
+     * Creates a ZIP archive of the current application files, skipping
+     * user uploads, environment config, storage, and VCS directories.
+     */
+    private static function createAppBackup(string $backupFile): void
+    {
+        $webroot = BASE_PATH;
+        $zip = new \ZipArchive();
+        if ($zip->open($backupFile, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+            throw new \RuntimeException('Impossible de créer le fichier de sauvegarde : ' . $backupFile);
+        }
+
+        $excluded = ['images', 'files/storage', '.env', '.git', 'artifact-package'];
+
+        $iter = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($webroot, \RecursiveDirectoryIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::SELF_FIRST
+        );
+
+        foreach ($iter as $file) {
+            $realPath = $file->getRealPath();
+            if ($realPath === false) {
+                continue;
+            }
+            $rel = ltrim(str_replace($webroot, '', $realPath), '/\\');
+
+            $skip = false;
+            foreach ($excluded as $ex) {
+                if ($rel === $ex || str_starts_with($rel, $ex . '/') || str_starts_with($rel, $ex . DIRECTORY_SEPARATOR)) {
+                    $skip = true;
+                    break;
+                }
+            }
+            if ($skip) {
+                continue;
+            }
+
+            if ($file->isDir()) {
+                $zip->addEmptyDir($rel . '/');
+            } else {
+                $zip->addFile($realPath, $rel);
+            }
+        }
+
+        $zip->close();
+    }
+
+    /**
+     * Recursively copies files from $srcDir to $destDir, skipping any
+     * entry whose relative path starts with a protected prefix.
+     */
+    private static function copyDirToWebroot(string $srcDir, string $destDir, array $protected): void
+    {
+        $iter = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($srcDir, \RecursiveDirectoryIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::SELF_FIRST
+        );
+
+        foreach ($iter as $file) {
+            $rel = ltrim(str_replace($srcDir, '', $file->getPathname()), '/\\');
+
+            $skip = false;
+            foreach ($protected as $p) {
+                if ($rel === $p || str_starts_with($rel, $p . '/') || str_starts_with($rel, $p . DIRECTORY_SEPARATOR)) {
+                    $skip = true;
+                    break;
+                }
+            }
+            if ($skip) {
+                continue;
+            }
+
+            $dest = $destDir . DIRECTORY_SEPARATOR . $rel;
+
+            if ($file->isDir()) {
+                if (!is_dir($dest)) {
+                    @mkdir($dest, 0755, true);
+                }
+            } else {
+                $destParent = dirname($dest);
+                if (!is_dir($destParent)) {
+                    @mkdir($destParent, 0755, true);
+                }
+                if (!copy($file->getPathname(), $dest)) {
+                    throw new \RuntimeException('Échec de copie : ' . $rel);
+                }
+            }
+        }
+    }
+
+    /**
+     * Recursively removes a temporary directory.
+     */
+    private static function cleanupTmpDir(string $dir): void
+    {
+        if (!is_dir($dir)) {
+            return;
+        }
+        $iter = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($dir, \RecursiveDirectoryIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST
+        );
+        foreach ($iter as $file) {
+            if ($file->isDir()) {
+                @rmdir($file->getPathname());
+            } else {
+                @unlink($file->getPathname());
+            }
+        }
+        @rmdir($dir);
+    }
 }

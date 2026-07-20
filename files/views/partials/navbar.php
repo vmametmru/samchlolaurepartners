@@ -44,11 +44,13 @@ $avatarInitial = strtoupper(substr($avatarInitialSource !== '' ? $avatarInitialS
             <summary>Paramêtres</summary>
             <div class="navbar-dropdown-menu">
               <a href="/admin/partners">Partenaires</a>
+              <a href="/admin/templates">Templates email</a>
               <a href="/admin/lodgify-properties">Biens Lodgify</a>
               <a href="/admin/sync">Synchronisation</a>
               <a href="/admin/fees">Frais &amp; Taxes</a>
               <a href="/admin/smtp-settings">SMTP par défaut</a>
               <a href="/admin/versions">Versions</a>
+              <a href="/admin/mise-a-jour">Mise à jour</a>
             </div>
           </details>
         <?php endif; ?>

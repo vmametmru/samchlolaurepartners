@@ -249,6 +249,18 @@ try {
             PageController::adminDeployVersion();
         case route($method, $path, 'POST', '#^/admin/versions/rollback$#'):
             PageController::adminRollbackVersion();
+        case route($method, $path, 'GET', '#^/admin/templates$#'):
+            PageController::adminAllTemplates();
+            break;
+        case route($method, $path, 'POST', '#^/admin/templates/(\d+)/(\d+)$#', $matches):
+            PageController::adminSaveAllTemplate((int) $matches[1], (int) $matches[2]);
+        case route($method, $path, 'GET', '#^/admin/mise-a-jour$#'):
+            PageController::adminMiseAJour();
+            break;
+        case route($method, $path, 'POST', '#^/admin/mise-a-jour$#'):
+            PageController::adminApplyUpdate();
+        case route($method, $path, 'POST', '#^/admin/mise-a-jour/rollback$#'):
+            PageController::adminRollbackUpdate();
         case route($method, $path, 'GET', '#^/admin/sync$#'):
             PageController::adminSync();
             break;
