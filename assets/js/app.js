@@ -1246,6 +1246,25 @@ function initTemplateEditor() {
 
     [...element.attributes].forEach((attribute) => {
       if (attribute.name === 'src' || attribute.name.startsWith('data-template-')) return;
+      // `contenteditable` and the pink "currently editing" outline are
+      // purely editor-runtime affordances (set by editPreviewText while a
+      // cell is being edited, cleared again on blur). Inserting a variable
+      // or an image while a cell is still mid-edit (e.g. via the "{}"
+      // variable modal) calls syncTextareaFromPreview() before that cleanup
+      // happens, so without this guard either attribute could get baked
+      // into the saved template if the admin clicks "Sauvegarder" without
+      // first clicking/tabbing away from the cell — leaving a permanent
+      // pink outline around that cell every time the template is reloaded.
+      if (attribute.name === 'contenteditable') return;
+      if (attribute.name === 'style') {
+        const cleanedStyle = attribute.value
+          .split(';')
+          .map((declaration) => declaration.trim())
+          .filter((declaration) => declaration && !/^outline(-offset)?\s*:/i.test(declaration))
+          .join('; ');
+        if (cleanedStyle) attributes.push(`style="${escapeHtmlAttribute(cleanedStyle)}"`);
+        return;
+      }
       attributes.push(`${attribute.name}="${escapeHtmlAttribute(attribute.value)}"`);
     });
 
