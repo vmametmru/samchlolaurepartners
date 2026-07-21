@@ -1868,6 +1868,17 @@ function initTemplateEditor() {
       el.addEventListener('input', onInput);
     }
 
+    function resizePreviewToContent() {
+      const doc = preview?.contentDocument;
+      if (!doc?.body) return;
+      const height = Math.max(
+        doc.documentElement?.scrollHeight || 0,
+        doc.body.scrollHeight || 0,
+        doc.body.offsetHeight || 0
+      );
+      if (height > 0) preview.style.height = `${height}px`;
+    }
+
     function wireEditablePreview() {
       const doc = preview.contentDocument;
       if (!doc) return;
@@ -1891,6 +1902,8 @@ function initTemplateEditor() {
           event.stopPropagation();
           editPreviewImage(img);
         });
+        // Images can change the preview's overall height once loaded.
+        img.addEventListener('load', resizePreviewToContent);
       });
 
       doc.querySelectorAll('body *').forEach((el) => {
@@ -1903,6 +1916,15 @@ function initTemplateEditor() {
           editPreviewText(el);
         });
       });
+
+      // Keep the iframe's height matched to its content, both right away
+      // and whenever the preview's DOM changes (text/image edits, variable
+      // inserts, etc.), so "Aperçu HTML" never scrolls internally.
+      resizePreviewToContent();
+      if (doc.body) {
+        const resizeObserver = new MutationObserver(() => resizePreviewToContent());
+        resizeObserver.observe(doc.body, { childList: true, subtree: true, attributes: true, characterData: true });
+      }
     }
 
     preview?.addEventListener('load', wireEditablePreview);

@@ -379,7 +379,7 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .codearea { min-height: 18rem; font-family: monospace; }
 .preview-box { border: 1px solid var(--border); border-radius: 1rem; overflow: hidden; }
 .preview-box summary { padding: .8rem 1rem; cursor: pointer; font-weight: 700; }
-.preview-frame { width: 100%; min-height: 18rem; border: 0; background: white; }
+.preview-frame { width: 100%; min-height: 18rem; height: 18rem; border: 0; background: white; display: block; }
 .code-box { border: 1px solid var(--border); border-radius: 1rem; padding: 0 1rem 1rem; margin-bottom: 1rem; }
 .code-box summary { padding: .8rem 0; cursor: pointer; font-weight: 700; margin: 0 -1rem; padding-left: 1rem; }
 .template-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: .5rem; }
