@@ -1154,6 +1154,24 @@ function initTemplateEditor() {
     return Math.max(24, Math.min(1200, width));
   }
 
+  function normalizeImageHeight(raw, fallback) {
+    const height = parseInt(String(raw || fallback || 240), 10);
+    if (!Number.isFinite(height) || height <= 0) return fallback || 240;
+    return Math.max(24, Math.min(1200, height));
+  }
+
+  function detectImageFitMode(img) {
+    const stored = img.getAttribute('data-template-fit');
+    if (['width', 'height', 'both'].includes(stored)) return stored;
+    // Legacy images saved before the fit-mode option existed: infer it from
+    // which dimensions are actually set on the element.
+    const hasWidth = img.hasAttribute('width') || !!img.style.width;
+    const hasHeight = img.hasAttribute('height') || !!(img.style.height && img.style.height !== 'auto');
+    if (hasWidth && !hasHeight) return 'width';
+    if (hasHeight && !hasWidth) return 'height';
+    return 'both';
+  }
+
   function detectImagePosition(img) {
     const marginLeft = img.style.marginLeft || '';
     const marginRight = img.style.marginRight || '';
@@ -1162,29 +1180,56 @@ function initTemplateEditor() {
     return 'left';
   }
 
-  function applyImageLayout(img, width, position, shape = 'rect') {
-    img.setAttribute('width', String(width));
-    img.style.width = `${width}px`;
+  // fitMode controls how width/height are honoured while keeping the image's
+  // own proportions (no stretching/squishing):
+  //  - 'width':  only the width is fixed, height is left to the browser
+  //              (auto) so the image keeps its natural aspect ratio.
+  //  - 'height': only the height is fixed, width is left to auto.
+  //  - 'both':   both width and height are fixed as a box; the image is
+  //              scaled to fit entirely inside it (object-fit: contain),
+  //              keeping its proportions without cropping.
+  function applyImageLayout(img, width, height, position, shape = 'rect', fitMode = 'both') {
     img.style.maxWidth = '100%';
     img.style.display = 'block';
     img.style.marginTop = '0';
     img.style.marginBottom = '0';
     img.style.marginLeft = position === 'center' || position === 'right' ? 'auto' : '0';
     img.style.marginRight = position === 'center' ? 'auto' : (position === 'left' ? 'auto' : '0');
+
     if (shape === 'circle') {
-      img.style.height = `${width}px`;
+      // The signature/profile photo is always a fixed square, regardless of
+      // the chosen fit mode.
+      img.setAttribute('width', String(width));
       img.setAttribute('height', String(width));
-      img.style.borderRadius = '50%';
+      img.style.width = `${width}px`;
+      img.style.height = `${width}px`;
       img.style.objectFit = 'cover';
+      img.style.borderRadius = '50%';
+      img.removeAttribute('data-template-fit');
       return;
     }
-    // Non-circular images (photos) are fit into a fixed 4:3 box: the photo
-    // is cropped (object-fit: cover) rather than stretched or squished.
-    const height = Math.round(width * 3 / 4);
-    img.style.height = `${height}px`;
-    img.setAttribute('height', String(height));
-    img.style.objectFit = 'cover';
+
     img.style.borderRadius = '8px';
+    if (fitMode === 'width') {
+      img.setAttribute('width', String(width));
+      img.removeAttribute('height');
+      img.style.width = `${width}px`;
+      img.style.height = 'auto';
+      img.style.objectFit = '';
+    } else if (fitMode === 'height') {
+      img.setAttribute('height', String(height));
+      img.removeAttribute('width');
+      img.style.width = 'auto';
+      img.style.height = `${height}px`;
+      img.style.objectFit = '';
+    } else {
+      img.setAttribute('width', String(width));
+      img.setAttribute('height', String(height));
+      img.style.width = `${width}px`;
+      img.style.height = `${height}px`;
+      img.style.objectFit = 'contain';
+    }
+    img.setAttribute('data-template-fit', fitMode);
   }
 
   function buildImageSnippet(variableName, width) {
@@ -1397,8 +1442,20 @@ function initTemplateEditor() {
               </div>
             </details>
             <label>
+              <span class="label-inline">Ajustement</span>
+              <select class="input" data-field="fit">
+                <option value="width">Ajuster l’image à la largeur en gardant la proportion</option>
+                <option value="height">Ajuster l’image à la hauteur en gardant la proportion</option>
+                <option value="both">Ajuster l’image à la largeur et la hauteur en gardant la proportion</option>
+              </select>
+            </label>
+            <label>
               <span class="label-inline">Largeur (px)</span>
               <input class="input" type="number" data-field="width" min="24" max="1200" step="10">
+            </label>
+            <label>
+              <span class="label-inline">Hauteur (px)</span>
+              <input class="input" type="number" data-field="height" min="24" max="1200" step="10">
             </label>
             <label>
               <span class="label-inline">Position</span>
@@ -1408,7 +1465,7 @@ function initTemplateEditor() {
                 <option value="right">Droite</option>
               </select>
             </label>
-            <p class="text-muted" style="font-size:.8rem;margin:0;">La photo est automatiquement ajustée dans un cadre au format 4:3 (recadrage, sans déformation).</p>
+            <p class="text-muted" style="font-size:.8rem;margin:0;">La photo de profil (ronde) reste toujours ajustée en carré, quel que soit l’ajustement choisi.</p>
             <div style="display:flex;justify-content:flex-end;gap:.5rem;">
               <button type="button" class="btn-secondary btn-sm" data-action="cancel">Annuler</button>
               <button type="button" class="btn-primary btn-sm" data-action="apply">Appliquer</button>
@@ -1422,14 +1479,34 @@ function initTemplateEditor() {
       overlay.querySelector('.template-var-modal-close').addEventListener('click', closeImageModal);
       overlay.querySelector('[data-action="cancel"]').addEventListener('click', closeImageModal);
       const variableSelect = overlay.querySelector('[data-field="variable"]');
+      const fitSelect = overlay.querySelector('[data-field="fit"]');
+      const widthInput = overlay.querySelector('[data-field="width"]');
+      const heightInput = overlay.querySelector('[data-field="height"]');
+
+      function updateFitFieldsAvailability() {
+        const isCircle = pendingImageShape === 'circle';
+        const mode = fitSelect.value;
+        fitSelect.disabled = isCircle;
+        heightInput.disabled = isCircle || mode === 'width';
+        widthInput.disabled = !isCircle && mode === 'height';
+        if (isCircle) heightInput.value = widthInput.value;
+      }
+
+      fitSelect.addEventListener('change', updateFitFieldsAvailability);
+      widthInput.addEventListener('input', () => {
+        if (pendingImageShape === 'circle') heightInput.value = widthInput.value;
+      });
+
       variableSelect.addEventListener('change', () => {
         if (!variableSelect.value) return;
         const tpl = mediaTemplates[variableSelect.value];
         if (!tpl) return;
         pendingImageSource = tpl.src;
         pendingImageShape = tpl.shape;
-        const widthInput = overlay.querySelector('[data-field="width"]');
         widthInput.value = String(tpl.defaultSize);
+        heightInput.value = tpl.shape === 'circle' ? String(tpl.defaultSize) : String(Math.round(tpl.defaultSize * 3 / 4));
+        if (tpl.shape === 'circle') fitSelect.value = 'both';
+        updateFitFieldsAvailability();
         overlay.querySelectorAll('[data-gallery-grid] .template-image-gallery-item').forEach((btn) => btn.classList.remove('active'));
       });
       overlay.querySelectorAll('[data-gallery-grid] .template-image-gallery-item').forEach((button) => {
@@ -1437,6 +1514,7 @@ function initTemplateEditor() {
           pendingImageSource = button.dataset.url || '';
           pendingImageShape = 'rect';
           variableSelect.value = '';
+          updateFitFieldsAvailability();
           overlay.querySelectorAll('[data-gallery-grid] .template-image-gallery-item').forEach((btn) => btn.classList.remove('active'));
           button.classList.add('active');
         });
@@ -1452,7 +1530,9 @@ function initTemplateEditor() {
       const img = imageModalTargetImg;
       if (!img) return;
       const widthInput = overlay.querySelector('[data-field="width"]');
+      const heightInput = overlay.querySelector('[data-field="height"]');
       const positionSelect = overlay.querySelector('[data-field="position"]');
+      const fitSelect = overlay.querySelector('[data-field="fit"]');
 
       const safeSource = sanitizeTemplateImageSource(pendingImageSource);
       if (!safeSource) {
@@ -1460,12 +1540,14 @@ function initTemplateEditor() {
         return;
       }
       const width = normalizeImageWidth(widthInput.value, 320);
+      const height = normalizeImageHeight(heightInput.value, Math.round(width * 3 / 4));
       const position = ['left', 'center', 'right'].includes(positionSelect.value) ? positionSelect.value : 'left';
+      const fitMode = ['width', 'height', 'both'].includes(fitSelect.value) ? fitSelect.value : 'both';
 
       img.setAttribute('data-template-original-src', safeSource);
       img.setAttribute('data-template-shape', pendingImageShape);
       img.setAttribute('src', previewImageSource(safeSource, width, pendingImageShape));
-      applyImageLayout(img, width, position, pendingImageShape);
+      applyImageLayout(img, width, height, position, pendingImageShape, fitMode);
       closeImageModal();
       syncTextareaFromPreview();
       renderPreview();
@@ -1478,7 +1560,9 @@ function initTemplateEditor() {
       const matchedTemplate = mediaTemplateBySource(currentSource);
       const variableSelect = overlay.querySelector('[data-field="variable"]');
       const widthInput = overlay.querySelector('[data-field="width"]');
+      const heightInput = overlay.querySelector('[data-field="height"]');
       const positionSelect = overlay.querySelector('[data-field="position"]');
+      const fitSelect = overlay.querySelector('[data-field="fit"]');
       const galleryButtons = [...overlay.querySelectorAll('[data-gallery-grid] .template-image-gallery-item')];
 
       if (matchedTemplate) {
@@ -1493,8 +1577,21 @@ function initTemplateEditor() {
         pendingImageShape = img.getAttribute('data-template-shape') || 'rect';
         galleryButtons.forEach((btn) => btn.classList.toggle('active', btn.dataset.url === currentSource));
       }
-      widthInput.value = String(normalizeImageWidth(img.getAttribute('width') || img.style.width, matchedTemplate ? matchedTemplate.defaultSize : 320));
+      const defaultSize = matchedTemplate ? matchedTemplate.defaultSize : 320;
+      const width = normalizeImageWidth(img.getAttribute('width') || img.style.width, defaultSize);
+      const height = normalizeImageHeight(img.getAttribute('height') || img.style.height, Math.round(width * 3 / 4));
+      widthInput.value = String(width);
+      heightInput.value = String(height);
+      fitSelect.value = detectImageFitMode(img);
       positionSelect.value = detectImagePosition(img);
+      const updateFitFieldsAvailability = () => {
+        const isCircle = pendingImageShape === 'circle';
+        fitSelect.disabled = isCircle;
+        heightInput.disabled = isCircle || fitSelect.value === 'width';
+        widthInput.disabled = !isCircle && fitSelect.value === 'height';
+        if (isCircle) heightInput.value = widthInput.value;
+      };
+      updateFitFieldsAvailability();
       overlay.style.display = 'flex';
     }
 

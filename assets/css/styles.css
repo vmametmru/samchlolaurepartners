@@ -502,3 +502,4 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .template-image-gallery-item span { font-size: .7rem; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .template-image-gallery-item:hover { border-color: #f3d1e2; }
 .template-image-gallery-item.active { border-color: var(--brand); background: #fdf2f8; }
+.template-var-modal .input:disabled { background: #f3f4f6; color: var(--muted); cursor: not-allowed; }
