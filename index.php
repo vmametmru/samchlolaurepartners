@@ -192,8 +192,10 @@ try {
             break;
         case route($method, $path, 'POST', '#^/partner/reservations/(\d+)/confirm$#', $matches):
             PageController::partnerConfirmReservation((int) $matches[1]);
+            break;
         case route($method, $path, 'POST', '#^/partner/reservations/(\d+)/cancel$#', $matches):
             PageController::partnerCancelReservation((int) $matches[1]);
+            break;
         case route($method, $path, 'GET', '#^/partner/templates$#'):
             PageController::partnerTemplates();
             break;

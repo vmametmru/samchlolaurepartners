@@ -462,16 +462,14 @@ final class PageController extends Controller
     {
         $user = self::requirePartnerUser();
         $partnerId = (int) $user['partner_id'];
-        if (!ReservationsController::findForPartner($partnerId, $id)) {
+        $notes = trim((string) ($_POST['notes'] ?? ''));
+        // Delegates to ReservationsController::confirmForPartner() so the
+        // client confirmation email is actually sent (previously this method
+        // only updated the database and redirected, without ever notifying
+        // the client).
+        if (!ReservationsController::confirmForPartner($partnerId, $id, $notes !== '' ? $notes : null)) {
             throw new HttpException(404, 'Not Found', 'Réservation introuvable');
         }
-        $notes = trim((string) ($_POST['notes'] ?? ''));
-        Database::connection()->prepare(
-            'INSERT INTO reservations (request_id, partner_id, confirmed_at, notes)
-             VALUES (?, ?, NOW(), ?)
-             ON DUPLICATE KEY UPDATE confirmed_at = NOW(), cancelled_at = NULL, notes = VALUES(notes)'
-        )->execute([$id, $partnerId, $notes !== '' ? $notes : null]);
-        Database::connection()->prepare("UPDATE reservation_requests SET status = 'confirmed', updated_at = NOW() WHERE id = ? AND partner_id = ?")->execute([$id, $partnerId]);
         self::redirect('/partner/reservations/' . $id, 'Réservation confirmée.');
     }
 
@@ -479,11 +477,11 @@ final class PageController extends Controller
     {
         $user = self::requirePartnerUser();
         $partnerId = (int) $user['partner_id'];
-        if (!ReservationsController::findForPartner($partnerId, $id)) {
+        // Delegates to ReservationsController::cancelForPartner() so the
+        // client cancellation email is actually sent (see partnerConfirmReservation()).
+        if (!ReservationsController::cancelForPartner($partnerId, $id)) {
             throw new HttpException(404, 'Not Found', 'Réservation introuvable');
         }
-        Database::connection()->prepare('UPDATE reservations SET cancelled_at = NOW() WHERE request_id = ?')->execute([$id]);
-        Database::connection()->prepare("UPDATE reservation_requests SET status = 'cancelled', updated_at = NOW() WHERE id = ? AND partner_id = ?")->execute([$id, $partnerId]);
         self::redirect('/partner/reservations/' . $id, 'Réservation annulée.', 'info');
     }
 

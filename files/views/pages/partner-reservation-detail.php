@@ -5,12 +5,18 @@
     <h1>Demande #<?= (int) $reservation['id'] ?></h1>
     <span class="badge badge-<?= \App\View::e($reservation['status']) ?>"><?= \App\View::e(\App\View::badgeLabel((string) $reservation['status'])) ?></span>
   </div>
+  <?php
+    $childrenUnder = $reservation['children_under3'] ?? $reservation['children_under5'] ?? null;
+    $children3to12 = $reservation['children_3to12'] ?? $reservation['children_5to12'] ?? null;
+    $guests = is_array($reservation['guests'] ?? null) ? $reservation['guests'] : [];
+  ?>
   <div class="card card-body stack-md">
     <h2 class="section-title">Informations client</h2>
     <div class="form-grid cols-2 compact-grid">
       <div><span class="muted">Nom :</span> <strong><?= \App\View::e($reservation['client_name']) ?></strong></div>
       <div><span class="muted">Email :</span> <a class="text-link" href="mailto:<?= \App\View::e($reservation['client_email']) ?>"><?= \App\View::e($reservation['client_email']) ?></a></div>
       <?php if (!empty($reservation['client_phone'])): ?><div><span class="muted">Tél :</span> <?= \App\View::e($reservation['client_phone']) ?></div><?php endif; ?>
+      <div><span class="muted">Demande reçue le :</span> <?= \App\View::e($reservation['created_at'] ?? '—') ?></div>
     </div>
   </div>
   <div class="card card-body stack-md">
@@ -19,10 +25,40 @@
       <div><span class="muted">Hébergement :</span> <strong><?= \App\View::e($reservation['property_name'] ?: '—') ?></strong></div>
       <div><span class="muted">Arrivée :</span> <strong><?= \App\View::e($reservation['checkin_date']) ?></strong></div>
       <div><span class="muted">Départ :</span> <strong><?= \App\View::e($reservation['checkout_date']) ?></strong></div>
-      <div><span class="muted">Voyageurs :</span> <?= (int) $reservation['adults'] ?> adulte(s), <?= (int) $reservation['children'] ?> enfant(s)</div>
+      <div>
+        <span class="muted">Voyageurs :</span>
+        <?= (int) $reservation['adults'] ?> adulte(s)<?php if ($children3to12 !== null || $childrenUnder !== null): ?>,
+        <?= (int) ($children3to12 ?? 0) ?> enfant(s) (3-12 ans),
+        <?= (int) ($childrenUnder ?? 0) ?> bébé(s) (- 3 ans)
+        <?php else: ?>, <?= (int) $reservation['children'] ?> enfant(s)<?php endif; ?>
+      </div>
     </div>
+    <?php if ($guests !== []): ?>
+      <div>
+        <span class="muted">Nationalités :</span>
+        <ul class="stack-sm">
+          <?php foreach ($guests as $i => $guest): ?>
+            <li>
+              <?php $type = (string) ($guest['type'] ?? 'adult'); ?>
+              <?= \App\View::e($type === 'adult' ? 'Adulte' : ($type === 'child' ? 'Enfant' : 'Bébé')) ?> #<?= $i + 1 ?> —
+              <?= \App\View::e($guest['nationality'] ?? '—') ?>
+            </li>
+          <?php endforeach; ?>
+        </ul>
+      </div>
+    <?php endif; ?>
     <?php if (!empty($reservation['message'])): ?><div><span class="muted">Message :</span><p class="message-box"><?= nl2br(\App\View::e($reservation['message'])) ?></p></div><?php endif; ?>
   </div>
+  <?php if ($reservation['status'] !== 'pending'): ?>
+    <div class="card card-body stack-md">
+      <h2 class="section-title">Statut</h2>
+      <div class="form-grid cols-2 compact-grid">
+        <?php if (!empty($reservation['confirmed_at'])): ?><div><span class="muted">Confirmée le :</span> <?= \App\View::e($reservation['confirmed_at']) ?></div><?php endif; ?>
+        <?php if (!empty($reservation['cancelled_at'])): ?><div><span class="muted">Annulée le :</span> <?= \App\View::e($reservation['cancelled_at']) ?></div><?php endif; ?>
+      </div>
+      <?php if (!empty($reservation['notes'])): ?><div><span class="muted">Notes internes :</span><p class="message-box"><?= nl2br(\App\View::e($reservation['notes'])) ?></p></div><?php endif; ?>
+    </div>
+  <?php endif; ?>
   <?php if ($reservation['status'] === 'pending'): ?>
     <div class="card card-body stack-md">
       <h2 class="section-title">Action</h2>
