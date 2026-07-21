@@ -2494,7 +2494,10 @@ function initMultiPropertyCart() {
         }),
         credentials: 'same-origin'
       });
-      if (!response.ok) return null;
+      if (!response.ok) {
+        console.error('Multi-cart quote request failed', response.status, await response.text().catch(() => ''));
+        return null;
+      }
       const json = await response.json();
       quoteCache.set(key, json.data);
       return json.data;
@@ -2511,12 +2514,26 @@ function initMultiPropertyCart() {
       return;
     }
     const currentRequest = ++cartQuoteRequestId;
-    const adultsVal = Number(checkoutForm.querySelector('[name="adults"]')?.value || 0);
-    const under3Val = Number(checkoutForm.querySelector('[name="children_under3"]')?.value || 0);
-    const from3to12Val = Number(checkoutForm.querySelector('[name="children_3to12"]')?.value || 0);
+    // Read the guest counts from the filter form's live inputs, not the
+    // checkout form's hidden fields: those hidden fields are only kept in
+    // sync once the visitor touches a guest field (see the guestInputs
+    // listener below) and default to whatever was in the URL on page load
+    // (often 0), which made every quote request fail with "adults < 1" and
+    // silently zero out the total that was already showing.
+    const adultsVal = Number(filterForm?.querySelector('[name="adults"]')?.value
+      || checkoutForm.querySelector('[name="adults"]')?.value || 0);
+    const under3Val = Number(filterForm?.querySelector('[name="children_under3"]')?.value
+      || checkoutForm.querySelector('[name="children_under3"]')?.value || 0);
+    const from3to12Val = Number(filterForm?.querySelector('[name="children_3to12"]')?.value
+      || checkoutForm.querySelector('[name="children_3to12"]')?.value || 0);
     const guests = collectGuests(checkoutForm);
     const quotes = await Promise.all(cart.map((item) => fetchItemQuote(item, adultsVal, under3Val, from3to12Val, guests)));
     if (currentRequest !== cartQuoteRequestId) return;
+
+    // If every item's quote failed (e.g. a transient Lodgify error), keep
+    // whatever total was already shown rather than replacing it with 0 —
+    // only overwrite once we actually have real numbers for at least one item.
+    if (quotes.every((quote) => !quote)) return;
 
     let grandTotal = 0;
     let taxTotal = 0;
