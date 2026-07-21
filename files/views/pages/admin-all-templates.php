@@ -16,14 +16,30 @@ $baseUrl = '/admin/templates';
 <section class="container section-lg">
   <h1>Templates email</h1>
   <div class="two-panel">
-    <div class="card overflow-hidden side-list">
+    <div class="card overflow-hidden side-list partner-accordion-list">
       <div class="card-header">Partenaires</div>
       <?php foreach ($partners as $p): ?>
-        <a href="<?= $baseUrl ?>?partner_id=<?= (int) $p['id'] ?>"
-           class="<?= $selectedPartnerId === (int) $p['id'] ? 'active' : '' ?>">
-          <?= \App\View::e($p['name']) ?>
-          <span class="badge-count"><?= (int) $p['template_count'] ?></span>
-        </a>
+        <?php $isSelectedPartner = $selectedPartnerId === (int) $p['id']; ?>
+        <details class="partner-accordion" <?= $isSelectedPartner ? 'open' : '' ?>>
+          <summary class="partner-accordion-summary <?= $isSelectedPartner ? 'active' : '' ?>">
+            <a href="<?= $baseUrl ?>?partner_id=<?= (int) $p['id'] ?>"><?= \App\View::e($p['name']) ?></a>
+            <span class="badge-count"><?= (int) $p['template_count'] ?></span>
+          </summary>
+          <?php if ($isSelectedPartner): ?>
+            <div class="partner-template-list">
+              <?php if (($templates ?? []) === []): ?>
+                <p class="empty-state" style="padding:.5rem 1rem;">Aucun template pour ce partenaire.</p>
+              <?php else: ?>
+                <?php foreach ($templates as $tpl): ?>
+                  <a href="<?= $baseUrl ?>?partner_id=<?= $selectedPartnerId ?>&amp;id=<?= (int) $tpl['id'] ?>"
+                     class="partner-template-link <?= $selected && (int) $selected['id'] === (int) $tpl['id'] ? 'active' : '' ?>">
+                    <?= \App\View::e($labels[$tpl['type']] ?? $tpl['type']) ?>
+                  </a>
+                <?php endforeach; ?>
+              <?php endif; ?>
+            </div>
+          <?php endif; ?>
+        </details>
       <?php endforeach; ?>
     </div>
     <div class="card card-body stack-md">
@@ -107,71 +123,79 @@ $baseUrl = '/admin/templates';
                 <?php endforeach; ?>
               </div>
             <?php endif; ?>
+
+            <div style="border-top:1px solid var(--border);margin-top:.5rem;padding-top:1rem;">
+              <h3 class="label-inline" style="margin:0 0 .5rem;">Importer un ZIP Canva.com</h3>
+              <form method="post" action="<?= $baseUrl ?>/import-zip" enctype="multipart/form-data" class="form-grid cols-3" style="align-items:end;">
+                <input type="hidden" name="partner_id" value="<?= (int) $selectedPartnerId ?>">
+                <?php if ($selected): ?><input type="hidden" name="id" value="<?= (int) $selected['id'] ?>"><?php endif; ?>
+                <label class="col-span-2">
+                  <span>Fichier ZIP (HTML + images)</span>
+                  <input class="input" type="file" name="template_zip" accept=".zip" required>
+                </label>
+                <label>
+                  <span>Que faut-il importer ?</span>
+                  <select class="input" name="import_mode">
+                    <option value="all" <?= !$selected ? 'disabled' : '' ?> <?= $selected ? 'selected' : '' ?>>Tout (HTML + images)</option>
+                    <option value="images_only" <?= !$selected ? 'selected' : '' ?>>Juste les images</option>
+                    <option value="html_only" <?= !$selected ? 'disabled' : '' ?>>Tout sauf les images (HTML seul)</option>
+                  </select>
+                </label>
+                <button
+                  class="btn-secondary"
+                  type="submit"
+                  style="grid-column:1/-1;justify-self:start;"
+                  onclick="return confirm(this.form.import_mode.value === 'images_only' ? 'Importer les images de ce ZIP dans la galerie ?' : 'Remplacer le corps de l\'email actuel par le contenu de ce ZIP ?');"
+                >📦 Importer le ZIP</button>
+                <?php if (!$selected): ?>
+                  <p class="text-muted" style="grid-column:1/-1;margin:0;">Sélectionnez un template pour activer les options « Tout » et « Tout sauf les images ».</p>
+                <?php endif; ?>
+              </form>
+            </div>
           </div>
         </details>
 
-        <?php if ($templates === []): ?>
+        <?php if (($templates ?? []) === []): ?>
           <p class="empty-state">Aucun template pour ce partenaire.</p>
+        <?php elseif (!$selected): ?>
+          <p class="empty-state">Sélectionnez un template à éditer.</p>
         <?php else: ?>
-          <div class="two-panel">
-            <div class="card overflow-hidden side-list">
-              <?php foreach ($templates as $tpl): ?>
-                <a href="<?= $baseUrl ?>?partner_id=<?= $selectedPartnerId ?>&amp;id=<?= (int) $tpl['id'] ?>"
-                   class="<?= $selected && (int) $selected['id'] === (int) $tpl['id'] ? 'active' : '' ?>">
-                  <?= \App\View::e($labels[$tpl['type']] ?? $tpl['type']) ?>
-                </a>
-              <?php endforeach; ?>
-            </div>
-            <div class="card card-body">
-              <?php if (!$selected): ?>
-                <p class="empty-state">Sélectionnez un template à éditer.</p>
-              <?php else: ?>
-                <h2 class="section-title"><?= \App\View::e($labels[$selected['type']] ?? $selected['type']) ?></h2>
-                <form method="post" action="<?= $baseUrl ?>/import-zip" enctype="multipart/form-data" class="form-grid cols-3" style="margin-bottom:1rem;align-items:end;">
-                  <input type="hidden" name="partner_id" value="<?= (int) $selectedPartnerId ?>">
-                  <input type="hidden" name="id" value="<?= (int) $selected['id'] ?>">
-                  <label class="col-span-2">
-                    <span>Importer un template Canva (ZIP : HTML + images)</span>
-                    <input class="input" type="file" name="template_zip" accept=".zip" required>
-                  </label>
-                  <button class="btn-secondary" type="submit" onclick="return confirm('Remplacer le corps de l\'email actuel par le contenu de ce ZIP ?');">📦 Importer le ZIP</button>
-                </form>
-                <form method="post" action="<?= $baseUrl ?>/<?= $selectedPartnerId ?>/<?= (int) $selected['id'] ?>" class="stack-md" data-template-editor data-gallery-assets="<?= \App\View::e(json_encode($galleryAssets ?? [])) ?>">
-                  <label><span>Objet de l'email</span><input class="input" type="text" name="subject" value="<?= \App\View::e($selected['subject']) ?>"></label>
-                  <details class="code-box">
-                    <summary>Corps de l'email (HTML)</summary>
-                    <div class="template-toolbar">
-                      <div class="insert-var-dropdown">
-                        <button type="button" class="btn-secondary btn-sm" data-insert-dropdown-toggle>📋 Insérer variable ▾</button>
-                        <div class="insert-var-menu" hidden>
-                          <?php foreach ($plainVariables as $variable): ?>
-                            <button type="button" class="insert-var-item" data-insert-variable="<?= \App\View::e($variable) ?>"><?= \App\View::e($variable) ?></button>
-                          <?php endforeach; ?>
-                          <div style="padding:.4rem .9rem;font-size:.8rem;color:#6b7280;border-top:1px solid #e5e7eb;">Variables image avec taille</div>
-                          <?php foreach ($resizableVariables as $variable): ?>
-                            <button
-                              type="button"
-                              class="insert-var-item"
-                              data-insert-variable="<?= \App\View::e($variable['name']) ?>"
-                              data-variable-resizable="1"
-                              data-variable-default-size="<?= (int) $variable['default'] ?>"
-                            ><?= \App\View::e($variable['label']) ?> · taille</button>
-                          <?php endforeach; ?>
-                        </div>
-                      </div>
+          <div class="card card-body">
+            <h2 class="section-title"><?= \App\View::e($labels[$selected['type']] ?? $selected['type']) ?></h2>
+            <form method="post" action="<?= $baseUrl ?>/<?= $selectedPartnerId ?>/<?= (int) $selected['id'] ?>" class="stack-md" data-template-editor data-gallery-assets="<?= \App\View::e(json_encode($galleryAssets ?? [])) ?>">
+              <label><span>Objet de l'email</span><input class="input" type="text" name="subject" value="<?= \App\View::e($selected['subject']) ?>"></label>
+              <details class="code-box">
+                <summary>Corps de l'email (HTML)</summary>
+                <div class="template-toolbar">
+                  <div class="insert-var-dropdown">
+                    <button type="button" class="btn-secondary btn-sm" data-insert-dropdown-toggle>📋 Insérer variable ▾</button>
+                    <div class="insert-var-menu" hidden>
+                      <?php foreach ($plainVariables as $variable): ?>
+                        <button type="button" class="insert-var-item" data-insert-variable="<?= \App\View::e($variable) ?>"><?= \App\View::e($variable) ?></button>
+                      <?php endforeach; ?>
+                      <div style="padding:.4rem .9rem;font-size:.8rem;color:#6b7280;border-top:1px solid #e5e7eb;">Variables image avec taille</div>
+                      <?php foreach ($resizableVariables as $variable): ?>
+                        <button
+                          type="button"
+                          class="insert-var-item"
+                          data-insert-variable="<?= \App\View::e($variable['name']) ?>"
+                          data-variable-resizable="1"
+                          data-variable-default-size="<?= (int) $variable['default'] ?>"
+                        ><?= \App\View::e($variable['label']) ?> · taille</button>
+                      <?php endforeach; ?>
                     </div>
-                    <p class="text-muted" style="margin:.25rem 0 .75rem;">Toutes les variables (texte, photo, image) affichent une donnée temporaire dans l’aperçu. Cliquez sur un texte ou une image pour le modifier directement.</p>
-                    <textarea class="input codearea" rows="16" name="body_html" data-template-body><?= \App\View::e($selected['body_html']) ?></textarea>
-                  </details>
-                  <details class="preview-box" open>
-                    <summary>Aperçu HTML</summary>
-                    <p class="text-muted" style="margin:.5rem 0 1rem;">Cliquez sur une image pour modifier sa source, sa taille et sa position, ou sur un texte pour le modifier directement.</p>
-                    <iframe class="preview-frame" sandbox="allow-same-origin" data-template-preview srcdoc="<?= \App\View::e($selected['body_html']) ?>"></iframe>
-                  </details>
-                  <button class="btn-primary" type="submit">Sauvegarder</button>
-                </form>
-              <?php endif; ?>
-            </div>
+                  </div>
+                </div>
+                <p class="text-muted" style="margin:.25rem 0 .75rem;">Toutes les variables (texte, photo, image) affichent une donnée temporaire dans l’aperçu. Cliquez sur un texte ou une image pour le modifier directement.</p>
+                <textarea class="input codearea" rows="16" name="body_html" data-template-body><?= \App\View::e($selected['body_html']) ?></textarea>
+              </details>
+              <details class="preview-box" open>
+                <summary>Aperçu HTML</summary>
+                <p class="text-muted" style="margin:.5rem 0 1rem;">Cliquez sur une image pour modifier sa source, sa taille et sa position, ou sur un texte pour le modifier directement.</p>
+                <iframe class="preview-frame" sandbox="allow-same-origin" data-template-preview srcdoc="<?= \App\View::e($selected['body_html']) ?>"></iframe>
+              </details>
+              <button class="btn-primary" type="submit">Sauvegarder</button>
+            </form>
           </div>
         <?php endif; ?>
       <?php endif; ?>
