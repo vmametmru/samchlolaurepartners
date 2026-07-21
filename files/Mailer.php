@@ -57,19 +57,42 @@ final class Mailer
 
     public static function sendTemplatedEmail(array $partner, array $template, string $to, array $variables, array $embeds = []): void
     {
+        $html = self::renderTemplate((string) $template['body_html'], $variables);
         self::deliver(
             $partner,
             $to,
             self::renderTemplate((string) $template['subject'], $variables),
-            self::renderTemplate((string) $template['body_html'], $variables),
+            $html,
             null,
-            $embeds
+            self::keepUsedEmbeds($html, $embeds)
         );
     }
 
     public static function sendRawEmail(array $partner, string $to, string $subject, string $html, array $embeds = []): void
     {
-        self::deliver($partner, $to, $subject, $html, null, $embeds);
+        self::deliver($partner, $to, $subject, $html, null, self::keepUsedEmbeds($html, $embeds));
+    }
+
+    /**
+     * Callers (ReservationsController) always build a "photo_bien" CID
+     * embed for the property photo, whether or not the partner's template
+     * actually references {{photo_bien}} in its body (a custom template may
+     * instead use {{photo1_url}} to hotlink the photo, or omit it entirely).
+     * Attaching an inline image whose Content-ID is never referenced by the
+     * HTML ("cid:...") makes several mail clients (Gmail, Outlook…) render
+     * it as a plain attachment shown below the message body — looking like
+     * a duplicated/stray property photo. Drop any embed whose cid isn't
+     * actually used in the final HTML before sending.
+     *
+     * @param array<int, array{cid: string, data: string, mime: string}> $embeds
+     * @return array<int, array{cid: string, data: string, mime: string}>
+     */
+    private static function keepUsedEmbeds(string $html, array $embeds): array
+    {
+        return array_values(array_filter(
+            $embeds,
+            static fn (array $embed): bool => str_contains($html, 'cid:' . ($embed['cid'] ?? ''))
+        ));
     }
 
     public static function sendContactEmail(array $partner, string $replyTo, string $subject, string $html): void
