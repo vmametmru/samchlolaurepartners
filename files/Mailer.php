@@ -10,7 +10,7 @@ final class Mailer
 {
     public static function renderTemplate(string $template, array $variables): string
     {
-        return preg_replace_callback('/\{\{([a-zA-Z0-9_]+)(?::(\d{1,4}))?\}\}/', static function (array $matches) use ($variables): string {
+        $rendered = preg_replace_callback('/\{\{([a-zA-Z0-9_]+)(?::(\d{1,4}))?\}\}/', static function (array $matches) use ($variables): string {
             $name = (string) $matches[1];
             $size = isset($matches[2]) ? (int) $matches[2] : null;
             $value = $variables[$name] ?? null;
@@ -22,6 +22,16 @@ final class Mailer
             }
             return (string) $value;
         }, $template) ?? $template;
+
+        // A template built with the WYSIWYG editor can contain
+        // <img src="{{photoN_url}}" ...> tags for a property photo slot that
+        // doesn't actually exist (e.g. the listing only has one synced
+        // photo but the template references {{photo2_url}}/{{photo3_url}}).
+        // Those "_url" variables resolve to an empty string above, leaving
+        // a broken <img src=""> that most mail clients render as a visible
+        // broken-image placeholder. Strip any such now-empty-src <img> tag
+        // entirely rather than showing recipients a broken icon.
+        return (string) preg_replace('/<img\b[^>]*\ssrc=(["\'])\1[^>]*>/i', '', $rendered);
     }
 
     public static function sendTemplatedEmail(array $partner, array $template, string $to, array $variables, array $embeds = []): void

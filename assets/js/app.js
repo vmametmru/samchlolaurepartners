@@ -1487,6 +1487,19 @@ function initTemplateEditor() {
     function insertAtCursor(text) {
       if (activeEditableEl && insertHtmlIntoActiveEditable(text)) return;
       if (!textarea) return;
+      // Falling back to the raw <textarea> only makes sense while it is
+      // genuinely focused there (the admin is editing raw HTML directly).
+      // Without this guard, clicking "Insérer variable" while nothing is
+      // actively being edited (e.g. right after just glancing at the code
+      // box, or without having clicked any text/image in the preview first)
+      // would silently insert wherever the textarea's cursor last happened
+      // to be — often past the closing wrapper of the email, making the
+      // inserted variable/image appear to "duplicate" itself below the
+      // rendered template instead of where the admin actually intended.
+      if (document.activeElement !== textarea) {
+        window.alert('Cliquez d’abord sur un texte ou une image dans l’aperçu (ou dans le code HTML) à l’endroit où insérer la variable.');
+        return;
+      }
       const start = textarea.selectionStart ?? textarea.value.length;
       const end = textarea.selectionEnd ?? start;
       textarea.value = textarea.value.slice(0, start) + text + textarea.value.slice(end);
