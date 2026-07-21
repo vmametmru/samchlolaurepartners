@@ -115,14 +115,16 @@ final class ReservationsController extends Controller
         }
 
         $totalGuests = $adults + $childrenUnder3 + $children3to12;
-        $client = new LodgifyClient();
+        // Persons counted for cleaning and extra-person fees: adults + children
+        // 3+ years (children under 3 are not charged for these items).
+        $countedGuests = $adults + $children3to12;
 
         // Every property has a maximum occupancy (Lodgify's max_guests); a
         // reservation request must never exceed it, otherwise the property
         // could be booked for more people than it can actually host.
         $property = null;
         try {
-            $property = $client->getProperty($propertyId);
+            $property = (new LodgifyClient())->getProperty($propertyId);
         } catch (Throwable $e) {
             error_log('Lodgify: failed to fetch property ' . $propertyId . ': ' . $e->getMessage());
         }
@@ -134,11 +136,47 @@ final class ReservationsController extends Controller
             ], 400);
         }
 
+        $quoteData = self::computeItemQuote($propertyId, $property, $checkin, $checkoutDate, $adults, $totalGuests, $countedGuests, $guests);
+        if ($quoteData === null) {
+            self::json(['error' => 'Service Unavailable', 'message' => 'Tarifs indisponibles pour le moment'], 503);
+        }
+
+        self::json(['data' => $quoteData + [
+            'grand_total' => round($quoteData['total_without_tax'] + $quoteData['tourist_tax_total'], 2),
+        ]]);
+    }
+
+    /**
+     * Computes the room/cleaning/extra-person/tourist-tax price breakdown for
+     * a single property and date range. Shared by the public quote() endpoint
+     * (property-detail booking form, called once per property) and
+     * requestMultiple() (the "Calendrier" multi-property cart, which cannot
+     * rely on a single set of client-submitted quote_* fields since each
+     * selected item is its own property/date range). Returns null when
+     * Lodgify rates can't be fetched for this property/range; the caller
+     * decides how to degrade (quote() surfaces a 503, requestMultiple() sends
+     * the request with a zeroed-out quote rather than failing the whole
+     * multi-property submission).
+     *
+     * @param array<int, array{type?: string, nationality?: string}> $guests
+     * @return array{nights: int, currency: string, room_total: float, extra_person_total: float, extra_person_fee_rate: float, extra_persons_count: int, cleaning_total: float, tourist_tax_total: float, tourist_tax_rate: float, total_without_tax: float}|null
+     */
+    private static function computeItemQuote(
+        int $propertyId,
+        ?array $property,
+        string $checkin,
+        \DateTimeImmutable $checkoutDate,
+        int $adults,
+        int $totalGuests,
+        int $countedGuests,
+        array $guests
+    ): ?array {
+        $nights = (int) (new \DateTimeImmutable($checkin))->diff($checkoutDate)->days;
         try {
-            $rates = PageController::publicRates($client, $propertyId, $checkin, $checkoutDate->modify('-1 day')->format('Y-m-d'));
+            $rates = PageController::publicRates(new LodgifyClient(), $propertyId, $checkin, $checkoutDate->modify('-1 day')->format('Y-m-d'));
         } catch (Throwable $e) {
             error_log((string) $e);
-            self::json(['error' => 'Service Unavailable', 'message' => 'Tarifs indisponibles pour le moment'], 503);
+            return null;
         }
         $currency = $rates[0]['currency'] ?? 'EUR';
         $roomTotal = 0.0;
@@ -175,7 +213,28 @@ final class ReservationsController extends Controller
             }
             $cleaningRate = $cleaningRate !== false ? (float) $cleaningRate : 0.0;
         }
-        $cleaningTotal = round($cleaningRate * $totalGuests * $nights, 2);
+        $cleaningTotal = round($cleaningRate * $countedGuests * $nights, 2);
+
+        // Extra-person fee: applies when the number of counted guests (persons
+        // > 3 years) exceeds the base-rate headcount (min_people). Both values
+        // are stored locally in lodgify_property_manual_columns, set via the
+        // admin "Biens Lodgify" table — no Lodgify API call is needed here.
+        $extraPersonTotal = 0.0;
+        $extraPersonFeeRate = 0.0;
+        $extraPersonsCount = 0;
+        $manualStmt = $pdo->prepare(
+            'SELECT min_people, extra_person_fee FROM lodgify_property_manual_columns WHERE property_id = ? LIMIT 1'
+        );
+        $manualStmt->execute([$propertyId]);
+        $manualRow = $manualStmt->fetch(\PDO::FETCH_ASSOC);
+        if ($manualRow) {
+            $minPeople = $manualRow['min_people'] !== null ? (int) $manualRow['min_people'] : null;
+            $extraPersonFeeRate = $manualRow['extra_person_fee'] !== null ? (float) $manualRow['extra_person_fee'] : 0.0;
+            if ($minPeople !== null && $countedGuests > $minPeople && $extraPersonFeeRate > 0) {
+                $extraPersonsCount = $countedGuests - $minPeople;
+                $extraPersonTotal = round($extraPersonFeeRate * $extraPersonsCount * $nights, 2);
+            }
+        }
 
         $taxRow = $pdo->query('SELECT * FROM tourist_tax LIMIT 1')->fetch(PDO::FETCH_ASSOC) ?: [
             'per_person_per_night' => 0,
@@ -202,24 +261,26 @@ final class ReservationsController extends Controller
             }
         } else {
             // No per-guest nationality detail provided: fall back to a
-            // conservative estimate assuming all guests may be liable.
+            // conservative estimate. Tourist tax applies to persons > 11 years
+            // (adults), non-Mauriciens only.
             $qualifyingGuests = $appliesToChildren ? $totalGuests : $adults;
         }
         $touristTaxTotal = round($taxRate * $qualifyingGuests * $nights, 2);
 
-        $grandTotal = round($roomTotal + $cleaningTotal + $touristTaxTotal, 2);
-        $totalWithoutTax = round($roomTotal + $cleaningTotal, 2);
+        $totalWithoutTax = round($roomTotal + $extraPersonTotal + $cleaningTotal, 2);
 
-        self::json(['data' => [
+        return [
             'nights' => $nights,
             'currency' => $currency,
             'room_total' => round($roomTotal, 2),
+            'extra_person_total' => $extraPersonTotal,
+            'extra_person_fee_rate' => $extraPersonFeeRate,
+            'extra_persons_count' => $extraPersonsCount,
             'cleaning_total' => $cleaningTotal,
             'tourist_tax_total' => $touristTaxTotal,
             'tourist_tax_rate' => $taxRate,
             'total_without_tax' => $totalWithoutTax,
-            'grand_total' => $grandTotal,
-        ]]);
+        ];
     }
 
     public static function requestReservation(): never
@@ -350,6 +411,7 @@ final class ReservationsController extends Controller
         if (!is_array($items)) {
             $items = [];
         }
+        $guests = is_array($input['guests'] ?? null) ? $input['guests'] : [];
 
         if ($clientName === '' || $clientEmail === '' || $adults < 1 || $items === []) {
             self::json(['error' => 'Bad Request', 'message' => 'Required fields missing'], 400);
@@ -399,11 +461,23 @@ final class ReservationsController extends Controller
                 $capacityByProperty[$propertyId] = $maxGuests;
             }
 
+            // Unlike the single-property booking form, this multi-property
+            // cart never posts client-computed quote_* fields (there is no
+            // single "the quote" — each selected property/date range has its
+            // own price). Compute each item's own quote server-side here
+            // (same room/cleaning/extra-person/tourist-tax logic as the
+            // public /api/reservations/quote endpoint) so every confirmation
+            // email actually shows real amounts instead of 0,00 EUR. A null
+            // result (Lodgify rates unavailable) degrades to a zeroed quote
+            // rather than failing the whole submission.
+            $itemQuote = self::computeItemQuote($propertyId, $property, $checkinDate->format('Y-m-d'), $checkoutDate, $adults, $totalGuests, $countedGuests, $guests);
+
             $normalizedItems[] = [
                 'property_id' => $propertyId,
                 'property_name' => $propertyName,
                 'checkin_date' => $checkinDate->format('Y-m-d'),
                 'checkout_date' => $checkoutDate->format('Y-m-d'),
+                'quote' => $itemQuote,
             ];
             if ($earliestCheckin === null || $checkinDate < $earliestCheckin) {
                 $earliestCheckin = $checkinDate;
@@ -508,7 +582,12 @@ final class ReservationsController extends Controller
         // notification-email failure must never turn an otherwise-successful
         // submission into a 500 for the visitor, who would then wrongly
         // believe nothing was recorded.
+        $itemCount = count($normalizedItems);
         foreach ($normalizedItems as $item) {
+            // computeItemQuote() returns null when Lodgify rates couldn't be
+            // fetched for this item; degrade to a zeroed quote (via the ??
+            // fallbacks below) instead of accessing array offsets on null.
+            $quote = $item['quote'] ?? [];
             try {
                 self::sendRequestEmails($partner, [
                     'property_id' => $item['property_id'],
@@ -523,7 +602,14 @@ final class ReservationsController extends Controller
                     'children_3to12' => $children3to12,
                     'property_name' => $item['property_name'],
                     'message' => $message,
-                ]);
+                    'quote_currency' => $quote['currency'] ?? 'EUR',
+                    'quote_nights' => $quote['nights'] ?? 0,
+                    'quote_room_total' => $quote['room_total'] ?? 0,
+                    'quote_extra_person_total' => $quote['extra_person_total'] ?? 0,
+                    'quote_cleaning_total' => $quote['cleaning_total'] ?? 0,
+                    'quote_total_without_tax' => $quote['total_without_tax'] ?? 0,
+                    'quote_tourist_tax_total' => $quote['tourist_tax_total'] ?? 0,
+                ], $itemCount);
             } catch (Throwable $e) {
                 error_log('Failed to send reservation request emails: ' . $e);
             }
@@ -678,7 +764,7 @@ final class ReservationsController extends Controller
         return $row;
     }
 
-    private static function sendRequestEmails(array $partner, array $input): void
+    private static function sendRequestEmails(array $partner, array $input, int $itemCount = 1): void
     {
         $photo = self::propertyPhotoTag(
             (int) ($input['property_id'] ?? 0),
@@ -695,9 +781,22 @@ final class ReservationsController extends Controller
             'message' => (string) ($input['message'] ?? ''),
             'partenaire' => (string) ($partner['name'] ?? ''),
             'photo_bien' => $photo['html'],
+            'photo1' => self::propertyPhotoVariable((int) ($input['property_id'] ?? 0), (string) ($input['property_name'] ?? ''), 1),
+            'photo2' => self::propertyPhotoVariable((int) ($input['property_id'] ?? 0), (string) ($input['property_name'] ?? ''), 2),
+            'photo3' => self::propertyPhotoVariable((int) ($input['property_id'] ?? 0), (string) ($input['property_name'] ?? ''), 3),
+            'photo1_url' => self::propertyPhotoUrlValue((int) ($input['property_id'] ?? 0), 1),
+            'photo2_url' => self::propertyPhotoUrlValue((int) ($input['property_id'] ?? 0), 2),
+            'photo3_url' => self::propertyPhotoUrlValue((int) ($input['property_id'] ?? 0), 3),
+            'email_partenaire' => (string) ($partner['email'] ?? ''),
+            'logo_partenaire' => self::partnerLogoVariable(
+                (string) ($partner['logo_url'] ?? ''),
+                (string) ($partner['name'] ?? '')
+            ),
+            'logo_partenaire_url' => self::partnerLogoUrlValue((string) ($partner['logo_url'] ?? '')),
         ];
         $childBreakdown = self::childBreakdownValues($input);
         $variables += self::stayVariables($checkin, $checkout, $childBreakdown['under3'], $childBreakdown['from3to12']);
+        $variables += self::requestQuoteVariables($input, $itemCount);
         $variables += self::signatureVariables((int) ($partner['id'] ?? 0));
         $embeds = $photo['embed'] !== null ? [$photo['embed']] : [];
 
@@ -708,7 +807,7 @@ final class ReservationsController extends Controller
         if ($partnerTemplate) {
             Mailer::sendTemplatedEmail($partner, $partnerTemplate, (string) $partner['email'], $variables, $embeds);
         } else {
-            Mailer::sendRawEmail($partner, (string) $partner['email'], 'Nouvelle demande de réservation - ' . $variables['nom_client'], '<p>Nouvelle demande de ' . htmlspecialchars($variables['nom_client']) . ' (' . htmlspecialchars($variables['email_client']) . ') pour ' . htmlspecialchars($variables['hebergement'] !== '' ? $variables['hebergement'] : 'hébergement non spécifié') . ' du ' . htmlspecialchars($variables['date_arrivee']) . ' au ' . htmlspecialchars($variables['date_depart']) . '.</p>');
+            Mailer::sendRawEmail($partner, (string) $partner['email'], 'Nouvelle demande de réservation - ' . $variables['nom_client'], '<p>Nouvelle demande de ' . htmlspecialchars($variables['nom_client']) . ' (' . htmlspecialchars($variables['email_client']) . ') pour ' . htmlspecialchars($variables['hebergement'] !== '' ? $variables['hebergement'] : 'hébergement non spécifié') . ' du ' . htmlspecialchars($variables['date_arrivee']) . ' au ' . htmlspecialchars($variables['date_depart']) . '.</p>' . $variables['tarif_bloc']);
         }
 
         $stmt->execute([(int) $partner['id'], 'REQUEST_RECEIVED_CLIENT']);
@@ -716,7 +815,7 @@ final class ReservationsController extends Controller
         if ($clientTemplate) {
             Mailer::sendTemplatedEmail($partner, $clientTemplate, (string) $input['client_email'], $variables, $embeds);
         } else {
-            Mailer::sendRawEmail($partner, (string) $input['client_email'], 'Confirmation de votre demande - ' . (string) $partner['name'], '<p>Bonjour ' . htmlspecialchars((string) $input['client_name']) . ',</p><p>Nous avons bien reçu votre demande de réservation pour ' . htmlspecialchars((string) ($input['property_name'] ?? 'l\'hébergement')) . ' du ' . htmlspecialchars((string) $input['checkin_date']) . ' au ' . htmlspecialchars((string) $input['checkout_date']) . '. Nous vous contacterons très prochainement.</p><p>Cordialement,<br>' . htmlspecialchars((string) $partner['name']) . '</p>');
+            Mailer::sendRawEmail($partner, (string) $input['client_email'], 'Confirmation de votre demande - ' . (string) $partner['name'], '<p>Bonjour ' . htmlspecialchars((string) $input['client_name']) . ',</p><p>Nous avons bien reçu votre demande de réservation pour ' . htmlspecialchars((string) ($input['property_name'] ?? 'l\'hébergement')) . ' du ' . htmlspecialchars((string) $input['checkin_date']) . ' au ' . htmlspecialchars((string) $input['checkout_date']) . '.</p>' . $variables['tarif_bloc'] . '<p>Nous vous contacterons très prochainement.</p><p>Cordialement,<br>' . htmlspecialchars((string) $partner['name']) . '</p>');
         }
     }
 
@@ -737,6 +836,18 @@ final class ReservationsController extends Controller
             'notes' => $notes ?? '',
             'partenaire' => (string) $partner['name'],
             'photo_bien' => $photo['html'],
+            'photo1' => self::propertyPhotoVariable((int) ($request['property_id'] ?? 0), (string) $request['property_name'], 1),
+            'photo2' => self::propertyPhotoVariable((int) ($request['property_id'] ?? 0), (string) $request['property_name'], 2),
+            'photo3' => self::propertyPhotoVariable((int) ($request['property_id'] ?? 0), (string) $request['property_name'], 3),
+            'photo1_url' => self::propertyPhotoUrlValue((int) ($request['property_id'] ?? 0), 1),
+            'photo2_url' => self::propertyPhotoUrlValue((int) ($request['property_id'] ?? 0), 2),
+            'photo3_url' => self::propertyPhotoUrlValue((int) ($request['property_id'] ?? 0), 3),
+            'email_partenaire' => (string) ($partner['email'] ?? ''),
+            'logo_partenaire' => self::partnerLogoVariable(
+                (string) ($partner['logo_url'] ?? ''),
+                (string) ($partner['name'] ?? '')
+            ),
+            'logo_partenaire_url' => self::partnerLogoUrlValue((string) ($partner['logo_url'] ?? '')),
         ];
         $childBreakdown = self::childBreakdownValues($request);
         $variables += self::stayVariables(
@@ -766,7 +877,7 @@ final class ReservationsController extends Controller
      * always defaulting numeric values to 0 instead of leaving the
      * placeholder unresolved when a field is empty.
      */
-    private static function stayVariables(string $checkin, string $checkout, int $childrenUnder3, int $children3to12): array
+    public static function stayVariables(string $checkin, string $checkout, int $childrenUnder3, int $children3to12): array
     {
         $childrenUnder3 = max(0, $childrenUnder3);
         $children3to12 = max(0, $children3to12);
@@ -833,6 +944,88 @@ final class ReservationsController extends Controller
 
         $nights = (int) $checkinDate->diff($checkoutDate)->days;
         return max(0, $nights);
+    }
+
+    /**
+     * Builds {{tarif_*}} variables from the quote values posted by the booking
+     * form so request emails include the same itemized amount as shown before
+     * submission (Tarif, Personnes supplémentaires, Nettoyage, Total, and the
+     * optional tourist-tax note).
+     *
+     * $itemCount is the number of properties combined in the same multi-
+     * property submission (the "Calendrier" cart lets a visitor request
+     * several properties at once, which sends one separate confirmation
+     * email per property). When >1, {{tarif_bloc}} gets an extra note
+     * clarifying that the shown amount only covers this one property (the
+     * other properties' prices are in their own emails), and a new
+     * {{multi_biens_note}} variable is populated so partner templates can
+     * mention it near "Vos Voyageurs" (e.g. "Pour les 2 biens sélectionnés").
+     */
+    private static function requestQuoteVariables(array $input, int $itemCount = 1): array
+    {
+        $currency = trim((string) ($input['quote_currency'] ?? 'EUR'));
+        if ($currency === '') {
+            $currency = 'EUR';
+        }
+
+        $roomTotal = self::toMoneyValue($input['quote_room_total'] ?? 0);
+        $extraPersonTotal = self::toMoneyValue($input['quote_extra_person_total'] ?? 0);
+        $cleaningTotal = self::toMoneyValue($input['quote_cleaning_total'] ?? 0);
+        $totalWithoutTax = self::toMoneyValue($input['quote_total_without_tax'] ?? 0);
+        $touristTaxTotal = self::toMoneyValue($input['quote_tourist_tax_total'] ?? 0);
+        $nights = max(0, (int) ($input['quote_nights'] ?? 0));
+        $itemCount = max(1, $itemCount);
+
+        $tarifBloc = '<div style="padding:12px 24px 16px;">'
+            . '<p style="margin:0 0 10px;font-weight:bold;font-size:14px;color:#111827;">Résumé Tarifaire :</p>';
+        if ($itemCount > 1) {
+            $otherBiensText = $itemCount === 2 ? "l'autre email pour le tarif de l'autre bien" : 'les autres emails pour le tarif des autres biens';
+            $tarifBloc .= '<p style="margin:0 0 10px;font-size:13px;color:#6b7280;">(Tarif uniquement pour ce bien. Voir ' . $otherBiensText . '.)</p>';
+        }
+        $tarifBloc .= '<table style="width:100%;border-collapse:collapse;font-size:14px;">'
+            . '<tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;color:#374151;">Tarif</td>'
+            . '<td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;color:#374151;">' . self::formatMoneyFr($roomTotal, $currency) . '</td></tr>';
+        if ($extraPersonTotal > 0) {
+            $tarifBloc .= '<tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;color:#374151;">Personne(s) supplémentaire(s)</td>'
+                . '<td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;color:#374151;">' . self::formatMoneyFr($extraPersonTotal, $currency) . '</td></tr>';
+        }
+        $tarifBloc .= '<tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;color:#374151;">Nettoyage</td>'
+            . '<td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;color:#374151;">' . self::formatMoneyFr($cleaningTotal, $currency) . '</td></tr>'
+            . '<tr><td style="padding:8px 0;font-weight:bold;color:#111827;">Total</td>'
+            . '<td style="padding:8px 0;font-weight:bold;text-align:right;color:#111827;">' . self::formatMoneyFr($totalWithoutTax, $currency) . '</td></tr>'
+            . '</table>';
+        if ($touristTaxTotal > 0) {
+            $tarifBloc .= '<div style="margin-top:12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:6px;padding:12px 14px;">'
+                . '<table style="width:100%;border-collapse:collapse;"><tr>'
+                . '<td style="width:28px;vertical-align:top;font-size:18px;padding-right:8px;">&#9888;&#xFE0F;</td>'
+                . '<td style="font-size:13px;color:#92400e;vertical-align:top;">'
+                . '<strong>Attention</strong><br>Taxe touristique de '
+                . number_format($touristTaxTotal, 2, ',', ' ')
+                . ' Euros à régler à l\'arrivée<br>(Non comprise dans le total)'
+                . '</td></tr></table></div>';
+        }
+        $tarifBloc .= '</div>';
+
+        return [
+            'tarif_nuits' => (string) $nights,
+            'tarif_hebergement' => self::formatMoneyFr($roomTotal, $currency),
+            'tarif_personnes_supplementaires' => self::formatMoneyFr($extraPersonTotal, $currency),
+            'tarif_nettoyage' => self::formatMoneyFr($cleaningTotal, $currency),
+            'tarif_total' => self::formatMoneyFr($totalWithoutTax, $currency),
+            'taxe_touristique' => self::formatMoneyFr($touristTaxTotal, 'EUR'),
+            'tarif_bloc' => $tarifBloc,
+            'multi_biens_note' => $itemCount > 1 ? "Pour les {$itemCount} biens sélectionnés" : '',
+        ];
+    }
+
+    private static function toMoneyValue(mixed $value): float
+    {
+        return round((float) $value, 2);
+    }
+
+    private static function formatMoneyFr(float $amount, string $currency): string
+    {
+        return number_format($amount, 2, ',', ' ') . ' ' . $currency;
     }
 
     private static function fetchPartner(int $partnerId): array
@@ -902,10 +1095,48 @@ final class ReservationsController extends Controller
 
         return [
             'signature_nom' => $fullName,
-            'signature_photo' => self::signaturePhotoTag($photoUrl, $fullName !== '' ? $fullName : 'Photo'),
+            'signature_photo' => self::signaturePhotoVariable($photoUrl, $fullName !== '' ? $fullName : 'Photo'),
+            'signature_photo_url' => self::signaturePhotoUrlValue($photoUrl),
             'lien_partenaire' => self::partnerLink($partnerId),
             'telephone_partenaire' => $phone,
         ];
+    }
+
+    public static function propertyPhotoVariable(int $propertyId, string $propertyName, int $photoIndex): callable
+    {
+        return static fn (?int $size = null): string => self::propertyPhotoHtml($propertyId, $propertyName, $photoIndex, $size);
+    }
+
+    public static function propertyPhotoUrlValue(int $propertyId, int $photoIndex): string
+    {
+        $photoUrl = (new LodgifyClient())->getPropertyPhotoUrlByIndex($propertyId, $photoIndex);
+        return $photoUrl !== '' ? self::absoluteUrl($photoUrl) : '';
+    }
+
+    private static function propertyPhotoHtml(int $propertyId, string $propertyName, int $photoIndex, ?int $size): string
+    {
+        $photoUrl = self::propertyPhotoUrlValue($propertyId, $photoIndex);
+        if ($photoUrl === '') {
+            return '';
+        }
+        $width = self::normalizeImageWidth($size, 320);
+        return '<img src="' . htmlspecialchars($photoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($propertyName, ENT_QUOTES, 'UTF-8') . '" width="' . $width . '" style="display:block;width:' . $width . 'px;max-width:100%;height:auto;">';
+    }
+
+    public static function partnerLogoUrlValue(string $logoUrl): string
+    {
+        return $logoUrl !== '' ? self::absoluteUrl($logoUrl) : '';
+    }
+
+    public static function signaturePhotoUrlValue(string $photoUrl): string
+    {
+        return $photoUrl !== '' ? self::absoluteUrl($photoUrl) : '';
+    }
+
+    private static function normalizeImageWidth(?int $size, int $default): int
+    {
+        $width = $size ?? $default;
+        return max(24, min(1200, $width));
     }
 
     private static function fetchPartnerUser(int $partnerId): ?array
@@ -919,6 +1150,16 @@ final class ReservationsController extends Controller
 
     private static function signaturePhotoTag(string $photoUrl, string $alt): string
     {
+        return self::signaturePhotoHtml($photoUrl, $alt, null);
+    }
+
+    private static function signaturePhotoVariable(string $photoUrl, string $alt): callable
+    {
+        return static fn (?int $size = null): string => self::signaturePhotoHtml($photoUrl, $alt, $size);
+    }
+
+    private static function signaturePhotoHtml(string $photoUrl, string $alt, ?int $size): string
+    {
         if ($photoUrl === '') {
             return '';
         }
@@ -928,7 +1169,31 @@ final class ReservationsController extends Controller
             return '';
         }
 
-        return '<img src="' . htmlspecialchars($photoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($alt, ENT_QUOTES, 'UTF-8') . '" width="64" height="64" style="display:inline-block;width:64px;height:64px;border-radius:50%;object-fit:cover;">';
+        $width = self::normalizeImageWidth($size, 64);
+        return '<img src="' . htmlspecialchars($photoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($alt, ENT_QUOTES, 'UTF-8') . '" width="' . $width . '" height="' . $width . '" style="display:inline-block;width:' . $width . 'px;height:' . $width . 'px;border-radius:50%;object-fit:cover;">';
+    }
+
+    private static function partnerLogoTag(string $logoUrl, string $alt): string
+    {
+        return self::partnerLogoHtml($logoUrl, $alt, null);
+    }
+
+    public static function partnerLogoVariable(string $logoUrl, string $alt): callable
+    {
+        return static fn (?int $size = null): string => self::partnerLogoHtml($logoUrl, $alt, $size);
+    }
+
+    private static function partnerLogoHtml(string $logoUrl, string $alt, ?int $size): string
+    {
+        if ($logoUrl === '') {
+            return '';
+        }
+        $logoUrl = self::absoluteUrl($logoUrl);
+        if ($logoUrl === '') {
+            return '';
+        }
+        $width = self::normalizeImageWidth($size, 80);
+        return '<img src="' . htmlspecialchars($logoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($alt, ENT_QUOTES, 'UTF-8') . '" width="' . $width . '" style="display:block;margin:0 auto;width:' . $width . 'px;max-width:100%;height:auto;">';
     }
 
     /**

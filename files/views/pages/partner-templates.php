@@ -6,16 +6,28 @@ $labels = [
   'RESERVATION_CANCELLED' => 'Réservation annulée (client)',
   'REMINDER' => 'Rappel avant arrivée',
 ];
-$variables = ['{{nom_client}}','{{email_client}}','{{telephone_client}}','{{dates}}','{{date_arrivee}}','{{date_depart}}','{{nuits}}','{{adultes}}','{{enfants}}','{{bebes}}','{{hebergement}}','{{photo_bien}}','{{partenaire}}','{{notes}}','{{message}}','{{signature_photo}}','{{signature_nom}}','{{lien_partenaire}}','{{telephone_partenaire}}'];
+$plainVariables = ['{{nom_client}}','{{email_client}}','{{telephone_client}}','{{dates}}','{{date_arrivee}}','{{date_depart}}','{{nuits}}','{{adultes}}','{{enfants}}','{{bebes}}','{{multi_biens_note}}','{{hebergement}}','{{photo_bien}}','{{partenaire}}','{{notes}}','{{message}}','{{tarif_nuits}}','{{tarif_hebergement}}','{{tarif_personnes_supplementaires}}','{{tarif_nettoyage}}','{{tarif_total}}','{{taxe_touristique}}','{{tarif_bloc}}','{{signature_nom}}','{{email_partenaire}}','{{lien_partenaire}}','{{telephone_partenaire}}'];
+$resizableVariables = [
+  ['name' => 'photo1', 'label' => '{{photo1}}', 'default' => 320],
+  ['name' => 'photo2', 'label' => '{{photo2}}', 'default' => 320],
+  ['name' => 'photo3', 'label' => '{{photo3}}', 'default' => 320],
+  ['name' => 'logo_partenaire', 'label' => '{{logo_partenaire}}', 'default' => 80],
+  ['name' => 'signature_photo', 'label' => '{{signature_photo}}', 'default' => 64],
+];
+$isAdmin = isset($adminPartnerId);
+$baseUrl = $isAdmin ? '/admin/partners/' . (int) $adminPartnerId . '/templates' : '/partner/templates';
 ?>
 <section class="container section-lg">
-  <h1>Templates d'emails</h1>
+  <?php if ($isAdmin): ?>
+  <nav class="breadcrumb"><a href="/admin/partners">Partenaires</a> › <span>Templates · <?= \App\View::e($adminPartnerName ?? '') ?></span></nav>
+  <?php endif; ?>
+  <h1><?= $isAdmin ? 'Templates email · ' . \App\View::e($adminPartnerName ?? '') : 'Templates d\'emails' ?></h1>
   <div class="two-panel">
     <div class="card overflow-hidden side-list">
       <?php if ($templates === []): ?>
         <p class="empty-state">Aucun template. Contactez l'administrateur.</p>
       <?php else: foreach ($templates as $template): ?>
-        <a href="/partner/templates?id=<?= (int) $template['id'] ?>" class="<?= $selected && (int) $selected['id'] === (int) $template['id'] ? 'active' : '' ?>"><?= \App\View::e($labels[$template['type']] ?? $template['type']) ?></a>
+        <a href="<?= $baseUrl ?>?id=<?= (int) $template['id'] ?>" class="<?= $selected && (int) $selected['id'] === (int) $template['id'] ? 'active' : '' ?>"><?= \App\View::e($labels[$template['type']] ?? $template['type']) ?></a>
       <?php endforeach; endif; ?>
     </div>
     <div class="card card-body">
@@ -23,16 +35,36 @@ $variables = ['{{nom_client}}','{{email_client}}','{{telephone_client}}','{{date
         <p class="empty-state">Sélectionnez un template à éditer.</p>
       <?php else: ?>
         <h2 class="section-title"><?= \App\View::e($labels[$selected['type']] ?? $selected['type']) ?></h2>
-        <form method="post" action="/partner/templates/<?= (int) $selected['id'] ?>" class="stack-md" data-template-editor>
+        <form method="post" action="<?= $baseUrl ?>/<?= (int) $selected['id'] ?>" class="stack-md" data-template-editor>
           <label><span>Objet de l'email</span><input class="input" type="text" name="subject" value="<?= \App\View::e($selected['subject']) ?>"></label>
-          <div>
-            <span class="label-inline">Variables disponibles</span>
-            <div class="chips"><?php foreach ($variables as $variable): ?><button type="button" class="chip" data-insert-variable="<?= \App\View::e($variable) ?>"><?= \App\View::e($variable) ?></button><?php endforeach; ?></div>
-          </div>
-          <label><span>Corps de l'email (HTML)</span><textarea class="input codearea" rows="12" name="body_html" data-template-body><?= \App\View::e($selected['body_html']) ?></textarea></label>
+          <details class="code-box">
+            <summary>Corps de l'email (HTML)</summary>
+            <div class="template-toolbar">
+              <div class="insert-var-dropdown">
+                <button type="button" class="btn-secondary btn-sm" data-insert-dropdown-toggle>📋 Insérer variable ▾</button>
+                <div class="insert-var-menu" hidden>
+                  <?php foreach ($plainVariables as $variable): ?>
+                    <button type="button" class="insert-var-item" data-insert-variable="<?= \App\View::e($variable) ?>"><?= \App\View::e($variable) ?></button>
+                  <?php endforeach; ?>
+                  <div style="padding:.4rem .9rem;font-size:.8rem;color:#6b7280;border-top:1px solid #e5e7eb;">Variables image avec taille</div>
+                  <?php foreach ($resizableVariables as $variable): ?>
+                    <button
+                      type="button"
+                      class="insert-var-item"
+                      data-insert-variable="<?= \App\View::e($variable['name']) ?>"
+                      data-variable-resizable="1"
+                      data-variable-default-size="<?= (int) $variable['default'] ?>"
+                    ><?= \App\View::e($variable['label']) ?> · taille</button>
+                  <?php endforeach; ?>
+                </div>
+              </div>
+            </div>
+            <p class="text-muted" style="margin:.25rem 0 .75rem;">Toutes les variables (texte, photo, image) affichent une donnée temporaire dans l’aperçu. Cliquez sur un texte ou une image pour le modifier directement.</p>
+            <textarea class="input codearea" rows="16" name="body_html" data-template-body><?= \App\View::e($selected['body_html']) ?></textarea>
+          </details>
           <details class="preview-box" open>
             <summary>Aperçu HTML</summary>
-            <iframe class="preview-frame" sandbox="" data-template-preview srcdoc="<?= \App\View::e($selected['body_html']) ?>"></iframe>
+            <iframe class="preview-frame" sandbox="allow-same-origin" data-template-preview srcdoc="<?= \App\View::e($selected['body_html']) ?>"></iframe>
           </details>
           <button class="btn-primary" type="submit">Sauvegarder</button>
         </form>
