@@ -1954,11 +1954,29 @@ final class PageController extends Controller
     {
         self::requireAdminUser();
         $partnerId = (int) ($_POST['partner_id'] ?? 0);
-        $assetUrl = trim((string) ($_POST['asset_url'] ?? ''));
         if ($partnerId <= 0) {
             self::redirect('/admin/templates', 'Partenaire invalide.', 'error');
         }
-        self::deleteLocalAsset($assetUrl, '/images/others/email-template-assets/partner-' . $partnerId . '/');
+        $allowedPrefix = '/images/others/email-template-assets/partner-' . $partnerId . '/';
+
+        // Supports both the single-item delete form (asset_url) and the
+        // "select several then delete" bulk form (asset_urls[]).
+        $assetUrls = $_POST['asset_urls'] ?? null;
+        if (is_array($assetUrls)) {
+            $count = 0;
+            foreach ($assetUrls as $assetUrl) {
+                self::deleteLocalAsset(trim((string) $assetUrl), $allowedPrefix);
+                $count++;
+            }
+            if ($count === 0) {
+                self::redirect('/admin/templates?partner_id=' . $partnerId, 'Aucun élément sélectionné.', 'error');
+            }
+            $message = $count > 1 ? $count . ' éléments graphiques supprimés.' : 'Élément graphique supprimé.';
+            self::redirect('/admin/templates?partner_id=' . $partnerId, $message);
+        }
+
+        $assetUrl = trim((string) ($_POST['asset_url'] ?? ''));
+        self::deleteLocalAsset($assetUrl, $allowedPrefix);
         self::redirect('/admin/templates?partner_id=' . $partnerId, 'Élément graphique supprimé.');
     }
 

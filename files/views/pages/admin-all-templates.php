@@ -129,23 +129,33 @@ $baseUrl = '/admin/templates';
             <?php if (($galleryAssets ?? []) === []): ?>
               <p class="empty-state">Aucun élément graphique enregistré pour ce partenaire.</p>
             <?php else: ?>
-              <div class="form-grid cols-3">
-                <?php foreach ($galleryAssets as $asset): ?>
-                  <?php $snippet = '<img src=&quot;' . \App\View::e($asset['url']) . '&quot; alt=&quot;&quot; width=&quot;120&quot; style=&quot;display:block;width:120px;max-width:100%;height:auto;&quot;>'; ?>
-                  <div class="card card-body stack-sm">
-                    <img src="<?= \App\View::e($asset['url']) ?>" alt="<?= \App\View::e($asset['name']) ?>" style="display:block;max-width:100%;height:auto;border-radius:.5rem;border:1px solid #e5e7eb;">
-                    <code><?= \App\View::e($asset['name']) ?></code>
-                    <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
-                      <button type="button" class="btn-secondary btn-sm" data-insert-html="<?= $snippet ?>">Insérer</button>
-                      <form method="post" action="<?= $baseUrl ?>/assets/delete" onsubmit="return confirm('Supprimer cet élément graphique ?');">
-                        <input type="hidden" name="partner_id" value="<?= (int) $selectedPartnerId ?>">
-                        <input type="hidden" name="asset_url" value="<?= \App\View::e($asset['url']) ?>">
-                        <button class="link-warning" type="submit">Supprimer</button>
-                      </form>
+              <form method="post" action="<?= $baseUrl ?>/assets/delete" class="stack-md" data-gallery-bulk-delete-form>
+                <input type="hidden" name="partner_id" value="<?= (int) $selectedPartnerId ?>">
+                <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;">
+                  <label style="display:flex;align-items:center;gap:.4rem;font-weight:normal;">
+                    <input type="checkbox" data-gallery-select-all>
+                    <span>Tout sélectionner</span>
+                  </label>
+                  <button type="submit" class="link-warning" data-gallery-delete-selected disabled>🗑️ Supprimer la sélection (<span data-gallery-selected-count>0</span>)</button>
+                </div>
+                <div class="form-grid cols-3">
+                  <?php foreach ($galleryAssets as $asset): ?>
+                    <?php $snippet = '<img src=&quot;' . \App\View::e($asset['url']) . '&quot; alt=&quot;&quot; width=&quot;120&quot; style=&quot;display:block;width:120px;max-width:100%;height:auto;&quot;>'; ?>
+                    <div class="card card-body stack-sm">
+                      <label style="display:flex;align-items:center;gap:.4rem;font-weight:normal;">
+                        <input type="checkbox" name="asset_urls[]" value="<?= \App\View::e($asset['url']) ?>" data-gallery-select-item>
+                        <span>Sélectionner</span>
+                      </label>
+                      <img src="<?= \App\View::e($asset['url']) ?>" alt="<?= \App\View::e($asset['name']) ?>" style="display:block;max-width:100%;height:auto;border-radius:.5rem;border:1px solid #e5e7eb;">
+                      <code><?= \App\View::e($asset['name']) ?></code>
+                      <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
+                        <button type="button" class="btn-secondary btn-sm" data-insert-html="<?= $snippet ?>">Insérer</button>
+                        <button type="button" class="link-warning" data-gallery-delete-single="<?= \App\View::e($asset['url']) ?>">Supprimer</button>
+                      </div>
                     </div>
-                  </div>
-                <?php endforeach; ?>
-              </div>
+                  <?php endforeach; ?>
+                </div>
+              </form>
             <?php endif; ?>
           </div>
         </details>

@@ -24,6 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initNationalities,
     initTemplateEditor,
     initZipImportForm,
+    initGalleryBulkDelete,
     initColorSync,
     initDateRanges,
     initBookingCalendarSelection,
@@ -157,6 +158,65 @@ function initCalendarBoard() {
       }
     });
     board.addEventListener('mouseleave', stopScrolling);
+  });
+}
+
+/**
+ * Wires the Mini Galerie's bulk-delete controls: "select all", a live
+ * selected-count on the bulk delete button (disabled until at least one
+ * item is checked), and per-item "Supprimer" buttons that check just their
+ * own item then submit the same form — so a single click still deletes one
+ * asset without requiring the user to manually tick its checkbox first.
+ */
+function initGalleryBulkDelete() {
+  document.querySelectorAll('[data-gallery-bulk-delete-form]').forEach((form) => {
+    const selectAll = form.querySelector('[data-gallery-select-all]');
+    const deleteButton = form.querySelector('[data-gallery-delete-selected]');
+    const countEl = form.querySelector('[data-gallery-selected-count]');
+    const itemCheckboxes = () => [...form.querySelectorAll('[data-gallery-select-item]')];
+
+    function refresh() {
+      const checked = itemCheckboxes().filter((cb) => cb.checked);
+      if (countEl) countEl.textContent = String(checked.length);
+      if (deleteButton) deleteButton.disabled = checked.length === 0;
+      if (selectAll) {
+        const all = itemCheckboxes();
+        selectAll.checked = all.length > 0 && checked.length === all.length;
+        selectAll.indeterminate = checked.length > 0 && checked.length < all.length;
+      }
+    }
+
+    selectAll?.addEventListener('change', () => {
+      itemCheckboxes().forEach((cb) => { cb.checked = selectAll.checked; });
+      refresh();
+    });
+
+    itemCheckboxes().forEach((cb) => cb.addEventListener('change', refresh));
+
+    form.querySelectorAll('[data-gallery-delete-single]').forEach((button) => {
+      button.addEventListener('click', () => {
+        if (!window.confirm('Supprimer cet élément graphique ?')) return;
+        itemCheckboxes().forEach((cb) => {
+          cb.checked = cb.value === button.dataset.galleryDeleteSingle;
+        });
+        form.submit();
+      });
+    });
+
+    form.addEventListener('submit', (event) => {
+      const checked = itemCheckboxes().filter((cb) => cb.checked);
+      if (checked.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      // Individual deletes already confirmed above before submit() was
+      // called programmatically; only prompt here for the bulk button.
+      if (event.submitter === deleteButton && !window.confirm(`Supprimer ${checked.length} élément(s) graphique(s) ?`)) {
+        event.preventDefault();
+      }
+    });
+
+    refresh();
   });
 }
 

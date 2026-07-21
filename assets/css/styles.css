@@ -405,6 +405,7 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .link-danger, .link-warning { background: transparent; padding: 0; }
 .link-danger { color: var(--red); }
 .link-warning { color: #ea580c; }
+.link-warning:disabled { color: #d1d5db; cursor: not-allowed; }
 .accent-ok { color: var(--green); }
 .accent-warn { color: var(--yellow); }
 .alert { padding: .9rem 1rem; border-radius: .9rem; margin-bottom: 1rem; }
