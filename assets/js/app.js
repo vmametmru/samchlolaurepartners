@@ -1168,9 +1168,19 @@ function initTemplateEditor() {
     const attributes = [];
 
     if (tagName === 'img') {
-      const safeSource = sanitizeTemplateImageSource(element.getAttribute('data-template-original-src') || element.getAttribute('src') || '');
-      if (!safeSource) return '';
-      attributes.push(`src="${escapeHtmlAttribute(safeSource)}"`);
+      const rawSource = element.getAttribute('data-template-original-src') || element.getAttribute('src') || '';
+      const safeSource = sanitizeTemplateImageSource(rawSource);
+      // sanitizeTemplateImageSource() only whitelists sources the editor can
+      // itself produce (a known {{variable}} token, an absolute /images/...
+      // path, or a full http(s) URL). Images imported as-is from a Canva
+      // "HTML seul" ZIP keep their original relative paths (e.g.
+      // "images/photo1.png"), which don't match that whitelist. Falling
+      // back to the raw (still HTML-escaped) source here — instead of
+      // dropping the <img> tag entirely — prevents every *other*, untouched
+      // image on the page from silently vanishing the moment any single
+      // image elsewhere is edited and the preview is re-serialized.
+      if (/^\s*javascript:/i.test(rawSource)) return '';
+      attributes.push(`src="${escapeHtmlAttribute(safeSource || rawSource)}"`);
     }
 
     [...element.attributes].forEach((attribute) => {
