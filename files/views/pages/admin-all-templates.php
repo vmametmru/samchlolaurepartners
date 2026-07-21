@@ -136,7 +136,7 @@ $baseUrl = '/admin/templates';
                   </label>
                   <button class="btn-secondary" type="submit" onclick="return confirm('Remplacer le corps de l\'email actuel par le contenu de ce ZIP ?');">📦 Importer le ZIP</button>
                 </form>
-                <form method="post" action="<?= $baseUrl ?>/<?= $selectedPartnerId ?>/<?= (int) $selected['id'] ?>" class="stack-md" data-template-editor>
+                <form method="post" action="<?= $baseUrl ?>/<?= $selectedPartnerId ?>/<?= (int) $selected['id'] ?>" class="stack-md" data-template-editor data-gallery-assets="<?= \App\View::e(json_encode($galleryAssets ?? [])) ?>">
                   <label><span>Objet de l'email</span><input class="input" type="text" name="subject" value="<?= \App\View::e($selected['subject']) ?>"></label>
                   <details class="code-box">
                     <summary>Corps de l'email (HTML)</summary>

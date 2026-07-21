@@ -1298,6 +1298,12 @@ function initTemplateEditor() {
     const preview = form.querySelector('[data-template-preview]');
     let activeEditableEl = null;
     let lastKnownRange = null;
+    let galleryAssets = [];
+    try {
+      galleryAssets = JSON.parse(form.dataset.galleryAssets || '[]');
+    } catch (parseError) {
+      galleryAssets = [];
+    }
 
     function renderPreview() {
       if (!textarea || !preview) return;
@@ -1346,10 +1352,19 @@ function initTemplateEditor() {
 
     let imageModal = null;
     let imageModalTargetImg = null;
+    let pendingImageSource = '';
+    let pendingImageShape = 'rect';
 
     function closeImageModal() {
       if (imageModal) imageModal.style.display = 'none';
       imageModalTargetImg = null;
+    }
+
+    function galleryItemHtml(asset) {
+      return `<button type="button" class="template-image-gallery-item" data-url="${escapeHtmlAttribute(asset.url)}" title="${escapeHtmlAttribute(asset.name)}">
+        <img src="${escapeHtmlAttribute(asset.url)}" alt="">
+        <span>${escapeHtmlText(asset.name)}</span>
+      </button>`;
     }
 
     function ensureImageModal() {
@@ -1360,6 +1375,7 @@ function initTemplateEditor() {
         .filter(([, tpl]) => tpl.editable !== false)
         .map(([key, tpl]) => `<option value="${key}">${escapeHtmlText(tpl.label)}</option>`)
         .join('');
+      const galleryItems = galleryAssets.map((asset) => galleryItemHtml(asset)).join('');
       overlay.innerHTML = `
         <div class="template-var-modal" role="dialog" aria-modal="true" aria-label="Modifier l’image">
           <div class="template-var-modal-header">
@@ -1372,13 +1388,14 @@ function initTemplateEditor() {
               <select class="input" data-field="variable">
                 <option value="">— Choisir une variable —</option>
                 ${variableOptions}
-                <option value="__custom">URL personnalisée…</option>
               </select>
             </label>
-            <label data-custom-url-wrap hidden>
-              <span class="label-inline">URL de l’image</span>
-              <input class="input" type="text" data-field="custom-url" placeholder="/images/... ou https://...">
-            </label>
+            <details class="accordion" data-gallery-accordion>
+              <summary class="label-inline">Galerie</summary>
+              <div class="template-image-gallery-grid" data-gallery-grid style="margin-top:.5rem;">
+                ${galleryItems || '<p class="empty-state" style="grid-column:1/-1;">Aucun élément dans la galerie du partenaire.</p>'}
+              </div>
+            </details>
             <label>
               <span class="label-inline">Largeur (px)</span>
               <input class="input" type="number" data-field="width" min="24" max="1200" step="10">
@@ -1405,14 +1422,24 @@ function initTemplateEditor() {
       overlay.querySelector('.template-var-modal-close').addEventListener('click', closeImageModal);
       overlay.querySelector('[data-action="cancel"]').addEventListener('click', closeImageModal);
       const variableSelect = overlay.querySelector('[data-field="variable"]');
-      const customUrlWrap = overlay.querySelector('[data-custom-url-wrap]');
       variableSelect.addEventListener('change', () => {
-        customUrlWrap.hidden = variableSelect.value !== '__custom';
-        if (variableSelect.value && variableSelect.value !== '__custom') {
-          const tpl = mediaTemplates[variableSelect.value];
-          const widthInput = overlay.querySelector('[data-field="width"]');
-          if (tpl) widthInput.value = String(tpl.defaultSize);
-        }
+        if (!variableSelect.value) return;
+        const tpl = mediaTemplates[variableSelect.value];
+        if (!tpl) return;
+        pendingImageSource = tpl.src;
+        pendingImageShape = tpl.shape;
+        const widthInput = overlay.querySelector('[data-field="width"]');
+        widthInput.value = String(tpl.defaultSize);
+        overlay.querySelectorAll('[data-gallery-grid] .template-image-gallery-item').forEach((btn) => btn.classList.remove('active'));
+      });
+      overlay.querySelectorAll('[data-gallery-grid] .template-image-gallery-item').forEach((button) => {
+        button.addEventListener('click', () => {
+          pendingImageSource = button.dataset.url || '';
+          pendingImageShape = 'rect';
+          variableSelect.value = '';
+          overlay.querySelectorAll('[data-gallery-grid] .template-image-gallery-item').forEach((btn) => btn.classList.remove('active'));
+          button.classList.add('active');
+        });
       });
       overlay.querySelector('[data-action="apply"]').addEventListener('click', () => {
         applyImageModal(overlay);
@@ -1424,32 +1451,21 @@ function initTemplateEditor() {
     function applyImageModal(overlay) {
       const img = imageModalTargetImg;
       if (!img) return;
-      const variableSelect = overlay.querySelector('[data-field="variable"]');
-      const customUrlInput = overlay.querySelector('[data-field="custom-url"]');
       const widthInput = overlay.querySelector('[data-field="width"]');
       const positionSelect = overlay.querySelector('[data-field="position"]');
 
-      let source = '';
-      let shape = 'rect';
-      if (variableSelect.value === '__custom') {
-        source = customUrlInput.value;
-      } else if (variableSelect.value) {
-        const tpl = mediaTemplates[variableSelect.value];
-        source = tpl ? tpl.src : '';
-        shape = tpl ? tpl.shape : 'rect';
-      }
-      const safeSource = sanitizeTemplateImageSource(source);
+      const safeSource = sanitizeTemplateImageSource(pendingImageSource);
       if (!safeSource) {
-        window.alert('Veuillez choisir une variable ou saisir une URL d’image valide.');
+        window.alert('Veuillez choisir une variable ou une image de la galerie.');
         return;
       }
       const width = normalizeImageWidth(widthInput.value, 320);
       const position = ['left', 'center', 'right'].includes(positionSelect.value) ? positionSelect.value : 'left';
 
       img.setAttribute('data-template-original-src', safeSource);
-      img.setAttribute('data-template-shape', shape);
-      img.setAttribute('src', previewImageSource(safeSource, width, shape));
-      applyImageLayout(img, width, position, shape);
+      img.setAttribute('data-template-shape', pendingImageShape);
+      img.setAttribute('src', previewImageSource(safeSource, width, pendingImageShape));
+      applyImageLayout(img, width, position, pendingImageShape);
       closeImageModal();
       syncTextareaFromPreview();
       renderPreview();
@@ -1461,20 +1477,21 @@ function initTemplateEditor() {
       const currentSource = img.getAttribute('data-template-original-src') || img.getAttribute('src') || '';
       const matchedTemplate = mediaTemplateBySource(currentSource);
       const variableSelect = overlay.querySelector('[data-field="variable"]');
-      const customUrlWrap = overlay.querySelector('[data-custom-url-wrap]');
-      const customUrlInput = overlay.querySelector('[data-field="custom-url"]');
       const widthInput = overlay.querySelector('[data-field="width"]');
       const positionSelect = overlay.querySelector('[data-field="position"]');
+      const galleryButtons = [...overlay.querySelectorAll('[data-gallery-grid] .template-image-gallery-item')];
 
       if (matchedTemplate) {
         const key = Object.keys(mediaTemplates).find((k) => mediaTemplates[k] === matchedTemplate);
         variableSelect.value = key || '';
-        customUrlWrap.hidden = true;
-        customUrlInput.value = '';
+        pendingImageSource = matchedTemplate.src;
+        pendingImageShape = matchedTemplate.shape;
+        galleryButtons.forEach((btn) => btn.classList.remove('active'));
       } else {
-        variableSelect.value = '__custom';
-        customUrlWrap.hidden = false;
-        customUrlInput.value = currentSource;
+        variableSelect.value = '';
+        pendingImageSource = currentSource;
+        pendingImageShape = img.getAttribute('data-template-shape') || 'rect';
+        galleryButtons.forEach((btn) => btn.classList.toggle('active', btn.dataset.url === currentSource));
       }
       widthInput.value = String(normalizeImageWidth(img.getAttribute('width') || img.style.width, matchedTemplate ? matchedTemplate.defaultSize : 320));
       positionSelect.value = detectImagePosition(img);
