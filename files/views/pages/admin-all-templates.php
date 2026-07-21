@@ -48,7 +48,7 @@ $baseUrl = '/admin/templates';
       <?php else: ?>
         <nav class="breadcrumb"><a href="<?= $baseUrl ?>">Templates</a> › <span><?= \App\View::e($selectedPartnerName ?? '') ?></span></nav>
 
-        <div class="form-grid cols-2">
+        <div class="form-grid cols-3">
           <div class="card card-body stack-md">
             <h2 class="section-title">Nouveaux templates</h2>
             <?php if (($creatableTemplates ?? []) === []): ?>
@@ -88,6 +88,30 @@ $baseUrl = '/admin/templates';
               </form>
             <?php endif; ?>
           </div>
+
+          <div class="card card-body stack-md">
+            <h2 class="section-title">Importer un ZIP Canva.com</h2>
+            <form method="post" action="<?= $baseUrl ?>/import-zip" enctype="multipart/form-data" class="stack-md" data-zip-import-form>
+              <input type="hidden" name="partner_id" value="<?= (int) $selectedPartnerId ?>">
+              <?php if ($selected): ?><input type="hidden" name="id" value="<?= (int) $selected['id'] ?>"><?php endif; ?>
+              <label>
+                <span>Fichier ZIP (HTML + images)</span>
+                <input class="input" type="file" name="template_zip" accept=".zip,application/zip,application/x-zip-compressed" required data-zip-file-input>
+              </label>
+              <label>
+                <span>Que faut-il importer ?</span>
+                <select class="input" name="import_mode" data-zip-import-mode>
+                  <option value="all" <?= !$selected ? 'disabled' : '' ?> <?= $selected ? 'selected' : '' ?>>Tout (HTML + images)</option>
+                  <option value="images_only" <?= !$selected ? 'selected' : '' ?>>Juste les images</option>
+                  <option value="html_only" <?= !$selected ? 'disabled' : '' ?>>Tout sauf les images (HTML seul)</option>
+                </select>
+              </label>
+              <button class="btn-secondary" type="submit">📦 Importer le ZIP</button>
+              <?php if (!$selected): ?>
+                <p class="text-muted" style="margin:0;">Sélectionnez un template pour activer les options « Tout » et « Tout sauf les images ».</p>
+              <?php endif; ?>
+            </form>
+          </div>
         </div>
 
         <details class="card card-body accordion">
@@ -123,35 +147,6 @@ $baseUrl = '/admin/templates';
                 <?php endforeach; ?>
               </div>
             <?php endif; ?>
-
-            <div style="border-top:1px solid var(--border);margin-top:.5rem;padding-top:1rem;">
-              <h3 class="label-inline" style="margin:0 0 .5rem;">Importer un ZIP Canva.com</h3>
-              <form method="post" action="<?= $baseUrl ?>/import-zip" enctype="multipart/form-data" class="form-grid cols-3" style="align-items:end;">
-                <input type="hidden" name="partner_id" value="<?= (int) $selectedPartnerId ?>">
-                <?php if ($selected): ?><input type="hidden" name="id" value="<?= (int) $selected['id'] ?>"><?php endif; ?>
-                <label class="col-span-2">
-                  <span>Fichier ZIP (HTML + images)</span>
-                  <input class="input" type="file" name="template_zip" accept=".zip" required>
-                </label>
-                <label>
-                  <span>Que faut-il importer ?</span>
-                  <select class="input" name="import_mode">
-                    <option value="all" <?= !$selected ? 'disabled' : '' ?> <?= $selected ? 'selected' : '' ?>>Tout (HTML + images)</option>
-                    <option value="images_only" <?= !$selected ? 'selected' : '' ?>>Juste les images</option>
-                    <option value="html_only" <?= !$selected ? 'disabled' : '' ?>>Tout sauf les images (HTML seul)</option>
-                  </select>
-                </label>
-                <button
-                  class="btn-secondary"
-                  type="submit"
-                  style="grid-column:1/-1;justify-self:start;"
-                  onclick="return confirm(this.form.import_mode.value === 'images_only' ? 'Importer les images de ce ZIP dans la galerie ?' : 'Remplacer le corps de l\'email actuel par le contenu de ce ZIP ?');"
-                >📦 Importer le ZIP</button>
-                <?php if (!$selected): ?>
-                  <p class="text-muted" style="grid-column:1/-1;margin:0;">Sélectionnez un template pour activer les options « Tout » et « Tout sauf les images ».</p>
-                <?php endif; ?>
-              </form>
-            </div>
           </div>
         </details>
 

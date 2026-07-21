@@ -1936,7 +1936,15 @@ final class PageController extends Controller
         if ($partnerId <= 0) {
             self::redirect('/admin/templates', 'Partenaire invalide.', 'error');
         }
-        if (self::storePartnerTemplateAsset($partnerId) === null) {
+        try {
+            $stored = self::storePartnerTemplateAsset($partnerId);
+        } catch (HttpException $exception) {
+            if ($exception->statusCode >= 500) {
+                throw $exception;
+            }
+            self::redirect('/admin/templates?partner_id=' . $partnerId, $exception->getMessage(), 'error');
+        }
+        if ($stored === null) {
             self::redirect('/admin/templates?partner_id=' . $partnerId, 'Aucune image valide envoyée.', 'error');
         }
         self::redirect('/admin/templates?partner_id=' . $partnerId, 'Élément graphique ajouté à la galerie.');

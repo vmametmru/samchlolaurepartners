@@ -23,6 +23,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initApiForms,
     initNationalities,
     initTemplateEditor,
+    initZipImportForm,
     initColorSync,
     initDateRanges,
     initBookingCalendarSelection,
@@ -156,6 +157,43 @@ function initCalendarBoard() {
       }
     });
     board.addEventListener('mouseleave', stopScrolling);
+  });
+}
+
+/**
+ * The Canva ZIP import form only accepts .zip files: reject anything else
+ * client-side with a clear message (instead of letting the user submit a
+ * mismatched file and land on a generic error page), and tailor the confirm
+ * dialog's wording to the selected import mode.
+ */
+function initZipImportForm() {
+  const form = document.querySelector('[data-zip-import-form]');
+  if (!form) return;
+  const fileInput = form.querySelector('[data-zip-file-input]');
+  const modeSelect = form.querySelector('[data-zip-import-mode]');
+
+  fileInput?.addEventListener('change', () => {
+    const file = fileInput.files && fileInput.files[0];
+    if (file && !/\.zip$/i.test(file.name)) {
+      window.alert('Seuls les fichiers .zip peuvent être importés ici.');
+      fileInput.value = '';
+    }
+  });
+
+  form.addEventListener('submit', (event) => {
+    const file = fileInput?.files && fileInput.files[0];
+    if (file && !/\.zip$/i.test(file.name)) {
+      event.preventDefault();
+      window.alert('Seuls les fichiers .zip peuvent être importés ici.');
+      return;
+    }
+    const mode = modeSelect ? modeSelect.value : 'all';
+    const message = mode === 'images_only'
+      ? 'Importer les images de ce ZIP dans la galerie ?'
+      : 'Remplacer le corps de l\u2019email actuel par le contenu de ce ZIP ?';
+    if (!window.confirm(message)) {
+      event.preventDefault();
+    }
   });
 }
 
