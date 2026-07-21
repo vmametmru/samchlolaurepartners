@@ -37,7 +37,7 @@ INSERT IGNORE INTO email_templates (partner_id, type, subject, body_html) VALUES
 <p style="margin:0;font-size:14px;color:#374151;">Du {{date_arrivee}} au {{date_depart}} =&gt; {{nuits}} nuit(s)</p>
 </div>
 <div style="padding:12px 24px 16px;">
-<p style="margin:0 0 10px;font-weight:bold;font-size:14px;color:#111827;">Vos Voyageurs :</p>
+<p style="margin:0 0 10px;font-weight:bold;font-size:14px;color:#111827;">Vos Voyageurs : <span style="font-weight:normal;font-size:13px;color:#6b7280;">{{multi_biens_note}}</span></p>
 <table style="width:100%;border-collapse:collapse;font-size:14px;">
 <tr><td style="padding:5px 0;border-bottom:1px solid #f3f4f6;color:#374151;">Nombre d''adulte(s):</td><td style="padding:5px 0;border-bottom:1px solid #f3f4f6;text-align:right;font-weight:bold;color:#111827;">{{adultes}}</td></tr>
 <tr><td style="padding:5px 0;border-bottom:1px solid #f3f4f6;color:#374151;">Nombre d''enfant(s) &lt; 12 ans:</td><td style="padding:5px 0;border-bottom:1px solid #f3f4f6;text-align:right;font-weight:bold;color:#111827;">{{enfants}}</td></tr>

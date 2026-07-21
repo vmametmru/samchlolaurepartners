@@ -177,11 +177,12 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
           </div>
           <div class="multi-cart-summary-total">
             <p>Montant Total : <span data-multi-cart-summary-total>0</span> Euros</p>
+            <p class="quote-tax-note muted" data-multi-cart-tax-line hidden>Taxe touristique de <span data-multi-cart-tax-amount></span> Euros à régler à l'arrivée (Non comprise dans le total)</p>
           </div>
         </div>
       </div>
       <p class="form-feedback" data-multi-cart-feedback></p>
-      <form class="stack-md multi-cart-checkout" data-multi-cart-form data-api-form data-success-message="Vos demandes de réservation ont été envoyées ! Vous recevrez un email de confirmation." method="post" action="/api/reservations/request-multiple" hidden>
+      <form class="stack-md multi-cart-checkout" data-multi-cart-form data-api-form data-success-message="Vos demandes de réservation ont été envoyées ! Vous recevrez un email de confirmation." data-feedback-popup-id="multi-cart-status-popup" method="post" action="/api/reservations/request-multiple" hidden>
         <input type="hidden" name="adults" value="<?= (int) $adults ?>">
         <input type="hidden" name="children" value="<?= (int) ($childrenUnder3 + $children3to12) ?>">
         <input type="hidden" name="children_under3" value="<?= (int) $childrenUnder3 ?>">
@@ -197,6 +198,11 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
         <button class="btn-primary" type="submit">Envoyer mes demandes de réservation</button>
         <p class="form-feedback" data-form-feedback></p>
       </form>
+    </div>
+    <div class="booking-status-popup" id="multi-cart-status-popup" data-form-status-popup hidden aria-live="polite" aria-atomic="true">
+      <div class="booking-status-popup-box" data-form-status-popup-box>
+        <p class="booking-status-popup-message" data-form-status-popup-message></p>
+      </div>
     </div>
   <?php endif; ?>
 </section>

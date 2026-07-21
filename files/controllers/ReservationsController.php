@@ -118,14 +118,13 @@ final class ReservationsController extends Controller
         // Persons counted for cleaning and extra-person fees: adults + children
         // 3+ years (children under 3 are not charged for these items).
         $countedGuests = $adults + $children3to12;
-        $client = new LodgifyClient();
 
         // Every property has a maximum occupancy (Lodgify's max_guests); a
         // reservation request must never exceed it, otherwise the property
         // could be booked for more people than it can actually host.
         $property = null;
         try {
-            $property = $client->getProperty($propertyId);
+            $property = (new LodgifyClient())->getProperty($propertyId);
         } catch (Throwable $e) {
             error_log('Lodgify: failed to fetch property ' . $propertyId . ': ' . $e->getMessage());
         }
@@ -137,11 +136,47 @@ final class ReservationsController extends Controller
             ], 400);
         }
 
+        $quoteData = self::computeItemQuote($propertyId, $property, $checkin, $checkoutDate, $adults, $totalGuests, $countedGuests, $guests);
+        if ($quoteData === null) {
+            self::json(['error' => 'Service Unavailable', 'message' => 'Tarifs indisponibles pour le moment'], 503);
+        }
+
+        self::json(['data' => $quoteData + [
+            'grand_total' => round($quoteData['total_without_tax'] + $quoteData['tourist_tax_total'], 2),
+        ]]);
+    }
+
+    /**
+     * Computes the room/cleaning/extra-person/tourist-tax price breakdown for
+     * a single property and date range. Shared by the public quote() endpoint
+     * (property-detail booking form, called once per property) and
+     * requestMultiple() (the "Calendrier" multi-property cart, which cannot
+     * rely on a single set of client-submitted quote_* fields since each
+     * selected item is its own property/date range). Returns null when
+     * Lodgify rates can't be fetched for this property/range; the caller
+     * decides how to degrade (quote() surfaces a 503, requestMultiple() sends
+     * the request with a zeroed-out quote rather than failing the whole
+     * multi-property submission).
+     *
+     * @param array<int, array{type?: string, nationality?: string}> $guests
+     * @return array{nights: int, currency: string, room_total: float, extra_person_total: float, extra_person_fee_rate: float, extra_persons_count: int, cleaning_total: float, tourist_tax_total: float, tourist_tax_rate: float, total_without_tax: float}|null
+     */
+    private static function computeItemQuote(
+        int $propertyId,
+        ?array $property,
+        string $checkin,
+        \DateTimeImmutable $checkoutDate,
+        int $adults,
+        int $totalGuests,
+        int $countedGuests,
+        array $guests
+    ): ?array {
+        $nights = (int) (new \DateTimeImmutable($checkin))->diff($checkoutDate)->days;
         try {
-            $rates = PageController::publicRates($client, $propertyId, $checkin, $checkoutDate->modify('-1 day')->format('Y-m-d'));
+            $rates = PageController::publicRates(new LodgifyClient(), $propertyId, $checkin, $checkoutDate->modify('-1 day')->format('Y-m-d'));
         } catch (Throwable $e) {
             error_log((string) $e);
-            self::json(['error' => 'Service Unavailable', 'message' => 'Tarifs indisponibles pour le moment'], 503);
+            return null;
         }
         $currency = $rates[0]['currency'] ?? 'EUR';
         $roomTotal = 0.0;
@@ -233,9 +268,8 @@ final class ReservationsController extends Controller
         $touristTaxTotal = round($taxRate * $qualifyingGuests * $nights, 2);
 
         $totalWithoutTax = round($roomTotal + $extraPersonTotal + $cleaningTotal, 2);
-        $grandTotal = round($totalWithoutTax + $touristTaxTotal, 2);
 
-        self::json(['data' => [
+        return [
             'nights' => $nights,
             'currency' => $currency,
             'room_total' => round($roomTotal, 2),
@@ -246,8 +280,7 @@ final class ReservationsController extends Controller
             'tourist_tax_total' => $touristTaxTotal,
             'tourist_tax_rate' => $taxRate,
             'total_without_tax' => $totalWithoutTax,
-            'grand_total' => $grandTotal,
-        ]]);
+        ];
     }
 
     public static function requestReservation(): never
@@ -378,6 +411,7 @@ final class ReservationsController extends Controller
         if (!is_array($items)) {
             $items = [];
         }
+        $guests = is_array($input['guests'] ?? null) ? $input['guests'] : [];
 
         if ($clientName === '' || $clientEmail === '' || $adults < 1 || $items === []) {
             self::json(['error' => 'Bad Request', 'message' => 'Required fields missing'], 400);
@@ -427,11 +461,23 @@ final class ReservationsController extends Controller
                 $capacityByProperty[$propertyId] = $maxGuests;
             }
 
+            // Unlike the single-property booking form, this multi-property
+            // cart never posts client-computed quote_* fields (there is no
+            // single "the quote" — each selected property/date range has its
+            // own price). Compute each item's own quote server-side here
+            // (same room/cleaning/extra-person/tourist-tax logic as the
+            // public /api/reservations/quote endpoint) so every confirmation
+            // email actually shows real amounts instead of 0,00 EUR. A null
+            // result (Lodgify rates unavailable) degrades to a zeroed quote
+            // rather than failing the whole submission.
+            $itemQuote = self::computeItemQuote($propertyId, $property, $checkinDate->format('Y-m-d'), $checkoutDate, $adults, $totalGuests, $countedGuests, $guests);
+
             $normalizedItems[] = [
                 'property_id' => $propertyId,
                 'property_name' => $propertyName,
                 'checkin_date' => $checkinDate->format('Y-m-d'),
                 'checkout_date' => $checkoutDate->format('Y-m-d'),
+                'quote' => $itemQuote,
             ];
             if ($earliestCheckin === null || $checkinDate < $earliestCheckin) {
                 $earliestCheckin = $checkinDate;
@@ -536,7 +582,12 @@ final class ReservationsController extends Controller
         // notification-email failure must never turn an otherwise-successful
         // submission into a 500 for the visitor, who would then wrongly
         // believe nothing was recorded.
+        $itemCount = count($normalizedItems);
         foreach ($normalizedItems as $item) {
+            // computeItemQuote() returns null when Lodgify rates couldn't be
+            // fetched for this item; degrade to a zeroed quote (via the ??
+            // fallbacks below) instead of accessing array offsets on null.
+            $quote = $item['quote'] ?? [];
             try {
                 self::sendRequestEmails($partner, [
                     'property_id' => $item['property_id'],
@@ -551,7 +602,14 @@ final class ReservationsController extends Controller
                     'children_3to12' => $children3to12,
                     'property_name' => $item['property_name'],
                     'message' => $message,
-                ]);
+                    'quote_currency' => $quote['currency'] ?? 'EUR',
+                    'quote_nights' => $quote['nights'] ?? 0,
+                    'quote_room_total' => $quote['room_total'] ?? 0,
+                    'quote_extra_person_total' => $quote['extra_person_total'] ?? 0,
+                    'quote_cleaning_total' => $quote['cleaning_total'] ?? 0,
+                    'quote_total_without_tax' => $quote['total_without_tax'] ?? 0,
+                    'quote_tourist_tax_total' => $quote['tourist_tax_total'] ?? 0,
+                ], $itemCount);
             } catch (Throwable $e) {
                 error_log('Failed to send reservation request emails: ' . $e);
             }
@@ -706,7 +764,7 @@ final class ReservationsController extends Controller
         return $row;
     }
 
-    private static function sendRequestEmails(array $partner, array $input): void
+    private static function sendRequestEmails(array $partner, array $input, int $itemCount = 1): void
     {
         $photo = self::propertyPhotoTag(
             (int) ($input['property_id'] ?? 0),
@@ -738,7 +796,7 @@ final class ReservationsController extends Controller
         ];
         $childBreakdown = self::childBreakdownValues($input);
         $variables += self::stayVariables($checkin, $checkout, $childBreakdown['under3'], $childBreakdown['from3to12']);
-        $variables += self::requestQuoteVariables($input);
+        $variables += self::requestQuoteVariables($input, $itemCount);
         $variables += self::signatureVariables((int) ($partner['id'] ?? 0));
         $embeds = $photo['embed'] !== null ? [$photo['embed']] : [];
 
@@ -893,8 +951,17 @@ final class ReservationsController extends Controller
      * form so request emails include the same itemized amount as shown before
      * submission (Tarif, Personnes supplémentaires, Nettoyage, Total, and the
      * optional tourist-tax note).
+     *
+     * $itemCount is the number of properties combined in the same multi-
+     * property submission (the "Calendrier" cart lets a visitor request
+     * several properties at once, which sends one separate confirmation
+     * email per property). When >1, {{tarif_bloc}} gets an extra note
+     * clarifying that the shown amount only covers this one property (the
+     * other properties' prices are in their own emails), and a new
+     * {{multi_biens_note}} variable is populated so partner templates can
+     * mention it near "Vos Voyageurs" (e.g. "Pour les 2 biens sélectionnés").
      */
-    private static function requestQuoteVariables(array $input): array
+    private static function requestQuoteVariables(array $input, int $itemCount = 1): array
     {
         $currency = trim((string) ($input['quote_currency'] ?? 'EUR'));
         if ($currency === '') {
@@ -907,10 +974,15 @@ final class ReservationsController extends Controller
         $totalWithoutTax = self::toMoneyValue($input['quote_total_without_tax'] ?? 0);
         $touristTaxTotal = self::toMoneyValue($input['quote_tourist_tax_total'] ?? 0);
         $nights = max(0, (int) ($input['quote_nights'] ?? 0));
+        $itemCount = max(1, $itemCount);
 
         $tarifBloc = '<div style="padding:12px 24px 16px;">'
-            . '<p style="margin:0 0 10px;font-weight:bold;font-size:14px;color:#111827;">Résumé Tarifaire :</p>'
-            . '<table style="width:100%;border-collapse:collapse;font-size:14px;">'
+            . '<p style="margin:0 0 10px;font-weight:bold;font-size:14px;color:#111827;">Résumé Tarifaire :</p>';
+        if ($itemCount > 1) {
+            $otherBiensText = $itemCount === 2 ? "l'autre email pour le tarif de l'autre bien" : 'les autres emails pour le tarif des autres biens';
+            $tarifBloc .= '<p style="margin:0 0 10px;font-size:13px;color:#6b7280;">(Tarif uniquement pour ce bien. Voir ' . $otherBiensText . '.)</p>';
+        }
+        $tarifBloc .= '<table style="width:100%;border-collapse:collapse;font-size:14px;">'
             . '<tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;color:#374151;">Tarif</td>'
             . '<td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;color:#374151;">' . self::formatMoneyFr($roomTotal, $currency) . '</td></tr>';
         if ($extraPersonTotal > 0) {
@@ -942,6 +1014,7 @@ final class ReservationsController extends Controller
             'tarif_total' => self::formatMoneyFr($totalWithoutTax, $currency),
             'taxe_touristique' => self::formatMoneyFr($touristTaxTotal, 'EUR'),
             'tarif_bloc' => $tarifBloc,
+            'multi_biens_note' => $itemCount > 1 ? "Pour les {$itemCount} biens sélectionnés" : '',
         ];
     }
 

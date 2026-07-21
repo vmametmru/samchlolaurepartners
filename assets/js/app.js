@@ -1124,6 +1124,7 @@ function initTemplateEditor() {
     partenaire: 'Grand Baie Escapes',
     notes: 'Merci de prévoir un lit bébé supplémentaire.',
     message: 'Nous avons hâte de vous accueillir !',
+    multi_biens_note: 'Pour les 2 biens sélectionnés',
     tarif_nuits: '7',
     tarif_hebergement: '1 200,00 €',
     tarif_personnes_supplementaires: '80,00 €',
@@ -2465,6 +2466,75 @@ function initMultiPropertyCart() {
     return dailyCapacity.every((day) => (day.date < item.checkin || day.date >= item.checkout ? true : day.ok));
   }
 
+  // The board's cal-price cells only give a room-only nightly rate, so the
+  // synchronously-computed cart total (item.roomTotal) never includes the
+  // cleaning fee, extra-person fee, or tourist tax that the real
+  // confirmation email actually shows (from the same /api/reservations/quote
+  // logic used on the property-detail booking form). Fetch each cart item's
+  // full quote in the background and correct the displayed total + tourist
+  // tax note once resolved, mirroring "Tarifs & Disponibilités".
+  const quoteCache = new Map();
+  let cartQuoteRequestId = 0;
+
+  async function fetchItemQuote(item, adultsVal, under3Val, from3to12Val, guests) {
+    const key = [item.propertyId, item.checkin, item.checkout, adultsVal, under3Val, from3to12Val].join('|');
+    if (quoteCache.has(key)) return quoteCache.get(key);
+    try {
+      const response = await fetch('/api/reservations/quote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({
+          property_id: item.propertyId,
+          checkin_date: item.checkin,
+          checkout_date: item.checkout,
+          adults: adultsVal,
+          children_under3: under3Val,
+          children_3to12: from3to12Val,
+          guests
+        }),
+        credentials: 'same-origin'
+      });
+      if (!response.ok) return null;
+      const json = await response.json();
+      quoteCache.set(key, json.data);
+      return json.data;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  async function refreshCartTaxAndTotal() {
+    const taxLineEl = cartRoot.querySelector('[data-multi-cart-tax-line]');
+    const taxAmountEl = cartRoot.querySelector('[data-multi-cart-tax-amount]');
+    if (cart.length === 0) {
+      if (taxLineEl) taxLineEl.hidden = true;
+      return;
+    }
+    const currentRequest = ++cartQuoteRequestId;
+    const adultsVal = Number(checkoutForm.querySelector('[name="adults"]')?.value || 0);
+    const under3Val = Number(checkoutForm.querySelector('[name="children_under3"]')?.value || 0);
+    const from3to12Val = Number(checkoutForm.querySelector('[name="children_3to12"]')?.value || 0);
+    const guests = collectGuests(checkoutForm);
+    const quotes = await Promise.all(cart.map((item) => fetchItemQuote(item, adultsVal, under3Val, from3to12Val, guests)));
+    if (currentRequest !== cartQuoteRequestId) return;
+
+    let grandTotal = 0;
+    let taxTotal = 0;
+    quotes.forEach((quote) => {
+      if (!quote) return;
+      grandTotal += Number(quote.room_total || 0) + Number(quote.extra_person_total || 0) + Number(quote.cleaning_total || 0);
+      taxTotal += Number(quote.tourist_tax_total || 0);
+    });
+    if (summaryTotalEl) summaryTotalEl.textContent = formatEuros(grandTotal);
+    if (taxLineEl) {
+      const applies = taxTotal > 0;
+      taxLineEl.hidden = !applies;
+      if (applies && taxAmountEl) {
+        taxAmountEl.textContent = taxTotal.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+    }
+  }
+
   function renderCart() {
     listEl.innerHTML = '';
     if (cart.length === 0) {
@@ -2613,6 +2683,7 @@ function initMultiPropertyCart() {
       checkout_date: item.checkout,
     })));
     if (feedbackEl) feedbackEl.textContent = '';
+    refreshCartTaxAndTotal();
   }
 
   board.querySelectorAll('[data-property-row]').forEach((row) => {
@@ -2750,9 +2821,17 @@ function initMultiPropertyCart() {
     });
   });
 
+  // form.reset() (called by initApiForms on a successful submission) fires
+  // the native 'reset' event just like a user clicking a reset button, so
+  // this clears the cart once the requests are actually sent. It must also
+  // re-run every row's updateRowSelection (refreshAllRowHighlights) — cart
+  // items are what "selected"/"in-range" highlighting is keyed off, so
+  // without this the calendar cells kept showing the just-submitted dates
+  // as selected even though the cart itself was already emptied.
   checkoutForm.addEventListener('reset', () => {
     cart.length = 0;
     renderCart();
+    refreshAllRowHighlights();
   });
 
   // "Effacer les sélections" fully resets the visitor's choices: the cart
