@@ -49,6 +49,7 @@ $avatarInitial = strtoupper(substr($avatarInitialSource !== '' ? $avatarInitialS
               <a href="/admin/fees">Frais &amp; Taxes</a>
               <a href="/admin/smtp-settings">SMTP par défaut</a>
               <a href="/admin/versions">Versions</a>
+              <a href="/admin/diagnostic">Diagnostic</a>
             </div>
           </details>
         <?php endif; ?>
