@@ -75,20 +75,11 @@ jobs:
           fi
           echo "All required runtime files present."
 
-      - name: Create deployment zip
-        env:
-          BUILD_TS: ${{ steps.ts.outputs.value }}
-        run: |
-          (
-            cd artifact-package
-            zip -r "../deployment-package-${BUILD_TS}.zip" .
-          )
-
       - name: Upload deployment artifact
         uses: actions/upload-artifact@v4
         with:
           name: deployment-package-${{ steps.ts.outputs.value }}
-          path: deployment-package-${{ steps.ts.outputs.value }}.zip
+          path: artifact-package/
           retention-days: 30
 
       - name: Attach zip to release
