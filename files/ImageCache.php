@@ -218,15 +218,16 @@ final class ImageCache
 
     /**
      * Downscales $data to at most $maxWidth px wide, preserving aspect ratio
-     * and the original image format (JPEG/PNG/GIF/WEBP), so the saved
-     * full-size photo keeps its original type instead of always becoming a
-     * JPEG like the email thumbnail does. Returns the original $data
-     * unchanged whenever: GD is unavailable, the image can't be decoded,
-     * its width is already <= $maxWidth (never upscaled), or re-encoding
-     * fails for any reason — resizing is a best-effort optimization, not a
-     * requirement for the photo to be saved.
+     * and the original image format (JPEG/PNG/GIF/WEBP). Returns the
+     * original $data unchanged whenever: GD is unavailable, the image can't
+     * be decoded, its width is already <= $maxWidth (never upscaled), or
+     * re-encoding fails for any reason — resizing is a best-effort
+     * optimization, never a requirement for the image to be saved. Public so
+     * callers outside the Lodgify sync flow (e.g.
+     * AccountController::storeUploadedPhoto()) can reuse the exact same
+     * downscale logic for user-uploaded avatars.
      */
-    private static function resizeIfTooWide(string $data, int $maxWidth): string
+    public static function resizeIfTooWide(string $data, int $maxWidth): string
     {
         if (!function_exists('imagecreatefromstring')) {
             return $data;

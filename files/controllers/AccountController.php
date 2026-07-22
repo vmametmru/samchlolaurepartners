@@ -8,6 +8,7 @@ use App\Auth;
 use App\Controller;
 use App\Database;
 use App\HttpException;
+use App\ImageCache;
 use App\Mailer;
 use App\Settings;
 use App\View;
@@ -23,6 +24,16 @@ use Throwable;
 final class AccountController extends Controller
 {
     private const ALLOWED_PHOTO_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+
+    /**
+     * The signature photo is only ever displayed at a small, fixed size
+     * (64px) in reservation emails and the navbar, so there is no reason to
+     * keep the original upload's full resolution: downscaling it to 100px
+     * wide on upload noticeably shrinks the size of every reservation email
+     * that embeds it (see ReservationsController::signaturePhotoTag()),
+     * without any visible quality loss at its actual display size.
+     */
+    private const AVATAR_WIDTH = 100;
 
     public static function profile(): void
     {
@@ -181,9 +192,15 @@ final class AccountController extends Controller
             throw new HttpException(500, 'Internal Server Error', 'Impossible de créer le dossier de stockage des photos.');
         }
 
+        $data = @file_get_contents((string) $file['tmp_name']);
+        if ($data === false || $data === '') {
+            throw new HttpException(500, 'Internal Server Error', 'Impossible de lire la photo envoyée.');
+        }
+        $data = ImageCache::resizeIfTooWide($data, self::AVATAR_WIDTH);
+
         $filename = 'user-' . $userId . '-' . bin2hex(random_bytes(8)) . '.' . $extension;
         $destination = $dir . '/' . $filename;
-        if (!move_uploaded_file((string) $file['tmp_name'], $destination)) {
+        if (@file_put_contents($destination, $data) === false) {
             throw new HttpException(500, 'Internal Server Error', 'Impossible d\'enregistrer la photo.');
         }
 
