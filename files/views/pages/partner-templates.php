@@ -68,10 +68,10 @@ $baseUrl = $isAdmin ? '/admin/partners/' . (int) $adminPartnerId . '/templates' 
           </details>
           <div class="flex-group">
             <button class="btn-primary" type="submit">Sauvegarder</button>
-            <form method="post" action="<?= $baseUrl ?>/<?= (int) $selected['id'] ?>/delete" style="display:inline;" onsubmit="return confirm('Êtes-vous sûr ? Cette action est irréversible.');">
-              <button class="btn-secondary" type="submit">Supprimer</button>
-            </form>
           </div>
+        </form>
+        <form method="post" action="<?= $baseUrl ?>/<?= (int) $selected['id'] ?>/delete" style="display:inline;" onsubmit="return confirm('Êtes-vous sûr ? Cette action est irréversible.');">
+          <button class="btn-secondary" type="submit">Supprimer</button>
         </form>
       <?php endif; ?>
     </div>
