@@ -88,7 +88,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: deployment-package-${{ steps.ts.outputs.value }}
-          path: artifact-package/
+          path: deployment-package-${{ steps.ts.outputs.value }}.zip
           retention-days: 30
 
       - name: Attach zip to release
