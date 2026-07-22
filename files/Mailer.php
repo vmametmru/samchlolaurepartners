@@ -96,7 +96,13 @@ final class Mailer
                     $headers[] = 'Reply-To: ' . $replyTo;
                 }
                 if ($embeds !== []) {
-                    $headers[] = 'Content-Type: multipart/related; boundary="' . $boundary . '"';
+                    // RFC 2387 §3.1: multipart/related needs a "type" parameter
+                    // naming the root body part's media type. Without it, some
+                    // mail clients (notably Apple Mail / iCloud Mail) fail to
+                    // resolve the HTML's cid: references and instead render
+                    // every embedded image as a plain attachment at the end of
+                    // the message instead of inline where referenced.
+                    $headers[] = 'Content-Type: multipart/related; type="text/html"; boundary="' . $boundary . '"';
                     $body = self::buildRelatedBody($boundary, $html, $embeds);
                 } else {
                     $headers[] = 'Content-Type: text/html; charset=UTF-8';
@@ -234,7 +240,11 @@ final class Mailer
 
         if ($embeds !== []) {
             $boundary = self::boundary();
-            $headers[] = 'Content-Type: multipart/related; boundary="' . $boundary . '"';
+            // See the matching comment in deliver()'s mail() fallback: the
+            // "type" parameter is required by RFC 2387 for mail clients to
+            // reliably inline cid:-referenced images instead of showing them
+            // as trailing attachments.
+            $headers[] = 'Content-Type: multipart/related; type="text/html"; boundary="' . $boundary . '"';
             $body = self::buildRelatedBody($boundary, $html, $embeds);
         } else {
             $headers[] = 'Content-Type: text/html; charset=UTF-8';
