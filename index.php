@@ -270,6 +270,8 @@ try {
             PageController::adminDeleteTemplateGalleryAsset();
         case route($method, $path, 'POST', '#^/admin/templates/(\d+)/(\d+)$#', $matches):
             PageController::adminSaveAllTemplate((int) $matches[1], (int) $matches[2]);
+        case route($method, $path, 'POST', '#^/admin/templates/(\d+)/(\d+)/delete$#', $matches):
+            PageController::adminDeleteAllTemplate((int) $matches[1], (int) $matches[2]);
         case route($method, $path, 'GET', '#^/admin/mise-a-jour$#'):
             PageController::adminMiseAJour();
             break;

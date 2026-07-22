@@ -1666,6 +1666,16 @@ final class PageController extends Controller
         self::redirect('/admin/templates?partner_id=' . $partnerId . '&id=' . $id, 'Template sauvegardé.');
     }
 
+    public static function adminDeleteAllTemplate(int $partnerId, int $id): never
+    {
+        self::requireAdminUser();
+        Database::connection()->prepare('DELETE FROM email_templates WHERE id = ? AND partner_id = ?')->execute([
+            $id,
+            $partnerId,
+        ]);
+        self::redirect('/admin/templates?partner_id=' . $partnerId, 'Template supprimé.');
+    }
+
     public static function adminCreateAllTemplate(): never
     {
         self::requireAdminUser();
