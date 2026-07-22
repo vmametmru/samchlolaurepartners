@@ -194,6 +194,18 @@ pouvoir y lire quoi que ce soit d'autre.</pre>
   </div><!-- /.stack-md -->
   <?php endif; ?>
 
+  <!-- ─── Journal des emails envoyés (files/storage/logs/mail.log) ─── -->
+  <div class="card card-body stack-sm" style="margin-top:2rem;">
+    <h2 class="section-title">Journal des emails</h2>
+    <p class="muted" style="margin:0 0 .5rem;">Chaque tentative d'envoi (demande, confirmation, annulation...) est journalisée ici, succès ou échec, indépendamment des logs serveur PHP.</p>
+    <?php if (empty($mailLog)): ?>
+      <p class="muted">Aucun envoi enregistré pour l'instant.</p>
+    <?php else: ?>
+      <pre class="message-box" style="max-height:400px;overflow:auto;"><?php foreach ($mailLog as $line): ?><?= View::e($line) ?>
+<?php endforeach; ?></pre>
+    <?php endif; ?>
+  </div>
+
   <!-- ─── Test en direct : requête Lodgify (dates + voyageurs) ─── -->
   <div class="card card-body stack-sm" style="margin-top:2rem;">
     <h2 class="section-title">Test en direct — requête Lodgify</h2>

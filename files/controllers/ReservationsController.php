@@ -742,20 +742,35 @@ final class ReservationsController extends Controller
 
         $pdo = Database::connection();
         $stmt = $pdo->prepare('SELECT * FROM email_templates WHERE partner_id = ? AND type = ? LIMIT 1');
+
+        // Each recipient is sent in its own try/catch: previously a failure
+        // sending to the partner (bad SMTP credentials, unreachable host,
+        // invalid partner email, ...) threw an exception that aborted this
+        // whole method, silently skipping the client email below too. Now a
+        // partner-side failure can never prevent the client from being
+        // notified (and vice versa).
         $stmt->execute([(int) $partner['id'], 'REQUEST_RECEIVED_PARTNER']);
         $partnerTemplate = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
-        if ($partnerTemplate) {
-            Mailer::sendTemplatedEmail($partner, $partnerTemplate, (string) $partner['email'], $variables, $embeds);
-        } else {
-            Mailer::sendRawEmail($partner, (string) $partner['email'], 'Nouvelle demande de réservation - ' . $variables['nom_client'], '<p>Nouvelle demande de ' . htmlspecialchars($variables['nom_client']) . ' (' . htmlspecialchars($variables['email_client']) . ') pour ' . htmlspecialchars($variables['hebergement'] !== '' ? $variables['hebergement'] : 'hébergement non spécifié') . ' du ' . htmlspecialchars($variables['date_arrivee']) . ' au ' . htmlspecialchars($variables['date_depart']) . '.</p>');
+        try {
+            if ($partnerTemplate) {
+                Mailer::sendTemplatedEmail($partner, $partnerTemplate, (string) $partner['email'], $variables, $embeds);
+            } else {
+                Mailer::sendRawEmail($partner, (string) $partner['email'], 'Nouvelle demande de réservation - ' . $variables['nom_client'], '<p>Nouvelle demande de ' . htmlspecialchars($variables['nom_client']) . ' (' . htmlspecialchars($variables['email_client']) . ') pour ' . htmlspecialchars($variables['hebergement'] !== '' ? $variables['hebergement'] : 'hébergement non spécifié') . ' du ' . htmlspecialchars($variables['date_arrivee']) . ' au ' . htmlspecialchars($variables['date_depart']) . '.</p>');
+            }
+        } catch (Throwable $e) {
+            error_log('Failed to send REQUEST_RECEIVED_PARTNER email to partner #' . (int) ($partner['id'] ?? 0) . ' (' . (string) ($partner['email'] ?? '') . '): ' . $e);
         }
 
         $stmt->execute([(int) $partner['id'], 'REQUEST_RECEIVED_CLIENT']);
         $clientTemplate = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
-        if ($clientTemplate) {
-            Mailer::sendTemplatedEmail($partner, $clientTemplate, (string) $input['client_email'], $variables, $embeds);
-        } else {
-            Mailer::sendRawEmail($partner, (string) $input['client_email'], 'Confirmation de votre demande - ' . (string) $partner['name'], '<p>Bonjour ' . htmlspecialchars((string) $input['client_name']) . ',</p><p>Nous avons bien reçu votre demande de réservation pour ' . htmlspecialchars((string) ($input['property_name'] ?? 'l\'hébergement')) . ' du ' . htmlspecialchars((string) $input['checkin_date']) . ' au ' . htmlspecialchars((string) $input['checkout_date']) . '. Nous vous contacterons très prochainement.</p><p>Cordialement,<br>' . htmlspecialchars((string) $partner['name']) . '</p>');
+        try {
+            if ($clientTemplate) {
+                Mailer::sendTemplatedEmail($partner, $clientTemplate, (string) $input['client_email'], $variables, $embeds);
+            } else {
+                Mailer::sendRawEmail($partner, (string) $input['client_email'], 'Confirmation de votre demande - ' . (string) $partner['name'], '<p>Bonjour ' . htmlspecialchars((string) $input['client_name']) . ',</p><p>Nous avons bien reçu votre demande de réservation pour ' . htmlspecialchars((string) ($input['property_name'] ?? 'l\'hébergement')) . ' du ' . htmlspecialchars((string) $input['checkin_date']) . ' au ' . htmlspecialchars((string) $input['checkout_date']) . '. Nous vous contacterons très prochainement.</p><p>Cordialement,<br>' . htmlspecialchars((string) $partner['name']) . '</p>');
+            }
+        } catch (Throwable $e) {
+            error_log('Failed to send REQUEST_RECEIVED_CLIENT email to ' . (string) ($input['client_email'] ?? '') . ': ' . $e);
         }
     }
 

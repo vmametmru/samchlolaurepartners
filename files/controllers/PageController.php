@@ -1202,6 +1202,18 @@ final class PageController extends Controller
             $data['cache'] = ['properties_cached' => $cacheState];
         }
 
+        // Mail log — always visible (not gated behind ?run=1) since it's the
+        // one thing an admin needs when a partner/client reports "I never
+        // received the email": on shared/cPanel hosting the PHP error_log()
+        // destination is often inaccessible, but this file lives inside the
+        // deployment package itself (see Mailer::logMail()).
+        $mailLogPath = (defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2)) . '/files/storage/logs/mail.log';
+        $mailLog = [];
+        if (is_file($mailLogPath)) {
+            $lines = @file($mailLogPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+            $mailLog = array_reverse(array_slice($lines, -200));
+        }
+
         // Live Lodgify query test — lets an admin pick real dates/guests and see
         // exactly what Lodgify returns for each property (name, description,
         // availability, price/night), to diagnose why a public search might show
@@ -1227,6 +1239,7 @@ final class PageController extends Controller
             'diagnostic' => $data,
             'queryTestInput' => $queryTestInput,
             'queryTest' => $queryTest,
+            'mailLog' => $mailLog,
         ]);
     }
 

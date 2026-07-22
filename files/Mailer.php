@@ -45,46 +45,77 @@ final class Mailer
      */
     private static function deliver(array $partner, string $to, string $subject, string $html, ?string $replyTo = null, array $embeds = []): void
     {
-        $to = self::sanitizeAddress($to, 'recipient');
-        $subject = self::stripCrlf($subject);
-        if ($replyTo !== null) {
-            $replyTo = self::sanitizeAddress($replyTo, 'Reply-To');
+        try {
+            $to = self::sanitizeAddress($to, 'recipient');
+            $subject = self::stripCrlf($subject);
+            if ($replyTo !== null) {
+                $replyTo = self::sanitizeAddress($replyTo, 'Reply-To');
+            }
+
+            $config = [
+                'host' => self::firstNonEmpty($partner['smtp_host'] ?? null, Settings::get('SMTP_HOST', 'mail.grand-baie-maurice.com')),
+                'port' => (int) self::firstNonEmpty($partner['smtp_port'] ?? null, (string) Settings::int('SMTP_PORT', 465)),
+                'user' => self::firstNonEmpty($partner['smtp_user'] ?? null, Settings::get('SMTP_USER', 'infos@grand-baie-maurice.com')),
+                'pass' => self::firstNonEmpty($partner['smtp_pass'] ?? null, Settings::get('SMTP_PASS', '')),
+                'from_email' => self::firstNonEmpty($partner['smtp_user'] ?? null, Settings::get('SMTP_FROM_EMAIL', ''), Settings::get('SMTP_USER', 'infos@grand-baie-maurice.com')),
+                'from_name' => (string) ($partner['name'] ?? Settings::get('SMTP_FROM_NAME', 'samchlolaurepartners')),
+                'security' => strtolower((string) Settings::get('SMTP_SECURITY', 'ssl')),
+            ];
+
+            if (!empty($config['host'])) {
+                self::sendSmtp($config, $to, $subject, $html, $replyTo, $embeds);
+            } else {
+                $boundary = self::boundary();
+                $headers = [
+                    'MIME-Version: 1.0',
+                    'From: "' . addslashes(self::stripCrlf($config['from_name'])) . '" <' . $config['from_email'] . '>',
+                ];
+                if ($replyTo) {
+                    $headers[] = 'Reply-To: ' . $replyTo;
+                }
+                if ($embeds !== []) {
+                    $headers[] = 'Content-Type: multipart/related; boundary="' . $boundary . '"';
+                    $body = self::buildRelatedBody($boundary, $html, $embeds);
+                } else {
+                    $headers[] = 'Content-Type: text/html; charset=UTF-8';
+                    $body = $html;
+                }
+
+                if (!@mail($to, $subject, $body, implode("\r\n", $headers))) {
+                    throw new RuntimeException('Unable to send email via mail()');
+                }
+            }
+        } catch (\Throwable $e) {
+            self::logMail($to, $subject, 'FAILED: ' . $e->getMessage());
+            throw $e;
         }
 
-        $config = [
-            'host' => self::firstNonEmpty($partner['smtp_host'] ?? null, Settings::get('SMTP_HOST', 'mail.grand-baie-maurice.com')),
-            'port' => (int) self::firstNonEmpty($partner['smtp_port'] ?? null, (string) Settings::int('SMTP_PORT', 465)),
-            'user' => self::firstNonEmpty($partner['smtp_user'] ?? null, Settings::get('SMTP_USER', 'infos@grand-baie-maurice.com')),
-            'pass' => self::firstNonEmpty($partner['smtp_pass'] ?? null, Settings::get('SMTP_PASS', '')),
-            'from_email' => self::firstNonEmpty($partner['smtp_user'] ?? null, Settings::get('SMTP_FROM_EMAIL', ''), Settings::get('SMTP_USER', 'infos@grand-baie-maurice.com')),
-            'from_name' => (string) ($partner['name'] ?? Settings::get('SMTP_FROM_NAME', 'samchlolaurepartners')),
-            'security' => strtolower((string) Settings::get('SMTP_SECURITY', 'ssl')),
-        ];
+        self::logMail($to, $subject, 'SENT');
+    }
 
-        if (!empty($config['host'])) {
-            self::sendSmtp($config, $to, $subject, $html, $replyTo, $embeds);
-            return;
+    /**
+     * Appends a one-line entry to files/storage/logs/mail.log for every send
+     * attempt (success or failure), independent of PHP's own error_log()
+     * destination. On shared/cPanel hosting, error_log() often goes to a
+     * server-level log the partner/admin can't easily reach, which made
+     * silent SMTP failures (bad credentials, wrong host, auth rejected by
+     * the recipient's mail server, ...) impossible to diagnose from within
+     * the app. This file is always reachable from the deployment package.
+     */
+    private static function logMail(string $to, string $subject, string $status): void
+    {
+        $dir = (defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__)) . '/files/storage/logs';
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0775, true);
         }
-
-        $boundary = self::boundary();
-        $headers = [
-            'MIME-Version: 1.0',
-            'From: "' . addslashes(self::stripCrlf($config['from_name'])) . '" <' . $config['from_email'] . '>',
-        ];
-        if ($replyTo) {
-            $headers[] = 'Reply-To: ' . $replyTo;
-        }
-        if ($embeds !== []) {
-            $headers[] = 'Content-Type: multipart/related; boundary="' . $boundary . '"';
-            $body = self::buildRelatedBody($boundary, $html, $embeds);
-        } else {
-            $headers[] = 'Content-Type: text/html; charset=UTF-8';
-            $body = $html;
-        }
-
-        if (!@mail($to, $subject, $body, implode("\r\n", $headers))) {
-            throw new RuntimeException('Unable to send email via mail()');
-        }
+        $line = sprintf(
+            "[%s] to=%s subject=%s status=%s\n",
+            date('Y-m-d H:i:s'),
+            str_replace(["\r", "\n"], ' ', $to),
+            str_replace(["\r", "\n"], ' ', $subject),
+            str_replace(["\r", "\n"], ' ', $status)
+        );
+        @file_put_contents($dir . '/mail.log', $line, FILE_APPEND | LOCK_EX);
     }
 
     /**
