@@ -196,15 +196,20 @@ final class LodgifyClient
      */
     public function getPropertyPhotoUrl(int $propertyId): string
     {
-        if ($propertyId <= 0) {
+        return $this->getPropertyPhotoUrlByIndex($propertyId, 1);
+    }
+
+    public function getPropertyPhotoUrlByIndex(int $propertyId, int $photoIndex): string
+    {
+        if ($propertyId <= 0 || $photoIndex <= 0) {
             return '';
         }
 
         $dir = BASE_PATH . '/images/listings/' . $propertyId;
         foreach (ImageCache::ALLOWED_EXTENSIONS as $extension) {
-            $path = $dir . '/photo1.' . $extension;
+            $path = $dir . '/photo' . $photoIndex . '.' . $extension;
             if (is_file($path) && filesize($path) > 0) {
-                return '/images/listings/' . $propertyId . '/photo1.' . $extension;
+                return '/images/listings/' . $propertyId . '/photo' . $photoIndex . '.' . $extension;
             }
         }
 
