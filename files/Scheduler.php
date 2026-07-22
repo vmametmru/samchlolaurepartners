@@ -61,10 +61,12 @@ SQL;
                 'hebergement' => (string) $row['property_name'],
                 'partenaire' => (string) $row['name'],
             ];
-            $variables += \App\controllers\ReservationsController::signatureVariables((int) $row['id']);
+            $signature = \App\controllers\ReservationsController::signatureVariables((int) $row['id']);
+            $variables += $signature['variables'];
+            $embeds = $signature['embed'] !== null ? [$signature['embed']] : [];
 
             try {
-                Mailer::sendTemplatedEmail($row, $template, (string) $row['client_email'], $variables);
+                Mailer::sendTemplatedEmail($row, $template, (string) $row['client_email'], $variables, $embeds);
                 $markStmt = $pdo->prepare('INSERT IGNORE INTO sent_schedule_emails (schedule_id, reservation_id) VALUES (?, ?)');
                 $markStmt->execute([(int) $row['schedule_id'], (int) $row['reservation_id']]);
                 $sent++;

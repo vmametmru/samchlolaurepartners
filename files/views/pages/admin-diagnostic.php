@@ -197,12 +197,32 @@ pouvoir y lire quoi que ce soit d'autre.</pre>
   <!-- ─── Journal des emails envoyés (files/storage/logs/mail.log) ─── -->
   <div class="card card-body stack-sm" style="margin-top:2rem;">
     <h2 class="section-title">Journal des emails</h2>
-    <p class="muted" style="margin:0 0 .5rem;">Chaque tentative d'envoi (demande, confirmation, annulation...) est journalisée ici, succès ou échec, indépendamment des logs serveur PHP.</p>
+    <p class="muted" style="margin:0 0 .5rem;">Chaque tentative d'envoi (demande, confirmation, annulation...) est journalisée ici, succès ou échec, indépendamment des logs serveur PHP. Cliquez sur une ligne pour voir le détail complet de l'échange SMTP (utile quand le serveur accepte le message — « SENT » — mais que le destinataire ne le reçoit jamais : le problème est alors chez le fournisseur mail du destinataire, pas ici).</p>
     <?php if (empty($mailLog)): ?>
       <p class="muted">Aucun envoi enregistré pour l'instant.</p>
     <?php else: ?>
-      <pre class="message-box" style="max-height:400px;overflow:auto;"><?php foreach ($mailLog as $line): ?><?= View::e($line) ?>
+      <div class="stack-sm" style="max-height:500px;overflow:auto;">
+        <?php foreach ($mailLog as $entry): ?>
+          <?php if (isset($entry['raw'])): ?>
+            <pre class="message-box" style="margin:0;"><?= View::e($entry['raw']) ?></pre>
+          <?php else: ?>
+            <?php $ok = str_starts_with((string) $entry['status'], 'SENT'); ?>
+            <details class="message-box" style="margin:0;padding:.5rem .75rem;">
+              <summary style="cursor:pointer;color:<?= $ok ? '#1a7f37' : '#b3261e' ?>;">
+                [<?= View::e((string) $entry['ts']) ?>]
+                <strong><?= $ok ? '✅ SENT' : '❌ ' . View::e((string) $entry['status']) ?></strong>
+                → <?= View::e((string) $entry['to']) ?>
+                — <?= View::e((string) ($entry['subject'] ?? '')) ?>
+                <span class="muted">(<?= View::e((string) ($entry['transport'] ?? '?')) ?><?= !empty($entry['host']) ? ' ' . View::e((string) $entry['host']) . ':' . View::e((string) ($entry['port'] ?? '')) : '' ?>, <?= (int) ($entry['embeds'] ?? 0) ?> image(s) intégrée(s)<?= !empty($entry['embed_bytes']) ? ', ' . number_format((int) $entry['embed_bytes'] / 1024, 1) . ' Ko' : '' ?>, <?= (int) ($entry['duration_ms'] ?? 0) ?> ms)</span>
+              </summary>
+              <?php if (!empty($entry['trace'])): ?>
+                <pre style="margin:.5rem 0 0;white-space:pre-wrap;font-size:.85em;"><?php foreach ($entry['trace'] as $traceLine): ?><?= View::e((string) $traceLine) ?>
 <?php endforeach; ?></pre>
+              <?php endif; ?>
+            </details>
+          <?php endif; ?>
+        <?php endforeach; ?>
+      </div>
     <?php endif; ?>
   </div>
 

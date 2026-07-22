@@ -1206,12 +1206,23 @@ final class PageController extends Controller
         // one thing an admin needs when a partner/client reports "I never
         // received the email": on shared/cPanel hosting the PHP error_log()
         // destination is often inaccessible, but this file lives inside the
-        // deployment package itself (see Mailer::logMail()).
+        // deployment package itself (see Mailer::logMail()). Each line is a
+        // JSON object (ts/to/subject/status/transport/host/port/security/
+        // embeds/embed_bytes/duration_ms/trace[]); older plain-text lines
+        // (from before the structured trace was added) are still displayed,
+        // just without the extra detail.
         $mailLogPath = (defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2)) . '/files/storage/logs/mail.log';
         $mailLog = [];
         if (is_file($mailLogPath)) {
             $lines = @file($mailLogPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
-            $mailLog = array_reverse(array_slice($lines, -200));
+            foreach (array_reverse(array_slice($lines, -200)) as $line) {
+                $decoded = json_decode($line, true);
+                if (is_array($decoded) && isset($decoded['ts'], $decoded['to'], $decoded['status'])) {
+                    $mailLog[] = $decoded + ['trace' => $decoded['trace'] ?? []];
+                } else {
+                    $mailLog[] = ['raw' => $line];
+                }
+            }
         }
 
         // Live Lodgify query test — lets an admin pick real dates/guests and see
