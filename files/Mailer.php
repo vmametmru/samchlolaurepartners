@@ -10,9 +10,49 @@ final class Mailer
 {
     public static function renderTemplate(string $template, array $variables): string
     {
-        return preg_replace_callback('/\{\{(\w+)\}\}/', static function (array $matches) use ($variables): string {
-            return (string) ($variables[$matches[1]] ?? $matches[0]);
+        $rendered = preg_replace_callback('/\{\{([a-zA-Z0-9_]+)(?::(\d{1,4}))?\}\}/', static function (array $matches) use ($variables): string {
+            $name = (string) $matches[1];
+            $size = isset($matches[2]) ? (int) $matches[2] : null;
+            $value = $variables[$name] ?? null;
+            if ($value === null) {
+                return $matches[0];
+            }
+            if ($value instanceof \Closure || (is_object($value) && is_callable($value))) {
+                return (string) $value($size);
+            }
+            return (string) $value;
         }, $template) ?? $template;
+
+        // A template built with the WYSIWYG editor can contain
+        // <img src="{{photoN_url}}" ...> tags for a property photo slot that
+        // doesn't actually exist (e.g. the listing only has one synced
+        // photo but the template references {{photo2_url}}/{{photo3_url}}).
+        // Those "_url" variables resolve to an empty string above, leaving
+        // a broken <img src=""> that most mail clients render as a visible
+        // broken-image placeholder. Strip any such now-empty-src <img> tag
+        // entirely rather than showing recipients a broken icon.
+        $rendered = (string) preg_replace('/<img\b[^>]*\ssrc=(["\'])\1[^>]*>/i', '', $rendered);
+
+        // Images inserted from the "Mini galerie graphique" (or any other
+        // locally-hosted asset) are saved as a site-root-relative path, e.g.
+        // "/images/others/email-template-assets/partner-1/foo.png". That
+        // resolves fine in the admin's own browser preview (relative to the
+        // page's own origin), but a mail client has no such origin to
+        // resolve it against, so the image silently fails to load. Rewrite
+        // any such root-relative <img src="..."> into an absolute URL using
+        // the current request's host, leaving already-absolute (http(s)://)
+        // and data:/cid: sources untouched.
+        return (string) preg_replace_callback(
+            '/(<img\b[^>]*\ssrc=)(["\'])(\/(?!\/)[^"\'>]*)\2/i',
+            static function (array $matches): string {
+                $baseUrl = Auth::currentBaseUrl();
+                if ($baseUrl === '') {
+                    return $matches[0];
+                }
+                return $matches[1] . $matches[2] . $baseUrl . $matches[3] . $matches[2];
+            },
+            $rendered
+        );
     }
 
     public static function sendTemplatedEmail(array $partner, array $template, string $to, array $variables, array $embeds = []): void

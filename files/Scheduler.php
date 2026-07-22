@@ -23,6 +23,7 @@ SELECT
   rr.checkout_date,
   rr.adults,
   rr.children,
+  rr.property_id,
   rr.property_name,
   p.*
 FROM email_schedules es
@@ -53,14 +54,27 @@ SQL;
             $variables = [
                 'nom_client' => (string) $row['client_name'],
                 'email_client' => (string) $row['client_email'],
-                'dates' => (string) $row['checkin_date'] . ' → ' . (string) $row['checkout_date'],
-                'date_arrivee' => (string) $row['checkin_date'],
-                'date_depart' => (string) $row['checkout_date'],
                 'adultes' => (string) $row['adults'],
                 'enfants' => (string) $row['children'],
                 'hebergement' => (string) $row['property_name'],
                 'partenaire' => (string) $row['name'],
+                'photo_bien' => \App\controllers\ReservationsController::propertyPhotoVariable((int) ($row['property_id'] ?? 0), (string) $row['property_name'], 1),
+                'photo1' => \App\controllers\ReservationsController::propertyPhotoVariable((int) ($row['property_id'] ?? 0), (string) $row['property_name'], 1),
+                'photo2' => \App\controllers\ReservationsController::propertyPhotoVariable((int) ($row['property_id'] ?? 0), (string) $row['property_name'], 2),
+                'photo3' => \App\controllers\ReservationsController::propertyPhotoVariable((int) ($row['property_id'] ?? 0), (string) $row['property_name'], 3),
+                'photo1_url' => \App\controllers\ReservationsController::propertyPhotoUrlValue((int) ($row['property_id'] ?? 0), 1),
+                'photo2_url' => \App\controllers\ReservationsController::propertyPhotoUrlValue((int) ($row['property_id'] ?? 0), 2),
+                'photo3_url' => \App\controllers\ReservationsController::propertyPhotoUrlValue((int) ($row['property_id'] ?? 0), 3),
+                'logo_partenaire' => \App\controllers\ReservationsController::partnerLogoVariable((string) ($row['logo_url'] ?? ''), (string) $row['name']),
+                'logo_partenaire_url' => \App\controllers\ReservationsController::partnerLogoUrlValue((string) ($row['logo_url'] ?? '')),
+                'email_partenaire' => (string) ($row['email'] ?? ''),
             ];
+            $variables += \App\controllers\ReservationsController::stayVariables(
+                (string) $row['checkin_date'],
+                (string) $row['checkout_date'],
+                0,
+                (int) ($row['children'] ?? 0)
+            );
             $signature = \App\controllers\ReservationsController::signatureVariables((int) $row['id']);
             $variables += $signature['variables'];
             $embeds = $signature['embed'] !== null ? [$signature['embed']] : [];

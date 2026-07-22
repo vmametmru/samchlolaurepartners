@@ -22,6 +22,7 @@ use Throwable;
 final class PageController extends Controller
 {
     private const ALLOWED_LOGO_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+    private const ALLOWED_TEMPLATE_ASSET_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
 
     /**
      * The root URL is hardcoded to always show the "enter your partner code"
@@ -660,6 +661,44 @@ final class PageController extends Controller
             ->prepare("DELETE FROM users WHERE id = ? AND partner_id = ? AND role = 'partner'")
             ->execute([$userId, $partnerId]);
         self::redirect('/admin/partners', 'Utilisateur supprimé.');
+    }
+
+    public static function adminPartnerTemplates(int $partnerId): void
+    {
+        self::requireAdminUser();
+        $partnerStmt = Database::connection()->prepare('SELECT name FROM partners WHERE id = ? LIMIT 1');
+        $partnerStmt->execute([$partnerId]);
+        $partnerName = (string) ($partnerStmt->fetchColumn() ?: 'Partenaire #' . $partnerId);
+        $templates = EmailTemplatesController::listForPartner($partnerId);
+        $selectedId = (int) ($_GET['id'] ?? ($templates[0]['id'] ?? 0));
+        $selected = null;
+        foreach ($templates as $template) {
+            if ((int) $template['id'] === $selectedId) {
+                $selected = $template;
+                break;
+            }
+        }
+        View::render('pages/partner-templates', [
+            'pageTitle' => 'Templates email · ' . $partnerName,
+            'templates' => $templates,
+            'selected' => $selected,
+            'adminPartnerId' => $partnerId,
+            'adminPartnerName' => $partnerName,
+        ]);
+    }
+
+    public static function adminSavePartnerTemplate(int $partnerId, int $id): never
+    {
+        self::requireAdminUser();
+        Database::connection()->prepare(
+            'UPDATE email_templates SET subject = ?, body_html = ?, updated_at = NOW() WHERE id = ? AND partner_id = ?'
+        )->execute([
+            (string) ($_POST['subject'] ?? ''),
+            (string) ($_POST['body_html'] ?? ''),
+            $id,
+            $partnerId,
+        ]);
+        self::redirect('/admin/partners/' . $partnerId . '/templates?id=' . $id, 'Template sauvegardé.');
     }
 
     public static function adminPartnerForm(?int $id = null): void
@@ -1362,6 +1401,73 @@ final class PageController extends Controller
         return '/images/logo/' . $filename;
     }
 
+    private static function storePartnerTemplateAsset(int $partnerId): ?string
+    {
+        $file = $_FILES['asset'] ?? null;
+        if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            return null;
+        }
+        if (!is_uploaded_file((string) $file['tmp_name'])) {
+            return null;
+        }
+
+        $originalName = (string) ($file['name'] ?? '');
+        $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+        if (!in_array($extension, self::ALLOWED_TEMPLATE_ASSET_EXTENSIONS, true)) {
+            throw new HttpException(400, 'Bad Request', 'Format d’image non supporté (jpg, jpeg, png, gif, webp).');
+        }
+        if ((int) ($file['size'] ?? 0) > 5 * 1024 * 1024) {
+            throw new HttpException(400, 'Bad Request', 'L’image ne doit pas dépasser 5 Mo.');
+        }
+
+        $dir = BASE_PATH . '/images/others/email-template-assets/partner-' . $partnerId;
+        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+            throw new HttpException(500, 'Internal Server Error', 'Impossible de créer le dossier de galerie.');
+        }
+
+        $filename = 'asset-' . bin2hex(random_bytes(8)) . '.' . $extension;
+        $destination = $dir . '/' . $filename;
+        if (!move_uploaded_file((string) $file['tmp_name'], $destination)) {
+            throw new HttpException(500, 'Internal Server Error', 'Impossible d’enregistrer l’image.');
+        }
+
+        return '/images/others/email-template-assets/partner-' . $partnerId . '/' . $filename;
+    }
+
+    /**
+     * @return array<int, array{name: string, url: string}>
+     */
+    private static function templateGalleryAssets(int $partnerId): array
+    {
+        if ($partnerId <= 0) {
+            return [];
+        }
+
+        $dir = BASE_PATH . '/images/others/email-template-assets/partner-' . $partnerId;
+        if (!is_dir($dir)) {
+            return [];
+        }
+
+        $assets = [];
+        foreach (glob($dir . '/*') ?: [] as $path) {
+            if (!is_file($path) || filesize($path) <= 0) {
+                continue;
+            }
+            $basename = basename($path);
+            $extension = strtolower(pathinfo($basename, PATHINFO_EXTENSION));
+            if (!in_array($extension, self::ALLOWED_TEMPLATE_ASSET_EXTENSIONS, true)) {
+                continue;
+            }
+            $assets[] = [
+                'name' => $basename,
+                'url' => '/images/others/email-template-assets/partner-' . $partnerId . '/' . $basename,
+            ];
+        }
+
+        usort($assets, static fn (array $a, array $b): int => strcmp($a['name'], $b['name']));
+        return $assets;
+    }
+
     private static function deleteLocalAsset(string $publicPath, string $allowedPrefix): void
     {
         $publicPath = trim($publicPath);
@@ -1448,5 +1554,808 @@ final class PageController extends Controller
                 'min_stay' => $rate['min_stay'] ?? null,
             ];
         }, $rawRates);
+    }
+
+    // -------------------------------------------------------------------------
+    // Admin: All Templates
+    // -------------------------------------------------------------------------
+
+    public static function adminAllTemplates(): void
+    {
+        self::requireAdminUser();
+        $templateCatalog = self::adminTemplateCatalog();
+
+        $stmt = Database::connection()->query(
+            'SELECT p.id, p.name, COUNT(et.id) AS template_count
+             FROM partners p
+             LEFT JOIN email_templates et ON et.partner_id = p.id
+             GROUP BY p.id, p.name
+             ORDER BY p.name'
+        );
+        $partners = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $selectedPartnerId = isset($_GET['partner_id']) ? (int) $_GET['partner_id'] : null;
+        $templates = [];
+        $selected = null;
+        $selectedPartnerName = null;
+        $creatableTemplates = [];
+        $importTemplates = [];
+        $galleryAssets = [];
+
+        if ($selectedPartnerId !== null) {
+            $templates = EmailTemplatesController::listForPartner($selectedPartnerId);
+            foreach ($partners as $p) {
+                if ((int) $p['id'] === $selectedPartnerId) {
+                    $selectedPartnerName = (string) $p['name'];
+                    break;
+                }
+            }
+            $existingTypes = [];
+            foreach ($templates as $template) {
+                $existingTypes[(string) $template['type']] = true;
+            }
+            foreach ($templateCatalog as $type => $definition) {
+                if (!isset($existingTypes[$type])) {
+                    $creatableTemplates[$type] = $definition;
+                }
+            }
+            $selectedId = isset($_GET['id']) ? (int) $_GET['id'] : (int) ($templates[0]['id'] ?? 0);
+            foreach ($templates as $tpl) {
+                if ((int) $tpl['id'] === $selectedId) {
+                    $selected = $tpl;
+                    break;
+                }
+            }
+            $importStmt = Database::connection()->prepare(
+                'SELECT et.id, et.type, et.subject, p.name AS partner_name
+                 FROM email_templates et
+                 JOIN partners p ON p.id = et.partner_id
+                 WHERE et.partner_id <> ?
+                 ORDER BY p.name, et.type'
+            );
+            $importStmt->execute([$selectedPartnerId]);
+            $importTemplates = $importStmt->fetchAll(PDO::FETCH_ASSOC);
+            $galleryAssets = self::templateGalleryAssets($selectedPartnerId);
+        }
+
+        View::render('pages/admin-all-templates', [
+            'pageTitle' => 'Templates email',
+            'partners' => $partners,
+            'selectedPartnerId' => $selectedPartnerId,
+            'selectedPartnerName' => $selectedPartnerName,
+            'templates' => $templates,
+            'selected' => $selected,
+            'templateCatalog' => $templateCatalog,
+            'creatableTemplates' => $creatableTemplates,
+            'importTemplates' => $importTemplates,
+            'galleryAssets' => $galleryAssets,
+        ]);
+    }
+
+    public static function adminSaveAllTemplate(int $partnerId, int $id): never
+    {
+        self::requireAdminUser();
+        Database::connection()->prepare(
+            'UPDATE email_templates SET subject = ?, body_html = ?, updated_at = NOW() WHERE id = ? AND partner_id = ?'
+        )->execute([
+            (string) ($_POST['subject'] ?? ''),
+            (string) ($_POST['body_html'] ?? ''),
+            $id,
+            $partnerId,
+        ]);
+        self::redirect('/admin/templates?partner_id=' . $partnerId . '&id=' . $id, 'Template sauvegardé.');
+    }
+
+    public static function adminCreateAllTemplate(): never
+    {
+        self::requireAdminUser();
+        $partnerId = (int) ($_POST['partner_id'] ?? 0);
+        $type = trim((string) ($_POST['type'] ?? ''));
+        $templateCatalog = self::adminTemplateCatalog();
+        if ($partnerId <= 0 || !isset($templateCatalog[$type])) {
+            self::redirect('/admin/templates?partner_id=' . $partnerId, 'Template invalide.', 'error');
+        }
+
+        $existingStmt = Database::connection()->prepare('SELECT id FROM email_templates WHERE partner_id = ? AND type = ? LIMIT 1');
+        $existingStmt->execute([$partnerId, $type]);
+        if ($existingId = (int) ($existingStmt->fetchColumn() ?: 0)) {
+            self::redirect('/admin/templates?partner_id=' . $partnerId . '&id=' . $existingId, 'Ce template existe déjà.', 'info');
+        }
+
+        $definition = $templateCatalog[$type];
+        Database::connection()->prepare(
+            'INSERT INTO email_templates (partner_id, type, subject, body_html) VALUES (?, ?, ?, ?)'
+        )->execute([
+            $partnerId,
+            $type,
+            $definition['subject'],
+            $definition['body_html'],
+        ]);
+
+        self::redirect('/admin/templates?partner_id=' . $partnerId . '&id=' . (int) Database::connection()->lastInsertId(), 'Nouveau template créé.');
+    }
+
+    public static function adminImportAllTemplate(): never
+    {
+        self::requireAdminUser();
+        $partnerId = (int) ($_POST['partner_id'] ?? 0);
+        $sourceTemplateId = (int) ($_POST['source_template_id'] ?? 0);
+        if ($partnerId <= 0 || $sourceTemplateId <= 0) {
+            self::redirect('/admin/templates?partner_id=' . $partnerId, 'Import invalide.', 'error');
+        }
+
+        $sourceStmt = Database::connection()->prepare(
+            'SELECT et.type, et.subject, et.body_html, et.partner_id, p.name AS partner_name
+             FROM email_templates et
+             JOIN partners p ON p.id = et.partner_id
+             WHERE et.id = ? LIMIT 1'
+        );
+        $sourceStmt->execute([$sourceTemplateId]);
+        $source = $sourceStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if ($source === null) {
+            self::redirect('/admin/templates?partner_id=' . $partnerId, 'Template source introuvable.', 'error');
+        }
+        if ((int) $source['partner_id'] === $partnerId) {
+            self::redirect('/admin/templates?partner_id=' . $partnerId, 'Choisissez un autre partenaire source.', 'error');
+        }
+
+        $targetStmt = Database::connection()->prepare('SELECT id FROM email_templates WHERE partner_id = ? AND type = ? LIMIT 1');
+        $targetStmt->execute([$partnerId, (string) $source['type']]);
+        $targetId = (int) ($targetStmt->fetchColumn() ?: 0);
+
+        if ($targetId > 0) {
+            Database::connection()->prepare(
+                'UPDATE email_templates SET subject = ?, body_html = ?, updated_at = NOW() WHERE id = ? AND partner_id = ?'
+            )->execute([
+                (string) $source['subject'],
+                (string) $source['body_html'],
+                $targetId,
+                $partnerId,
+            ]);
+        } else {
+            Database::connection()->prepare(
+                'INSERT INTO email_templates (partner_id, type, subject, body_html) VALUES (?, ?, ?, ?)'
+            )->execute([
+                $partnerId,
+                (string) $source['type'],
+                (string) $source['subject'],
+                (string) $source['body_html'],
+            ]);
+            $targetId = (int) Database::connection()->lastInsertId();
+        }
+
+        self::redirect('/admin/templates?partner_id=' . $partnerId . '&id=' . $targetId, 'Template importé.');
+    }
+
+    private const IMPORT_ZIP_MODES = ['all', 'images_only', 'html_only'];
+
+    /**
+     * Imports a Canva-exported ZIP (HTML + images/ folder). Depending on
+     * `import_mode`:
+     *  - "all" (default): every image referenced by a relative path is
+     *    copied into the partner's asset gallery, the HTML is rewritten to
+     *    point to it, then saved as the selected template's body.
+     *  - "images_only": every image file found in the ZIP is copied into
+     *    the partner's gallery; the template body is left untouched (no
+     *    template needs to be selected for this mode).
+     *  - "html_only": the ZIP's HTML is saved as-is as the selected
+     *    template's body; no images are copied to the gallery and image
+     *    references are left unchanged.
+     */
+    public static function adminImportTemplateZip(): never
+    {
+        self::requireAdminUser();
+        $partnerId = (int) ($_POST['partner_id'] ?? 0);
+        $templateId = (int) ($_POST['id'] ?? 0);
+        $importMode = (string) ($_POST['import_mode'] ?? 'all');
+        if (!in_array($importMode, self::IMPORT_ZIP_MODES, true)) {
+            $importMode = 'all';
+        }
+        $redirectBase = '/admin/templates?partner_id=' . $partnerId . ($templateId > 0 ? '&id=' . $templateId : '');
+
+        if ($partnerId <= 0) {
+            self::redirect('/admin/templates', 'Partenaire invalide.', 'error');
+        }
+        $needsTemplate = $importMode !== 'images_only';
+        if ($needsTemplate) {
+            if ($templateId <= 0) {
+                self::redirect($redirectBase, 'Sélectionnez un template avant d’importer un ZIP.', 'error');
+            }
+            $ownerStmt = Database::connection()->prepare('SELECT id FROM email_templates WHERE id = ? AND partner_id = ? LIMIT 1');
+            $ownerStmt->execute([$templateId, $partnerId]);
+            if (!$ownerStmt->fetchColumn()) {
+                self::redirect($redirectBase, 'Template introuvable pour ce partenaire.', 'error');
+            }
+        }
+
+        $file = $_FILES['template_zip'] ?? null;
+        if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            self::redirect($redirectBase, 'Aucun fichier ZIP valide envoyé.', 'error');
+        }
+        if (!is_uploaded_file((string) $file['tmp_name'])) {
+            self::redirect($redirectBase, 'Fichier invalide.', 'error');
+        }
+        $originalName = (string) ($file['name'] ?? '');
+        if (strtolower(pathinfo($originalName, PATHINFO_EXTENSION)) !== 'zip') {
+            self::redirect($redirectBase, 'Le fichier doit être un ZIP.', 'error');
+        }
+        if ((int) ($file['size'] ?? 0) > 25 * 1024 * 1024) {
+            self::redirect($redirectBase, 'Le ZIP ne doit pas dépasser 25 Mo.', 'error');
+        }
+
+        $tmpDir = sys_get_temp_dir() . '/canva-import-' . bin2hex(random_bytes(8));
+        if (!@mkdir($tmpDir, 0775, true)) {
+            throw new HttpException(500, 'Internal Server Error', 'Impossible de créer le dossier temporaire.');
+        }
+
+        $successMessage = null;
+        try {
+            $zip = new \ZipArchive();
+            if ($zip->open((string) $file['tmp_name']) !== true) {
+                self::redirect($redirectBase, 'Impossible de lire le fichier ZIP.', 'error');
+            }
+            $zip->extractTo($tmpDir);
+            $zip->close();
+
+            if ($importMode === 'images_only') {
+                $galleryDir = BASE_PATH . '/images/others/email-template-assets/partner-' . $partnerId;
+                if (!is_dir($galleryDir) && !@mkdir($galleryDir, 0775, true) && !is_dir($galleryDir)) {
+                    throw new HttpException(500, 'Internal Server Error', 'Impossible de créer le dossier de galerie.');
+                }
+                $imported = self::copyAllZipImagesToGallery($tmpDir, $galleryDir);
+                $successMessage = $imported . ' image(s) importée(s) dans la galerie.';
+            } else {
+                $htmlPath = self::findHtmlFileInDirectory($tmpDir);
+                if ($htmlPath === null) {
+                    self::redirect($redirectBase, 'Aucun fichier HTML trouvé dans le ZIP.', 'error');
+                }
+
+                $html = file_get_contents($htmlPath);
+                if ($html === false) {
+                    self::redirect($redirectBase, 'Impossible de lire le fichier HTML du ZIP.', 'error');
+                }
+
+                if ($importMode === 'html_only') {
+                    // Import the HTML structure only: leave image references
+                    // untouched and don't copy any file into the gallery.
+                    Database::connection()->prepare(
+                        'UPDATE email_templates SET body_html = ?, updated_at = NOW() WHERE id = ? AND partner_id = ?'
+                    )->execute([$html, $templateId, $partnerId]);
+                    $successMessage = 'Template Canva importé (HTML uniquement, images non copiées).';
+                } else {
+                    $galleryDir = BASE_PATH . '/images/others/email-template-assets/partner-' . $partnerId;
+                    if (!is_dir($galleryDir) && !@mkdir($galleryDir, 0775, true) && !is_dir($galleryDir)) {
+                        throw new HttpException(500, 'Internal Server Error', 'Impossible de créer le dossier de galerie.');
+                    }
+
+                    $imported = 0;
+                    $html = (string) preg_replace_callback(
+                        '/(["\'])((?:images?|assets)\/[a-zA-Z0-9_\-.\/]+\.(?:png|jpe?g|gif|webp|svg))\1/i',
+                        function (array $matches) use ($tmpDir, $galleryDir, $partnerId, &$imported): string {
+                            [$full, $quote, $relativePath] = $matches;
+                            $basename = basename($relativePath);
+                            $sourcePath = self::locateFileByBasename($tmpDir, $basename);
+                            if ($sourcePath === null) {
+                                return $full;
+                            }
+                            $extension = strtolower(pathinfo($basename, PATHINFO_EXTENSION));
+                            if (!in_array($extension, [...self::ALLOWED_TEMPLATE_ASSET_EXTENSIONS, 'svg'], true)) {
+                                return $full;
+                            }
+                            $newName = 'canva-' . bin2hex(random_bytes(8)) . '.' . $extension;
+                            if (!copy($sourcePath, $galleryDir . '/' . $newName)) {
+                                return $full;
+                            }
+                            $imported++;
+                            $newUrl = '/images/others/email-template-assets/partner-' . $partnerId . '/' . $newName;
+                            return $quote . $newUrl . $quote;
+                        },
+                        $html
+                    );
+
+                    Database::connection()->prepare(
+                        'UPDATE email_templates SET body_html = ?, updated_at = NOW() WHERE id = ? AND partner_id = ?'
+                    )->execute([$html, $templateId, $partnerId]);
+                    $successMessage = 'Template Canva importé (' . $imported . ' image(s) copiée(s) dans la galerie).';
+                }
+            }
+        } finally {
+            self::cleanupTmpDir($tmpDir);
+        }
+
+        self::redirect($redirectBase, $successMessage);
+    }
+
+    /**
+     * Copies every image file found anywhere in an extracted ZIP directory
+     * into the partner's gallery folder, regardless of whether it is
+     * referenced by an HTML file. Used by the "images only" import mode.
+     */
+    private static function copyAllZipImagesToGallery(string $tmpDir, string $galleryDir): int
+    {
+        $imported = 0;
+        $iter = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($tmpDir, \RecursiveDirectoryIterator::SKIP_DOTS)
+        );
+        foreach ($iter as $entry) {
+            if (!$entry->isFile()) {
+                continue;
+            }
+            $extension = strtolower(pathinfo($entry->getFilename(), PATHINFO_EXTENSION));
+            if (!in_array($extension, self::ALLOWED_TEMPLATE_ASSET_EXTENSIONS, true)) {
+                continue;
+            }
+            $newName = 'canva-' . bin2hex(random_bytes(8)) . '.' . $extension;
+            if (!copy($entry->getPathname(), $galleryDir . '/' . $newName)) {
+                continue;
+            }
+            $imported++;
+        }
+        return $imported;
+    }
+
+    /**
+     * Finds the most likely "main" HTML file in an extracted ZIP: prefers
+     * index.html/email.html at the root, otherwise the largest .html/.htm
+     * file found anywhere in the tree.
+     */
+    private static function findHtmlFileInDirectory(string $dir): ?string
+    {
+        $preferredNames = ['index.html', 'email.html', 'template.html'];
+        foreach ($preferredNames as $name) {
+            $candidate = $dir . '/' . $name;
+            if (is_file($candidate)) {
+                return $candidate;
+            }
+        }
+
+        $best = null;
+        $bestSize = -1;
+        $iter = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($dir, \RecursiveDirectoryIterator::SKIP_DOTS)
+        );
+        foreach ($iter as $entry) {
+            if (!$entry->isFile()) {
+                continue;
+            }
+            $extension = strtolower(pathinfo($entry->getFilename(), PATHINFO_EXTENSION));
+            if ($extension !== 'html' && $extension !== 'htm') {
+                continue;
+            }
+            $size = $entry->getSize();
+            if ($size > $bestSize) {
+                $bestSize = $size;
+                $best = $entry->getPathname();
+            }
+        }
+
+        return $best;
+    }
+
+    /**
+     * Recursively searches an extracted ZIP directory for a file matching
+     * the given basename (case-insensitive), since Canva HTML often
+     * references images with a relative path that may not exactly match
+     * the ZIP's actual folder layout.
+     */
+    private static function locateFileByBasename(string $dir, string $basename): ?string
+    {
+        $iter = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($dir, \RecursiveDirectoryIterator::SKIP_DOTS)
+        );
+        foreach ($iter as $entry) {
+            if ($entry->isFile() && strcasecmp($entry->getFilename(), $basename) === 0) {
+                return $entry->getPathname();
+            }
+        }
+        return null;
+    }
+
+    public static function adminUploadTemplateGalleryAsset(): never
+    {
+        self::requireAdminUser();
+        $partnerId = (int) ($_POST['partner_id'] ?? 0);
+        if ($partnerId <= 0) {
+            self::redirect('/admin/templates', 'Partenaire invalide.', 'error');
+        }
+        try {
+            $stored = self::storePartnerTemplateAsset($partnerId);
+        } catch (HttpException $exception) {
+            if ($exception->statusCode >= 500) {
+                throw $exception;
+            }
+            self::redirect('/admin/templates?partner_id=' . $partnerId, $exception->getMessage(), 'error');
+        }
+        if ($stored === null) {
+            self::redirect('/admin/templates?partner_id=' . $partnerId, 'Aucune image valide envoyée.', 'error');
+        }
+        self::redirect('/admin/templates?partner_id=' . $partnerId, 'Élément graphique ajouté à la galerie.');
+    }
+
+    public static function adminDeleteTemplateGalleryAsset(): never
+    {
+        self::requireAdminUser();
+        $partnerId = (int) ($_POST['partner_id'] ?? 0);
+        if ($partnerId <= 0) {
+            self::redirect('/admin/templates', 'Partenaire invalide.', 'error');
+        }
+        $allowedPrefix = '/images/others/email-template-assets/partner-' . $partnerId . '/';
+
+        // Supports both the single-item delete form (asset_url) and the
+        // "select several then delete" bulk form (asset_urls[]).
+        $assetUrls = $_POST['asset_urls'] ?? null;
+        if (is_array($assetUrls)) {
+            $count = 0;
+            foreach ($assetUrls as $assetUrl) {
+                self::deleteLocalAsset(trim((string) $assetUrl), $allowedPrefix);
+                $count++;
+            }
+            if ($count === 0) {
+                self::redirect('/admin/templates?partner_id=' . $partnerId, 'Aucun élément sélectionné.', 'error');
+            }
+            $message = $count > 1 ? $count . ' éléments graphiques supprimés.' : 'Élément graphique supprimé.';
+            self::redirect('/admin/templates?partner_id=' . $partnerId, $message);
+        }
+
+        $assetUrl = trim((string) ($_POST['asset_url'] ?? ''));
+        self::deleteLocalAsset($assetUrl, $allowedPrefix);
+        self::redirect('/admin/templates?partner_id=' . $partnerId, 'Élément graphique supprimé.');
+    }
+
+    /**
+     * @return array<string, array{label: string, subject: string, body_html: string}>
+     */
+    private static function adminTemplateCatalog(): array
+    {
+        return [
+            'REQUEST_RECEIVED_PARTNER' => [
+                'label' => 'Demande reçue (partenaire)',
+                'subject' => 'Nouvelle demande de réservation - {{nom_client}}',
+                'body_html' => <<<'HTML'
+<h2>Nouvelle demande de réservation</h2>
+<p><strong>Client :</strong> {{nom_client}} ({{email_client}})</p>
+<p><strong>Hébergement :</strong> {{hebergement}}</p>
+<img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;">
+<p><strong>Dates :</strong> {{dates}}</p>
+<p><strong>Voyageurs :</strong> {{adultes}} adulte(s), {{enfants}} enfant(s)</p>
+{{tarif_bloc}}
+<p><strong>Message :</strong><br>{{message}}</p>
+<hr>
+<p>Veuillez traiter cette demande depuis votre espace partenaire.</p>
+HTML,
+            ],
+            'REQUEST_RECEIVED_CLIENT' => [
+                'label' => 'Accusé réception (client)',
+                'subject' => 'Votre demande de séjour est bien reçue - {{hebergement}}',
+                'body_html' => <<<'HTML'
+<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+<div style="text-align:center;padding:28px 24px 16px;">
+<img src="{{logo_partenaire_url}}" alt="{{partenaire}}" width="80" style="display:block;width:80px;max-width:100%;height:auto;margin:0 auto;">
+<p style="margin:14px 0 8px;font-size:17px;color:#374151;">Votre demande de séjour est bien reçue !</p>
+<h2 style="margin:4px 0 0;font-size:22px;color:#111827;">{{hebergement}}</h2>
+</div>
+<div style="text-align:center;padding:0 24px 20px;"><img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;"></div>
+<div style="padding:4px 24px 16px;">
+<p style="margin:0 0 10px;font-size:15px;color:#111827;">Bonjour <strong>{{nom_client}}</strong>,</p>
+<p style="margin:0;font-size:15px;color:#374151;">Un grand merci pour votre intérêt ! Nous avons bien reçu votre demande de réservation pour <strong>{{hebergement}}</strong>.</p>
+</div>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:0 24px;">
+<div style="padding:16px 24px 8px;">
+<p style="margin:0 0 8px;font-weight:bold;font-size:14px;color:#111827;">Vos Dates :</p>
+<p style="margin:0;font-size:14px;color:#374151;">Du {{date_arrivee}} au {{date_depart}} =&gt; {{nuits}} nuit(s)</p>
+</div>
+<div style="padding:12px 24px 16px;">
+<p style="margin:0 0 10px;font-weight:bold;font-size:14px;color:#111827;">Vos Voyageurs :</p>
+<table style="width:100%;border-collapse:collapse;font-size:14px;">
+<tr><td style="padding:5px 0;border-bottom:1px solid #f3f4f6;color:#374151;">Nombre d'adulte(s):</td><td style="padding:5px 0;border-bottom:1px solid #f3f4f6;text-align:right;font-weight:bold;color:#111827;">{{adultes}}</td></tr>
+<tr><td style="padding:5px 0;border-bottom:1px solid #f3f4f6;color:#374151;">Nombre d'enfant(s) &lt; 12 ans:</td><td style="padding:5px 0;border-bottom:1px solid #f3f4f6;text-align:right;font-weight:bold;color:#111827;">{{enfants}}</td></tr>
+<tr><td style="padding:5px 0;color:#374151;">Nombre bébé(s) &lt; 3 ans:</td><td style="padding:5px 0;text-align:right;font-weight:bold;color:#111827;">{{bebes}}</td></tr>
+</table>
+</div>
+{{tarif_bloc}}
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:0 24px;">
+<div style="padding:16px 24px 24px;font-size:13px;color:#374151;">
+<p style="margin:0 0 10px;">Cordialement,</p>
+<table style="border-collapse:collapse;"><tr>
+<td style="vertical-align:top;padding-right:14px;"><img src="{{signature_photo_url}}" alt="{{signature_nom}}" width="64" height="64" style="display:block;width:64px;max-width:100%;height:64px;margin:0 auto;border-radius:50%;object-fit:cover;"></td>
+<td style="vertical-align:middle;">
+<p style="margin:0 0 3px;font-weight:bold;font-size:14px;color:#111827;">{{signature_nom}}</p>
+<p style="margin:0 0 3px;">{{email_partenaire}} | {{telephone_partenaire}}</p>
+<p style="margin:0;"><a href="{{lien_partenaire}}" style="color:#3b82f6;text-decoration:none;">{{lien_partenaire}}</a></p>
+</td>
+</tr></table>
+</div>
+</div>
+HTML,
+            ],
+            'RESERVATION_CONFIRMED' => [
+                'label' => 'Réservation confirmée (client)',
+                'subject' => 'Votre réservation est confirmée ! 🎉',
+                'body_html' => <<<'HTML'
+<h2>Réservation confirmée</h2>
+<p>Bonjour {{nom_client}},</p>
+<p>Nous avons le plaisir de vous confirmer votre réservation :</p>
+<img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;">
+<ul>
+  <li><strong>Hébergement :</strong> {{hebergement}}</li>
+  <li><strong>Arrivée :</strong> {{date_arrivee}}</li>
+  <li><strong>Départ :</strong> {{date_depart}}</li>
+  <li><strong>Voyageurs :</strong> {{adultes}} adulte(s), {{enfants}} enfant(s)</li>
+</ul>
+{{notes}}
+<p>À très bientôt à l'île Maurice !</p>
+<p>Cordialement,<br><strong>{{partenaire}}</strong></p>
+HTML,
+            ],
+            'RESERVATION_CANCELLED' => [
+                'label' => 'Réservation annulée (client)',
+                'subject' => 'Annulation de votre réservation',
+                'body_html' => <<<'HTML'
+<h2>Votre réservation a été annulée</h2>
+<p>Bonjour {{nom_client}},</p>
+<p>Nous vous informons que votre réservation pour <strong>{{hebergement}}</strong> ({{dates}}) a malheureusement dû être annulée.</p>
+<img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;">
+<p>N'hésitez pas à nous contacter pour explorer d'autres options.</p>
+<p>Cordialement,<br><strong>{{partenaire}}</strong></p>
+HTML,
+            ],
+            'REMINDER' => [
+                'label' => 'Rappel avant arrivée',
+                'subject' => 'Rappel : votre séjour approche ! 🌴',
+                'body_html' => <<<'HTML'
+<h2>Votre séjour approche !</h2>
+<p>Bonjour {{nom_client}},</p>
+<div style="margin:18px 0;"><img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;"></div>
+<p>Nous vous rappelons que votre séjour à <strong>{{hebergement}}</strong> approche :</p>
+<ul>
+  <li><strong>Arrivée :</strong> {{date_arrivee}}</li>
+  <li><strong>Départ :</strong> {{date_depart}}</li>
+</ul>
+<p>N'hésitez pas à nous contacter si vous avez des questions.</p>
+<p>À bientôt,<br><strong>{{partenaire}}</strong></p>
+HTML,
+            ],
+        ];
+    }
+
+    // -------------------------------------------------------------------------
+    // Admin: Mise à jour (self-update via ZIP upload)
+    // -------------------------------------------------------------------------
+
+    public static function adminMiseAJour(): void
+    {
+        self::requireAdminUser();
+
+        $updatesDir = BASE_PATH . '/files/storage/updates';
+        $backups = [];
+        if (is_dir($updatesDir)) {
+            $files = glob($updatesDir . '/backup_*.zip') ?: [];
+            rsort($files);
+            foreach ($files as $f) {
+                $name = basename($f);
+                // Extract timestamp from backup_YYYYMMDDHHmmss.zip
+                if (preg_match('/backup_(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})\.zip$/', $name, $m)) {
+                    $label = $m[1] . '-' . $m[2] . '-' . $m[3] . ' ' . $m[4] . ':' . $m[5] . ':' . $m[6];
+                } else {
+                    $label = $name;
+                }
+                $backups[] = ['file' => $name, 'label' => $label];
+            }
+        }
+
+        View::render('pages/admin-update', [
+            'pageTitle' => 'Mise à jour',
+            'backups' => $backups,
+        ]);
+    }
+
+    public static function adminApplyUpdate(): never
+    {
+        self::requireAdminUser();
+
+        if (
+            empty($_FILES['update_zip']['tmp_name']) ||
+            ($_FILES['update_zip']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK
+        ) {
+            self::redirect('/admin/mise-a-jour', 'Aucun fichier ZIP valide fourni.', 'error');
+        }
+
+        $tmpZip = (string) $_FILES['update_zip']['tmp_name'];
+
+        $zip = new \ZipArchive();
+        if ($zip->open($tmpZip) !== true) {
+            self::redirect('/admin/mise-a-jour', 'Le fichier uploadé n\'est pas un ZIP valide.', 'error');
+        }
+        $zip->close();
+
+        $updatesDir = BASE_PATH . '/files/storage/updates';
+        if (!is_dir($updatesDir)) {
+            @mkdir($updatesDir, 0755, true);
+        }
+
+        $ts = date('YmdHis');
+
+        // Backup current application files before overwriting
+        $backupFile = $updatesDir . '/backup_' . $ts . '.zip';
+        try {
+            self::createAppBackup($backupFile);
+        } catch (\Throwable $e) {
+            error_log('Mise à jour: backup failed (continuing): ' . $e->getMessage());
+        }
+
+        // Extract uploaded ZIP to temp dir
+        $tmpDir = sys_get_temp_dir() . '/update_' . $ts;
+        if (!@mkdir($tmpDir, 0755, true)) {
+            self::redirect('/admin/mise-a-jour', 'Impossible de créer le répertoire temporaire d\'extraction.', 'error');
+        }
+
+        $zip = new \ZipArchive();
+        $zip->open($tmpZip);
+        $zip->extractTo($tmpDir);
+        $zip->close();
+
+        // Copy extracted files to webroot, skipping protected paths
+        $protected = ['images', '.env', 'files/storage'];
+        try {
+            self::copyDirToWebroot($tmpDir, BASE_PATH, $protected);
+        } catch (\Throwable $e) {
+            self::cleanupTmpDir($tmpDir);
+            self::redirect('/admin/mise-a-jour', 'Erreur lors de l\'application : ' . $e->getMessage(), 'error');
+        }
+
+        self::cleanupTmpDir($tmpDir);
+        self::redirect('/admin/mise-a-jour', 'Mise à jour appliquée avec succès.');
+    }
+
+    public static function adminRollbackUpdate(): never
+    {
+        self::requireAdminUser();
+
+        $updatesDir = BASE_PATH . '/files/storage/updates';
+        $backups = glob($updatesDir . '/backup_*.zip') ?: [];
+
+        if (empty($backups)) {
+            self::redirect('/admin/mise-a-jour', 'Aucune sauvegarde disponible pour restaurer.', 'error');
+        }
+
+        rsort($backups);
+        $latestBackup = $backups[0];
+
+        $zip = new \ZipArchive();
+        if ($zip->open($latestBackup) !== true) {
+            self::redirect('/admin/mise-a-jour', 'Impossible d\'ouvrir la sauvegarde.', 'error');
+        }
+
+        $ts = date('YmdHis');
+        $tmpDir = sys_get_temp_dir() . '/restore_' . $ts;
+        if (!@mkdir($tmpDir, 0755, true)) {
+            $zip->close();
+            self::redirect('/admin/mise-a-jour', 'Impossible de créer le répertoire temporaire de restauration.', 'error');
+        }
+        $zip->extractTo($tmpDir);
+        $zip->close();
+
+        $protected = ['images', '.env', 'files/storage'];
+        try {
+            self::copyDirToWebroot($tmpDir, BASE_PATH, $protected);
+        } catch (\Throwable $e) {
+            self::cleanupTmpDir($tmpDir);
+            self::redirect('/admin/mise-a-jour', 'Erreur lors de la restauration : ' . $e->getMessage(), 'error');
+        }
+
+        self::cleanupTmpDir($tmpDir);
+        self::redirect('/admin/mise-a-jour', 'Version précédente restaurée avec succès.');
+    }
+
+    /**
+     * Creates a ZIP archive of the current application files, skipping
+     * user uploads, environment config, storage, and VCS directories.
+     */
+    private static function createAppBackup(string $backupFile): void
+    {
+        $webroot = BASE_PATH;
+        $zip = new \ZipArchive();
+        if ($zip->open($backupFile, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+            throw new \RuntimeException('Impossible de créer le fichier de sauvegarde : ' . $backupFile);
+        }
+
+        $excluded = ['images', 'files/storage', '.env', '.git', 'artifact-package'];
+
+        $iter = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($webroot, \RecursiveDirectoryIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::SELF_FIRST
+        );
+
+        foreach ($iter as $file) {
+            $realPath = $file->getRealPath();
+            if ($realPath === false) {
+                continue;
+            }
+            $rel = ltrim(str_replace($webroot, '', $realPath), '/\\');
+
+            $skip = false;
+            foreach ($excluded as $ex) {
+                if ($rel === $ex || str_starts_with($rel, $ex . '/') || str_starts_with($rel, $ex . DIRECTORY_SEPARATOR)) {
+                    $skip = true;
+                    break;
+                }
+            }
+            if ($skip) {
+                continue;
+            }
+
+            if ($file->isDir()) {
+                $zip->addEmptyDir($rel . '/');
+            } else {
+                $zip->addFile($realPath, $rel);
+            }
+        }
+
+        $zip->close();
+    }
+
+    /**
+     * Recursively copies files from $srcDir to $destDir, skipping any
+     * entry whose relative path starts with a protected prefix.
+     */
+    private static function copyDirToWebroot(string $srcDir, string $destDir, array $protected): void
+    {
+        $iter = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($srcDir, \RecursiveDirectoryIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::SELF_FIRST
+        );
+
+        foreach ($iter as $file) {
+            $rel = ltrim(str_replace($srcDir, '', $file->getPathname()), '/\\');
+
+            $skip = false;
+            foreach ($protected as $p) {
+                if ($rel === $p || str_starts_with($rel, $p . '/') || str_starts_with($rel, $p . DIRECTORY_SEPARATOR)) {
+                    $skip = true;
+                    break;
+                }
+            }
+            if ($skip) {
+                continue;
+            }
+
+            $dest = $destDir . DIRECTORY_SEPARATOR . $rel;
+
+            if ($file->isDir()) {
+                if (!is_dir($dest)) {
+                    @mkdir($dest, 0755, true);
+                }
+            } else {
+                $destParent = dirname($dest);
+                if (!is_dir($destParent)) {
+                    @mkdir($destParent, 0755, true);
+                }
+                if (!copy($file->getPathname(), $dest)) {
+                    throw new \RuntimeException('Échec de copie : ' . $rel);
+                }
+            }
+        }
+    }
+
+    /**
+     * Recursively removes a temporary directory.
+     */
+    private static function cleanupTmpDir(string $dir): void
+    {
+        if (!is_dir($dir)) {
+            return;
+        }
+        $iter = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($dir, \RecursiveDirectoryIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST
+        );
+        foreach ($iter as $file) {
+            if ($file->isDir()) {
+                @rmdir($file->getPathname());
+            } else {
+                @unlink($file->getPathname());
+            }
+        }
+        @rmdir($dir);
     }
 }
