@@ -17,19 +17,44 @@ final class Mailer
 
     public static function sendTemplatedEmail(array $partner, array $template, string $to, array $variables, array $embeds = []): void
     {
+        $html = self::renderTemplate((string) $template['body_html'], $variables);
         self::deliver(
             $partner,
             $to,
             self::renderTemplate((string) $template['subject'], $variables),
-            self::renderTemplate((string) $template['body_html'], $variables),
+            $html,
             null,
-            $embeds
+            self::filterUnusedEmbeds($html, $embeds)
         );
     }
 
     public static function sendRawEmail(array $partner, string $to, string $subject, string $html, array $embeds = []): void
     {
-        self::deliver($partner, $to, $subject, $html, null, $embeds);
+        self::deliver($partner, $to, $subject, $html, null, self::filterUnusedEmbeds($html, $embeds));
+    }
+
+    /**
+     * A partner can freely edit their email templates (copy one from
+     * another partner, delete the {{photo_bien}}/{{signature_photo}}
+     * placeholder, ...). If a template no longer references a given
+     * embed's cid: anywhere in its rendered HTML, sending it anyway as
+     * part of the multipart/related message causes mail clients (Apple
+     * Mail/iCloud Mail among them) to fall back to showing it as a plain
+     * trailing attachment instead of just omitting it — since nothing in
+     * the HTML asks for it to be placed inline. Dropping genuinely unused
+     * embeds keeps every recipient's message either fully inline or, if
+     * the template doesn't want the photo at all, free of a stray
+     * attachment.
+     *
+     * @param array<int, array{cid: string, data: string, mime: string}> $embeds
+     * @return array<int, array{cid: string, data: string, mime: string}>
+     */
+    private static function filterUnusedEmbeds(string $html, array $embeds): array
+    {
+        return array_values(array_filter(
+            $embeds,
+            static fn (array $embed): bool => isset($embed['cid']) && str_contains($html, 'cid:' . $embed['cid'])
+        ));
     }
 
     public static function sendContactEmail(array $partner, string $replyTo, string $subject, string $html): void
