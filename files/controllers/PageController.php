@@ -462,16 +462,14 @@ final class PageController extends Controller
     {
         $user = self::requirePartnerUser();
         $partnerId = (int) $user['partner_id'];
-        if (!ReservationsController::findForPartner($partnerId, $id)) {
+        $notes = trim((string) ($_POST['notes'] ?? ''));
+        // Delegates to ReservationsController::confirmForPartner() so the
+        // client confirmation email is actually sent (previously this method
+        // only updated the database and redirected, without ever notifying
+        // the client).
+        if (!ReservationsController::confirmForPartner($partnerId, $id, $notes !== '' ? $notes : null)) {
             throw new HttpException(404, 'Not Found', 'Réservation introuvable');
         }
-        $notes = trim((string) ($_POST['notes'] ?? ''));
-        Database::connection()->prepare(
-            'INSERT INTO reservations (request_id, partner_id, confirmed_at, notes)
-             VALUES (?, ?, NOW(), ?)
-             ON DUPLICATE KEY UPDATE confirmed_at = NOW(), cancelled_at = NULL, notes = VALUES(notes)'
-        )->execute([$id, $partnerId, $notes !== '' ? $notes : null]);
-        Database::connection()->prepare("UPDATE reservation_requests SET status = 'confirmed', updated_at = NOW() WHERE id = ? AND partner_id = ?")->execute([$id, $partnerId]);
         self::redirect('/partner/reservations/' . $id, 'Réservation confirmée.');
     }
 
@@ -479,11 +477,11 @@ final class PageController extends Controller
     {
         $user = self::requirePartnerUser();
         $partnerId = (int) $user['partner_id'];
-        if (!ReservationsController::findForPartner($partnerId, $id)) {
+        // Delegates to ReservationsController::cancelForPartner() so the
+        // client cancellation email is actually sent (see partnerConfirmReservation()).
+        if (!ReservationsController::cancelForPartner($partnerId, $id)) {
             throw new HttpException(404, 'Not Found', 'Réservation introuvable');
         }
-        Database::connection()->prepare('UPDATE reservations SET cancelled_at = NOW() WHERE request_id = ?')->execute([$id]);
-        Database::connection()->prepare("UPDATE reservation_requests SET status = 'cancelled', updated_at = NOW() WHERE id = ? AND partner_id = ?")->execute([$id, $partnerId]);
         self::redirect('/partner/reservations/' . $id, 'Réservation annulée.', 'info');
     }
 
@@ -1204,6 +1202,18 @@ final class PageController extends Controller
             $data['cache'] = ['properties_cached' => $cacheState];
         }
 
+        // Mail log — always visible (not gated behind ?run=1) since it's the
+        // one thing an admin needs when a partner/client reports "I never
+        // received the email": on shared/cPanel hosting the PHP error_log()
+        // destination is often inaccessible, but this file lives inside the
+        // deployment package itself (see Mailer::logMail()).
+        $mailLogPath = (defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2)) . '/files/storage/logs/mail.log';
+        $mailLog = [];
+        if (is_file($mailLogPath)) {
+            $lines = @file($mailLogPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+            $mailLog = array_reverse(array_slice($lines, -200));
+        }
+
         // Live Lodgify query test — lets an admin pick real dates/guests and see
         // exactly what Lodgify returns for each property (name, description,
         // availability, price/night), to diagnose why a public search might show
@@ -1229,6 +1239,7 @@ final class PageController extends Controller
             'diagnostic' => $data,
             'queryTestInput' => $queryTestInput,
             'queryTest' => $queryTest,
+            'mailLog' => $mailLog,
         ]);
     }
 

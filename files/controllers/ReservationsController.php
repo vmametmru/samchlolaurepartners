@@ -577,37 +577,13 @@ final class ReservationsController extends Controller
     public static function confirm(int $id): never
     {
         $user = Auth::requireUser();
-        $partnerId = $user['partner_id'] ?? null;
+        $partnerId = (int) ($user['partner_id'] ?? 0);
         $input = self::input();
         $notes = self::nullableString($input['notes'] ?? null);
-        $pdo = Database::connection();
 
-        $stmt = $pdo->prepare('SELECT * FROM reservation_requests WHERE id = ? AND partner_id = ? LIMIT 1');
-        $stmt->execute([$id, $partnerId]);
-        $request = $stmt->fetch(PDO::FETCH_ASSOC);
+        $request = self::confirmForPartner($partnerId, $id, $notes);
         if (!$request) {
             self::json(['error' => 'Not Found', 'message' => 'Reservation request not found'], 404);
-        }
-
-        try {
-            $pdo->prepare(
-                'INSERT INTO reservations (request_id, partner_id, confirmed_at, notes)
-                 VALUES (?, ?, NOW(), ?)
-                 ON DUPLICATE KEY UPDATE confirmed_at = NOW(), cancelled_at = NULL, notes = VALUES(notes)'
-            )->execute([$id, $partnerId, $notes]);
-            $pdo->prepare("UPDATE reservation_requests SET status = 'confirmed', updated_at = NOW() WHERE id = ?")->execute([$id]);
-        } catch (Throwable $e) {
-            error_log((string) $e);
-            self::json(['error' => 'Internal Server Error', 'message' => 'Failed to confirm reservation'], 500);
-        }
-
-        // The confirmation is already persisted: a notification-email failure
-        // must not turn an otherwise-successful confirmation into a 500.
-        try {
-            $partner = self::fetchPartner((int) $partnerId);
-            self::sendReservationStatusEmail($partner, $request, 'RESERVATION_CONFIRMED', $notes);
-        } catch (Throwable $e) {
-            error_log('Failed to send reservation confirmation email: ' . $e);
         }
 
         self::json(['data' => null, 'message' => 'Reservation confirmed']);
@@ -616,18 +592,81 @@ final class ReservationsController extends Controller
     public static function cancel(int $id): never
     {
         $user = Auth::requireUser();
-        $partnerId = $user['partner_id'] ?? null;
+        $partnerId = (int) ($user['partner_id'] ?? 0);
+
+        $request = self::cancelForPartner($partnerId, $id);
+        if (!$request) {
+            self::json(['error' => 'Not Found', 'message' => 'Reservation request not found'], 404);
+        }
+
+        self::json(['data' => null, 'message' => 'Reservation cancelled']);
+    }
+
+    /**
+     * Persists the confirmation (reservations upsert + reservation_requests
+     * status) and sends the RESERVATION_CONFIRMED notification email to the
+     * client. Shared by the JSON API (self::confirm()) and the partner web
+     * form (PageController::partnerConfirmReservation()) so both entry
+     * points reliably notify the client instead of only one of them.
+     *
+     * @return array<string, mixed>|null The reservation_requests row, or null if not found for this partner.
+     */
+    public static function confirmForPartner(int $partnerId, int $id, ?string $notes): ?array
+    {
         $pdo = Database::connection();
         $stmt = $pdo->prepare('SELECT * FROM reservation_requests WHERE id = ? AND partner_id = ? LIMIT 1');
         $stmt->execute([$id, $partnerId]);
         $request = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$request) {
-            self::json(['error' => 'Not Found', 'message' => 'Reservation request not found'], 404);
+            return null;
+        }
+
+        try {
+            $pdo->prepare(
+                'INSERT INTO reservations (request_id, partner_id, confirmed_at, notes)
+                 VALUES (?, ?, NOW(), ?)
+                 ON DUPLICATE KEY UPDATE confirmed_at = NOW(), cancelled_at = NULL, notes = VALUES(notes)'
+            )->execute([$id, $partnerId, $notes]);
+            $pdo->prepare("UPDATE reservation_requests SET status = 'confirmed', updated_at = NOW() WHERE id = ? AND partner_id = ?")->execute([$id, $partnerId]);
+        } catch (Throwable $e) {
+            error_log((string) $e);
+            self::json(['error' => 'Internal Server Error', 'message' => 'Failed to confirm reservation'], 500);
+        }
+
+        // The confirmation is already persisted: a notification-email failure
+        // must not turn an otherwise-successful confirmation into a 500.
+        try {
+            $partner = self::fetchPartner($partnerId);
+            self::sendReservationStatusEmail($partner, $request, 'RESERVATION_CONFIRMED', $notes);
+        } catch (Throwable $e) {
+            error_log('Failed to send reservation confirmation email: ' . $e);
+        }
+
+        return $request;
+    }
+
+    /**
+     * Persists the cancellation (reservations.cancelled_at + reservation_requests
+     * status) and sends the RESERVATION_CANCELLED notification email to the
+     * client. Shared by the JSON API (self::cancel()) and the partner web
+     * form (PageController::partnerCancelReservation()) so both entry points
+     * reliably notify the client instead of only one of them.
+     *
+     * @return array<string, mixed>|null The reservation_requests row, or null if not found for this partner.
+     */
+    public static function cancelForPartner(int $partnerId, int $id): ?array
+    {
+        $pdo = Database::connection();
+        $stmt = $pdo->prepare('SELECT * FROM reservation_requests WHERE id = ? AND partner_id = ? LIMIT 1');
+        $stmt->execute([$id, $partnerId]);
+        $request = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$request) {
+            return null;
         }
 
         try {
             $pdo->prepare('UPDATE reservations SET cancelled_at = NOW() WHERE request_id = ?')->execute([$id]);
-            $pdo->prepare("UPDATE reservation_requests SET status = 'cancelled', updated_at = NOW() WHERE id = ?")->execute([$id]);
+            $pdo->prepare("UPDATE reservation_requests SET status = 'cancelled', updated_at = NOW() WHERE id = ? AND partner_id = ?")->execute([$id, $partnerId]);
         } catch (Throwable $e) {
             error_log((string) $e);
             self::json(['error' => 'Internal Server Error', 'message' => 'Failed to cancel reservation'], 500);
@@ -636,13 +675,13 @@ final class ReservationsController extends Controller
         // The cancellation is already persisted: a notification-email failure
         // must not turn an otherwise-successful cancellation into a 500.
         try {
-            $partner = self::fetchPartner((int) $partnerId);
+            $partner = self::fetchPartner($partnerId);
             self::sendReservationStatusEmail($partner, $request, 'RESERVATION_CANCELLED', null);
         } catch (Throwable $e) {
             error_log('Failed to send reservation cancellation email: ' . $e);
         }
 
-        self::json(['data' => null, 'message' => 'Reservation cancelled']);
+        return $request;
     }
 
     public static function listForPartner(int $partnerId): array
@@ -703,20 +742,35 @@ final class ReservationsController extends Controller
 
         $pdo = Database::connection();
         $stmt = $pdo->prepare('SELECT * FROM email_templates WHERE partner_id = ? AND type = ? LIMIT 1');
+
+        // Each recipient is sent in its own try/catch: previously a failure
+        // sending to the partner (bad SMTP credentials, unreachable host,
+        // invalid partner email, ...) threw an exception that aborted this
+        // whole method, silently skipping the client email below too. Now a
+        // partner-side failure can never prevent the client from being
+        // notified (and vice versa).
         $stmt->execute([(int) $partner['id'], 'REQUEST_RECEIVED_PARTNER']);
         $partnerTemplate = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
-        if ($partnerTemplate) {
-            Mailer::sendTemplatedEmail($partner, $partnerTemplate, (string) $partner['email'], $variables, $embeds);
-        } else {
-            Mailer::sendRawEmail($partner, (string) $partner['email'], 'Nouvelle demande de réservation - ' . $variables['nom_client'], '<p>Nouvelle demande de ' . htmlspecialchars($variables['nom_client']) . ' (' . htmlspecialchars($variables['email_client']) . ') pour ' . htmlspecialchars($variables['hebergement'] !== '' ? $variables['hebergement'] : 'hébergement non spécifié') . ' du ' . htmlspecialchars($variables['date_arrivee']) . ' au ' . htmlspecialchars($variables['date_depart']) . '.</p>');
+        try {
+            if ($partnerTemplate) {
+                Mailer::sendTemplatedEmail($partner, $partnerTemplate, (string) $partner['email'], $variables, $embeds);
+            } else {
+                Mailer::sendRawEmail($partner, (string) $partner['email'], 'Nouvelle demande de réservation - ' . $variables['nom_client'], '<p>Nouvelle demande de ' . htmlspecialchars($variables['nom_client']) . ' (' . htmlspecialchars($variables['email_client']) . ') pour ' . htmlspecialchars($variables['hebergement'] !== '' ? $variables['hebergement'] : 'hébergement non spécifié') . ' du ' . htmlspecialchars($variables['date_arrivee']) . ' au ' . htmlspecialchars($variables['date_depart']) . '.</p>');
+            }
+        } catch (Throwable $e) {
+            error_log('Failed to send REQUEST_RECEIVED_PARTNER email to partner #' . (int) ($partner['id'] ?? 0) . ' (' . (string) ($partner['email'] ?? '') . '): ' . $e);
         }
 
         $stmt->execute([(int) $partner['id'], 'REQUEST_RECEIVED_CLIENT']);
         $clientTemplate = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
-        if ($clientTemplate) {
-            Mailer::sendTemplatedEmail($partner, $clientTemplate, (string) $input['client_email'], $variables, $embeds);
-        } else {
-            Mailer::sendRawEmail($partner, (string) $input['client_email'], 'Confirmation de votre demande - ' . (string) $partner['name'], '<p>Bonjour ' . htmlspecialchars((string) $input['client_name']) . ',</p><p>Nous avons bien reçu votre demande de réservation pour ' . htmlspecialchars((string) ($input['property_name'] ?? 'l\'hébergement')) . ' du ' . htmlspecialchars((string) $input['checkin_date']) . ' au ' . htmlspecialchars((string) $input['checkout_date']) . '. Nous vous contacterons très prochainement.</p><p>Cordialement,<br>' . htmlspecialchars((string) $partner['name']) . '</p>');
+        try {
+            if ($clientTemplate) {
+                Mailer::sendTemplatedEmail($partner, $clientTemplate, (string) $input['client_email'], $variables, $embeds);
+            } else {
+                Mailer::sendRawEmail($partner, (string) $input['client_email'], 'Confirmation de votre demande - ' . (string) $partner['name'], '<p>Bonjour ' . htmlspecialchars((string) $input['client_name']) . ',</p><p>Nous avons bien reçu votre demande de réservation pour ' . htmlspecialchars((string) ($input['property_name'] ?? 'l\'hébergement')) . ' du ' . htmlspecialchars((string) $input['checkin_date']) . ' au ' . htmlspecialchars((string) $input['checkout_date']) . '. Nous vous contacterons très prochainement.</p><p>Cordialement,<br>' . htmlspecialchars((string) $partner['name']) . '</p>');
+            }
+        } catch (Throwable $e) {
+            error_log('Failed to send REQUEST_RECEIVED_CLIENT email to ' . (string) ($input['client_email'] ?? '') . ': ' . $e);
         }
     }
 
