@@ -66,7 +66,12 @@ $baseUrl = $isAdmin ? '/admin/partners/' . (int) $adminPartnerId . '/templates' 
             <summary>Aperçu HTML</summary>
             <iframe class="preview-frame" sandbox="allow-same-origin" data-template-preview srcdoc="<?= \App\View::e($selected['body_html']) ?>"></iframe>
           </details>
-          <button class="btn-primary" type="submit">Sauvegarder</button>
+          <div class="flex-group">
+            <button class="btn-primary" type="submit">Sauvegarder</button>
+            <form method="post" action="<?= $baseUrl ?>/<?= (int) $selected['id'] ?>/delete" style="display:inline;" onsubmit="return confirm('Êtes-vous sûr ? Cette action est irréversible.');">
+              <button class="btn-secondary" type="submit">Supprimer</button>
+            </form>
+          </div>
         </form>
       <?php endif; ?>
     </div>

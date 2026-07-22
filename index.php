@@ -201,6 +201,8 @@ try {
             break;
         case route($method, $path, 'POST', '#^/partner/templates/(\d+)$#', $matches):
             PageController::partnerSaveTemplate((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/partner/templates/(\d+)/delete$#', $matches):
+            PageController::partnerDeleteTemplate((int) $matches[1]);
         case route($method, $path, 'GET', '#^/partner/settings$#'):
             PageController::partnerSettings();
             break;
@@ -232,6 +234,8 @@ try {
             break;
         case route($method, $path, 'POST', '#^/admin/partners/(\d+)/templates/(\d+)$#', $matches):
             PageController::adminSavePartnerTemplate((int) $matches[1], (int) $matches[2]);
+        case route($method, $path, 'POST', '#^/admin/partners/(\d+)/templates/(\d+)/delete$#', $matches):
+            PageController::adminDeletePartnerTemplate((int) $matches[1], (int) $matches[2]);
         case route($method, $path, 'GET', '#^/admin/fees$#'):
             PageController::adminFees();
             break;

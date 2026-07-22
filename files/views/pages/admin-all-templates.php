@@ -199,7 +199,12 @@ $baseUrl = '/admin/templates';
                 <p class="text-muted" style="margin:.5rem 0 1rem;">Cliquez sur une image pour modifier sa source, sa taille et sa position, ou sur un texte pour le modifier directement.</p>
                 <iframe class="preview-frame" sandbox="allow-same-origin" data-template-preview srcdoc="<?= \App\View::e($selected['body_html']) ?>"></iframe>
               </details>
-              <button class="btn-primary" type="submit">Sauvegarder</button>
+              <div class="flex-group">
+                <button class="btn-primary" type="submit">Sauvegarder</button>
+                <form method="post" action="<?= $baseUrl ?>/<?= $selectedPartnerId ?>/<?= (int) $selected['id'] ?>/delete" style="display:inline;" onsubmit="return confirm('Êtes-vous sûr ? Cette action est irréversible.');">
+                  <button class="btn-secondary" type="submit">Supprimer</button>
+                </form>
+              </div>
             </form>
           </div>
         <?php endif; ?>

@@ -701,6 +701,26 @@ final class PageController extends Controller
         self::redirect('/admin/partners/' . $partnerId . '/templates?id=' . $id, 'Template sauvegardé.');
     }
 
+    public static function partnerDeleteTemplate(int $id): never
+    {
+        $user = self::requirePartnerUser();
+        Database::connection()->prepare('DELETE FROM email_templates WHERE id = ? AND partner_id = ?')->execute([
+            $id,
+            $user['partner_id'],
+        ]);
+        self::redirect('/partner/templates', 'Template supprimé.');
+    }
+
+    public static function adminDeletePartnerTemplate(int $partnerId, int $id): never
+    {
+        self::requireAdminUser();
+        Database::connection()->prepare('DELETE FROM email_templates WHERE id = ? AND partner_id = ?')->execute([
+            $id,
+            $partnerId,
+        ]);
+        self::redirect('/admin/partners/' . $partnerId . '/templates', 'Template supprimé.');
+    }
+
     public static function adminPartnerForm(?int $id = null): void
     {
         self::requireAdminUser();
