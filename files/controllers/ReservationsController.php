@@ -737,8 +737,12 @@ final class ReservationsController extends Controller
         ];
         $childBreakdown = self::childBreakdownValues($input);
         $variables += self::stayVariables($checkin, $checkout, $childBreakdown['under3'], $childBreakdown['from3to12']);
-        $variables += self::signatureVariables((int) ($partner['id'] ?? 0));
+        $signature = self::signatureVariables((int) ($partner['id'] ?? 0));
+        $variables += $signature['variables'];
         $embeds = $photo['embed'] !== null ? [$photo['embed']] : [];
+        if ($signature['embed'] !== null) {
+            $embeds[] = $signature['embed'];
+        }
 
         $pdo = Database::connection();
         $stmt = $pdo->prepare('SELECT * FROM email_templates WHERE partner_id = ? AND type = ? LIMIT 1');
@@ -799,8 +803,12 @@ final class ReservationsController extends Controller
             $childBreakdown['under3'],
             $childBreakdown['from3to12']
         );
-        $variables += self::signatureVariables((int) ($partner['id'] ?? 0));
+        $signature = self::signatureVariables((int) ($partner['id'] ?? 0));
+        $variables += $signature['variables'];
         $embeds = $photo['embed'] !== null ? [$photo['embed']] : [];
+        if ($signature['embed'] !== null) {
+            $embeds[] = $signature['embed'];
+        }
 
         if ($template) {
             Mailer::sendTemplatedEmail($partner, $template, (string) $request['client_email'], $variables, $embeds);
@@ -945,6 +953,14 @@ final class ReservationsController extends Controller
      * (the "partner" role user tied to that partner_id, i.e. whoever set
      * their name/phone/photo from "Mon compte"), so partners can sign their
      * outgoing reservation emails.
+     *
+     * @return array{variables: array<string, string>, embed: array{cid: string, data: string, mime: string}|null}
+     *         "embed" (when not null) must be merged into the $embeds array
+     *         passed to Mailer::send*(), alongside the property photo embed,
+     *         so the signature photo is inlined via Content-ID instead of
+     *         hotlinked — many webmail clients (e.g. iCloud Mail) block
+     *         external images by default, which made the signature photo
+     *         show as broken until the recipient explicitly allowed it.
      */
     public static function signatureVariables(int $partnerId): array
     {
@@ -953,12 +969,16 @@ final class ReservationsController extends Controller
         $fullName = trim(trim((string) ($user['first_name'] ?? '')) . ' ' . trim((string) ($user['last_name'] ?? '')));
         $photoUrl = trim((string) ($user['photo_url'] ?? ''));
         $phone = trim((string) ($user['phone'] ?? ''));
+        $photo = self::signaturePhotoTag($photoUrl, $fullName !== '' ? $fullName : 'Photo');
 
         return [
-            'signature_nom' => $fullName,
-            'signature_photo' => self::signaturePhotoTag($photoUrl, $fullName !== '' ? $fullName : 'Photo'),
-            'lien_partenaire' => self::partnerLink($partnerId),
-            'telephone_partenaire' => $phone,
+            'variables' => [
+                'signature_nom' => $fullName,
+                'signature_photo' => $photo['html'],
+                'lien_partenaire' => self::partnerLink($partnerId),
+                'telephone_partenaire' => $phone,
+            ],
+            'embed' => $photo['embed'],
         ];
     }
 
@@ -971,18 +991,48 @@ final class ReservationsController extends Controller
         return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
     }
 
-    private static function signaturePhotoTag(string $photoUrl, string $alt): string
+    /**
+     * @return array{html: string, embed: array{cid: string, data: string, mime: string}|null}
+     */
+    private static function signaturePhotoTag(string $photoUrl, string $alt): array
     {
+        $empty = ['html' => '', 'embed' => null];
         if ($photoUrl === '') {
-            return '';
+            return $empty;
         }
 
-        $photoUrl = self::absoluteUrl($photoUrl);
-        if ($photoUrl === '') {
-            return '';
+        // Locally-uploaded photos (see AccountController::storeUploadedPhoto(),
+        // stored under images/others/avatars/...) are read straight off disk
+        // and embedded via Content-ID, same as the property thumbnail. Only
+        // fall back to hotlinking for an already-absolute external URL that
+        // doesn't resolve to a local file.
+        $localPath = BASE_PATH . '/' . ltrim($photoUrl, '/');
+        $data = !preg_match('#^https?://#i', $photoUrl) && is_file($localPath) ? @file_get_contents($localPath) : false;
+
+        if ($data !== false && $data !== '') {
+            $extension = strtolower(pathinfo($localPath, PATHINFO_EXTENSION));
+            $mime = match ($extension) {
+                'png' => 'image/png',
+                'gif' => 'image/gif',
+                'webp' => 'image/webp',
+                default => 'image/jpeg',
+            };
+            $cid = 'signature-photo-' . bin2hex(random_bytes(4)) . '@local';
+            return [
+                'html' => '<img src="cid:' . htmlspecialchars($cid, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($alt, ENT_QUOTES, 'UTF-8') . '" width="64" height="64" style="display:inline-block;width:64px;height:64px;border-radius:50%;object-fit:cover;">',
+                'embed' => ['cid' => $cid, 'data' => $data, 'mime' => $mime],
+            ];
         }
 
-        return '<img src="' . htmlspecialchars($photoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($alt, ENT_QUOTES, 'UTF-8') . '" width="64" height="64" style="display:inline-block;width:64px;height:64px;border-radius:50%;object-fit:cover;">';
+        $absoluteUrl = self::absoluteUrl($photoUrl);
+        if ($absoluteUrl === '') {
+            return $empty;
+        }
+
+        return [
+            'html' => '<img src="' . htmlspecialchars($absoluteUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($alt, ENT_QUOTES, 'UTF-8') . '" width="64" height="64" style="display:inline-block;width:64px;height:64px;border-radius:50%;object-fit:cover;">',
+            'embed' => null,
+        ];
     }
 
     /**
