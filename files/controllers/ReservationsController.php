@@ -15,6 +15,17 @@ use Throwable;
 
 final class ReservationsController extends Controller
 {
+    /**
+     * A property's real max occupancy is Lodgify's max_guests *plus* up to 2
+     * babies (children_under3) per property: babies never count against
+     * max_guests (adults + children 3-12 only), but each property can still
+     * only physically host a limited number of babies (cots/car seats),
+     * capped at 2. Kept as a single constant so quote()/requestReservation()
+     * (single property) and requestMultiple() (per active property, in its
+     * date-by-date capacity loop) stay in sync.
+     */
+    private const MAX_BABIES_PER_PROPERTY = 2;
+
     /** @var array{under3: string, from3to12: string}|null */
     private static ?array $childrenBreakdownColumns = null;
     private static bool $childrenBreakdownColumnsResolved = false;
@@ -152,11 +163,28 @@ final class ReservationsController extends Controller
         } catch (Throwable $e) {
             error_log('Lodgify: failed to fetch property ' . $propertyId . ': ' . $e->getMessage());
         }
+        // Babies (children_under3) don't count toward the property's max
+        // occupancy — consistent with the front-end guest steppers
+        // (initGuestSteppers()/initApiForms() in assets/js/app.js) and with
+        // requestMultiple()'s capacity check below, which only compares
+        // adults + children 3-12 against max_guests. Comparing $totalGuests
+        // (which includes babies) here used to reject/500 requests the UI
+        // had happily allowed, hiding the quote block as soon as a baby was
+        // added alongside older children.
         $maxGuests = (int) ($property['max_guests'] ?? 0);
-        if ($maxGuests > 0 && $totalGuests > $maxGuests) {
+        if ($maxGuests > 0 && $countedGuests > $maxGuests) {
             self::json([
                 'error' => 'Bad Request',
-                'message' => "Ce logement peut accueillir au maximum {$maxGuests} personne(s) (adultes + enfants).",
+                'message' => "Ce logement peut accueillir au maximum {$maxGuests} personne(s) (adultes + enfants de 3 ans et plus).",
+            ], 400);
+        }
+        // Each property can still only host a limited number of babies,
+        // regardless of how much room remains under max_guests (adults +
+        // 3-12 children can be at capacity and 2 babies must still fit).
+        if ($childrenUnder3 > self::MAX_BABIES_PER_PROPERTY) {
+            self::json([
+                'error' => 'Bad Request',
+                'message' => 'Ce logement peut accueillir au maximum ' . self::MAX_BABIES_PER_PROPERTY . ' bébé(s) (enfants de moins de 3 ans).',
             ], 400);
         }
 
@@ -330,21 +358,31 @@ final class ReservationsController extends Controller
         // A property can only host a limited number of people (Lodgify's
         // max_guests): reject the request if the requested party size
         // exceeds it, so a visitor cannot book more guests than the
-        // property can actually accommodate.
+        // property can actually accommodate. Babies (children_under3) don't
+        // count toward this limit — consistent with the front-end guest
+        // steppers and requestMultiple()'s capacity check.
         if ($propertyId > 0) {
-            $totalGuests = $adults + $childrenUnder3 + $children3to12;
+            $countedGuests = $adults + $children3to12;
             try {
                 $property = (new LodgifyClient())->getProperty($propertyId);
                 $maxGuests = (int) ($property['max_guests'] ?? 0);
-                if ($maxGuests > 0 && $totalGuests > $maxGuests) {
+                if ($maxGuests > 0 && $countedGuests > $maxGuests) {
                     self::json([
                         'error' => 'Bad Request',
-                        'message' => "Ce logement peut accueillir au maximum {$maxGuests} personne(s) (adultes + enfants).",
+                        'message' => "Ce logement peut accueillir au maximum {$maxGuests} personne(s) (adultes + enfants de 3 ans et plus).",
                     ], 400);
                 }
             } catch (Throwable $e) {
                 error_log('Lodgify: failed to fetch property ' . $propertyId . ' for capacity check: ' . $e->getMessage());
             }
+        }
+        // Each property can still only host a limited number of babies,
+        // regardless of how much room remains under max_guests.
+        if ($childrenUnder3 > self::MAX_BABIES_PER_PROPERTY) {
+            self::json([
+                'error' => 'Bad Request',
+                'message' => 'Ce logement peut accueillir au maximum ' . self::MAX_BABIES_PER_PROPERTY . ' bébé(s) (enfants de moins de 3 ans).',
+            ], 400);
         }
 
         $partner = self::requirePartnerContext();
@@ -539,7 +577,7 @@ final class ReservationsController extends Controller
                 }
 
                 $adultOk = $countedGuests <= 0 || $hasUnlimitedProperty || $activeCapacity >= $countedGuests;
-                $babyCapacity = count($activePropertyIds) * 2;
+                $babyCapacity = count($activePropertyIds) * self::MAX_BABIES_PER_PROPERTY;
                 $babyOk = $childrenUnder3 <= 0 || $childrenUnder3 <= $babyCapacity;
                 if ($adultOk && $babyOk) {
                     continue;

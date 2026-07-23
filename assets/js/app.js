@@ -2229,13 +2229,23 @@ function initBookingQuote() {
     let debounceTimer = null;
 
     function isReady() {
+      // The price summary only needs the stay dates and the number of
+      // travelers: it is shown right under the "Nombre de Voyageur(s)"
+      // block, before the visitor fills in their contact details, and
+      // updates live as the guest count changes.
       const checkin = form.querySelector('[data-booking-checkin]')?.value;
       const checkout = form.querySelector('[data-booking-checkout]')?.value;
       const adults = Number(form.querySelector('[name="adults"]')?.value || 0);
-      const clientName = form.querySelector('[name="client_name"]')?.value.trim();
-      const clientEmail = form.querySelector('[name="client_email"]')?.value.trim();
-      const clientPhone = form.querySelector('[name="client_phone"]')?.value.trim();
-      return Boolean(checkin && checkout && adults >= 1 && clientName && clientEmail && clientPhone);
+      return Boolean(checkin && checkout && adults >= 1);
+    }
+
+    // The tourist tax line is only meaningful once every traveler's
+    // nationality has been provided (it determines who is exempt); until
+    // then it stays hidden even if the backend estimate is > 0.
+    function nationalityProvided() {
+      const guests = collectGuests(form);
+      if (!guests.length) return false;
+      return guests.every((guest) => Boolean((guest.nationality || '').trim()));
     }
 
     function updateSummaryVisibility() {
@@ -2295,7 +2305,7 @@ function initBookingQuote() {
         recap.textContent = parts.join(' · ');
       }
       const taxLine = form.querySelector('[data-quote-tax-line]');
-      const taxApplies = Number(quote.tourist_tax_total) > 0;
+      const taxApplies = Number(quote.tourist_tax_total) > 0 && nationalityProvided();
       taxLine.hidden = !taxApplies;
       if (taxApplies) {
         const taxAmount = form.querySelector('[data-quote-tax-amount]');

@@ -20,6 +20,8 @@ $formatHour = static function (?int $hour): ?string {
 };
 $checkinLabel = $formatHour($property['checkin_hour'] ?? null);
 $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
+$priceMinPeople = $priceMinPeople ?? null;
+$priceExtraPersonFee = $priceExtraPersonFee ?? null;
 ?>
 <section class="container section-lg" data-gallery>
   <div class="property-detail-header">
@@ -118,7 +120,16 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
           <?php if ($minRate === null): ?>
             <p class="muted">Tarifs non disponibles pour le moment.</p>
           <?php else: ?>
-            <p class="muted calendar-price-note">Prix de la nuité en Euros. Le prix inclus les frais de nettoyage 2 fois par semaine.</p>
+            <p class="muted calendar-price-note">
+              Prix de la nuité en Euros. Le prix inclus les frais de nettoyage 2 fois par semaine.
+              <?php if ($priceMinPeople !== null): ?>
+                Les prix affichés sont pour <?= (int) $priceMinPeople ?> personnes.
+                <?php if ($priceExtraPersonFee !== null && $priceExtraPersonFee > 0): ?>
+                  Frais additionnel de <?= \App\View::e(number_format((float) $priceExtraPersonFee, 0, ',', ' ')) ?> Euros par nuit par personne
+                <?php endif; ?>
+                + 2 enfants de moins de 3 ans (Gratuitement)
+              <?php endif; ?>
+            </p>
           <?php endif; ?>
           <p class="muted">Cliquez sur une date disponible du calendrier pour renseigner votre date d'arrivée, puis cliquez sur une seconde date pour la date de départ.</p>
           <?php require BASE_PATH . '/files/views/partials/calendar.php'; ?>
@@ -196,17 +207,6 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
         </div>
       </div>
 
-      <div class="booking-section" data-booking-block="traveler">
-        <span class="booking-section-title">Détails des Voyageurs</span>
-        <div class="booking-block-body stack-md" data-block-body>
-          <label><span>Nom et prénom complet *</span><input class="input" type="text" name="client_name" required></label>
-          <label><span>Email *</span><input class="input" type="email" name="client_email" required></label>
-          <?php require BASE_PATH . '/files/views/partials/phone-input.php'; ?>
-          <?php require BASE_PATH . '/files/views/partials/nationalities.php'; ?>
-          <label><span>Message (optionnel)</span><textarea class="input" rows="3" name="message"></textarea></label>
-        </div>
-      </div>
-
       <div class="booking-block" data-booking-block="summary" hidden>
         <div class="quote-box" data-quote-box hidden>
           <div data-quote-result hidden>
@@ -218,6 +218,20 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
           <p class="quote-tax-note muted" data-quote-tax-line hidden>Taxe touristique de <span data-quote-tax-amount></span> Euros à régler à l'arrivée (Non comprise dans le total)</p>
         </div>
       </div>
+      </div>
+
+      <div class="booking-section" data-booking-block="traveler">
+        <span class="booking-section-title">Détails des Voyageurs</span>
+        <div class="booking-block-body stack-md" data-block-body>
+          <label><span>Nom et prénom complet *</span><input class="input" type="text" name="client_name" required></label>
+          <label><span>Email *</span><input class="input" type="email" name="client_email" required></label>
+          <?php require BASE_PATH . '/files/views/partials/phone-input.php'; ?>
+          <?php require BASE_PATH . '/files/views/partials/nationalities.php'; ?>
+          <label><span>Message (optionnel)</span><textarea class="input" rows="3" name="message"></textarea></label>
+        </div>
+      </div>
+
+      <div class="booking-submit-block">
         <input type="hidden" name="quote_currency" value="">
         <input type="hidden" name="quote_nights" value="">
         <input type="hidden" name="quote_room_total" value="">
