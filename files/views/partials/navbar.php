@@ -26,7 +26,8 @@ $navLangHref = '/lang/' . $navOtherLang . '?back=' . rawurlencode($navBackPath);
       <span aria-hidden="true">☰</span>
     </button>
     <div class="navbar-links" id="navbar-links-panel" data-mobile-nav-links>
-      <?php if (is_array($user) && in_array($user['role'] ?? '', ['partner', 'admin'], true)): ?><a href="/partner/dashboard"><?= \App\View::e(\App\I18n::t('nav.dashboard')) ?></a><?php endif; ?>
+      <?php if (is_array($user) && ($user['role'] ?? '') === 'partner'): ?><a href="/partner/dashboard"><?= \App\View::e(\App\I18n::t('nav.dashboard')) ?></a><?php endif; ?>
+      <?php if (is_array($user) && ($user['role'] ?? '') === 'admin'): ?><a href="/admin/partners"><?= \App\View::e(\App\I18n::t('nav.dashboard')) ?></a><?php endif; ?>
       <?php if ($partner): ?>
         <?php if (is_array($user)): ?>
           <details class="navbar-dropdown">

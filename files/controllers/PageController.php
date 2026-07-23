@@ -473,8 +473,9 @@ final class PageController extends Controller
 
     public static function login(): void
     {
-        if (Auth::user()) {
-            header('Location: /partner/dashboard');
+        $user = Auth::user();
+        if ($user) {
+            header('Location: ' . (($user['role'] ?? '') === 'admin' ? '/admin/partners' : '/partner/dashboard'));
             exit;
         }
         View::render('pages/login', ['pageTitle' => 'Connexion']);
@@ -1943,10 +1944,22 @@ TEXT;
         View::render('pages/error', ['pageTitle' => 'Erreur', 'message' => $message]);
     }
 
+    /**
+     * Partner-scoped pages/actions (dashboard, reservations, templates,
+     * settings, ...) are only ever meaningful for a partner user tied to a
+     * single partner_id. Admins never have a partner_id, so instead of
+     * rendering a broken/empty partner view, any admin landing here is sent
+     * straight back to the admin dashboard (see the login() redirect and
+     * the navbar "dashboard" link, which behave the same way).
+     */
     private static function requirePartnerUser(): array
     {
         $user = Auth::requireUser();
-        if (($user['role'] ?? '') !== 'partner' && ($user['role'] ?? '') !== 'admin') {
+        if (($user['role'] ?? '') === 'admin') {
+            header('Location: /admin/partners');
+            exit;
+        }
+        if (($user['role'] ?? '') !== 'partner') {
             throw new HttpException(403, 'Forbidden', 'Accès partenaire requis.');
         }
         return $user;
