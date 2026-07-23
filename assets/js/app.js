@@ -1104,10 +1104,13 @@ function initTemplateEditor() {
     photo3: { src: '{{photo3_url}}', alt: '{{hebergement}}', label: 'photo3', defaultSize: 320, shape: 'rect' },
     logo_partenaire: { src: '{{logo_partenaire_url}}', alt: '{{partenaire}}', label: 'logo', defaultSize: 80, shape: 'rect' },
     signature_photo: { src: '{{signature_photo_url}}', alt: '{{signature_nom}}', label: 'photo profil', defaultSize: 64, shape: 'circle' },
-    // photo_bien is generated server-side as a full <img> tag (no separate
-    // "_url" variable exists for it), so it can only be shown as a preview
-    // placeholder — it isn't click-editable like the variables above.
-    photo_bien: { src: '{{photo_bien}}', alt: '{{hebergement}}', label: 'photo du bien', defaultSize: 320, shape: 'rect', editable: false }
+    // Like photo1/photo2/photo3, "photo du bien" resolves to a plain image
+    // URL ({{photo_bien_url}}) so it can be picked, resized and repositioned
+    // from the image editor just like the other photo variables. The
+    // legacy {{photo_bien}} token (a full server-generated <img> tag, kept
+    // for templates saved before this variable existed) is still rendered
+    // as a preview-only placeholder further below.
+    photo_bien: { src: '{{photo_bien_url}}', alt: '{{hebergement}}', label: 'photo du bien', defaultSize: 320, shape: 'rect' }
   };
 
   // Sample values used only to populate the HTML preview so every plain-text
@@ -1386,7 +1389,7 @@ function initTemplateEditor() {
     let output = html;
 
     output = output.replace(
-      /<img\b([^>]*?)\ssrc=(['"])\{\{(photo[123]_url|logo_partenaire_url|signature_photo_url)\}\}\2([^>]*)>/gi,
+      /<img\b([^>]*?)\ssrc=(['"])\{\{(photo_bien_url|photo[123]_url|logo_partenaire_url|signature_photo_url)\}\}\2([^>]*)>/gi,
       (match, before, quote, tokenName, after) => {
         const source = `{{${tokenName}}}`;
         const template = mediaTemplateBySource(source);

@@ -72,6 +72,7 @@ SQL;
                 'hebergement' => (string) $row['property_name'],
                 'partenaire' => (string) $row['name'],
                 'photo_bien' => \App\controllers\ReservationsController::propertyPhotoVariable((int) ($row['property_id'] ?? 0), (string) $row['property_name'], 1),
+                'photo_bien_url' => \App\controllers\ReservationsController::propertyPhotoUrlValue((int) ($row['property_id'] ?? 0), 1),
                 'photo1' => \App\controllers\ReservationsController::propertyPhotoVariable((int) ($row['property_id'] ?? 0), (string) $row['property_name'], 1),
                 'photo2' => \App\controllers\ReservationsController::propertyPhotoVariable((int) ($row['property_id'] ?? 0), (string) $row['property_name'], 2),
                 'photo3' => \App\controllers\ReservationsController::propertyPhotoVariable((int) ($row['property_id'] ?? 0), (string) $row['property_name'], 3),
