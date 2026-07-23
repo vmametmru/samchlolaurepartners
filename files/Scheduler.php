@@ -11,6 +11,17 @@ final class Scheduler
     public static function runOnce(): array
     {
         $pdo = Database::connection();
+        // This cron entry point (bin/run-scheduler.php) only requires
+        // bootstrap.php, not index.php, so Migrator::autoRun() would
+        // otherwise never run here — unlike every web request, which
+        // guarantees pending migrations (e.g. reservation_requests.language,
+        // added by migration 025 and read below) are applied before this
+        // query runs.
+        try {
+            Migrator::autoRun();
+        } catch (\Throwable $e) {
+            error_log('[scheduler] migration check failed: ' . $e->getMessage());
+        }
         $sql = <<<'SQL'
 SELECT
   es.id AS schedule_id,
@@ -25,6 +36,7 @@ SELECT
   rr.children,
   rr.property_id,
   rr.property_name,
+  rr.language AS request_language,
   p.*
 FROM email_schedules es
 JOIN partners p ON p.id = es.partner_id
@@ -44,9 +56,10 @@ SQL;
         $errors = [];
 
         foreach ($rows as $row) {
-            $templateStmt = $pdo->prepare('SELECT * FROM email_templates WHERE partner_id = ? AND type = ? LIMIT 1');
-            $templateStmt->execute([(int) $row['partner_id'], (string) $row['template_type']]);
-            $template = $templateStmt->fetch(PDO::FETCH_ASSOC);
+            $requestLanguage = in_array((string) ($row['request_language'] ?? ''), I18n::SUPPORTED, true)
+                ? (string) $row['request_language']
+                : I18n::DEFAULT_LANGUAGE;
+            $template = \App\controllers\ReservationsController::findEmailTemplate($pdo, (int) $row['partner_id'], (string) $row['template_type'], $requestLanguage);
             if (!$template) {
                 continue;
             }

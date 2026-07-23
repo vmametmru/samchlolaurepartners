@@ -27,7 +27,7 @@ $baseUrl = $isAdmin ? '/admin/partners/' . (int) $adminPartnerId . '/templates' 
       <?php if ($templates === []): ?>
         <p class="empty-state">Aucun template. Contactez l'administrateur.</p>
       <?php else: foreach ($templates as $template): ?>
-        <a href="<?= $baseUrl ?>?id=<?= (int) $template['id'] ?>" class="<?= $selected && (int) $selected['id'] === (int) $template['id'] ? 'active' : '' ?>"><?= \App\View::e($labels[$template['type']] ?? $template['type']) ?></a>
+        <a href="<?= $baseUrl ?>?id=<?= (int) $template['id'] ?>" class="<?= $selected && (int) $selected['id'] === (int) $template['id'] ? 'active' : '' ?>"><?= \App\View::e($labels[$template['type']] ?? $template['type']) ?> <?= ((string) ($template['language'] ?? 'fr')) === 'en' ? '🇬🇧' : '🇫🇷' ?></a>
       <?php endforeach; endif; ?>
     </div>
     <div class="card card-body">
