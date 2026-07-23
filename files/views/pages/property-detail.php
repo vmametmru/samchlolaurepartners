@@ -32,7 +32,7 @@ $priceExtraPersonFee = $priceExtraPersonFee ?? null;
     <button type="button" class="btn-primary" data-reserve-btn data-reserve-tab="rates-availability">Réserver</button>
   </div>
   <div class="gallery-main">
-    <img src="<?= \App\View::e($mainImage) ?>" alt="<?= \App\View::e($propertyName) ?>" data-gallery-main>
+    <img src="<?= \App\View::e($mainImage) ?>" alt="<?= \App\View::e($propertyName) ?>" data-gallery-main loading="eager" decoding="async" fetchpriority="high">
     <div class="gallery-share">
       <span class="gallery-share-toast" data-share-toast>Lien copié</span>
       <button type="button" class="gallery-share-btn" data-share-btn aria-label="Partager" title="Partager">
@@ -51,7 +51,7 @@ $priceExtraPersonFee = $priceExtraPersonFee ?? null;
     <div class="gallery-carousel" data-gallery-carousel>
       <div class="gallery-carousel-track" data-gallery-track>
         <?php foreach ($property['images'] as $index => $image): ?>
-          <button type="button" class="gallery-thumb<?= $index === 0 ? ' active' : '' ?>" data-gallery-thumb data-src="<?= \App\View::e($image['url']) ?>"><img src="<?= \App\View::e($image['url']) ?>" alt="Photo <?= $index + 1 ?>"></button>
+          <button type="button" class="gallery-thumb<?= $index === 0 ? ' active' : '' ?>" data-gallery-thumb data-src="<?= \App\View::e($image['url']) ?>"><img src="<?= \App\View::e($image['url']) ?>" alt="Photo <?= $index + 1 ?>" loading="<?= $index === 0 ? 'eager' : 'lazy' ?>" decoding="async"></button>
         <?php endforeach; ?>
       </div>
     </div>

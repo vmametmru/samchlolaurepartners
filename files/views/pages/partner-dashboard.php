@@ -3,7 +3,7 @@ $pending = count(array_filter($requests, static fn(array $row): bool => $row['st
 $confirmed = count(array_filter($requests, static fn(array $row): bool => $row['status'] === 'confirmed'));
 ?>
 <section class="container section-lg">
-  <h1>Dashboard</h1>
+  <h1>Tableau de Bord</h1>
   <div class="stats-grid">
     <div class="card card-body"><p>Total demandes</p><strong><?= count($requests) ?></strong></div>
     <div class="card card-body"><p>En attente</p><strong class="accent-warn"><?= $pending ?></strong></div>

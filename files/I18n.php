@@ -129,7 +129,7 @@ final class I18n
     private static function dictionary(): array
     {
         return [
-            'nav.dashboard' => ['fr' => 'Dashboard', 'en' => 'Dashboard'],
+            'nav.dashboard' => ['fr' => 'Tableau de Bord', 'en' => 'Dashboard'],
             'nav.public_pages' => ['fr' => 'Pages Publiques', 'en' => 'Public Pages'],
             'nav.properties' => ['fr' => 'Hébergements', 'en' => 'Properties'],
             'nav.calendar' => ['fr' => 'Calendrier', 'en' => 'Calendar'],

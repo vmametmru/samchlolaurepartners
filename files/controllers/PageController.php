@@ -484,7 +484,7 @@ final class PageController extends Controller
     {
         $user = self::requirePartnerUser();
         $requests = ReservationsController::listForPartner((int) $user['partner_id']);
-        View::render('pages/partner-dashboard', ['pageTitle' => 'Dashboard partenaire', 'requests' => $requests]);
+        View::render('pages/partner-dashboard', ['pageTitle' => 'Tableau de Bord partenaire', 'requests' => $requests]);
     }
 
     public static function partnerReservations(): void
@@ -1962,7 +1962,7 @@ TEXT;
         $partner = Tenant::current();
         $markup = $partner ? (float) ($partner['markup_percent'] ?? 0) : 0.0;
         return array_map(static function (array $rate) use ($markup): array {
-            $markedUp = round(((float) $rate['price_per_night']) * (1 + $markup / 100), 2);
+            $markedUp = (float) ceil(((float) $rate['price_per_night']) * (1 + $markup / 100));
             return [
                 'date_from' => $rate['date_from'],
                 'date_to' => $rate['date_to'],
