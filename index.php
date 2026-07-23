@@ -142,6 +142,9 @@ try {
         case route($method, $path, 'GET', '#^/$#'):
             PageController::home();
             break;
+        case route($method, $path, 'GET', '#^/lang/(fr|en)$#', $matches):
+            PageController::switchLanguage((string) $matches[1]);
+            break;
         case route($method, $path, 'GET', '#^/accueil$#'):
             PageController::accueil();
             break;
@@ -239,6 +242,11 @@ try {
         case route($method, $path, 'GET', '#^/admin/fees$#'):
             PageController::adminFees();
             break;
+        case route($method, $path, 'GET', '#^/admin/politique-reservation$#'):
+            PageController::adminBookingPolicy();
+            break;
+        case route($method, $path, 'POST', '#^/admin/politique-reservation$#'):
+            PageController::adminSaveBookingPolicy();
         case route($method, $path, 'GET', '#^/admin/smtp-settings$#'):
             PageController::adminSmtpSettings();
             break;
@@ -248,6 +256,13 @@ try {
             PageController::adminSaveTax();
         case route($method, $path, 'POST', '#^/admin/fees/cleaning-default$#'):
             PageController::adminSaveDefaultCleaningFee();
+        case route($method, $path, 'GET', '#^/admin/translations$#'):
+            PageController::adminTranslations();
+            break;
+        case route($method, $path, 'POST', '#^/admin/translations/save$#'):
+            PageController::adminSaveTranslation();
+        case route($method, $path, 'POST', '#^/admin/translations/suggest$#'):
+            PageController::adminSuggestTranslation();
         case route($method, $path, 'GET', '#^/admin/versions$#'):
             PageController::adminVersions();
             break;

@@ -10,6 +10,7 @@ use App\Database;
 use App\Settings;
 use App\Flash;
 use App\HttpException;
+use App\I18n;
 use App\LodgifyApiException;
 use App\LodgifyClient;
 use App\PartnerPropertyVisibility;
@@ -23,6 +24,23 @@ final class PageController extends Controller
 {
     private const ALLOWED_LOGO_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
     private const ALLOWED_TEMPLATE_ASSET_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+
+    /**
+     * Switches the site's display language (navbar flag toggle) and sends
+     * the visitor back to whatever page they were on ("back" query param,
+     * only ever a same-site relative path — never an absolute/external URL,
+     * to avoid an open-redirect).
+     */
+    public static function switchLanguage(string $language): never
+    {
+        I18n::set($language);
+        $back = (string) ($_GET['back'] ?? '/');
+        if ($back === '' || $back[0] !== '/' || str_starts_with($back, '//')) {
+            $back = '/';
+        }
+        header('Location: ' . $back);
+        exit;
+    }
 
     /**
      * The root URL is hardcoded to always show the "enter your partner code"
@@ -203,7 +221,7 @@ final class PageController extends Controller
         // then kept in sync client-side as the visitor adjusts guest counts.
         $cleaningFeePerPerson = $partner ? (float) ($partner['cleaning_fee_per_person_per_night'] ?? 0) : 0.0;
         View::render('pages/property-detail', [
-            'pageTitle' => (string) $property['name'],
+            'pageTitle' => View::localized($property, 'name'),
             'property' => $property,
             'availability' => $availability,
             'rates' => $rates,
@@ -876,6 +894,356 @@ final class PageController extends Controller
             Database::connection()->prepare('UPDATE cleaning_fees SET per_person_per_night = ?, updated_at = NOW() WHERE id = ?')->execute([$amount, (int) $existingId]);
         }
         self::redirect('/admin/fees', 'Frais de nettoyage par défaut sauvegardés.');
+    }
+
+    /**
+     * Default "Politique de réservation" text shown on every property
+     * detail page (under the calendar) and available as the
+     * {{politique_reservation}} email variable, until an admin overrides it
+     * on /admin/politique-reservation. Kept here (not just in the DB) so a
+     * fresh install/empty "settings" table still shows sensible, ready-to-use
+     * copy instead of a blank block.
+     */
+    public const DEFAULT_BOOKING_POLICY = <<<'TEXT'
+Politique de réservation
+100% des règlements pré-payés sont remboursables en cas d'annulation 90 jour(s) avant l'arrivée ou plus tôt.
+75% des règlements pré-payés sont remboursables en cas d'annulation 60 jour(s) avant l'arrivée ou plus tôt.
+50% des règlements pré-payés sont remboursables en cas d'annulation 30 jour(s) avant l'arrivée ou plus tôt.
+25% des règlements pré-payés sont remboursables en cas d'annulation 15 jour(s) avant l'arrivée ou plus tôt.
+0% remboursable si annulation après.
+50% dû au moment de la réservation.
+Montant résiduel dû 5 jour(s) avant l'arrivée.
+TEXT;
+
+    /**
+     * Reads the current "Politique de réservation" text (admin-configurable
+     * on /admin/politique-reservation), falling back to
+     * DEFAULT_BOOKING_POLICY when nothing has been saved yet. Shared by the
+     * admin page itself, the property-detail page (booking-policy block
+     * under the calendar) and ReservationsController (the
+     * {{politique_reservation}} email variable), so all three always show
+     * the exact same text.
+     */
+    public static function bookingPolicyText(): string
+    {
+        return Settings::get('BOOKING_POLICY_TEXT', self::DEFAULT_BOOKING_POLICY) ?? self::DEFAULT_BOOKING_POLICY;
+    }
+
+    public static function adminBookingPolicy(): void
+    {
+        self::requireAdminUser();
+        View::render('pages/admin-booking-policy', [
+            'pageTitle' => 'Politique de réservation',
+            'policyText' => self::bookingPolicyText(),
+        ]);
+    }
+
+    public static function adminSaveBookingPolicy(): never
+    {
+        self::requireAdminUser();
+        $text = trim((string) ($_POST['policy_text'] ?? ''));
+        Settings::set('BOOKING_POLICY_TEXT', $text !== '' ? $text : self::DEFAULT_BOOKING_POLICY);
+        Settings::reload();
+        self::redirect('/admin/politique-reservation', 'Politique de réservation sauvegardée.');
+    }
+
+    /**
+     * Fields of a Lodgify property that can be translated on the admin
+     * "Traductions" page. Lodgify itself never machine-translates: it only
+     * returns whatever text was typed per-language in its own back-office,
+     * so any property whose owner never filled in a French name/description
+     * over there keeps showing English everywhere the site language is FR.
+     * This page lets an admin fill the gap manually (or accept an automatic
+     * suggestion) instead of depending on Lodgify's own translations.
+     */
+    private const TRANSLATABLE_FIELDS = ['name', 'description', 'amenities'];
+
+    /**
+     * Admin "Traductions" page: lists every Lodgify property with its
+     * default (English) text, Lodgify's own French translation if any, and
+     * the manual override (if one was saved) — so an admin can see at a
+     * glance which properties still need a French name/description typed
+     * in, without having to touch the Lodgify back-office.
+     */
+    public static function adminTranslations(): void
+    {
+        self::requireAdminUser();
+        $client = new LodgifyClient();
+        $summaries = $client->getProperties();
+        $overrides = self::propertyTranslationOverrides();
+        $rows = [];
+        foreach ($summaries as $summary) {
+            $propertyId = (int) ($summary['id'] ?? 0);
+            if ($propertyId <= 0) {
+                continue;
+            }
+            // Lodgify's "/properties" list endpoint only returns a summary
+            // DTO that never includes the description text (name is
+            // sometimes present, but not reliably) — only the
+            // "/properties/{id}" detail endpoint does. Using the list entry
+            // directly left every "Anglais (Lodgify)" field blank on this
+            // page even though the property-detail page (which fetches the
+            // per-property detail) showed the description fine. getProperty()
+            // caches its result forever (FICHE_TTL) just like getProperties(),
+            // so this only ever hits Lodgify live once per property.
+            $detail = $client->getProperty($propertyId);
+            $fields = [];
+            foreach (self::TRANSLATABLE_FIELDS as $field) {
+                if ($field === 'amenities') {
+                    // Lodgify never exposes amenities as a plain scalar field (only
+                    // per-room "amenities_by_category", already merged onto $detail
+                    // by LodgifyClient::getProperty()) nor does it ever provide its
+                    // own French translation for them — so there is no
+                    // "amenities_fr" to fall back to, unlike name/description.
+                    $default = View::amenitiesToText(View::humanizeAmenitiesByCategory((array) ($detail['amenities_by_category'] ?? [])));
+                    if ($default === '' && !empty($detail['amenities'])) {
+                        $default = View::amenitiesToText(View::humanizeAmenitiesByCategory(['Équipements' => array_map(
+                            static fn (array $amenity): string => (string) ($amenity['name'] ?? ''),
+                            $detail['amenities']
+                        )]));
+                    }
+                    $fields[$field] = [
+                        'default' => $default,
+                        'lodgify_fr' => '',
+                        'manual_fr' => $overrides[$propertyId][$field]['fr'] ?? '',
+                    ];
+                    continue;
+                }
+                $default = (string) ($detail[$field] ?? '');
+                if ($default === '') {
+                    $default = (string) ($summary[$field] ?? '');
+                }
+                $lodgifyFr = (string) ($detail[$field . '_fr'] ?? '');
+                if ($lodgifyFr === '') {
+                    $lodgifyFr = (string) ($summary[$field . '_fr'] ?? '');
+                }
+                $fields[$field] = [
+                    'default' => $default,
+                    'lodgify_fr' => $lodgifyFr,
+                    'manual_fr' => $overrides[$propertyId][$field]['fr'] ?? '',
+                ];
+            }
+            $name = (string) ($detail['name'] ?? '');
+            if ($name === '') {
+                $name = (string) ($summary['name'] ?? '');
+            }
+            $rows[] = [
+                'id' => $propertyId,
+                'name' => $name,
+                'fields' => $fields,
+            ];
+        }
+        View::render('pages/admin-translations', [
+            'pageTitle' => 'Traductions',
+            'rows' => $rows,
+        ]);
+    }
+
+    /**
+     * Creates the property_translations table on the fly if it doesn't
+     * exist yet. Migrator::autoRun() already does this on every request,
+     * but it is throttled (a marker file skips the check for up to 60s) and
+     * only runs from index.php, so a save submitted right after a fresh
+     * deploy (before the throttle window elapses, or via a code path that
+     * bypasses index.php) could still hit "Table ... doesn't exist" — this
+     * mirrors db/migrations/027_create_property_translations.sql so saving
+     * a translation never fails for that reason.
+     */
+    private static function ensurePropertyTranslationsTable(): void
+    {
+        Database::connection()->exec(
+            'CREATE TABLE IF NOT EXISTS property_translations (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              property_id INT NOT NULL,
+              field VARCHAR(50) NOT NULL,
+              language VARCHAR(5) NOT NULL,
+              text_value MEDIUMTEXT NOT NULL,
+              updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              UNIQUE KEY unique_property_field_lang (property_id, field, language)
+            )'
+        );
+    }
+
+    /**
+     * @return array<int, array<string, array<string, string>>>
+     */
+    private static function propertyTranslationOverrides(): array
+    {
+        $overrides = [];
+        try {
+            self::ensurePropertyTranslationsTable();
+            $stmt = Database::connection()->query('SELECT property_id, field, language, text_value FROM property_translations');
+            foreach ($stmt->fetchAll() as $row) {
+                $overrides[(int) $row['property_id']][(string) $row['field']][(string) $row['language']] = (string) $row['text_value'];
+            }
+        } catch (\Throwable $e) {
+            error_log('adminTranslations: failed to load property_translations: ' . $e->getMessage());
+        }
+        return $overrides;
+    }
+
+    /**
+     * Saves (or, if the submitted text is blank, removes) the manual French
+     * translation for one property/field, entered on the admin
+     * "Traductions" page. Removing an override falls back to Lodgify's own
+     * French translation if it has one, otherwise the default (English)
+     * text, exactly like before an override existed.
+     */
+    public static function adminSaveTranslation(): never
+    {
+        self::requireAdminUser();
+        $propertyId = (int) ($_POST['property_id'] ?? 0);
+        $field = (string) ($_POST['field'] ?? '');
+        $language = 'fr';
+        $text = trim((string) ($_POST['text'] ?? ''));
+        if ($propertyId <= 0 || !in_array($field, self::TRANSLATABLE_FIELDS, true)) {
+            self::redirect('/admin/translations', 'Requête de traduction invalide.', 'error');
+        }
+        self::ensurePropertyTranslationsTable();
+        if ($text === '') {
+            Database::connection()->prepare('DELETE FROM property_translations WHERE property_id = ? AND field = ? AND language = ?')
+                ->execute([$propertyId, $field, $language]);
+        } else {
+            Database::connection()->prepare(
+                'INSERT INTO property_translations (property_id, field, language, text_value)
+                 VALUES (?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE text_value = VALUES(text_value), updated_at = NOW()'
+            )->execute([$propertyId, $field, $language, $text]);
+        }
+        self::redirect('/admin/translations', 'Traduction sauvegardée.');
+    }
+
+    /**
+     * AJAX endpoint used by the "Suggérer" button on the admin "Traductions"
+     * page: sends the default (English) text to a free machine-translation
+     * API and returns the suggested French text so the admin can review and
+     * edit it before saving — this never saves anything by itself. This is
+     * purely best-effort: if the outbound call fails (network restrictions,
+     * API downtime, text too long, ...) it returns a clear error instead of
+     * a translation, and the admin can still type the translation by hand.
+     */
+    public static function adminSuggestTranslation(): never
+    {
+        self::requireAdminUser();
+        $input = self::input();
+        $text = trim((string) ($input['text'] ?? ''));
+        if ($text === '') {
+            self::json(['error' => 'Aucun texte à traduire.'], 400);
+        }
+        // Use plainTextWithLineBreaks() rather than plainTextRaw(): the latter
+        // collapses ALL whitespace (including newlines) into single spaces,
+        // which for the "amenities" field destroys the one-category-per-line
+        // "Category: item1, item2" structure produced by amenitiesToText().
+        // Once flattened, translateToFrench() had no line boundaries left to
+        // preserve, so every category/item ended up glued onto a single line
+        // — and textToAmenities() would then read the whole blob back as one
+        // category (whichever word preceded the first ":"), dumping every
+        // amenity into it. Keeping line breaks here (and through translation)
+        // preserves the per-category structure end-to-end.
+        $plainText = View::plainTextWithLineBreaks($text);
+        try {
+            $suggestion = self::translateToFrench($plainText);
+        } catch (\Throwable $e) {
+            error_log('adminSuggestTranslation: ' . $e->getMessage());
+            self::json(['error' => 'Suggestion indisponible pour le moment, merci de traduire manuellement.'], 502);
+        }
+        if ($suggestion === '') {
+            self::json(['error' => 'Suggestion indisponible pour le moment, merci de traduire manuellement.'], 502);
+        }
+        self::json(['suggestion' => $suggestion]);
+    }
+
+    /**
+     * Calls a free machine-translation API (MyMemory) to translate English
+     * text to French, chunking the request when the text is longer than the
+     * API's ~500 character per-query limit. A self-hosted/paid translation
+     * endpoint can be configured instead via the TRANSLATE_API_URL setting
+     * (expected to accept the same "q"/"langpair" query parameters and
+     * return {"responseData": {"translatedText": "..."}}).
+     */
+    private static function translateToFrench(string $text): string
+    {
+        if ($text === '') {
+            return '';
+        }
+        // Translate line by line (rather than the whole text as one blob) so
+        // newlines survive the round-trip: the admin "Traductions" page's
+        // "amenities" field is formatted as one "Category: item1, item2" per
+        // line (see amenitiesToText()/textToAmenities()), and losing those
+        // line boundaries here made every category collapse into one when the
+        // suggestion was saved. A line only gets split further (and rejoined
+        // with spaces) when it exceeds the API's per-request length limit.
+        $lines = preg_split('/\r\n|\r|\n/', $text) ?: [$text];
+        $translatedLines = [];
+        foreach ($lines as $line) {
+            if (trim($line) === '') {
+                $translatedLines[] = '';
+                continue;
+            }
+            $chunks = self::splitForTranslation($line, 480);
+            $translatedLines[] = implode(' ', array_map(self::translateChunk(...), $chunks));
+        }
+        return implode("\n", $translatedLines);
+    }
+
+    /**
+     * Sends a single chunk of text (already within the translation API's
+     * per-request length limit) to the machine-translation endpoint and
+     * returns the translated text. Used by translateToFrench() once per
+     * line/chunk so line breaks in the original text can be preserved.
+     */
+    private static function translateChunk(string $chunk): string
+    {
+        $endpoint = trim((string) (Settings::get('TRANSLATE_API_URL', '') ?: 'https://api.mymemory.translated.net/get'));
+        $url = $endpoint . '?' . http_build_query(['q' => $chunk, 'langpair' => 'en|fr']);
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 15,
+            CURLOPT_HTTPHEADER => ['Accept: application/json'],
+        ]);
+        $body = curl_exec($ch);
+        $error = curl_error($ch);
+        curl_close($ch);
+        if ($body === false || $error !== '') {
+            throw new \RuntimeException('Translation API request failed: ' . $error);
+        }
+        $decoded = json_decode((string) $body, true);
+        $piece = trim((string) ($decoded['responseData']['translatedText'] ?? ''));
+        if ($piece === '') {
+            throw new \RuntimeException('Translation API returned no text');
+        }
+        return $piece;
+    }
+
+    /**
+     * Splits text on sentence/word boundaries into chunks no longer than
+     * $maxLength, so long property descriptions can still be translated
+     * through APIs (like MyMemory) that cap each request's length.
+     *
+     * @return list<string>
+     */
+    private static function splitForTranslation(string $text, int $maxLength): array
+    {
+        if (mb_strlen($text) <= $maxLength) {
+            return [$text];
+        }
+        $sentences = preg_split('/(?<=[.!?])\s+/u', $text) ?: [$text];
+        $chunks = [];
+        $current = '';
+        foreach ($sentences as $sentence) {
+            $candidate = $current === '' ? $sentence : $current . ' ' . $sentence;
+            if (mb_strlen($candidate) > $maxLength && $current !== '') {
+                $chunks[] = $current;
+                $current = $sentence;
+            } else {
+                $current = $candidate;
+            }
+        }
+        if ($current !== '') {
+            $chunks[] = $current;
+        }
+        return $chunks !== [] ? $chunks : [mb_substr($text, 0, $maxLength)];
     }
 
     public static function adminVersions(): void
@@ -1583,7 +1951,10 @@ final class PageController extends Controller
     public static function adminAllTemplates(): void
     {
         self::requireAdminUser();
-        $templateCatalog = self::adminTemplateCatalog();
+        $selectedLanguage = in_array((string) ($_GET['language'] ?? ''), I18n::SUPPORTED, true)
+            ? (string) $_GET['language']
+            : I18n::DEFAULT_LANGUAGE;
+        $templateCatalog = self::adminTemplateCatalog($selectedLanguage);
 
         $stmt = Database::connection()->query(
             'SELECT p.id, p.name, COUNT(et.id) AS template_count
@@ -1603,7 +1974,11 @@ final class PageController extends Controller
         $galleryAssets = [];
 
         if ($selectedPartnerId !== null) {
-            $templates = EmailTemplatesController::listForPartner($selectedPartnerId);
+            $allTemplates = EmailTemplatesController::listForPartner($selectedPartnerId);
+            $templates = array_values(array_filter(
+                $allTemplates,
+                static fn (array $tpl): bool => (string) ($tpl['language'] ?? I18n::DEFAULT_LANGUAGE) === $selectedLanguage
+            ));
             foreach ($partners as $p) {
                 if ((int) $p['id'] === $selectedPartnerId) {
                     $selectedPartnerName = (string) $p['name'];
@@ -1627,13 +2002,13 @@ final class PageController extends Controller
                 }
             }
             $importStmt = Database::connection()->prepare(
-                'SELECT et.id, et.type, et.subject, p.name AS partner_name
+                'SELECT et.id, et.type, et.language, et.subject, p.name AS partner_name
                  FROM email_templates et
                  JOIN partners p ON p.id = et.partner_id
-                 WHERE et.partner_id <> ?
+                 WHERE et.partner_id <> ? AND et.language = ?
                  ORDER BY p.name, et.type'
             );
-            $importStmt->execute([$selectedPartnerId]);
+            $importStmt->execute([$selectedPartnerId, $selectedLanguage]);
             $importTemplates = $importStmt->fetchAll(PDO::FETCH_ASSOC);
             $galleryAssets = self::templateGalleryAssets($selectedPartnerId);
         }
@@ -1643,6 +2018,7 @@ final class PageController extends Controller
             'partners' => $partners,
             'selectedPartnerId' => $selectedPartnerId,
             'selectedPartnerName' => $selectedPartnerName,
+            'selectedLanguage' => $selectedLanguage,
             'templates' => $templates,
             'selected' => $selected,
             'templateCatalog' => $templateCatalog,
@@ -1681,28 +2057,32 @@ final class PageController extends Controller
         self::requireAdminUser();
         $partnerId = (int) ($_POST['partner_id'] ?? 0);
         $type = trim((string) ($_POST['type'] ?? ''));
-        $templateCatalog = self::adminTemplateCatalog();
+        $language = in_array((string) ($_POST['language'] ?? ''), I18n::SUPPORTED, true)
+            ? (string) $_POST['language']
+            : I18n::DEFAULT_LANGUAGE;
+        $templateCatalog = self::adminTemplateCatalog($language);
         if ($partnerId <= 0 || !isset($templateCatalog[$type])) {
-            self::redirect('/admin/templates?partner_id=' . $partnerId, 'Template invalide.', 'error');
+            self::redirect('/admin/templates?partner_id=' . $partnerId . '&language=' . $language, 'Template invalide.', 'error');
         }
 
-        $existingStmt = Database::connection()->prepare('SELECT id FROM email_templates WHERE partner_id = ? AND type = ? LIMIT 1');
-        $existingStmt->execute([$partnerId, $type]);
+        $existingStmt = Database::connection()->prepare('SELECT id FROM email_templates WHERE partner_id = ? AND type = ? AND language = ? LIMIT 1');
+        $existingStmt->execute([$partnerId, $type, $language]);
         if ($existingId = (int) ($existingStmt->fetchColumn() ?: 0)) {
-            self::redirect('/admin/templates?partner_id=' . $partnerId . '&id=' . $existingId, 'Ce template existe déjà.', 'info');
+            self::redirect('/admin/templates?partner_id=' . $partnerId . '&language=' . $language . '&id=' . $existingId, 'Ce template existe déjà.', 'info');
         }
 
         $definition = $templateCatalog[$type];
         Database::connection()->prepare(
-            'INSERT INTO email_templates (partner_id, type, subject, body_html) VALUES (?, ?, ?, ?)'
+            'INSERT INTO email_templates (partner_id, type, language, subject, body_html) VALUES (?, ?, ?, ?, ?)'
         )->execute([
             $partnerId,
             $type,
+            $language,
             $definition['subject'],
             $definition['body_html'],
         ]);
 
-        self::redirect('/admin/templates?partner_id=' . $partnerId . '&id=' . (int) Database::connection()->lastInsertId(), 'Nouveau template créé.');
+        self::redirect('/admin/templates?partner_id=' . $partnerId . '&language=' . $language . '&id=' . (int) Database::connection()->lastInsertId(), 'Nouveau template créé.');
     }
 
     public static function adminImportAllTemplate(): never
@@ -1715,7 +2095,7 @@ final class PageController extends Controller
         }
 
         $sourceStmt = Database::connection()->prepare(
-            'SELECT et.type, et.subject, et.body_html, et.partner_id, p.name AS partner_name
+            'SELECT et.type, et.language, et.subject, et.body_html, et.partner_id, p.name AS partner_name
              FROM email_templates et
              JOIN partners p ON p.id = et.partner_id
              WHERE et.id = ? LIMIT 1'
@@ -1728,9 +2108,10 @@ final class PageController extends Controller
         if ((int) $source['partner_id'] === $partnerId) {
             self::redirect('/admin/templates?partner_id=' . $partnerId, 'Choisissez un autre partenaire source.', 'error');
         }
+        $language = (string) ($source['language'] ?? I18n::DEFAULT_LANGUAGE);
 
-        $targetStmt = Database::connection()->prepare('SELECT id FROM email_templates WHERE partner_id = ? AND type = ? LIMIT 1');
-        $targetStmt->execute([$partnerId, (string) $source['type']]);
+        $targetStmt = Database::connection()->prepare('SELECT id FROM email_templates WHERE partner_id = ? AND type = ? AND language = ? LIMIT 1');
+        $targetStmt->execute([$partnerId, (string) $source['type'], $language]);
         $targetId = (int) ($targetStmt->fetchColumn() ?: 0);
 
         if ($targetId > 0) {
@@ -1744,17 +2125,18 @@ final class PageController extends Controller
             ]);
         } else {
             Database::connection()->prepare(
-                'INSERT INTO email_templates (partner_id, type, subject, body_html) VALUES (?, ?, ?, ?)'
+                'INSERT INTO email_templates (partner_id, type, language, subject, body_html) VALUES (?, ?, ?, ?, ?)'
             )->execute([
                 $partnerId,
                 (string) $source['type'],
+                $language,
                 (string) $source['subject'],
                 (string) $source['body_html'],
             ]);
             $targetId = (int) Database::connection()->lastInsertId();
         }
 
-        self::redirect('/admin/templates?partner_id=' . $partnerId . '&id=' . $targetId, 'Template importé.');
+        self::redirect('/admin/templates?partner_id=' . $partnerId . '&language=' . $language . '&id=' . $targetId, 'Template importé.');
     }
 
     private const IMPORT_ZIP_MODES = ['all', 'images_only', 'html_only'];
@@ -2035,7 +2417,12 @@ final class PageController extends Controller
     /**
      * @return array<string, array{label: string, subject: string, body_html: string}>
      */
-    private static function adminTemplateCatalog(): array
+    private static function adminTemplateCatalog(string $language = 'fr'): array
+    {
+        return $language === 'en' ? self::adminTemplateCatalogEn() : self::adminTemplateCatalogFr();
+    }
+
+    private static function adminTemplateCatalogFr(): array
     {
         return [
             'REQUEST_RECEIVED_PARTNER' => [
@@ -2143,6 +2530,119 @@ HTML,
 </ul>
 <p>N'hésitez pas à nous contacter si vous avez des questions.</p>
 <p>À bientôt,<br><strong>{{partenaire}}</strong></p>
+HTML,
+            ],
+        ];
+    }
+
+    private static function adminTemplateCatalogEn(): array
+    {
+        return [
+            'REQUEST_RECEIVED_PARTNER' => [
+                'label' => 'Booking request received (partner)',
+                'subject' => 'New booking request - {{nom_client}}',
+                'body_html' => <<<'HTML'
+<h2>New booking request</h2>
+<p><strong>Client:</strong> {{nom_client}} ({{email_client}})</p>
+<p><strong>Property:</strong> {{hebergement}}</p>
+<img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;">
+<p><strong>Dates:</strong> {{dates}}</p>
+<p><strong>Guests:</strong> {{adultes}} adult(s), {{enfants}} child(ren)</p>
+{{tarif_bloc}}
+<p><strong>Message:</strong><br>{{message}}</p>
+<hr>
+<p>Please handle this request from your partner dashboard.</p>
+HTML,
+            ],
+            'REQUEST_RECEIVED_CLIENT' => [
+                'label' => 'Request acknowledgement (client)',
+                'subject' => 'Your stay request has been received - {{hebergement}}',
+                'body_html' => <<<'HTML'
+<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+<div style="text-align:center;padding:28px 24px 16px;">
+<img src="{{logo_partenaire_url}}" alt="{{partenaire}}" width="80" style="display:block;width:80px;max-width:100%;height:auto;margin:0 auto;">
+<p style="margin:14px 0 8px;font-size:17px;color:#374151;">Your stay request has been received!</p>
+<h2 style="margin:4px 0 0;font-size:22px;color:#111827;">{{hebergement}}</h2>
+</div>
+<div style="text-align:center;padding:0 24px 20px;"><img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;"></div>
+<div style="padding:4px 24px 16px;">
+<p style="margin:0 0 10px;font-size:15px;color:#111827;">Hello <strong>{{nom_client}}</strong>,</p>
+<p style="margin:0;font-size:15px;color:#374151;">Thank you for your interest! We have received your booking request for <strong>{{hebergement}}</strong>.</p>
+</div>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:0 24px;">
+<div style="padding:16px 24px 8px;">
+<p style="margin:0 0 8px;font-weight:bold;font-size:14px;color:#111827;">Your Dates:</p>
+<p style="margin:0;font-size:14px;color:#374151;">From {{date_arrivee}} to {{date_depart}} =&gt; {{nuits}} night(s)</p>
+</div>
+<div style="padding:12px 24px 16px;">
+<p style="margin:0 0 10px;font-weight:bold;font-size:14px;color:#111827;">Your Guests:</p>
+<table style="width:100%;border-collapse:collapse;font-size:14px;">
+<tr><td style="padding:5px 0;border-bottom:1px solid #f3f4f6;color:#374151;">Number of adult(s):</td><td style="padding:5px 0;border-bottom:1px solid #f3f4f6;text-align:right;font-weight:bold;color:#111827;">{{adultes}}</td></tr>
+<tr><td style="padding:5px 0;border-bottom:1px solid #f3f4f6;color:#374151;">Number of child(ren) &lt; 12 y/o:</td><td style="padding:5px 0;border-bottom:1px solid #f3f4f6;text-align:right;font-weight:bold;color:#111827;">{{enfants}}</td></tr>
+<tr><td style="padding:5px 0;color:#374151;">Number of baby/babies &lt; 3 y/o:</td><td style="padding:5px 0;text-align:right;font-weight:bold;color:#111827;">{{bebes}}</td></tr>
+</table>
+</div>
+{{tarif_bloc}}
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:0 24px;">
+<div style="padding:16px 24px 24px;font-size:13px;color:#374151;">
+<p style="margin:0 0 10px;">Best regards,</p>
+<table style="border-collapse:collapse;"><tr>
+<td style="vertical-align:top;padding-right:14px;"><img src="{{signature_photo_url}}" alt="{{signature_nom}}" width="64" height="64" style="display:block;width:64px;max-width:100%;height:64px;margin:0 auto;border-radius:50%;object-fit:cover;"></td>
+<td style="vertical-align:middle;">
+<p style="margin:0 0 3px;font-weight:bold;font-size:14px;color:#111827;">{{signature_nom}}</p>
+<p style="margin:0 0 3px;">{{email_partenaire}} | {{telephone_partenaire}}</p>
+<p style="margin:0;"><a href="{{lien_partenaire}}" style="color:#3b82f6;text-decoration:none;">{{lien_partenaire}}</a></p>
+</td>
+</tr></table>
+</div>
+</div>
+HTML,
+            ],
+            'RESERVATION_CONFIRMED' => [
+                'label' => 'Reservation confirmed (client)',
+                'subject' => 'Your reservation is confirmed! 🎉',
+                'body_html' => <<<'HTML'
+<h2>Reservation confirmed</h2>
+<p>Hello {{nom_client}},</p>
+<p>We are pleased to confirm your reservation:</p>
+<img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;">
+<ul>
+  <li><strong>Property:</strong> {{hebergement}}</li>
+  <li><strong>Arrival:</strong> {{date_arrivee}}</li>
+  <li><strong>Departure:</strong> {{date_depart}}</li>
+  <li><strong>Guests:</strong> {{adultes}} adult(s), {{enfants}} child(ren)</li>
+</ul>
+{{notes}}
+<p>See you soon in Mauritius!</p>
+<p>Best regards,<br><strong>{{partenaire}}</strong></p>
+HTML,
+            ],
+            'RESERVATION_CANCELLED' => [
+                'label' => 'Reservation cancelled (client)',
+                'subject' => 'Your reservation has been cancelled',
+                'body_html' => <<<'HTML'
+<h2>Your reservation has been cancelled</h2>
+<p>Hello {{nom_client}},</p>
+<p>We regret to inform you that your reservation for <strong>{{hebergement}}</strong> ({{dates}}) had to be cancelled.</p>
+<img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;">
+<p>Please feel free to contact us to explore other options.</p>
+<p>Best regards,<br><strong>{{partenaire}}</strong></p>
+HTML,
+            ],
+            'REMINDER' => [
+                'label' => 'Pre-arrival reminder',
+                'subject' => 'Reminder: your stay is coming up! 🌴',
+                'body_html' => <<<'HTML'
+<h2>Your stay is coming up!</h2>
+<p>Hello {{nom_client}},</p>
+<div style="margin:18px 0;"><img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;"></div>
+<p>This is a reminder that your stay at <strong>{{hebergement}}</strong> is coming up:</p>
+<ul>
+  <li><strong>Arrival:</strong> {{date_arrivee}}</li>
+  <li><strong>Departure:</strong> {{date_depart}}</li>
+</ul>
+<p>Please contact us if you have any questions.</p>
+<p>See you soon,<br><strong>{{partenaire}}</strong></p>
 HTML,
             ],
         ];

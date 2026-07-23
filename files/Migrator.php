@@ -54,7 +54,7 @@ final class Migrator
             $statements = preg_split('/;\s*(?:\r?\n|$)/', $sql, -1, PREG_SPLIT_NO_EMPTY) ?: [];
             foreach ($statements as $statement) {
                 $statement = trim($statement);
-                if ($statement === '' || str_starts_with($statement, '--')) {
+                if ($statement === '' || self::isCommentOnly($statement)) {
                     continue;
                 }
                 $pdo->exec($statement);
@@ -64,5 +64,29 @@ final class Migrator
         }
 
         return ['applied' => $applied, 'skipped' => $skipped];
+    }
+
+    /**
+     * A statement is only skipped if EVERY one of its lines is blank or a
+     * "--" comment. Migration files commonly start a statement with a block
+     * of "--" explanatory comment lines followed by the actual SQL (see
+     * db/migrations/025_add_language_to_templates_and_requests.sql); a
+     * previous version of this check used str_starts_with($statement, '--'),
+     * which treated the *whole* multi-line statement as a comment whenever
+     * its first line was one, silently skipping the real ALTER TABLE
+     * statement that followed. That left columns like
+     * email_templates.language / reservation_requests.language never
+     * created, while the migration file was still recorded as applied,
+     * causing persistent "Unknown column 'et.language'" errors.
+     */
+    private static function isCommentOnly(string $statement): bool
+    {
+        foreach (preg_split('/\r\n|\r|\n/', $statement) ?: [] as $line) {
+            $line = trim($line);
+            if ($line !== '' && !str_starts_with($line, '--')) {
+                return false;
+            }
+        }
+        return true;
     }
 }

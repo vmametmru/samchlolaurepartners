@@ -56,6 +56,8 @@ img { max-width: 100%; display: block; }
 .navbar-links { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
 .navbar-user-info { font-size: .85rem; color: var(--text-muted, #6b7280); text-decoration: none; }
 .navbar-user-info:hover { text-decoration: underline; }
+.navbar-lang-toggle { display: inline-flex; align-items: center; justify-content: center; width: 2.2rem; height: 2.2rem; border-radius: 50%; font-size: 1.2rem; text-decoration: none; line-height: 1; flex-shrink: 0; }
+.navbar-lang-toggle:hover { background: rgba(0, 0, 0, .06); }
 .navbar-dropdown { position: relative; }
 .navbar-dropdown > summary { cursor: pointer; list-style: none; padding: .5rem 0; }
 .navbar-dropdown > summary::-webkit-details-marker { display: none; }
@@ -164,6 +166,12 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .gallery-carousel-track { display: flex; flex-wrap: nowrap; gap: .5rem; overflow-x: auto; scroll-behavior: auto; scrollbar-width: thin; min-width: 0; }
 .gallery-carousel-track .gallery-thumb { width: 5rem; height: 5rem; }
 .amenities-category + .amenities-category { margin-top: 1.25rem; }
+.amenities-categories { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem; }
+.amenities-categories .amenities-category { margin-top: 0; border: 1px solid var(--border); border-radius: .75rem; padding: 1rem 1.1rem; background: #fafafa; }
+.amenities-category-title { display: flex; align-items: center; gap: .55rem; font-size: 1rem; font-weight: 700; margin: 0 0 .75rem; }
+.amenities-category-icon { display: inline-flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; border-radius: 999px; background: var(--brand); color: #fff; flex-shrink: 0; }
+.amenities-category-icon svg { width: 1.1rem; height: 1.1rem; }
+.amenities-item { font-size: .92rem; color: var(--text); }
 .detail-tabs { display: flex; gap: .5rem; flex-wrap: wrap; margin: 1rem 0 1.5rem; border-bottom: 1px solid var(--border); }
 .tab-btn { appearance: none; border: 0; border-bottom: 2px solid transparent; background: transparent; cursor: pointer; font: inherit; font-weight: 700; color: var(--muted); padding: .75rem .25rem; }
 .tab-btn.active { color: var(--text); border-bottom-color: var(--brand); }
@@ -294,6 +302,8 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .calendar-loading-message { margin-top: 1rem; display: flex; align-items: center; gap: .5rem; font-size: .85rem; }
 .calendar-loading-message[hidden] { display: none; }
 .calendar-price-note { margin-top: 1rem; font-size: .85rem; }
+.booking-policy-block { margin-top: 1.5rem; border: 1px solid var(--border); border-radius: .75rem; padding: 1rem 1.25rem; background: #fafafa; }
+.booking-policy-block .prose { font-size: .9rem; color: var(--muted); }
 
 .calendar-help-btn { padding: .5rem .9rem; border-radius: .6rem; font-size: .9rem; flex-shrink: 0; }
 .help-dialog { max-width: 32rem; width: calc(100% - 2rem); border: 1px solid var(--border, #e5e7eb); border-radius: .9rem; padding: 1.25rem; }
@@ -515,3 +525,12 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .partner-template-list { padding: .25rem 0 .5rem; background: #fafafa; }
 .partner-template-link { display: block; padding: .6rem 1rem .6rem 2rem; font-size: .9rem; }
 .partner-template-link.active { background: #fdf2f8; color: var(--brand); font-weight: 700; }
+.update-progress { margin-top: .5rem; }
+.update-progress-track { width: 100%; height: .6rem; border-radius: 999px; background: #e5e7eb; overflow: hidden; }
+.update-progress-bar { display: block; height: 100%; border-radius: 999px; background: var(--brand); transition: width .25s ease; }
+.update-progress-bar.is-indeterminate { animation: update-progress-pulse 1.4s ease-in-out infinite; }
+.update-progress-label { margin: .4rem 0 0; font-size: .85rem; color: var(--text-muted, #6b7280); display: flex; gap: .35rem; }
+@keyframes update-progress-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .55; }
+}

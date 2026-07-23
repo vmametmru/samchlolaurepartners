@@ -7,6 +7,7 @@ namespace App\controllers;
 use App\Auth;
 use App\Controller;
 use App\Database;
+use App\I18n;
 use App\LodgifyClient;
 use App\Mailer;
 use PDO;
@@ -59,6 +60,29 @@ final class ReservationsController extends Controller
         $stmt = $pdo->query("SHOW COLUMNS FROM reservation_requests LIKE " . $pdo->quote($column));
         return $stmt !== false && $stmt->fetch() !== false;
     }
+
+    private static ?bool $languageColumnExists = null;
+
+    /**
+     * Whether reservation_requests already has the "language" column added
+     * by migration 025. Guarded the same way as childrenBreakdownColumns():
+     * Migrator::autoRun() applies pending migrations on every request, but
+     * on shared hosting an ALTER can fail (privileges/timing) and leave the
+     * migration unapplied — referencing the column unconditionally in an
+     * INSERT would then turn every reservation submission into a 500.
+     */
+    private static function hasLanguageColumn(PDO $pdo): bool
+    {
+        if (self::$languageColumnExists === null) {
+            try {
+                self::$languageColumnExists = self::reservationRequestColumnExists($pdo, 'language');
+            } catch (Throwable $e) {
+                self::$languageColumnExists = false;
+            }
+        }
+        return self::$languageColumnExists;
+    }
+
 
     private static function childCount(array $source, string $primaryField, string $legacyField, int $fallback = 0): int
     {
@@ -346,6 +370,11 @@ final class ReservationsController extends Controller
             $params[] = $childrenUnder3;
             $params[] = $children3to12;
         }
+        $requestLanguage = I18n::current();
+        if (self::hasLanguageColumn($pdo)) {
+            $columns[] = 'language';
+            $params[] = $requestLanguage;
+        }
         $columns[] = 'guests';
         $columns[] = 'message';
         $params[] = json_encode($input['guests'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -368,10 +397,11 @@ final class ReservationsController extends Controller
         // never turn an otherwise-successful submission into a 500 for the
         // visitor, who would then wrongly believe nothing was recorded.
         try {
-            self::sendRequestEmails($partner, $input + [
-                'children_under3' => $childrenUnder3,
-                'children_3to12' => $children3to12,
-            ]);
+            $emailInput = $input;
+            $emailInput['children_under3'] = $childrenUnder3;
+            $emailInput['children_3to12'] = $children3to12;
+            $emailInput['language'] = $requestLanguage;
+            self::sendRequestEmails($partner, $emailInput);
         } catch (Throwable $e) {
             error_log('Failed to send reservation request emails: ' . $e);
         }
@@ -543,6 +573,11 @@ final class ReservationsController extends Controller
                 $columns[] = $breakdownColumns['under3'];
                 $columns[] = $breakdownColumns['from3to12'];
             }
+            $requestLanguage = I18n::current();
+            $hasLanguageColumn = self::hasLanguageColumn($pdo);
+            if ($hasLanguageColumn) {
+                $columns[] = 'language';
+            }
             $columns[] = 'guests';
             $columns[] = 'message';
             $stmt = $pdo->prepare(
@@ -565,6 +600,9 @@ final class ReservationsController extends Controller
                 if ($breakdownColumns !== null) {
                     $params[] = $childrenUnder3;
                     $params[] = $children3to12;
+                }
+                if ($hasLanguageColumn) {
+                    $params[] = $requestLanguage;
                 }
                 $params[] = $guestsJson;
                 $params[] = $message;
@@ -609,6 +647,7 @@ final class ReservationsController extends Controller
                     'quote_cleaning_total' => $quote['cleaning_total'] ?? 0,
                     'quote_total_without_tax' => $quote['total_without_tax'] ?? 0,
                     'quote_tourist_tax_total' => $quote['tourist_tax_total'] ?? 0,
+                    'language' => $requestLanguage,
                 ], $itemCount);
             } catch (Throwable $e) {
                 error_log('Failed to send reservation request emails: ' . $e);
@@ -832,6 +871,7 @@ final class ReservationsController extends Controller
                 (string) ($partner['name'] ?? '')
             ),
             'logo_partenaire_url' => self::partnerLogoUrlValue((string) ($partner['logo_url'] ?? '')),
+            'politique_reservation' => nl2br(htmlspecialchars(PageController::bookingPolicyText())),
         ];
         $childBreakdown = self::childBreakdownValues($input);
         $variables += self::stayVariables($checkin, $checkout, $childBreakdown['under3'], $childBreakdown['from3to12']);
@@ -844,7 +884,9 @@ final class ReservationsController extends Controller
         }
 
         $pdo = Database::connection();
-        $stmt = $pdo->prepare('SELECT * FROM email_templates WHERE partner_id = ? AND type = ? LIMIT 1');
+        $guestLanguage = in_array((string) ($input['language'] ?? ''), I18n::SUPPORTED, true)
+            ? (string) $input['language']
+            : I18n::DEFAULT_LANGUAGE;
 
         // Each recipient is sent in its own try/catch: previously a failure
         // sending to the partner (bad SMTP credentials, unreachable host,
@@ -852,8 +894,9 @@ final class ReservationsController extends Controller
         // whole method, silently skipping the client email below too. Now a
         // partner-side failure can never prevent the client from being
         // notified (and vice versa).
-        $stmt->execute([(int) $partner['id'], 'REQUEST_RECEIVED_PARTNER']);
-        $partnerTemplate = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        // The partner/host-facing copy always stays in French: the visitor's
+        // site language reflects the *guest's* language, not the partner's.
+        $partnerTemplate = self::findEmailTemplate($pdo, (int) $partner['id'], 'REQUEST_RECEIVED_PARTNER', I18n::DEFAULT_LANGUAGE);
         try {
             if ($partnerTemplate) {
                 Mailer::sendTemplatedEmail($partner, $partnerTemplate, (string) $partner['email'], $variables, $embeds);
@@ -864,8 +907,10 @@ final class ReservationsController extends Controller
             error_log('Failed to send REQUEST_RECEIVED_PARTNER email to partner #' . (int) ($partner['id'] ?? 0) . ' (' . (string) ($partner['email'] ?? '') . '): ' . $e);
         }
 
-        $stmt->execute([(int) $partner['id'], 'REQUEST_RECEIVED_CLIENT']);
-        $clientTemplate = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        // The guest-facing copy is sent in whatever language they browsed the
+        // site in (I18n::current() at submission time), falling back to the
+        // partner's French template if no translated variant exists yet.
+        $clientTemplate = self::findEmailTemplate($pdo, (int) $partner['id'], 'REQUEST_RECEIVED_CLIENT', $guestLanguage);
         try {
             if ($clientTemplate) {
                 Mailer::sendTemplatedEmail($partner, $clientTemplate, (string) $input['client_email'], $variables, $embeds);
@@ -877,11 +922,31 @@ final class ReservationsController extends Controller
         }
     }
 
+    /**
+     * Fetches the email_templates row for the given partner/type/language,
+     * falling back to the partner's French template (the always-present
+     * default language) when no translated variant exists for $language yet
+     * — so an admin can enable English progressively, type by type, without
+     * guest-facing emails ever silently going out with no template at all.
+     */
+    public static function findEmailTemplate(PDO $pdo, int $partnerId, string $type, string $language): ?array
+    {
+        $stmt = $pdo->prepare('SELECT * FROM email_templates WHERE partner_id = ? AND type = ? AND language = ? LIMIT 1');
+        $stmt->execute([$partnerId, $type, $language]);
+        $template = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if ($template !== null || $language === I18n::DEFAULT_LANGUAGE) {
+            return $template;
+        }
+        $stmt->execute([$partnerId, $type, I18n::DEFAULT_LANGUAGE]);
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
     private static function sendReservationStatusEmail(array $partner, array $request, string $type, ?string $notes): void
     {
-        $stmt = Database::connection()->prepare('SELECT * FROM email_templates WHERE partner_id = ? AND type = ? LIMIT 1');
-        $stmt->execute([(int) $partner['id'], $type]);
-        $template = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        $guestLanguage = in_array((string) ($request['language'] ?? ''), I18n::SUPPORTED, true)
+            ? (string) $request['language']
+            : I18n::DEFAULT_LANGUAGE;
+        $template = self::findEmailTemplate(Database::connection(), (int) $partner['id'], $type, $guestLanguage);
         $photo = self::propertyPhotoTag(
             (int) ($request['property_id'] ?? 0),
             (string) $request['property_name']
@@ -906,6 +971,7 @@ final class ReservationsController extends Controller
                 (string) ($partner['name'] ?? '')
             ),
             'logo_partenaire_url' => self::partnerLogoUrlValue((string) ($partner['logo_url'] ?? '')),
+            'politique_reservation' => nl2br(htmlspecialchars(PageController::bookingPolicyText())),
         ];
         $childBreakdown = self::childBreakdownValues($request);
         $variables += self::stayVariables(

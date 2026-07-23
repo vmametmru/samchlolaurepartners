@@ -6,7 +6,7 @@ $labels = [
   'RESERVATION_CANCELLED' => 'Réservation annulée (client)',
   'REMINDER' => 'Rappel avant arrivée',
 ];
-$plainVariables = ['{{nom_client}}','{{email_client}}','{{telephone_client}}','{{dates}}','{{date_arrivee}}','{{date_depart}}','{{nuits}}','{{adultes}}','{{enfants}}','{{bebes}}','{{multi_biens_note}}','{{hebergement}}','{{photo_bien}}','{{partenaire}}','{{notes}}','{{message}}','{{tarif_nuits}}','{{tarif_hebergement}}','{{tarif_personnes_supplementaires}}','{{tarif_nettoyage}}','{{tarif_total}}','{{taxe_touristique}}','{{tarif_bloc}}','{{signature_nom}}','{{email_partenaire}}','{{lien_partenaire}}','{{telephone_partenaire}}'];
+$plainVariables = ['{{nom_client}}','{{email_client}}','{{telephone_client}}','{{dates}}','{{date_arrivee}}','{{date_depart}}','{{nuits}}','{{adultes}}','{{enfants}}','{{bebes}}','{{multi_biens_note}}','{{hebergement}}','{{photo_bien}}','{{partenaire}}','{{notes}}','{{message}}','{{tarif_nuits}}','{{tarif_hebergement}}','{{tarif_personnes_supplementaires}}','{{tarif_nettoyage}}','{{tarif_total}}','{{taxe_touristique}}','{{tarif_bloc}}','{{signature_nom}}','{{email_partenaire}}','{{lien_partenaire}}','{{telephone_partenaire}}','{{politique_reservation}}'];
 $resizableVariables = [
   ['name' => 'photo1', 'label' => '{{photo1}}', 'default' => 320],
   ['name' => 'photo2', 'label' => '{{photo2}}', 'default' => 320],
@@ -27,7 +27,7 @@ $baseUrl = $isAdmin ? '/admin/partners/' . (int) $adminPartnerId . '/templates' 
       <?php if ($templates === []): ?>
         <p class="empty-state">Aucun template. Contactez l'administrateur.</p>
       <?php else: foreach ($templates as $template): ?>
-        <a href="<?= $baseUrl ?>?id=<?= (int) $template['id'] ?>" class="<?= $selected && (int) $selected['id'] === (int) $template['id'] ? 'active' : '' ?>"><?= \App\View::e($labels[$template['type']] ?? $template['type']) ?></a>
+        <a href="<?= $baseUrl ?>?id=<?= (int) $template['id'] ?>" class="<?= $selected && (int) $selected['id'] === (int) $template['id'] ? 'active' : '' ?>"><?= \App\View::e($labels[$template['type']] ?? $template['type']) ?> <?= ((string) ($template['language'] ?? 'fr')) === 'en' ? '🇬🇧' : '🇫🇷' ?></a>
       <?php endforeach; endif; ?>
     </div>
     <div class="card card-body">

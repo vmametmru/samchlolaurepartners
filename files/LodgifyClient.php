@@ -76,6 +76,13 @@ final class LodgifyClient
                 }
             }
             unset($property);
+            $frTranslations = $this->fetchFrenchTranslations();
+            foreach ($properties as &$property) {
+                $translation = $frTranslations[(int) ($property['id'] ?? 0)] ?? null;
+                $property['name_fr'] = $translation['name'] ?? '';
+                $property['description_fr'] = $translation['description'] ?? '';
+            }
+            unset($property);
             Settings::set('LODGIFY_LAST_SYNC_AT', gmdate('c'));
             return $properties;
         });
@@ -173,8 +180,160 @@ final class LodgifyClient
                 }
             }
 
+            $frTranslation = $this->fetchFrenchTranslation($propertyId);
+            $property['name_fr'] = $frTranslation['name'] ?? '';
+            $property['description_fr'] = $frTranslation['description'] ?? '';
+
             return $property;
         });
+    }
+
+    /**
+     * Fetches the French name/description for every property in one extra
+     * call, so property cards and the listing page can show French text
+     * instead of whatever language the Lodgify account's default listing
+     * content happens to be in (English on this account).
+     *
+     * Lodgify's v2 "/properties" endpoint ignores a "culture" query
+     * parameter entirely (it always returns the account's default-language
+     * content), which is why the site kept showing English text even after
+     * the site language was switched to French. The v1 API is the one that
+     * actually honors localization, via the "languageCode" query parameter
+     * (ISO 639-1, e.g. "fr") and/or the standard "Accept-Language" header,
+     * so this now queries v1 first and only falls back to the old v2
+     * "culture" attempt for accounts where v1 behaves differently.
+     * Best-effort: if the account has no French translations configured (or
+     * every request fails for any other reason), this silently returns []
+     * and callers fall back to the default-language name/description — it
+     * must never break a sync.
+     *
+     * @return array<int, array{name: string, description: string}>
+     */
+    private function fetchFrenchTranslations(): array
+    {
+        try {
+            $data = $this->requestV1('/properties', ['languageCode' => 'fr'], ['Accept-Language: fr']);
+        } catch (\Throwable $e) {
+            error_log('Lodgify: failed to fetch French translations via v1: ' . $e->getMessage());
+            try {
+                $data = $this->request('/properties', ['culture' => 'fr-FR']);
+            } catch (\Throwable $e2) {
+                error_log('Lodgify: failed to fetch French translations: ' . $e2->getMessage());
+                return [];
+            }
+        }
+        $items = is_array($data['items'] ?? null) ? $data['items'] : (is_array($data) ? $data : []);
+        $translations = [];
+        foreach ($items as $item) {
+            $id = (int) ($item['id'] ?? 0);
+            if ($id <= 0) {
+                continue;
+            }
+            $translations[$id] = [
+                'name' => self::extractLocalizedText($item, 'name', 'fr'),
+                'description' => self::extractLocalizedText($item, 'description', 'fr'),
+            ];
+        }
+        return $translations;
+    }
+
+    /**
+     * Same as fetchFrenchTranslations() but for a single property (used by
+     * getProperty()); see that method's docblock for why this is
+     * best-effort and never throws.
+     *
+     * @return array{name?: string, description?: string}
+     */
+    private function fetchFrenchTranslation(int $propertyId): array
+    {
+        try {
+            $item = $this->requestV1('/properties/' . $propertyId, ['languageCode' => 'fr'], ['Accept-Language: fr']);
+        } catch (\Throwable $e) {
+            error_log('Lodgify: failed to fetch French translation for property ' . $propertyId . ' via v1: ' . $e->getMessage());
+            try {
+                $item = $this->request('/properties/' . $propertyId, ['culture' => 'fr-FR']);
+            } catch (\Throwable $e2) {
+                error_log('Lodgify: failed to fetch French translation for property ' . $propertyId . ': ' . $e2->getMessage());
+                return [];
+            }
+        }
+        return [
+            'name' => self::extractLocalizedText($item, 'name', 'fr'),
+            'description' => self::extractLocalizedText($item, 'description', 'fr'),
+        ];
+    }
+
+    /**
+     * Reads a text field ("name"/"description") from a Lodgify property
+     * payload, preferring the requested language. Besides the plain scalar
+     * field (returned already localized by v1's languageCode/Accept-Language
+     * request), some Lodgify responses instead expose a
+     * "{field}_translations" / "{field}s" array of
+     * {"language_code"|"culture_code": "fr", "text"|"description"|"name": "..."}
+     * entries covering every configured language — in that case this picks
+     * out the matching entry instead of blindly returning the (English)
+     * scalar field.
+     */
+    private static function extractLocalizedText(array $item, string $field, string $language): string
+    {
+        foreach ([$field . '_translations', $field . 's', $field . '_i18n'] as $key) {
+            $entries = $item[$key] ?? null;
+            if (!is_array($entries)) {
+                continue;
+            }
+            foreach ($entries as $entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
+                $entryLang = strtolower((string) ($entry['language_code'] ?? $entry['culture_code'] ?? $entry['language'] ?? ''));
+                if ($entryLang === '' || !str_starts_with($entryLang, $language)) {
+                    continue;
+                }
+                $text = (string) ($entry['text'] ?? $entry[$field] ?? '');
+                if (trim($text) !== '') {
+                    return $text;
+                }
+            }
+        }
+        return (string) ($item[$field] ?? '');
+    }
+
+    /**
+     * Reads the "default" (source) text of a field ("name"/"description")
+     * straight off a plain "/properties" or "/properties/{id}" payload.
+     * Some Lodgify accounts never populate the root-level scalar field at
+     * all and only ever nest the text under a "{field}_translations" /
+     * "{field}s" array (one entry per configured language) — in that case
+     * the admin "Traductions" page ended up showing an empty "Anglais
+     * (Lodgify)" source text (and the public site fell back to '' too, via
+     * mapProperty()), even though Lodgify actually has text for that
+     * property. This falls back to the first non-empty translation entry
+     * (whatever language it is in) so a default text is always shown/used
+     * instead of a blank field, matching how extractLocalizedText() already
+     * falls back for a specific requested language.
+     */
+    private static function extractDefaultText(array $item, string $field): string
+    {
+        $direct = trim((string) ($item[$field] ?? ''));
+        if ($direct !== '') {
+            return (string) $item[$field];
+        }
+        foreach ([$field . '_translations', $field . 's', $field . '_i18n'] as $key) {
+            $entries = $item[$key] ?? null;
+            if (!is_array($entries)) {
+                continue;
+            }
+            foreach ($entries as $entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
+                $text = (string) ($entry['text'] ?? $entry[$field] ?? '');
+                if (trim($text) !== '') {
+                    return $text;
+                }
+            }
+        }
+        return (string) ($item[$field] ?? '');
     }
 
     /**
@@ -1465,6 +1624,9 @@ final class LodgifyClient
                             }
                         }
                     }
+                    $frTranslation = $this->fetchFrenchTranslation($propertyId);
+                    $property['name_fr'] = $frTranslation['name'] ?? '';
+                    $property['description_fr'] = $frTranslation['description'] ?? '';
                     return $property;
                 });
             }
@@ -1604,9 +1766,9 @@ final class LodgifyClient
         return $result;
     }
 
-    private function request(string $path, array $params = []): array
+    private function request(string $path, array $params = [], array $headers = []): array
     {
-        return $this->httpRequest($this->baseUrl, $path, $params);
+        return $this->httpRequest($this->baseUrl, $path, $params, $headers);
     }
 
     /**
@@ -1615,9 +1777,9 @@ final class LodgifyClient
      * doesn't reliably expose. Derived from LODGIFY_BASE_URL by swapping a
      * trailing "/v2" for "/v1", or defaults to the standard v1 host.
      */
-    private function requestV1(string $path, array $params = []): array
+    private function requestV1(string $path, array $params = [], array $headers = []): array
     {
-        return $this->httpRequest($this->v1BaseUrl(), $path, $params);
+        return $this->httpRequest($this->v1BaseUrl(), $path, $params, $headers);
     }
 
     private function v1BaseUrl(): string
@@ -1626,7 +1788,7 @@ final class LodgifyClient
         return $swapped !== null && $swapped !== $this->baseUrl ? $swapped : 'https://api.lodgify.com/v1';
     }
 
-    private function httpRequest(string $baseUrl, string $path, array $params = []): array
+    private function httpRequest(string $baseUrl, string $path, array $params = [], array $headers = []): array
     {
         if ($this->apiKey === '') {
             throw new RuntimeException('LODGIFY_API_KEY is not set');
@@ -1641,10 +1803,10 @@ final class LodgifyClient
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => 20,
-            CURLOPT_HTTPHEADER => [
+            CURLOPT_HTTPHEADER => array_merge([
                 'X-ApiKey: ' . $this->apiKey,
                 'Accept: application/json',
-            ],
+            ], $headers),
         ]);
         $body = curl_exec($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
@@ -1743,8 +1905,8 @@ final class LodgifyClient
             : $this->estimateCoordinatesFromCity($city, $propertyId);
         return [
             'id' => $propertyId,
-            'name' => (string) ($item['name'] ?? ''),
-            'description' => (string) ($item['description'] ?? ''),
+            'name' => self::extractDefaultText($item, 'name'),
+            'description' => self::extractDefaultText($item, 'description'),
             'images' => $images,
             'amenities' => $amenities,
             'city' => $city,

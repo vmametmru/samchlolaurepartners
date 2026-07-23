@@ -3,7 +3,7 @@ $labels = [];
 foreach (($templateCatalog ?? []) as $type => $definition) {
   $labels[$type] = $definition['label'] ?? $type;
 }
-$plainVariables = ['{{nom_client}}','{{email_client}}','{{telephone_client}}','{{dates}}','{{date_arrivee}}','{{date_depart}}','{{nuits}}','{{adultes}}','{{enfants}}','{{bebes}}','{{multi_biens_note}}','{{hebergement}}','{{photo_bien}}','{{partenaire}}','{{notes}}','{{message}}','{{tarif_nuits}}','{{tarif_hebergement}}','{{tarif_personnes_supplementaires}}','{{tarif_nettoyage}}','{{tarif_total}}','{{taxe_touristique}}','{{tarif_bloc}}','{{signature_nom}}','{{email_partenaire}}','{{lien_partenaire}}','{{telephone_partenaire}}'];
+$plainVariables = ['{{nom_client}}','{{email_client}}','{{telephone_client}}','{{dates}}','{{date_arrivee}}','{{date_depart}}','{{nuits}}','{{adultes}}','{{enfants}}','{{bebes}}','{{multi_biens_note}}','{{hebergement}}','{{photo_bien}}','{{partenaire}}','{{notes}}','{{message}}','{{tarif_nuits}}','{{tarif_hebergement}}','{{tarif_personnes_supplementaires}}','{{tarif_nettoyage}}','{{tarif_total}}','{{taxe_touristique}}','{{tarif_bloc}}','{{signature_nom}}','{{email_partenaire}}','{{lien_partenaire}}','{{telephone_partenaire}}','{{politique_reservation}}'];
 $resizableVariables = [
   ['name' => 'photo1', 'label' => '{{photo1}}', 'default' => 320],
   ['name' => 'photo2', 'label' => '{{photo2}}', 'default' => 320],
@@ -12,6 +12,7 @@ $resizableVariables = [
   ['name' => 'signature_photo', 'label' => '{{signature_photo}}', 'default' => 64],
 ];
 $baseUrl = '/admin/templates';
+$selectedLanguage = $selectedLanguage ?? 'fr';
 ?>
 <section class="container section-lg">
   <h1>Templates email</h1>
@@ -22,7 +23,7 @@ $baseUrl = '/admin/templates';
         <?php $isSelectedPartner = $selectedPartnerId === (int) $p['id']; ?>
         <details class="partner-accordion" <?= $isSelectedPartner ? 'open' : '' ?>>
           <summary class="partner-accordion-summary <?= $isSelectedPartner ? 'active' : '' ?>">
-            <a href="<?= $baseUrl ?>?partner_id=<?= (int) $p['id'] ?>"><?= \App\View::e($p['name']) ?></a>
+            <a href="<?= $baseUrl ?>?partner_id=<?= (int) $p['id'] ?>&amp;language=<?= \App\View::e($selectedLanguage) ?>"><?= \App\View::e($p['name']) ?></a>
             <span class="badge-count"><?= (int) $p['template_count'] ?></span>
           </summary>
           <?php if ($isSelectedPartner): ?>
@@ -31,7 +32,7 @@ $baseUrl = '/admin/templates';
                 <p class="empty-state" style="padding:.5rem 1rem;">Aucun template pour ce partenaire.</p>
               <?php else: ?>
                 <?php foreach ($templates as $tpl): ?>
-                  <a href="<?= $baseUrl ?>?partner_id=<?= $selectedPartnerId ?>&amp;id=<?= (int) $tpl['id'] ?>"
+                  <a href="<?= $baseUrl ?>?partner_id=<?= $selectedPartnerId ?>&amp;language=<?= \App\View::e($selectedLanguage) ?>&amp;id=<?= (int) $tpl['id'] ?>"
                      class="partner-template-link <?= $selected && (int) $selected['id'] === (int) $tpl['id'] ? 'active' : '' ?>">
                     <?= \App\View::e($labels[$tpl['type']] ?? $tpl['type']) ?>
                   </a>
@@ -48,6 +49,12 @@ $baseUrl = '/admin/templates';
       <?php else: ?>
         <nav class="breadcrumb"><a href="<?= $baseUrl ?>">Templates</a> › <span><?= \App\View::e($selectedPartnerName ?? '') ?></span></nav>
 
+        <div class="tabs" role="tablist" style="display:flex;gap:.5rem;margin:-.25rem 0 .5rem;">
+          <a href="<?= $baseUrl ?>?partner_id=<?= (int) $selectedPartnerId ?>&amp;language=fr" class="btn-sm <?= $selectedLanguage === 'fr' ? 'btn-primary' : 'btn-secondary' ?>">🇫🇷 Français</a>
+          <a href="<?= $baseUrl ?>?partner_id=<?= (int) $selectedPartnerId ?>&amp;language=en" class="btn-sm <?= $selectedLanguage === 'en' ? 'btn-primary' : 'btn-secondary' ?>">🇬🇧 English</a>
+        </div>
+
+
         <div class="form-grid cols-3">
           <div class="card card-body stack-md">
             <h2 class="section-title">Nouveaux templates</h2>
@@ -56,6 +63,7 @@ $baseUrl = '/admin/templates';
             <?php else: ?>
               <form method="post" action="<?= $baseUrl ?>/create" class="stack-md">
                 <input type="hidden" name="partner_id" value="<?= (int) $selectedPartnerId ?>">
+                <input type="hidden" name="language" value="<?= \App\View::e($selectedLanguage) ?>">
                 <label>
                   <span>Type de template</span>
                   <select class="input" name="type" required>

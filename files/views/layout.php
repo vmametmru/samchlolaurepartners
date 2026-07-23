@@ -9,7 +9,7 @@ $cssVersion = is_file($cssPath) ? (string) filemtime($cssPath) : '1';
 $jsVersion = is_file($jsPath) ? (string) filemtime($jsPath) : '1';
 ?>
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="<?= \App\View::e($lang ?? 'fr') ?>">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">

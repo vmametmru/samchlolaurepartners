@@ -7,6 +7,7 @@ namespace App\controllers;
 use App\Auth;
 use App\Controller;
 use App\Database;
+use App\I18n;
 use PDO;
 use Throwable;
 
@@ -18,8 +19,14 @@ final class EmailTemplatesController extends Controller
         $partnerId = ($user['role'] ?? '') === 'admin'
             ? (isset($_GET['partner_id']) ? (string) $_GET['partner_id'] : ($user['partner_id'] ?? null))
             : ($user['partner_id'] ?? null);
-        $stmt = Database::connection()->prepare('SELECT * FROM email_templates WHERE partner_id = ? ORDER BY type');
-        $stmt->execute([$partnerId]);
+        $language = isset($_GET['language']) ? (string) $_GET['language'] : null;
+        if ($language !== null && in_array($language, I18n::SUPPORTED, true)) {
+            $stmt = Database::connection()->prepare('SELECT * FROM email_templates WHERE partner_id = ? AND language = ? ORDER BY type');
+            $stmt->execute([$partnerId, $language]);
+        } else {
+            $stmt = Database::connection()->prepare('SELECT * FROM email_templates WHERE partner_id = ? ORDER BY type, language');
+            $stmt->execute([$partnerId]);
+        }
         self::json(['data' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
     }
 
@@ -43,8 +50,11 @@ final class EmailTemplatesController extends Controller
             self::json(['error' => 'Bad Request', 'message' => 'type, subject, body_html are required'], 400);
         }
         try {
-            $stmt = Database::connection()->prepare('INSERT INTO email_templates (partner_id, type, subject, body_html) VALUES (?, ?, ?, ?)');
-            $stmt->execute([$user['partner_id'] ?? null, (string) $input['type'], (string) $input['subject'], (string) $input['body_html']]);
+            $language = in_array((string) ($input['language'] ?? ''), I18n::SUPPORTED, true)
+                ? (string) $input['language']
+                : I18n::DEFAULT_LANGUAGE;
+            $stmt = Database::connection()->prepare('INSERT INTO email_templates (partner_id, type, language, subject, body_html) VALUES (?, ?, ?, ?, ?)');
+            $stmt->execute([$user['partner_id'] ?? null, (string) $input['type'], $language, (string) $input['subject'], (string) $input['body_html']]);
             self::json(['data' => ['id' => (int) Database::connection()->lastInsertId()], 'message' => 'Template created'], 201);
         } catch (Throwable $e) {
             self::json(['error' => 'Internal Server Error', 'message' => 'Failed to create template'], 500);
