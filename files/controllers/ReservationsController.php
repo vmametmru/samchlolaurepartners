@@ -152,11 +152,19 @@ final class ReservationsController extends Controller
         } catch (Throwable $e) {
             error_log('Lodgify: failed to fetch property ' . $propertyId . ': ' . $e->getMessage());
         }
+        // Babies (children_under3) don't count toward the property's max
+        // occupancy — consistent with the front-end guest steppers
+        // (initGuestSteppers()/initApiForms() in assets/js/app.js) and with
+        // requestMultiple()'s capacity check below, which only compares
+        // adults + children 3-12 against max_guests. Comparing $totalGuests
+        // (which includes babies) here used to reject/500 requests the UI
+        // had happily allowed, hiding the quote block as soon as a baby was
+        // added alongside older children.
         $maxGuests = (int) ($property['max_guests'] ?? 0);
-        if ($maxGuests > 0 && $totalGuests > $maxGuests) {
+        if ($maxGuests > 0 && $countedGuests > $maxGuests) {
             self::json([
                 'error' => 'Bad Request',
-                'message' => "Ce logement peut accueillir au maximum {$maxGuests} personne(s) (adultes + enfants).",
+                'message' => "Ce logement peut accueillir au maximum {$maxGuests} personne(s) (adultes + enfants de 3 ans et plus).",
             ], 400);
         }
 
@@ -330,16 +338,18 @@ final class ReservationsController extends Controller
         // A property can only host a limited number of people (Lodgify's
         // max_guests): reject the request if the requested party size
         // exceeds it, so a visitor cannot book more guests than the
-        // property can actually accommodate.
+        // property can actually accommodate. Babies (children_under3) don't
+        // count toward this limit — consistent with the front-end guest
+        // steppers and requestMultiple()'s capacity check.
         if ($propertyId > 0) {
-            $totalGuests = $adults + $childrenUnder3 + $children3to12;
+            $countedGuests = $adults + $children3to12;
             try {
                 $property = (new LodgifyClient())->getProperty($propertyId);
                 $maxGuests = (int) ($property['max_guests'] ?? 0);
-                if ($maxGuests > 0 && $totalGuests > $maxGuests) {
+                if ($maxGuests > 0 && $countedGuests > $maxGuests) {
                     self::json([
                         'error' => 'Bad Request',
-                        'message' => "Ce logement peut accueillir au maximum {$maxGuests} personne(s) (adultes + enfants).",
+                        'message' => "Ce logement peut accueillir au maximum {$maxGuests} personne(s) (adultes + enfants de 3 ans et plus).",
                     ], 400);
                 }
             } catch (Throwable $e) {
