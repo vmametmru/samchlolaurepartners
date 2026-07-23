@@ -286,9 +286,12 @@ final class View
     {
         $normalized = strtolower((string) preg_replace('/[^a-z0-9]+/i', ' ', self::stripAccents($category)));
         $icons = [
-            'cuisine|kitchen|salle a manger|dining' => '<path d="M3 2v7a2 2 0 0 0 2 2h1v11"/><path d="M7 2v20"/><path d="M17 2v7a2 2 0 0 1-2 2"/><path d="M17 2v20"/>',
+            'cuisine|kitchen|salle a manger|dining|cooking|eating' => '<path d="M3 2v7a2 2 0 0 0 2 2h1v11"/><path d="M7 2v20"/><path d="M17 2v7a2 2 0 0 1-2 2"/><path d="M17 2v20"/>',
             'salle de bain|bathroom|toilette' => '<path d="M4 12h16v3a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5v-3Z"/><path d="M6 12V6a2 2 0 0 1 4 0"/><line x1="4" y1="20" x2="4" y2="22"/><line x1="20" y1="20" x2="20" y2="22"/>',
-            'chambre|bedroom|linge de lit|room' => '<path d="M2 20v-7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v7"/><path d="M2 13V8a2 2 0 0 1 2-2h6v5"/><path d="M22 13V8a2 2 0 0 0-2-2h-6v5"/><line x1="2" y1="20" x2="22" y2="20"/>',
+            'chambre|bedroom|linge de lit|room|sleeping' => '<path d="M2 20v-7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v7"/><path d="M2 13V8a2 2 0 0 1 2-2h6v5"/><path d="M22 13V8a2 2 0 0 0-2-2h-6v5"/><line x1="2" y1="20" x2="22" y2="20"/>',
+            'laundry|blanchisserie' => '<path d="M3 6h3"/><path d="M17 6h.01"/><rect x="3" y="2" width="18" height="20" rx="2"/><circle cx="12" cy="13" r="5"/><path d="M12 18a2.5 2.5 0 0 0 0-5 2.5 2.5 0 0 1 0-5"/>',
+            'sanitary|hygiene' => '<path d="M13 5a4 4 0 0 1 4 4c0 1.9-1 3-2 4l-1 1v3a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-5"/><path d="M9 12H5a2 2 0 0 1 0-4h1"/><circle cx="17" cy="9" r="1"/>',
+            'miscellaneous|divers' => '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
             'exterieur|jardin|outdoor|garden|terrasse|balcon' => '<path d="M12 2v6"/><path d="M12 22v-8"/><path d="M5 12a7 7 0 0 1 14 0c0 3-3 4-3 4H8s-3-1-3-4Z"/>',
             'piscine|pool' => '<path d="M2 17c1.5 1.2 3 1.2 4.5 0s3-1.2 4.5 0 3 1.2 4.5 0 3-1.2 4.5 0"/><path d="M6 13V6a2 2 0 0 1 2-2h2"/><circle cx="16" cy="6" r="2"/>',
             'securite|safety|security' => '<path d="M12 2 4 5v6c0 5 3.4 8.7 8 11 4.6-2.3 8-6 8-11V5l-8-3Z"/>',
