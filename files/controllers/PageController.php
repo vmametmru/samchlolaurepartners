@@ -995,12 +995,12 @@ TEXT;
                     // by LodgifyClient::getProperty()) nor does it ever provide its
                     // own French translation for them — so there is no
                     // "amenities_fr" to fall back to, unlike name/description.
-                    $default = View::amenitiesToText((array) ($detail['amenities_by_category'] ?? []));
+                    $default = View::amenitiesToText(View::humanizeAmenitiesByCategory((array) ($detail['amenities_by_category'] ?? [])));
                     if ($default === '' && !empty($detail['amenities'])) {
-                        $default = View::amenitiesToText(['Équipements' => array_map(
+                        $default = View::amenitiesToText(View::humanizeAmenitiesByCategory(['Équipements' => array_map(
                             static fn (array $amenity): string => (string) ($amenity['name'] ?? ''),
                             $detail['amenities']
-                        )]);
+                        )]));
                     }
                     $fields[$field] = [
                         'default' => $default,

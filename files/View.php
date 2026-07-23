@@ -139,7 +139,90 @@ final class View
                 }
             }
         }
-        return $default;
+        return self::humanizeAmenitiesByCategory($default);
+    }
+
+    /**
+     * Splits a raw PascalCase/camelCase Lodgify code (e.g. "RoomsDiningRoom")
+     * into its constituent words (["Rooms", "Dining", "Room"]), so amenity
+     * category/item codes can be turned into readable labels without an
+     * exhaustive per-code translation table.
+     *
+     * @return array<int, string>
+     */
+    private static function splitPascalWords(string $value): array
+    {
+        $spaced = preg_replace('/(?<!^)(?=[A-Z])/', ' ', trim($value)) ?? $value;
+        $words = preg_split('/[\s_-]+/', trim($spaced)) ?: [];
+        return array_values(array_filter($words, static fn (string $w): bool => $w !== ''));
+    }
+
+    /**
+     * Turns a category => [raw Lodgify amenity codes] map (e.g. "room" =>
+     * ["RoomsBathroom", "RoomsBedroom", "RoomsDiningRoom", "RoomsLivingRoom"])
+     * into a readable category => [readable names] map for the "Équipements"
+     * tab, without needing an exhaustive per-code translation table: the
+     * category label becomes the leading word(s) every code in that category
+     * shares (here "Rooms"), and each item keeps only the remaining words
+     * ("Bathroom", "Bedroom", "Dining Room", "Living Room"). Falls back to
+     * humanizing the raw category key itself when its items don't share a
+     * common prefix (e.g. a mixed-bag category), or when the category only
+     * has a single item (too little signal to detect a shared prefix).
+     *
+     * @param array<string, array<int, string>> $amenitiesByCategory
+     * @return array<string, array<int, string>>
+     */
+    public static function humanizeAmenitiesByCategory(array $amenitiesByCategory): array
+    {
+        $result = [];
+        foreach ($amenitiesByCategory as $category => $names) {
+            if (!is_array($names) || $names === []) {
+                continue;
+            }
+            $wordLists = array_values(array_map(
+                static fn ($n): array => self::splitPascalWords((string) $n),
+                $names
+            ));
+            $prefixLen = 0;
+            if (count($wordLists) > 1) {
+                $first = $wordLists[0];
+                foreach ($first as $i => $word) {
+                    $matches = true;
+                    foreach ($wordLists as $words) {
+                        if (!isset($words[$i]) || strcasecmp($words[$i], $word) !== 0) {
+                            $matches = false;
+                            break;
+                        }
+                    }
+                    if (!$matches) {
+                        break;
+                    }
+                    $prefixLen++;
+                }
+                // Never strip an item down to nothing.
+                foreach ($wordLists as $words) {
+                    if (count($words) <= $prefixLen) {
+                        $prefixLen = 0;
+                        break;
+                    }
+                }
+            }
+            $label = $prefixLen > 0
+                ? implode(' ', array_slice($wordLists[0], 0, $prefixLen))
+                : implode(' ', array_map('ucfirst', self::splitPascalWords((string) $category)));
+            $label = $label !== '' ? $label : (string) $category;
+            $items = [];
+            foreach ($wordLists as $index => $words) {
+                $remaining = $prefixLen > 0 ? array_slice($words, $prefixLen) : $words;
+                $items[] = $remaining !== [] ? implode(' ', $remaining) : (string) $names[$index];
+            }
+            if (isset($result[$label])) {
+                $result[$label] = array_values(array_unique(array_merge($result[$label], $items)));
+            } else {
+                $result[$label] = $items;
+            }
+        }
+        return $result;
     }
 
     /**
@@ -205,7 +288,7 @@ final class View
         $icons = [
             'cuisine|kitchen|salle a manger|dining' => '<path d="M3 2v7a2 2 0 0 0 2 2h1v11"/><path d="M7 2v20"/><path d="M17 2v7a2 2 0 0 1-2 2"/><path d="M17 2v20"/>',
             'salle de bain|bathroom|toilette' => '<path d="M4 12h16v3a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5v-3Z"/><path d="M6 12V6a2 2 0 0 1 4 0"/><line x1="4" y1="20" x2="4" y2="22"/><line x1="20" y1="20" x2="20" y2="22"/>',
-            'chambre|bedroom|linge de lit' => '<path d="M2 20v-7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v7"/><path d="M2 13V8a2 2 0 0 1 2-2h6v5"/><path d="M22 13V8a2 2 0 0 0-2-2h-6v5"/><line x1="2" y1="20" x2="22" y2="20"/>',
+            'chambre|bedroom|linge de lit|room' => '<path d="M2 20v-7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v7"/><path d="M2 13V8a2 2 0 0 1 2-2h6v5"/><path d="M22 13V8a2 2 0 0 0-2-2h-6v5"/><line x1="2" y1="20" x2="22" y2="20"/>',
             'exterieur|jardin|outdoor|garden|terrasse|balcon' => '<path d="M12 2v6"/><path d="M12 22v-8"/><path d="M5 12a7 7 0 0 1 14 0c0 3-3 4-3 4H8s-3-1-3-4Z"/>',
             'piscine|pool' => '<path d="M2 17c1.5 1.2 3 1.2 4.5 0s3-1.2 4.5 0 3 1.2 4.5 0 3-1.2 4.5 0"/><path d="M6 13V6a2 2 0 0 1 2-2h2"/><circle cx="16" cy="6" r="2"/>',
             'securite|safety|security' => '<path d="M12 2 4 5v6c0 5 3.4 8.7 8 11 4.6-2.3 8-6 8-11V5l-8-3Z"/>',
