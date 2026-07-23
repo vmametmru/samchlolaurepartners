@@ -918,22 +918,47 @@ final class PageController extends Controller
     {
         self::requireAdminUser();
         $client = new LodgifyClient();
-        $properties = $client->getProperties();
+        $summaries = $client->getProperties();
         $overrides = self::propertyTranslationOverrides();
         $rows = [];
-        foreach ($properties as $property) {
-            $propertyId = (int) ($property['id'] ?? 0);
+        foreach ($summaries as $summary) {
+            $propertyId = (int) ($summary['id'] ?? 0);
+            if ($propertyId <= 0) {
+                continue;
+            }
+            // Lodgify's "/properties" list endpoint only returns a summary
+            // DTO that never includes the description text (name is
+            // sometimes present, but not reliably) — only the
+            // "/properties/{id}" detail endpoint does. Using the list entry
+            // directly left every "Anglais (Lodgify)" field blank on this
+            // page even though the property-detail page (which fetches the
+            // per-property detail) showed the description fine. getProperty()
+            // caches its result forever (FICHE_TTL) just like getProperties(),
+            // so this only ever hits Lodgify live once per property.
+            $detail = $client->getProperty($propertyId);
             $fields = [];
             foreach (self::TRANSLATABLE_FIELDS as $field) {
+                $default = (string) ($detail[$field] ?? '');
+                if ($default === '') {
+                    $default = (string) ($summary[$field] ?? '');
+                }
+                $lodgifyFr = (string) ($detail[$field . '_fr'] ?? '');
+                if ($lodgifyFr === '') {
+                    $lodgifyFr = (string) ($summary[$field . '_fr'] ?? '');
+                }
                 $fields[$field] = [
-                    'default' => (string) ($property[$field] ?? ''),
-                    'lodgify_fr' => (string) ($property[$field . '_fr'] ?? ''),
+                    'default' => $default,
+                    'lodgify_fr' => $lodgifyFr,
                     'manual_fr' => $overrides[$propertyId][$field]['fr'] ?? '',
                 ];
             }
+            $name = (string) ($detail['name'] ?? '');
+            if ($name === '') {
+                $name = (string) ($summary['name'] ?? '');
+            }
             $rows[] = [
                 'id' => $propertyId,
-                'name' => (string) ($property['name'] ?? ''),
+                'name' => $name,
                 'fields' => $fields,
             ];
         }
@@ -944,12 +969,38 @@ final class PageController extends Controller
     }
 
     /**
+     * Creates the property_translations table on the fly if it doesn't
+     * exist yet. Migrator::autoRun() already does this on every request,
+     * but it is throttled (a marker file skips the check for up to 60s) and
+     * only runs from index.php, so a save submitted right after a fresh
+     * deploy (before the throttle window elapses, or via a code path that
+     * bypasses index.php) could still hit "Table ... doesn't exist" — this
+     * mirrors db/migrations/027_create_property_translations.sql so saving
+     * a translation never fails for that reason.
+     */
+    private static function ensurePropertyTranslationsTable(): void
+    {
+        Database::connection()->exec(
+            'CREATE TABLE IF NOT EXISTS property_translations (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              property_id INT NOT NULL,
+              field VARCHAR(50) NOT NULL,
+              language VARCHAR(5) NOT NULL,
+              text_value MEDIUMTEXT NOT NULL,
+              updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              UNIQUE KEY unique_property_field_lang (property_id, field, language)
+            )'
+        );
+    }
+
+    /**
      * @return array<int, array<string, array<string, string>>>
      */
     private static function propertyTranslationOverrides(): array
     {
         $overrides = [];
         try {
+            self::ensurePropertyTranslationsTable();
             $stmt = Database::connection()->query('SELECT property_id, field, language, text_value FROM property_translations');
             foreach ($stmt->fetchAll() as $row) {
                 $overrides[(int) $row['property_id']][(string) $row['field']][(string) $row['language']] = (string) $row['text_value'];
@@ -977,6 +1028,7 @@ final class PageController extends Controller
         if ($propertyId <= 0 || !in_array($field, self::TRANSLATABLE_FIELDS, true)) {
             self::redirect('/admin/translations', 'Requête de traduction invalide.', 'error');
         }
+        self::ensurePropertyTranslationsTable();
         if ($text === '') {
             Database::connection()->prepare('DELETE FROM property_translations WHERE property_id = ? AND field = ? AND language = ?')
                 ->execute([$propertyId, $field, $language]);

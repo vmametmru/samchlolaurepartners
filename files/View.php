@@ -137,6 +137,36 @@ final class View
     }
 
     /**
+     * Converts a Lodgify rich-text field (HTML paragraphs/line breaks/list
+     * items) into plain text that keeps its original line breaks, for
+     * display in a plain <textarea> (e.g. the admin "Traductions" page).
+     * plainTextRaw()/plainText() collapse ALL whitespace — including the
+     * newlines that would come from converting block tags — into a single
+     * space, which is fine for a one-line card excerpt but turned a
+     * multi-paragraph Lodgify description into one big wall of glued-together
+     * text with no way to tell where paragraphs/bullets used to be, making it
+     * very hard for an admin to type an accurate manual translation. This
+     * instead turns </p>, <br>, and </li> into newlines *before* stripping
+     * the remaining tags, so paragraphs and list items still read as
+     * separate lines.
+     */
+    public static function plainTextWithLineBreaks(mixed $value): string
+    {
+        $html = (string) $value;
+        $html = (string) preg_replace('/<\s*br\s*\/?\s*>/i', "\n", $html);
+        $html = (string) preg_replace('/<\s*\/\s*(p|li|div|h[1-6])\s*>/i', "\n", $html);
+        $text = html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        // Collapse spaces/tabs (but not newlines) on each line, then collapse
+        // runs of 3+ newlines (e.g. an empty <p></p>) down to a single blank line.
+        $text = implode("\n", array_map(
+            static fn (string $line): string => trim(preg_replace('/[ \t]+/u', ' ', $line) ?? $line),
+            preg_split('/\r\n|\r|\n/', $text) ?: []
+        ));
+        $text = (string) preg_replace('/\n{3,}/', "\n\n", $text);
+        return trim($text);
+    }
+
+    /**
      * Renders a Lodgify rich-text description as safe, limited HTML: strips
      * every tag except a small formatting allow-list and removes all
      * attributes from those (e.g. a stray "onclick"), so the markup Lodgify

@@ -18,14 +18,14 @@
         ?>
         <div class="stack-sm">
           <h3><?= \App\View::e($fieldLabel) ?><?php if ($hasLodgifyFr): ?> <span class="badge badge-fresh">Traduit dans Lodgify</span><?php else: ?> <span class="badge badge-stale">Absent de Lodgify</span><?php endif; ?></h3>
-          <label><span>Anglais (Lodgify)</span><textarea class="input" id="<?= \App\View::e($sourceId) ?>" rows="3" readonly><?= \App\View::e(\App\View::plainTextRaw($field['default'])) ?></textarea></label>
+          <label><span>Anglais (Lodgify)</span><textarea class="input" id="<?= \App\View::e($sourceId) ?>" rows="6" readonly><?= \App\View::e(\App\View::plainTextWithLineBreaks($field['default'])) ?></textarea></label>
           <?php if ($hasLodgifyFr): ?>
-            <label><span>Français (Lodgify)</span><textarea class="input" rows="3" readonly><?= \App\View::e($field['lodgify_fr']) ?></textarea></label>
+            <label><span>Français (Lodgify)</span><textarea class="input" rows="6" readonly><?= \App\View::e(\App\View::plainTextWithLineBreaks($field['lodgify_fr'])) ?></textarea></label>
           <?php endif; ?>
           <form method="post" action="/admin/translations/save" class="stack-sm">
             <input type="hidden" name="property_id" value="<?= (int) $row['id'] ?>">
             <input type="hidden" name="field" value="<?= \App\View::e($fieldName) ?>">
-            <label><span>Français (traduction manuelle)</span><textarea class="input" id="<?= \App\View::e($targetId) ?>" name="text" rows="3" placeholder="<?= \App\View::e($placeholder) ?>"><?= \App\View::e($field['manual_fr']) ?></textarea></label>
+            <label><span>Français (traduction manuelle)</span><textarea class="input" id="<?= \App\View::e($targetId) ?>" name="text" rows="6" placeholder="<?= \App\View::e($placeholder) ?>"><?= \App\View::e($field['manual_fr']) ?></textarea></label>
             <div class="button-row">
               <button class="btn-secondary" type="button" data-suggest-translation="#<?= \App\View::e($targetId) ?>" data-suggest-source="#<?= \App\View::e($sourceId) ?>">Suggérer</button>
               <button class="btn-primary" type="submit">Sauvegarder</button>
