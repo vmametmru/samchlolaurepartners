@@ -128,6 +128,7 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .booking-block-body > * + * { margin-top: 1rem; }
 .booking-block[data-booking-block="summary"] { border: 0; padding: 0; }
 .booking-block[data-booking-block="summary"] > * + * { margin-top: 1rem; }
+.booking-submit-block > * + * { margin-top: 1rem; }
 .quote-recap { font-size: .8rem; margin: .15rem 0 0; }
 .booking-dates-summary p { margin: 0; font-size: .95rem; }
 .booking-dates-summary p + p { margin-top: .2rem; }
