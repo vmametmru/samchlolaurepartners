@@ -9,7 +9,9 @@
 /** @var int $children3to12 */
 /** @var int $totalGuests */
 /** @var int $countedGuests */
+/** @var ?int $minBasePeople */
 $visibleDays = $visibleDays ?? 31;
+$minBasePeople = $minBasePeople ?? null;
 $dateFrom = $dateFrom ?? '';
 $dateTo = $dateTo ?? '';
 $adults = $adults ?? 0;
@@ -53,7 +55,7 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
   <?php elseif ($rows === []): ?>
     <p class="muted">Aucun hébergement à afficher.</p>
   <?php else: ?>
-    <p class="muted calendar-price-note">Prix de la nuité en Euros. Le prix inclus les frais de nettoyage 2 fois par semaine. Cliquez sur les dates que vous souhaitez afin de renseigner votre demande.</p>
+    <p class="muted calendar-price-note">Prix de la nuité en Euros. Le prix inclus les frais de nettoyage 2 fois par semaine. <?php if ($minBasePeople !== null): ?>Les prix affichés sont pour un maximum de <?= (int) $minBasePeople ?> personnes + 2 enfants de moins de 3 ans. <?php endif; ?>Cliquez sur les dates que vous souhaitez afin de renseigner votre demande.</p>
     <label class="calendar-name-toggle">
       <input type="checkbox" data-calendar-name-toggle>
       Afficher le nom du bien

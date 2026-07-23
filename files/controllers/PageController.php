@@ -310,12 +310,31 @@ final class PageController extends Controller
         $cleaningFeePerNight = $cleaningFeePerPerson * $totalGuests;
 
         $rows = [];
+        // Base-rate headcount ("Min personnes (tarif de base)", set manually per
+        // property in the admin "Biens Lodgify" table) is used below to tell
+        // visitors up to how many people the displayed nightly prices cover
+        // before any extra-person fee would apply. Since this table lists
+        // several properties at once, the most conservative (lowest) value
+        // among the properties actually shown is used, so the note always
+        // stays true regardless of which property the visitor picks.
+        $minBasePeople = null;
         if ($totalGuests > 0) {
             $properties = [];
             try {
                 $properties = self::filterVisibleProperties($client->getProperties(), $partner);
             } catch (Throwable $e) {
                 Flash::set('Impossible de charger les hébergements pour le moment.', 'error');
+            }
+
+            $propertyIds = array_values(array_filter(array_map(
+                static fn(array $property): int => (int) ($property['id'] ?? 0),
+                $properties
+            )));
+            $manualOverrides = self::manualLodgifyColumnsByPropertyId($propertyIds);
+            foreach ($manualOverrides as $manual) {
+                if ($manual['min_people'] !== null && ($minBasePeople === null || $manual['min_people'] < $minBasePeople)) {
+                    $minBasePeople = $manual['min_people'];
+                }
             }
 
             foreach ($properties as $property) {
@@ -379,6 +398,7 @@ final class PageController extends Controller
             'totalGuests' => $totalGuests,
             'countedGuests' => $countedGuests,
             'today' => $today,
+            'minBasePeople' => $minBasePeople,
         ]);
     }
 
