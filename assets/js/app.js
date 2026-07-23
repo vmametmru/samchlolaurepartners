@@ -46,6 +46,8 @@ document.addEventListener('DOMContentLoaded', () => {
     initHeroVideoLoading,
     initHeroMobileSearchToggle,
     initHeroSearchCollapse,
+    initConfirmSubmit,
+    initUpdateProgress,
   ].forEach(runInit);
 });
 
@@ -3029,6 +3031,97 @@ function initHeroMobileSearchToggle() {
     }
   }
   syncToViewport();
+}
+
+// Generic "confirm before submit" for any form carrying a data-confirm-submit
+// attribute (the confirmation text itself, e.g. translated per site language)
+// — avoids inlining translated/user text into an onclick="confirm('...')"
+// attribute, where an apostrophe in the text would break out of the JS
+// string literal even after HTML-escaping (the browser decodes HTML
+// entities in attribute values *before* handing the string to the JS
+// engine, so htmlspecialchars() alone does not protect a single-quoted JS
+// string here).
+function initConfirmSubmit() {
+  document.querySelectorAll('form[data-confirm-submit]').forEach((form) => {
+    form.addEventListener('submit', (event) => {
+      const message = form.getAttribute('data-confirm-submit') || '';
+      if (message !== '' && !window.confirm(message)) {
+        event.preventDefault();
+      }
+    });
+  });
+}
+
+// The admin "Mise à jour" ZIP upload can take a while (large deployment ZIP
+// upload + server-side extraction/copy), with no visual feedback beyond the
+// browser's own "page loading" spinner — easy to mistake for a frozen page.
+// Intercepts the form submit to drive a real progress bar via
+// XMLHttpRequest's upload.progress event (actual bytes sent), then an
+// indeterminate "applying update…" phase while the server processes the
+// ZIP (duration unknown), before following the final redirected page so the
+// existing flash-message/backup-list behavior is unchanged.
+function initUpdateProgress() {
+  const form = document.querySelector('[data-update-form]');
+  if (!form) return;
+  const fileInput = form.querySelector('input[type="file"]');
+  const submitBtn = form.querySelector('[data-update-submit]');
+  const wrap = form.querySelector('[data-update-progress]');
+  const bar = form.querySelector('[data-update-progress-bar]');
+  const text = form.querySelector('[data-update-progress-text]');
+  const pct = form.querySelector('[data-update-progress-pct]');
+  if (!fileInput || !submitBtn || !wrap || !bar || !text || !pct) return;
+
+  const labelUploading = wrap.dataset.labelUploading || '';
+  const labelApplying = wrap.dataset.labelApplying || '';
+  const labelDone = wrap.dataset.labelDone || '';
+
+  const setProgress = (value, label) => {
+    bar.style.width = Math.max(0, Math.min(100, value)) + '%';
+    pct.textContent = Math.round(value) + '%';
+    if (label) text.textContent = label;
+  };
+
+  form.addEventListener('submit', (event) => {
+    if (!fileInput.files || fileInput.files.length === 0) return;
+    event.preventDefault();
+
+    submitBtn.disabled = true;
+    wrap.hidden = false;
+    bar.classList.remove('is-indeterminate');
+    setProgress(0, labelUploading);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open(form.method || 'POST', form.action, true);
+
+    xhr.upload.addEventListener('progress', (progressEvent) => {
+      if (!progressEvent.lengthComputable) return;
+      // Upload itself only accounts for the first 90%: the remaining 10%
+      // covers the server-side extraction/apply step below, so the bar
+      // never sits at a misleading 100% while the server is still working.
+      setProgress((progressEvent.loaded / progressEvent.total) * 90, labelUploading);
+    });
+
+    let applyPulseTimer = null;
+    xhr.upload.addEventListener('load', () => {
+      setProgress(90, labelApplying);
+      bar.classList.add('is-indeterminate');
+      let current = 90;
+      applyPulseTimer = window.setInterval(() => {
+        current = Math.min(99, current + 1);
+        setProgress(current, labelApplying);
+      }, 600);
+    });
+
+    xhr.onloadend = () => {
+      if (applyPulseTimer) window.clearInterval(applyPulseTimer);
+      bar.classList.remove('is-indeterminate');
+      setProgress(100, labelDone);
+      const destination = xhr.responseURL || window.location.href;
+      window.setTimeout(() => { window.location.href = destination; }, 250);
+    };
+
+    xhr.send(new FormData(form));
+  });
 }
 
 function initPartnerCodeFromHash() {
