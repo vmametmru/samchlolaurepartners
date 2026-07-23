@@ -142,6 +142,9 @@ try {
         case route($method, $path, 'GET', '#^/$#'):
             PageController::home();
             break;
+        case route($method, $path, 'GET', '#^/lang/(fr|en)$#', $matches):
+            PageController::switchLanguage((string) $matches[1]);
+            break;
         case route($method, $path, 'GET', '#^/accueil$#'):
             PageController::accueil();
             break;

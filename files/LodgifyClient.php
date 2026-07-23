@@ -76,6 +76,13 @@ final class LodgifyClient
                 }
             }
             unset($property);
+            $frTranslations = $this->fetchFrenchTranslations();
+            foreach ($properties as &$property) {
+                $translation = $frTranslations[(int) ($property['id'] ?? 0)] ?? null;
+                $property['name_fr'] = $translation['name'] ?? '';
+                $property['description_fr'] = $translation['description'] ?? '';
+            }
+            unset($property);
             Settings::set('LODGIFY_LAST_SYNC_AT', gmdate('c'));
             return $properties;
         });
@@ -173,8 +180,68 @@ final class LodgifyClient
                 }
             }
 
+            $frTranslation = $this->fetchFrenchTranslation($propertyId);
+            $property['name_fr'] = $frTranslation['name'] ?? '';
+            $property['description_fr'] = $frTranslation['description'] ?? '';
+
             return $property;
         });
+    }
+
+    /**
+     * Fetches the French (culture=fr-FR) name/description for every
+     * property in one extra call to the list endpoint, so property cards
+     * and the listing page can show French text instead of whatever
+     * language the Lodgify account's default listing content happens to be
+     * in (English on this account). Best-effort: if the account has no
+     * French translations configured (or the request fails for any other
+     * reason), this silently returns [] and callers fall back to the
+     * default-language name/description — it must never break a sync.
+     *
+     * @return array<int, array{name: string, description: string}>
+     */
+    private function fetchFrenchTranslations(): array
+    {
+        try {
+            $data = $this->request('/properties', ['culture' => 'fr-FR']);
+        } catch (\Throwable $e) {
+            error_log('Lodgify: failed to fetch French translations: ' . $e->getMessage());
+            return [];
+        }
+        $items = is_array($data['items'] ?? null) ? $data['items'] : (is_array($data) ? $data : []);
+        $translations = [];
+        foreach ($items as $item) {
+            $id = (int) ($item['id'] ?? 0);
+            if ($id <= 0) {
+                continue;
+            }
+            $translations[$id] = [
+                'name' => (string) ($item['name'] ?? ''),
+                'description' => (string) ($item['description'] ?? ''),
+            ];
+        }
+        return $translations;
+    }
+
+    /**
+     * Same as fetchFrenchTranslations() but for a single property (used by
+     * getProperty()); see that method's docblock for why this is
+     * best-effort and never throws.
+     *
+     * @return array{name?: string, description?: string}
+     */
+    private function fetchFrenchTranslation(int $propertyId): array
+    {
+        try {
+            $item = $this->request('/properties/' . $propertyId, ['culture' => 'fr-FR']);
+        } catch (\Throwable $e) {
+            error_log('Lodgify: failed to fetch French translation for property ' . $propertyId . ': ' . $e->getMessage());
+            return [];
+        }
+        return [
+            'name' => (string) ($item['name'] ?? ''),
+            'description' => (string) ($item['description'] ?? ''),
+        ];
     }
 
     /**
@@ -1465,6 +1532,9 @@ final class LodgifyClient
                             }
                         }
                     }
+                    $frTranslation = $this->fetchFrenchTranslation($propertyId);
+                    $property['name_fr'] = $frTranslation['name'] ?? '';
+                    $property['description_fr'] = $frTranslation['description'] ?? '';
                     return $property;
                 });
             }

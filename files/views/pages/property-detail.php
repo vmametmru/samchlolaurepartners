@@ -3,6 +3,8 @@ $mainImage = $property['images'][0]['url'] ?? 'https://via.placeholder.com/800x4
 $minRate = $rates ? min(array_column($rates, 'price_per_night')) : null;
 $currency = $rates[0]['currency'] ?? 'EUR';
 $amenitiesByCategory = $property['amenities_by_category'] ?? [];
+$propertyName = \App\View::localized($property, 'name');
+$propertyDescription = \App\View::localized($property, 'description');
 $extraGuestFee = null;
 foreach (($property['fees'] ?? []) as $fee) {
     if ($fee['charge_type'] === 'PerPerson' && $fee['amount'] !== null) {
@@ -22,13 +24,13 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
 <section class="container section-lg" data-gallery>
   <div class="property-detail-header">
     <div>
-      <h1><?= \App\View::e($property['name']) ?></h1>
+      <h1><?= \App\View::e($propertyName) ?></h1>
       <p><?= (int) $property['bedrooms'] ?> chambre(s) · <?= (int) $property['max_guests'] ?> personnes max</p>
     </div>
     <button type="button" class="btn-primary" data-reserve-btn data-reserve-tab="rates-availability">Réserver</button>
   </div>
   <div class="gallery-main">
-    <img src="<?= \App\View::e($mainImage) ?>" alt="<?= \App\View::e($property['name']) ?>" data-gallery-main>
+    <img src="<?= \App\View::e($mainImage) ?>" alt="<?= \App\View::e($propertyName) ?>" data-gallery-main>
     <div class="gallery-share">
       <span class="gallery-share-toast" data-share-toast>Lien copié</span>
       <button type="button" class="gallery-share-btn" data-share-btn aria-label="Partager" title="Partager">
@@ -64,7 +66,7 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
     <div class="stack-lg" data-tab-panels>
       <div data-tab-panel="description">
         <h2 class="section-title">Description</h2>
-        <div class="prose"><?= \App\View::safeHtml($property['description']) ?></div>
+        <div class="prose"><?= \App\View::safeHtml($propertyDescription) ?></div>
         <?php if ($checkinLabel !== null || $checkoutLabel !== null): ?>
           <div class="form-grid cols-2">
             <?php if ($checkinLabel !== null): ?><div><strong>Arrivée</strong><br><?= \App\View::e($checkinLabel) ?></div><?php endif; ?>
@@ -128,7 +130,7 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
     <button type="button" class="booking-modal-hide-btn" data-booking-modal-hide>Masquer</button>
     <form class="booking-modal-form" data-api-form data-booking-form data-property-id="<?= (int) $property['id'] ?>" data-currency="<?= \App\View::e($currency) ?>" data-max-guests="<?= (int) $property['max_guests'] ?>" data-success-message="Demande envoyée ! Vous recevrez un email de confirmation." data-feedback-popup-id="booking-status-popup-<?= (int) $property['id'] ?>" method="post" action="/api/reservations/request">
       <input type="hidden" name="property_id" value="<?= (int) $property['id'] ?>">
-      <input type="hidden" name="property_name" value="<?= \App\View::e($property['name']) ?>">
+      <input type="hidden" name="property_name" value="<?= \App\View::e($propertyName) ?>">
 
       <div class="booking-modal-top-row">
         <div class="booking-section" data-booking-dates>

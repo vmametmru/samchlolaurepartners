@@ -56,6 +56,8 @@ img { max-width: 100%; display: block; }
 .navbar-links { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
 .navbar-user-info { font-size: .85rem; color: var(--text-muted, #6b7280); text-decoration: none; }
 .navbar-user-info:hover { text-decoration: underline; }
+.navbar-lang-toggle { display: inline-flex; align-items: center; justify-content: center; width: 2.2rem; height: 2.2rem; border-radius: 50%; font-size: 1.2rem; text-decoration: none; line-height: 1; flex-shrink: 0; }
+.navbar-lang-toggle:hover { background: rgba(0, 0, 0, .06); }
 .navbar-dropdown { position: relative; }
 .navbar-dropdown > summary { cursor: pointer; list-style: none; padding: .5rem 0; }
 .navbar-dropdown > summary::-webkit-details-marker { display: none; }

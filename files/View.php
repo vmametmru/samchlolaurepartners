@@ -28,6 +28,8 @@ final class View
         $authDebug = $user === null ? Auth::debugStatus() : null;
         $flash = Flash::pull();
         $pageTitle = $data['pageTitle'] ?? 'samchlolaurepartners';
+        $lang = I18n::current();
+        $currentPath = (string) ($_SERVER['REQUEST_URI'] ?? '/');
         extract($data, EXTR_SKIP);
         ob_start();
         require $templatePath;
@@ -38,6 +40,25 @@ final class View
     public static function e(mixed $value): string
     {
         return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    }
+
+    /**
+     * Picks the French translation of a Lodgify-sourced field (e.g. "name",
+     * "description") when the site is currently displayed in French and a
+     * "{$field}_fr" translation was cached (see LodgifyClient::mapProperty()
+     * / getProperty() culture=fr-FR fetch), otherwise falls back to the
+     * property's default field, which is whatever language the Lodgify
+     * account itself is configured in (English on this account).
+     */
+    public static function localized(array $property, string $field): string
+    {
+        if (I18n::current() === 'fr') {
+            $translated = trim((string) ($property[$field . '_fr'] ?? ''));
+            if ($translated !== '') {
+                return $translated;
+            }
+        }
+        return (string) ($property[$field] ?? '');
     }
 
     /**

@@ -10,6 +10,7 @@ use App\Database;
 use App\Settings;
 use App\Flash;
 use App\HttpException;
+use App\I18n;
 use App\LodgifyApiException;
 use App\LodgifyClient;
 use App\PartnerPropertyVisibility;
@@ -23,6 +24,23 @@ final class PageController extends Controller
 {
     private const ALLOWED_LOGO_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
     private const ALLOWED_TEMPLATE_ASSET_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+
+    /**
+     * Switches the site's display language (navbar flag toggle) and sends
+     * the visitor back to whatever page they were on ("back" query param,
+     * only ever a same-site relative path — never an absolute/external URL,
+     * to avoid an open-redirect).
+     */
+    public static function switchLanguage(string $language): never
+    {
+        I18n::set($language);
+        $back = (string) ($_GET['back'] ?? '/');
+        if ($back === '' || $back[0] !== '/' || str_starts_with($back, '//')) {
+            $back = '/';
+        }
+        header('Location: ' . $back);
+        exit;
+    }
 
     /**
      * The root URL is hardcoded to always show the "enter your partner code"
@@ -203,7 +221,7 @@ final class PageController extends Controller
         // then kept in sync client-side as the visitor adjusts guest counts.
         $cleaningFeePerPerson = $partner ? (float) ($partner['cleaning_fee_per_person_per_night'] ?? 0) : 0.0;
         View::render('pages/property-detail', [
-            'pageTitle' => (string) $property['name'],
+            'pageTitle' => View::localized($property, 'name'),
             'property' => $property,
             'availability' => $availability,
             'rates' => $rates,
