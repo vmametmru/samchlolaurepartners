@@ -986,6 +986,43 @@ final class ReservationsController extends Controller
         return $rows;
     }
 
+    /**
+     * Admin-only: lists reservation requests across every partner, with
+     * optional filtering by partner and/or status. Used by the admin
+     * "Réservations" page so an admin can review demand across the whole
+     * platform instead of one partner at a time.
+     *
+     * @param array{partner_id?: int, status?: string} $filters
+     */
+    public static function listAll(array $filters = []): array
+    {
+        $conditions = [];
+        $params = [];
+        if (!empty($filters['partner_id'])) {
+            $conditions[] = 'rr.partner_id = ?';
+            $params[] = (int) $filters['partner_id'];
+        }
+        if (!empty($filters['status'])) {
+            $conditions[] = 'rr.status = ?';
+            $params[] = (string) $filters['status'];
+        }
+        $where = $conditions !== [] ? ('WHERE ' . implode(' AND ', $conditions)) : '';
+        $stmt = Database::connection()->prepare(
+            "SELECT rr.*, r.id AS reservation_id, r.confirmed_at, r.cancelled_at, r.notes, p.name AS partner_name
+             FROM reservation_requests rr
+             LEFT JOIN reservations r ON r.request_id = rr.id
+             LEFT JOIN partners p ON p.id = rr.partner_id
+             {$where}
+             ORDER BY rr.created_at DESC"
+        );
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as &$row) {
+            $row['guests'] = self::decodeGuests($row['guests'] ?? null);
+        }
+        return $rows;
+    }
+
     public static function findForPartner(int $partnerId, int $id): ?array
     {
         $stmt = Database::connection()->prepare(

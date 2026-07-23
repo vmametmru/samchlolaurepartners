@@ -52,6 +52,7 @@ $navLangHref = '/lang/' . $navOtherLang . '?back=' . rawurlencode($navBackPath);
             <summary><?= \App\View::e(\App\I18n::t('nav.settings')) ?></summary>
             <div class="navbar-dropdown-menu">
               <a href="/admin/partners">Partenaires</a>
+              <a href="/admin/reservations">Réservations</a>
               <a href="/admin/templates">Templates email</a>
               <a href="/admin/lodgify-properties">Biens Lodgify</a>
               <a href="/admin/translations">Traductions</a>

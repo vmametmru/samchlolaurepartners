@@ -498,6 +498,33 @@ final class PageController extends Controller
         View::render('pages/partner-reservations', ['pageTitle' => 'Réservations', 'reservations' => $reservations, 'filter' => $filter]);
     }
 
+    /**
+     * Admin-only view of every partner's reservation requests, filterable by
+     * partner and/or status (?partner_id=&status=).
+     */
+    public static function adminReservations(): void
+    {
+        self::requireAdminUser();
+        $partners = Database::connection()->query('SELECT id, name FROM partners ORDER BY name')->fetchAll(PDO::FETCH_ASSOC);
+        $partnerId = (int) ($_GET['partner_id'] ?? 0);
+        $status = (string) ($_GET['status'] ?? 'all');
+        $filters = [];
+        if ($partnerId > 0) {
+            $filters['partner_id'] = $partnerId;
+        }
+        if ($status !== 'all' && $status !== '') {
+            $filters['status'] = $status;
+        }
+        $reservations = ReservationsController::listAll($filters);
+        View::render('pages/admin-reservations', [
+            'pageTitle' => 'Réservations',
+            'reservations' => $reservations,
+            'partners' => $partners,
+            'partnerId' => $partnerId,
+            'status' => $status,
+        ]);
+    }
+
     public static function partnerReservationDetail(int $id): void
     {
         $user = self::requirePartnerUser();
