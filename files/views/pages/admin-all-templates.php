@@ -3,7 +3,7 @@ $labels = [];
 foreach (($templateCatalog ?? []) as $type => $definition) {
   $labels[$type] = $definition['label'] ?? $type;
 }
-$plainVariables = ['{{nom_client}}','{{email_client}}','{{telephone_client}}','{{dates}}','{{date_arrivee}}','{{date_depart}}','{{nuits}}','{{adultes}}','{{enfants}}','{{bebes}}','{{nationalites}}','{{multi_biens_note}}','{{hebergement}}','{{partenaire}}','{{notes}}','{{message}}','{{tarif_nuits}}','{{tarif_hebergement}}','{{tarif_personnes_supplementaires}}','{{tarif_nettoyage}}','{{tarif_total}}','{{taxe_touristique}}','{{tarif_bloc}}','{{tarif_normal}}','{{commission_partenaire}}','{{personnes_additionnelles}}','{{nettoyage}}','{{total_voyageur}}','{{signature_nom}}','{{email_partenaire}}','{{lien_partenaire}}','{{telephone_partenaire}}','{{politique_reservation}}'];
+$plainVariables = ['{{nom_client}}','{{email_client}}','{{telephone_client}}','{{dates}}','{{date_arrivee}}','{{date_depart}}','{{nuits}}','{{adultes}}','{{enfants}}','{{bebes}}','{{nationalites}}','{{multi_biens_note}}','{{hebergement}}','{{partenaire}}','{{notes}}','{{message}}','{{tarif_nuits}}','{{tarif_hebergement}}','{{tarif_personnes_supplementaires}}','{{tarif_nettoyage}}','{{tarif_total}}','{{taxe_touristique}}','{{tarif_bloc}}','{{tarif_normal}}','{{commission_partenaire}}','{{personnes_additionnelles}}','{{nettoyage}}','{{total_voyageur}}','{{paiement_a_samchlolaure}}','{{signature_nom}}','{{email_partenaire}}','{{lien_partenaire}}','{{telephone_partenaire}}','{{politique_reservation}}'];
 $resizableVariables = [
   ['name' => 'photo_bien', 'label' => '{{photo_bien}}', 'default' => 320],
   ['name' => 'photo1', 'label' => '{{photo1}}', 'default' => 320],

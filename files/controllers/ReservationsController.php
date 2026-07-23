@@ -1153,6 +1153,7 @@ final class ReservationsController extends Controller
         $variables = [
             'nom_client' => (string) $request['client_name'],
             'email_client' => (string) $request['client_email'],
+            'telephone_client' => (string) ($request['client_phone'] ?? ''),
             'adultes' => (string) $request['adults'],
             'hebergement' => (string) $request['property_name'],
             'notes' => $notes ?? '',
@@ -1420,6 +1421,10 @@ final class ReservationsController extends Controller
             'personnes_additionnelles' => self::formatMoneyFr($extraPersonTotal, $currency),
             'nettoyage' => self::formatMoneyFr($cleaningTotal, $currency),
             'total_voyageur' => self::formatMoneyFr($breakdown['total_traveler'], $currency),
+            // Amount actually due to SamChloLaure once the partner's
+            // commission (already included in "Total Voyageur") is deducted:
+            // Total à payer par le client - Commissions Partenaire.
+            'paiement_a_samchlolaure' => self::formatMoneyFr($breakdown['total_traveler'] - $breakdown['commission_total'], $currency),
         ];
     }
 

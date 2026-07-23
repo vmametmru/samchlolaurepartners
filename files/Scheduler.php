@@ -30,6 +30,7 @@ SELECT
   r.id AS reservation_id,
   rr.client_name,
   rr.client_email,
+  rr.client_phone,
   rr.checkin_date,
   rr.checkout_date,
   rr.adults,
@@ -68,6 +69,7 @@ SQL;
             $variables = [
                 'nom_client' => (string) $row['client_name'],
                 'email_client' => (string) $row['client_email'],
+                'telephone_client' => (string) ($row['client_phone'] ?? ''),
                 'adultes' => (string) $row['adults'],
                 'enfants' => (string) $row['children'],
                 'hebergement' => (string) $row['property_name'],
@@ -86,6 +88,7 @@ SQL;
                 'logo_partenaire' => \App\controllers\ReservationsController::partnerLogoVariable((string) ($row['logo_url'] ?? ''), (string) $row['name']),
                 'logo_partenaire_url' => \App\controllers\ReservationsController::partnerLogoUrlValue((string) ($row['logo_url'] ?? '')),
                 'email_partenaire' => (string) ($row['email'] ?? ''),
+                'politique_reservation' => nl2br(htmlspecialchars(\App\controllers\PageController::bookingPolicyText())),
             ];
             $variables += \App\controllers\ReservationsController::stayVariables(
                 (string) $row['checkin_date'],

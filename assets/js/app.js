@@ -1143,6 +1143,7 @@ function initTemplateEditor() {
     personnes_additionnelles: '80,00 €',
     nettoyage: '60,00 €',
     total_voyageur: '1 460,00 €',
+    paiement_a_samchlolaure: '1 340,00 €',
     signature_nom: 'Marie Lemoine',
     email_partenaire: 'contact@grandbaie-escapes.com',
     lien_partenaire: 'https://exemple-partenaire.grand-baie-maurice.com/espace',
