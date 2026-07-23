@@ -72,6 +72,35 @@ final class ReservationsController extends Controller
         return $stmt !== false && $stmt->fetch() !== false;
     }
 
+    /**
+     * @param array{room_total: float, partner_rate: float, commission_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, total_traveler: float, nights: int, currency: string} $breakdown
+     * @return array{0: array<int, string>, 1: array<int, mixed>}
+     */
+    private static function quoteInsertColumnsAndParams(PDO $pdo, array $breakdown): array
+    {
+        if (!self::hasQuoteColumns($pdo)) {
+            return [[], []];
+        }
+        return [
+            [
+                'quote_currency', 'quote_nights', 'quote_room_total', 'quote_partner_rate',
+                'quote_commission_total', 'quote_extra_person_total', 'quote_cleaning_total',
+                'quote_tourist_tax_total', 'quote_total_traveler',
+            ],
+            [
+                $breakdown['currency'],
+                $breakdown['nights'],
+                $breakdown['room_total'],
+                $breakdown['partner_rate'],
+                $breakdown['commission_total'],
+                $breakdown['extra_person_total'],
+                $breakdown['cleaning_total'],
+                $breakdown['tourist_tax_total'],
+                $breakdown['total_traveler'],
+            ],
+        ];
+    }
+
     private static ?bool $languageColumnExists = null;
 
     /**
@@ -94,6 +123,26 @@ final class ReservationsController extends Controller
         return self::$languageColumnExists;
     }
 
+    private static ?bool $quoteColumnsExist = null;
+
+    /**
+     * Whether reservation_requests already has the quote_* breakdown columns
+     * added by migration 028 (quote_room_total, quote_partner_rate, ...).
+     * Guarded the same way as hasLanguageColumn() so submissions never 500
+     * if that migration hasn't applied yet on a given install.
+     */
+    private static function hasQuoteColumns(PDO $pdo): bool
+    {
+        if (self::$quoteColumnsExist === null) {
+            try {
+                self::$quoteColumnsExist = self::reservationRequestColumnExists($pdo, 'quote_room_total');
+            } catch (Throwable $e) {
+                self::$quoteColumnsExist = false;
+            }
+        }
+        return self::$quoteColumnsExist;
+    }
+
 
     private static function childCount(array $source, string $primaryField, string $legacyField, int $fallback = 0): int
     {
@@ -114,6 +163,42 @@ final class ReservationsController extends Controller
                 (int) ($source['children'] ?? 0)
             ),
         ];
+    }
+
+    /**
+     * Builds the {{nationalites}} email variable: one "Adulte N : <nationalité>"
+     * / "Enfant N : <nationalité>" line per guest (joined with <br>), so
+     * templates can show each traveler's nationality individually instead of
+     * only the aggregate adult/children counts. Guests without a nationality
+     * set (e.g. requests submitted before per-guest detail existed) are
+     * skipped rather than shown blank.
+     *
+     * @param array<int, array{type?: string, nationality?: string}> $guests
+     */
+    public static function guestNationalitiesText(array $guests): string
+    {
+        $adultIndex = 0;
+        $childIndex = 0;
+        $lines = [];
+        foreach ($guests as $guest) {
+            if (!is_array($guest)) {
+                continue;
+            }
+            $nationality = trim((string) ($guest['nationality'] ?? ''));
+            if ($nationality === '') {
+                continue;
+            }
+            $type = (string) ($guest['type'] ?? 'adult');
+            if ($type === 'adult') {
+                $adultIndex++;
+                $label = 'Adulte ' . $adultIndex;
+            } else {
+                $childIndex++;
+                $label = 'Enfant ' . $childIndex;
+            }
+            $lines[] = htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . ' : ' . htmlspecialchars($nationality, ENT_QUOTES, 'UTF-8');
+        }
+        return implode('<br>', $lines);
     }
 
     /**
@@ -417,6 +502,17 @@ final class ReservationsController extends Controller
         $columns[] = 'message';
         $params[] = json_encode($input['guests'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $params[] = self::nullableString($input['message'] ?? null);
+        $quoteBreakdown = self::computeQuoteBreakdown([
+            'room_total' => $input['quote_room_total'] ?? 0,
+            'extra_person_total' => $input['quote_extra_person_total'] ?? 0,
+            'cleaning_total' => $input['quote_cleaning_total'] ?? 0,
+            'tourist_tax_total' => $input['quote_tourist_tax_total'] ?? 0,
+            'nights' => $input['quote_nights'] ?? 0,
+            'currency' => $input['quote_currency'] ?? 'EUR',
+        ], (float) ($partner['markup_percent'] ?? 0));
+        [$quoteColumns, $quoteParams] = self::quoteInsertColumnsAndParams($pdo, $quoteBreakdown);
+        $columns = [...$columns, ...$quoteColumns];
+        $params = [...$params, ...$quoteParams];
 
         try {
             $stmt = $pdo->prepare(
@@ -618,6 +714,16 @@ final class ReservationsController extends Controller
             }
             $columns[] = 'guests';
             $columns[] = 'message';
+            $hasQuoteColumns = self::hasQuoteColumns($pdo);
+            $quoteColumnNames = [];
+            if ($hasQuoteColumns) {
+                $quoteColumnNames = [
+                    'quote_currency', 'quote_nights', 'quote_room_total', 'quote_partner_rate',
+                    'quote_commission_total', 'quote_extra_person_total', 'quote_cleaning_total',
+                    'quote_tourist_tax_total', 'quote_total_traveler',
+                ];
+                $columns = [...$columns, ...$quoteColumnNames];
+            }
             $stmt = $pdo->prepare(
                 'INSERT INTO reservation_requests (' . implode(', ', $columns) . ')
                  VALUES (' . implode(', ', array_fill(0, count($columns), '?')) . ')'
@@ -644,6 +750,21 @@ final class ReservationsController extends Controller
                 }
                 $params[] = $guestsJson;
                 $params[] = $message;
+                if ($hasQuoteColumns) {
+                    $itemBreakdown = self::computeQuoteBreakdown(
+                        $item['quote'] ?? [],
+                        (float) ($partner['markup_percent'] ?? 0)
+                    );
+                    $params[] = $itemBreakdown['currency'];
+                    $params[] = $itemBreakdown['nights'];
+                    $params[] = $itemBreakdown['room_total'];
+                    $params[] = $itemBreakdown['partner_rate'];
+                    $params[] = $itemBreakdown['commission_total'];
+                    $params[] = $itemBreakdown['extra_person_total'];
+                    $params[] = $itemBreakdown['cleaning_total'];
+                    $params[] = $itemBreakdown['tourist_tax_total'];
+                    $params[] = $itemBreakdown['total_traveler'];
+                }
                 $stmt->execute($params);
                 $createdIds[] = (int) $pdo->lastInsertId();
             }
@@ -678,6 +799,7 @@ final class ReservationsController extends Controller
                     'children_3to12' => $children3to12,
                     'property_name' => $item['property_name'],
                     'message' => $message,
+                    'guests' => $input['guests'] ?? [],
                     'quote_currency' => $quote['currency'] ?? 'EUR',
                     'quote_nights' => $quote['nights'] ?? 0,
                     'quote_room_total' => $quote['room_total'] ?? 0,
@@ -896,6 +1018,7 @@ final class ReservationsController extends Controller
             'hebergement' => (string) ($input['property_name'] ?? ''),
             'message' => (string) ($input['message'] ?? ''),
             'partenaire' => (string) ($partner['name'] ?? ''),
+            'nationalites' => self::guestNationalitiesText(is_array($input['guests'] ?? null) ? $input['guests'] : []),
             'photo_bien' => $photo['html'],
             'photo_bien_url' => self::propertyPhotoUrlValue((int) ($input['property_id'] ?? 0), 1),
             'photo1' => self::propertyPhotoVariable((int) ($input['property_id'] ?? 0), (string) ($input['property_name'] ?? ''), 1),
@@ -914,7 +1037,7 @@ final class ReservationsController extends Controller
         ];
         $childBreakdown = self::childBreakdownValues($input);
         $variables += self::stayVariables($checkin, $checkout, $childBreakdown['under3'], $childBreakdown['from3to12']);
-        $variables += self::requestQuoteVariables($input, $itemCount);
+        $variables += self::requestQuoteVariables($input, $itemCount, (float) ($partner['markup_percent'] ?? 0));
         $signature = self::signatureVariables((int) ($partner['id'] ?? 0));
         $variables += $signature['variables'];
         $embeds = $photo['embed'] !== null ? [$photo['embed']] : [];
@@ -997,6 +1120,7 @@ final class ReservationsController extends Controller
             'hebergement' => (string) $request['property_name'],
             'notes' => $notes ?? '',
             'partenaire' => (string) $partner['name'],
+            'nationalites' => self::guestNationalitiesText(self::decodeGuests($request['guests'] ?? null)),
             'photo_bien' => $photo['html'],
             'photo_bien_url' => self::propertyPhotoUrlValue((int) ($request['property_id'] ?? 0), 1),
             'photo1' => self::propertyPhotoVariable((int) ($request['property_id'] ?? 0), (string) $request['property_name'], 1),
@@ -1020,6 +1144,21 @@ final class ReservationsController extends Controller
             $childBreakdown['under3'],
             $childBreakdown['from3to12']
         );
+        // The quote breakdown persisted on the request row at submission time
+        // (quote_room_total, quote_partner_rate, ...) lets confirmation/
+        // cancellation emails reuse the exact same {{tarif_*}}/{{total_voyageur}}
+        // variables as the initial request email, without a live (and
+        // possibly since-changed) Lodgify rate re-fetch.
+        if (($request['quote_room_total'] ?? null) !== null) {
+            $variables += self::buildQuoteVariables(self::computeQuoteBreakdown([
+                'room_total' => $request['quote_room_total'] ?? 0,
+                'extra_person_total' => $request['quote_extra_person_total'] ?? 0,
+                'cleaning_total' => $request['quote_cleaning_total'] ?? 0,
+                'tourist_tax_total' => $request['quote_tourist_tax_total'] ?? 0,
+                'nights' => $request['quote_nights'] ?? 0,
+                'currency' => $request['quote_currency'] ?? 'EUR',
+            ], (float) ($request['quote_partner_rate'] ?? ($partner['markup_percent'] ?? 0))));
+        }
         $signature = self::signatureVariables((int) ($partner['id'] ?? 0));
         $variables += $signature['variables'];
         $embeds = $photo['embed'] !== null ? [$photo['embed']] : [];
@@ -1129,19 +1268,70 @@ final class ReservationsController extends Controller
      * {{multi_biens_note}} variable is populated so partner templates can
      * mention it near "Vos Voyageurs" (e.g. "Pour les 2 biens sélectionnés").
      */
-    private static function requestQuoteVariables(array $input, int $itemCount = 1): array
+    /**
+     * @param array{room_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, nights: int, currency: string} $quote
+     * @return array{room_total: float, partner_rate: float, commission_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, total_traveler: float, nights: int, currency: string}
+     */
+    private static function computeQuoteBreakdown(array $quote, float $markupPercent): array
     {
-        $currency = trim((string) ($input['quote_currency'] ?? 'EUR'));
-        if ($currency === '') {
-            $currency = 'EUR';
-        }
+        $roomTotal = self::toMoneyValue($quote['room_total'] ?? 0);
+        $extraPersonTotal = self::toMoneyValue($quote['extra_person_total'] ?? 0);
+        $cleaningTotal = self::toMoneyValue($quote['cleaning_total'] ?? 0);
+        $touristTaxTotal = self::toMoneyValue($quote['tourist_tax_total'] ?? 0);
+        // "Commissions Partenaire" = Tarif Normal x Taux du partenaire (the
+        // partner's markup_percent, i.e. their commission rate on the room
+        // price), and "Total Voyageur" is the sum of every line the traveler
+        // is billed for.
+        $commissionTotal = round($roomTotal * $markupPercent / 100, 2);
+        $totalTraveler = round($roomTotal + $commissionTotal + $extraPersonTotal + $cleaningTotal, 2);
 
-        $roomTotal = self::toMoneyValue($input['quote_room_total'] ?? 0);
-        $extraPersonTotal = self::toMoneyValue($input['quote_extra_person_total'] ?? 0);
-        $cleaningTotal = self::toMoneyValue($input['quote_cleaning_total'] ?? 0);
-        $totalWithoutTax = self::toMoneyValue($input['quote_total_without_tax'] ?? 0);
-        $touristTaxTotal = self::toMoneyValue($input['quote_tourist_tax_total'] ?? 0);
-        $nights = max(0, (int) ($input['quote_nights'] ?? 0));
+        return [
+            'room_total' => $roomTotal,
+            'partner_rate' => round($markupPercent, 2),
+            'commission_total' => $commissionTotal,
+            'extra_person_total' => $extraPersonTotal,
+            'cleaning_total' => $cleaningTotal,
+            'tourist_tax_total' => $touristTaxTotal,
+            'total_traveler' => $totalTraveler,
+            'nights' => max(0, (int) ($quote['nights'] ?? 0)),
+            'currency' => trim((string) ($quote['currency'] ?? 'EUR')) ?: 'EUR',
+        ];
+    }
+
+    private static function requestQuoteVariables(array $input, int $itemCount = 1, float $markupPercent = 0.0): array
+    {
+        $breakdown = self::computeQuoteBreakdown([
+            'room_total' => $input['quote_room_total'] ?? 0,
+            'extra_person_total' => $input['quote_extra_person_total'] ?? 0,
+            'cleaning_total' => $input['quote_cleaning_total'] ?? 0,
+            'tourist_tax_total' => $input['quote_tourist_tax_total'] ?? 0,
+            'nights' => $input['quote_nights'] ?? 0,
+            'currency' => $input['quote_currency'] ?? 'EUR',
+        ], $markupPercent);
+
+        return self::buildQuoteVariables($breakdown, $itemCount);
+    }
+
+    /**
+     * Builds the {{tarif_*}}/{{tarif_bloc}} plus the individually insertable
+     * {{tarif_normal}}/{{commission_partenaire}}/{{personnes_additionnelles}}/
+     * {{nettoyage}}/{{total_voyageur}} email variables from an already
+     * computed price breakdown. Shared by requestQuoteVariables() (live quote
+     * at submission time) and sendReservationStatusEmail() (the breakdown
+     * persisted on the reservation_requests row), so both sources of
+     * variables stay perfectly consistent.
+     *
+     * @param array{room_total: float, partner_rate: float, commission_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, total_traveler: float, nights: int, currency: string} $breakdown
+     */
+    private static function buildQuoteVariables(array $breakdown, int $itemCount = 1): array
+    {
+        $currency = $breakdown['currency'];
+        $roomTotal = $breakdown['room_total'];
+        $extraPersonTotal = $breakdown['extra_person_total'];
+        $cleaningTotal = $breakdown['cleaning_total'];
+        $touristTaxTotal = $breakdown['tourist_tax_total'];
+        $nights = $breakdown['nights'];
+        $totalWithoutTax = round($roomTotal + $extraPersonTotal + $cleaningTotal, 2);
         $itemCount = max(1, $itemCount);
 
         $tarifBloc = '<div style="padding:12px 24px 16px;">'
@@ -1183,6 +1373,16 @@ final class ReservationsController extends Controller
             'taxe_touristique' => self::formatMoneyFr($touristTaxTotal, 'EUR'),
             'tarif_bloc' => $tarifBloc,
             'multi_biens_note' => $itemCount > 1 ? "Pour les {$itemCount} biens sélectionnés" : '',
+            // Individually insertable variables for the partner-facing quote
+            // breakdown (Tarif Normal / Commissions Partenaire / Personnes
+            // Additionnels / Nettoyage / Total Voyageur). Commission is never
+            // referenced by tarif_bloc so it never leaks into client-facing
+            // emails unless the partner explicitly inserts it themselves.
+            'tarif_normal' => self::formatMoneyFr($roomTotal, $currency),
+            'commission_partenaire' => self::formatMoneyFr($breakdown['commission_total'], $currency),
+            'personnes_additionnelles' => self::formatMoneyFr($extraPersonTotal, $currency),
+            'nettoyage' => self::formatMoneyFr($cleaningTotal, $currency),
+            'total_voyageur' => self::formatMoneyFr($breakdown['total_traveler'], $currency),
         ];
     }
 
@@ -1191,7 +1391,7 @@ final class ReservationsController extends Controller
         return round((float) $value, 2);
     }
 
-    private static function formatMoneyFr(float $amount, string $currency): string
+    public static function formatMoneyFr(float $amount, string $currency): string
     {
         return number_format($amount, 2, ',', ' ') . ' ' . $currency;
     }
@@ -1457,8 +1657,11 @@ final class ReservationsController extends Controller
     }
 
 
-    private static function decodeGuests(mixed $guests): array
+    public static function decodeGuests(mixed $guests): array
     {
+        if (is_array($guests)) {
+            return $guests;
+        }
         if (!is_string($guests) || $guests === '') {
             return [];
         }

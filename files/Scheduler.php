@@ -36,6 +36,7 @@ SELECT
   rr.children,
   rr.property_id,
   rr.property_name,
+  rr.guests,
   rr.language AS request_language,
   p.*
 FROM email_schedules es
@@ -71,6 +72,9 @@ SQL;
                 'enfants' => (string) $row['children'],
                 'hebergement' => (string) $row['property_name'],
                 'partenaire' => (string) $row['name'],
+                'nationalites' => \App\controllers\ReservationsController::guestNationalitiesText(
+                    \App\controllers\ReservationsController::decodeGuests($row['guests'] ?? null)
+                ),
                 'photo_bien' => \App\controllers\ReservationsController::propertyPhotoVariable((int) ($row['property_id'] ?? 0), (string) $row['property_name'], 1),
                 'photo_bien_url' => \App\controllers\ReservationsController::propertyPhotoUrlValue((int) ($row['property_id'] ?? 0), 1),
                 'photo1' => \App\controllers\ReservationsController::propertyPhotoVariable((int) ($row['property_id'] ?? 0), (string) $row['property_name'], 1),
