@@ -1130,7 +1130,17 @@ TEXT;
         if ($text === '') {
             self::json(['error' => 'Aucun texte à traduire.'], 400);
         }
-        $plainText = View::plainTextRaw($text);
+        // Use plainTextWithLineBreaks() rather than plainTextRaw(): the latter
+        // collapses ALL whitespace (including newlines) into single spaces,
+        // which for the "amenities" field destroys the one-category-per-line
+        // "Category: item1, item2" structure produced by amenitiesToText().
+        // Once flattened, translateToFrench() had no line boundaries left to
+        // preserve, so every category/item ended up glued onto a single line
+        // — and textToAmenities() would then read the whole blob back as one
+        // category (whichever word preceded the first ":"), dumping every
+        // amenity into it. Keeping line breaks here (and through translation)
+        // preserves the per-category structure end-to-end.
+        $plainText = View::plainTextWithLineBreaks($text);
         try {
             $suggestion = self::translateToFrench($plainText);
         } catch (\Throwable $e) {
@@ -1156,31 +1166,54 @@ TEXT;
         if ($text === '') {
             return '';
         }
-        $endpoint = trim((string) (Settings::get('TRANSLATE_API_URL', '') ?: 'https://api.mymemory.translated.net/get'));
-        $chunks = self::splitForTranslation($text, 480);
-        $translated = [];
-        foreach ($chunks as $chunk) {
-            $url = $endpoint . '?' . http_build_query(['q' => $chunk, 'langpair' => 'en|fr']);
-            $ch = curl_init($url);
-            curl_setopt_array($ch, [
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT => 15,
-                CURLOPT_HTTPHEADER => ['Accept: application/json'],
-            ]);
-            $body = curl_exec($ch);
-            $error = curl_error($ch);
-            curl_close($ch);
-            if ($body === false || $error !== '') {
-                throw new \RuntimeException('Translation API request failed: ' . $error);
+        // Translate line by line (rather than the whole text as one blob) so
+        // newlines survive the round-trip: the admin "Traductions" page's
+        // "amenities" field is formatted as one "Category: item1, item2" per
+        // line (see amenitiesToText()/textToAmenities()), and losing those
+        // line boundaries here made every category collapse into one when the
+        // suggestion was saved. A line only gets split further (and rejoined
+        // with spaces) when it exceeds the API's per-request length limit.
+        $lines = preg_split('/\r\n|\r|\n/', $text) ?: [$text];
+        $translatedLines = [];
+        foreach ($lines as $line) {
+            if (trim($line) === '') {
+                $translatedLines[] = '';
+                continue;
             }
-            $decoded = json_decode((string) $body, true);
-            $piece = trim((string) ($decoded['responseData']['translatedText'] ?? ''));
-            if ($piece === '') {
-                throw new \RuntimeException('Translation API returned no text');
-            }
-            $translated[] = $piece;
+            $chunks = self::splitForTranslation($line, 480);
+            $translatedLines[] = implode(' ', array_map(self::translateChunk(...), $chunks));
         }
-        return implode(' ', $translated);
+        return implode("\n", $translatedLines);
+    }
+
+    /**
+     * Sends a single chunk of text (already within the translation API's
+     * per-request length limit) to the machine-translation endpoint and
+     * returns the translated text. Used by translateToFrench() once per
+     * line/chunk so line breaks in the original text can be preserved.
+     */
+    private static function translateChunk(string $chunk): string
+    {
+        $endpoint = trim((string) (Settings::get('TRANSLATE_API_URL', '') ?: 'https://api.mymemory.translated.net/get'));
+        $url = $endpoint . '?' . http_build_query(['q' => $chunk, 'langpair' => 'en|fr']);
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 15,
+            CURLOPT_HTTPHEADER => ['Accept: application/json'],
+        ]);
+        $body = curl_exec($ch);
+        $error = curl_error($ch);
+        curl_close($ch);
+        if ($body === false || $error !== '') {
+            throw new \RuntimeException('Translation API request failed: ' . $error);
+        }
+        $decoded = json_decode((string) $body, true);
+        $piece = trim((string) ($decoded['responseData']['translatedText'] ?? ''));
+        if ($piece === '') {
+            throw new \RuntimeException('Translation API returned no text');
+        }
+        return $piece;
     }
 
     /**
