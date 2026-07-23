@@ -897,6 +897,57 @@ final class PageController extends Controller
     }
 
     /**
+     * Default "Politique de réservation" text shown on every property
+     * detail page (under the calendar) and available as the
+     * {{politique_reservation}} email variable, until an admin overrides it
+     * on /admin/politique-reservation. Kept here (not just in the DB) so a
+     * fresh install/empty "settings" table still shows sensible, ready-to-use
+     * copy instead of a blank block.
+     */
+    public const DEFAULT_BOOKING_POLICY = <<<'TEXT'
+Politique de réservation
+100% des règlements pré-payés sont remboursables en cas d'annulation 90 jour(s) avant l'arrivée ou plus tôt.
+75% des règlements pré-payés sont remboursables en cas d'annulation 60 jour(s) avant l'arrivée ou plus tôt.
+50% des règlements pré-payés sont remboursables en cas d'annulation 30 jour(s) avant l'arrivée ou plus tôt.
+25% des règlements pré-payés sont remboursables en cas d'annulation 15 jour(s) avant l'arrivée ou plus tôt.
+0% remboursable si annulation après.
+50% dû au moment de la réservation.
+Montant résiduel dû 5 jour(s) avant l'arrivée.
+TEXT;
+
+    /**
+     * Reads the current "Politique de réservation" text (admin-configurable
+     * on /admin/politique-reservation), falling back to
+     * DEFAULT_BOOKING_POLICY when nothing has been saved yet. Shared by the
+     * admin page itself, the property-detail page (booking-policy block
+     * under the calendar) and ReservationsController (the
+     * {{politique_reservation}} email variable), so all three always show
+     * the exact same text.
+     */
+    public static function bookingPolicyText(): string
+    {
+        return Settings::get('BOOKING_POLICY_TEXT', self::DEFAULT_BOOKING_POLICY) ?? self::DEFAULT_BOOKING_POLICY;
+    }
+
+    public static function adminBookingPolicy(): void
+    {
+        self::requireAdminUser();
+        View::render('pages/admin-booking-policy', [
+            'pageTitle' => 'Politique de réservation',
+            'policyText' => self::bookingPolicyText(),
+        ]);
+    }
+
+    public static function adminSaveBookingPolicy(): never
+    {
+        self::requireAdminUser();
+        $text = trim((string) ($_POST['policy_text'] ?? ''));
+        Settings::set('BOOKING_POLICY_TEXT', $text !== '' ? $text : self::DEFAULT_BOOKING_POLICY);
+        Settings::reload();
+        self::redirect('/admin/politique-reservation', 'Politique de réservation sauvegardée.');
+    }
+
+    /**
      * Fields of a Lodgify property that can be translated on the admin
      * "Traductions" page. Lodgify itself never machine-translates: it only
      * returns whatever text was typed per-language in its own back-office,
@@ -905,7 +956,7 @@ final class PageController extends Controller
      * This page lets an admin fill the gap manually (or accept an automatic
      * suggestion) instead of depending on Lodgify's own translations.
      */
-    private const TRANSLATABLE_FIELDS = ['name', 'description'];
+    private const TRANSLATABLE_FIELDS = ['name', 'description', 'amenities'];
 
     /**
      * Admin "Traductions" page: lists every Lodgify property with its
@@ -938,6 +989,26 @@ final class PageController extends Controller
             $detail = $client->getProperty($propertyId);
             $fields = [];
             foreach (self::TRANSLATABLE_FIELDS as $field) {
+                if ($field === 'amenities') {
+                    // Lodgify never exposes amenities as a plain scalar field (only
+                    // per-room "amenities_by_category", already merged onto $detail
+                    // by LodgifyClient::getProperty()) nor does it ever provide its
+                    // own French translation for them — so there is no
+                    // "amenities_fr" to fall back to, unlike name/description.
+                    $default = View::amenitiesToText((array) ($detail['amenities_by_category'] ?? []));
+                    if ($default === '' && !empty($detail['amenities'])) {
+                        $default = View::amenitiesToText(['Équipements' => array_map(
+                            static fn (array $amenity): string => (string) ($amenity['name'] ?? ''),
+                            $detail['amenities']
+                        )]);
+                    }
+                    $fields[$field] = [
+                        'default' => $default,
+                        'lodgify_fr' => '',
+                        'manual_fr' => $overrides[$propertyId][$field]['fr'] ?? '',
+                    ];
+                    continue;
+                }
                 $default = (string) ($detail[$field] ?? '');
                 if ($default === '') {
                     $default = (string) ($summary[$field] ?? '');

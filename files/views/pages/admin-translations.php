@@ -10,11 +10,13 @@
       <h2 class="section-title"><?= \App\View::e($row['name']) ?> <span class="muted">#<?= (int) $row['id'] ?></span></h2>
       <?php foreach ($row['fields'] as $fieldName => $field): ?>
         <?php
-          $fieldLabel = $fieldName === 'name' ? 'Nom' : 'Description';
+          $fieldLabel = $fieldName === 'name' ? 'Nom' : ($fieldName === 'amenities' ? 'Équipements' : 'Description');
           $sourceId = 'translation-source-' . $row['id'] . '-' . $fieldName;
           $targetId = 'translation-fr-' . $row['id'] . '-' . $fieldName;
           $hasLodgifyFr = trim($field['lodgify_fr']) !== '';
-          $placeholder = $hasLodgifyFr ? 'Laissez vide pour utiliser la traduction Lodgify' : 'Laissez vide pour utiliser le texte anglais';
+          $placeholder = $fieldName === 'amenities'
+            ? 'Laissez vide pour utiliser les équipements Lodgify (un par ligne : "Catégorie: équipement 1, équipement 2")'
+            : ($hasLodgifyFr ? 'Laissez vide pour utiliser la traduction Lodgify' : 'Laissez vide pour utiliser le texte anglais');
         ?>
         <div class="stack-sm">
           <h3><?= \App\View::e($fieldLabel) ?><?php if ($hasLodgifyFr): ?> <span class="badge badge-fresh">Traduit dans Lodgify</span><?php else: ?> <span class="badge badge-stale">Absent de Lodgify</span><?php endif; ?></h3>

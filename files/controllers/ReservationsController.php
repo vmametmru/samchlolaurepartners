@@ -871,6 +871,7 @@ final class ReservationsController extends Controller
                 (string) ($partner['name'] ?? '')
             ),
             'logo_partenaire_url' => self::partnerLogoUrlValue((string) ($partner['logo_url'] ?? '')),
+            'politique_reservation' => nl2br(htmlspecialchars(PageController::bookingPolicyText())),
         ];
         $childBreakdown = self::childBreakdownValues($input);
         $variables += self::stayVariables($checkin, $checkout, $childBreakdown['under3'], $childBreakdown['from3to12']);
@@ -970,6 +971,7 @@ final class ReservationsController extends Controller
                 (string) ($partner['name'] ?? '')
             ),
             'logo_partenaire_url' => self::partnerLogoUrlValue((string) ($partner['logo_url'] ?? '')),
+            'politique_reservation' => nl2br(htmlspecialchars(PageController::bookingPolicyText())),
         ];
         $childBreakdown = self::childBreakdownValues($request);
         $variables += self::stayVariables(

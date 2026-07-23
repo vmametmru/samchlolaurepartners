@@ -57,6 +57,7 @@ $navLangHref = '/lang/' . $navOtherLang . '?back=' . rawurlencode($navBackPath);
               <a href="/admin/translations">Traductions</a>
               <a href="/admin/sync">Synchronisation</a>
               <a href="/admin/fees">Frais &amp; Taxes</a>
+              <a href="/admin/politique-reservation">Politique de réservation</a>
               <a href="/admin/smtp-settings">SMTP par défaut</a>
               <a href="/admin/versions">Versions</a>
               <a href="/admin/diagnostic">Diagnostic</a>

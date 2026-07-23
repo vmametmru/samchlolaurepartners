@@ -242,6 +242,11 @@ try {
         case route($method, $path, 'GET', '#^/admin/fees$#'):
             PageController::adminFees();
             break;
+        case route($method, $path, 'GET', '#^/admin/politique-reservation$#'):
+            PageController::adminBookingPolicy();
+            break;
+        case route($method, $path, 'POST', '#^/admin/politique-reservation$#'):
+            PageController::adminSaveBookingPolicy();
         case route($method, $path, 'GET', '#^/admin/smtp-settings$#'):
             PageController::adminSmtpSettings();
             break;

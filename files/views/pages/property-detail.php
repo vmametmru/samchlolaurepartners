@@ -2,7 +2,7 @@
 $mainImage = $property['images'][0]['url'] ?? 'https://via.placeholder.com/800x450?text=No+Photo';
 $minRate = $rates ? min(array_column($rates, 'price_per_night')) : null;
 $currency = $rates[0]['currency'] ?? 'EUR';
-$amenitiesByCategory = $property['amenities_by_category'] ?? [];
+$amenitiesByCategory = \App\View::localizedAmenities($property);
 $propertyName = \App\View::localized($property, 'name');
 $propertyDescription = \App\View::localized($property, 'description');
 $extraGuestFee = null;
@@ -78,17 +78,19 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
       <div data-tab-panel="amenities" hidden>
         <h2 class="section-title">Équipements</h2>
         <?php if (!empty($amenitiesByCategory)): ?>
-          <?php foreach ($amenitiesByCategory as $category => $names): ?>
-            <div class="amenities-category">
-              <h3 class="section-title"><?= \App\View::e($category) ?></h3>
-              <div class="amenities-grid">
-                <?php foreach ($names as $name): ?><div>✓ <?= \App\View::e($name) ?></div><?php endforeach; ?>
+          <div class="amenities-categories">
+            <?php foreach ($amenitiesByCategory as $category => $names): ?>
+              <div class="amenities-category">
+                <h3 class="amenities-category-title"><span class="amenities-category-icon"><?= \App\View::amenityCategoryIcon((string) $category) ?></span><?= \App\View::e($category) ?></h3>
+                <div class="amenities-grid">
+                  <?php foreach ($names as $name): ?><div class="amenities-item">✓ <?= \App\View::e($name) ?></div><?php endforeach; ?>
+                </div>
               </div>
-            </div>
-          <?php endforeach; ?>
+            <?php endforeach; ?>
+          </div>
         <?php elseif (!empty($property['amenities'])): ?>
           <div class="amenities-grid">
-            <?php foreach ($property['amenities'] as $amenity): ?><div>✓ <?= \App\View::e($amenity['name']) ?></div><?php endforeach; ?>
+            <?php foreach ($property['amenities'] as $amenity): ?><div class="amenities-item">✓ <?= \App\View::e($amenity['name']) ?></div><?php endforeach; ?>
           </div>
         <?php else: ?>
           <p class="muted">Aucun équipement listé.</p>
@@ -120,6 +122,18 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
           <?php endif; ?>
           <p class="muted">Cliquez sur une date disponible du calendrier pour renseigner votre date d'arrivée, puis cliquez sur une seconde date pour la date de départ.</p>
           <?php require BASE_PATH . '/files/views/partials/calendar.php'; ?>
+          <div class="booking-policy-block">
+            <h3 class="section-title">Politique de réservation</h3>
+            <?php
+              $bookingPolicyText = \App\controllers\PageController::bookingPolicyText();
+              $bookingPolicyLines = preg_split('/\r\n|\r|\n/', $bookingPolicyText) ?: [];
+              if (isset($bookingPolicyLines[0]) && trim($bookingPolicyLines[0]) !== '' && mb_strtolower(trim($bookingPolicyLines[0])) === 'politique de réservation') {
+                array_shift($bookingPolicyLines);
+              }
+              $bookingPolicyText = trim(implode("\n", $bookingPolicyLines));
+            ?>
+            <div class="prose"><?= nl2br(\App\View::e($bookingPolicyText)) ?></div>
+          </div>
         <?php endif; ?>
       </div>
     </div>

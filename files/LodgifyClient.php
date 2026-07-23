@@ -299,6 +299,44 @@ final class LodgifyClient
     }
 
     /**
+     * Reads the "default" (source) text of a field ("name"/"description")
+     * straight off a plain "/properties" or "/properties/{id}" payload.
+     * Some Lodgify accounts never populate the root-level scalar field at
+     * all and only ever nest the text under a "{field}_translations" /
+     * "{field}s" array (one entry per configured language) — in that case
+     * the admin "Traductions" page ended up showing an empty "Anglais
+     * (Lodgify)" source text (and the public site fell back to '' too, via
+     * mapProperty()), even though Lodgify actually has text for that
+     * property. This falls back to the first non-empty translation entry
+     * (whatever language it is in) so a default text is always shown/used
+     * instead of a blank field, matching how extractLocalizedText() already
+     * falls back for a specific requested language.
+     */
+    private static function extractDefaultText(array $item, string $field): string
+    {
+        $direct = trim((string) ($item[$field] ?? ''));
+        if ($direct !== '') {
+            return (string) $item[$field];
+        }
+        foreach ([$field . '_translations', $field . 's', $field . '_i18n'] as $key) {
+            $entries = $item[$key] ?? null;
+            if (!is_array($entries)) {
+                continue;
+            }
+            foreach ($entries as $entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
+                $text = (string) ($entry['text'] ?? $entry[$field] ?? '');
+                if (trim($text) !== '') {
+                    return $text;
+                }
+            }
+        }
+        return (string) ($item[$field] ?? '');
+    }
+
+    /**
      * Returns the local "photo1" URL for a property (the normalized first
      * photo produced by the manual Lodgify sync), or '' if that property has
      * never been synced yet. This must NEVER call Lodgify: an earlier
@@ -1867,8 +1905,8 @@ final class LodgifyClient
             : $this->estimateCoordinatesFromCity($city, $propertyId);
         return [
             'id' => $propertyId,
-            'name' => (string) ($item['name'] ?? ''),
-            'description' => (string) ($item['description'] ?? ''),
+            'name' => self::extractDefaultText($item, 'name'),
+            'description' => self::extractDefaultText($item, 'description'),
             'images' => $images,
             'amenities' => $amenities,
             'city' => $city,

@@ -105,6 +105,139 @@ final class View
     }
 
     /**
+     * Same as localized() but for the property's categorized amenities
+     * ("Équipements"), which Lodgify never exposes as a plain string (see
+     * amenitiesToText()/textToAmenities()) so localized() itself can't be
+     * reused directly. Checks, in order: (1) a manual French translation
+     * saved on the admin "Traductions" page (property_translations,
+     * field="amenities") — Lodgify never provides its own French amenities
+     * translation, unlike name/description; (2) the property's own
+     * (default-language) categorized amenities.
+     *
+     * @return array<string, array<int, string>>
+     */
+    public static function localizedAmenities(array $property): array
+    {
+        $default = $property['amenities_by_category'] ?? [];
+        if (!is_array($default) || $default === []) {
+            $default = [];
+            foreach (($property['amenities'] ?? []) as $amenity) {
+                $name = is_array($amenity) ? (string) ($amenity['name'] ?? '') : (string) $amenity;
+                if ($name !== '') {
+                    $default['Équipements'][] = $name;
+                }
+            }
+        }
+        $lang = I18n::current();
+        $propertyId = (int) ($property['id'] ?? 0);
+        if ($propertyId > 0) {
+            $manual = trim((string) (self::manualTranslationsIndex()[$propertyId]['amenities'][$lang] ?? ''));
+            if ($manual !== '') {
+                $parsed = self::textToAmenities($manual);
+                if ($parsed !== []) {
+                    return $parsed;
+                }
+            }
+        }
+        return $default;
+    }
+
+    /**
+     * Formats a property's categorized amenities as plain, editable text —
+     * one line per category ("Category: item1, item2, ...") — for the admin
+     * "Traductions" page's "Anglais (Lodgify)" source textarea and manual
+     * French translation textarea. See textToAmenities() for the inverse.
+     *
+     * @param array<string, array<int, string>> $amenitiesByCategory
+     */
+    public static function amenitiesToText(array $amenitiesByCategory): string
+    {
+        $lines = [];
+        foreach ($amenitiesByCategory as $category => $names) {
+            if (!is_array($names) || $names === []) {
+                continue;
+            }
+            $lines[] = trim((string) $category) . ': ' . implode(', ', array_map('strval', $names));
+        }
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Parses text saved on the admin "Traductions" page's manual amenities
+     * translation field back into a category => [names] map, the same
+     * shape as Lodgify's own "amenities_by_category". See amenitiesToText()
+     * for the format this expects (one "Category: item1, item2" per line).
+     * Lines with no ":" are ignored (best-effort: a malformed manual
+     * translation must never break the amenities tab).
+     *
+     * @return array<string, array<int, string>>
+     */
+    public static function textToAmenities(string $text): array
+    {
+        $result = [];
+        foreach (preg_split('/\r\n|\r|\n/', $text) ?: [] as $line) {
+            $line = trim($line);
+            if ($line === '' || !str_contains($line, ':')) {
+                continue;
+            }
+            [$category, $namesPart] = explode(':', $line, 2);
+            $category = trim($category);
+            $names = array_values(array_filter(array_map('trim', explode(',', $namesPart))));
+            if ($category !== '' && $names !== []) {
+                $result[$category] = $names;
+            }
+        }
+        return $result;
+    }
+
+    /**
+     * Returns an inline SVG icon (as a "currentColor"-stroked <svg> string)
+     * for an amenities category name, matched case/accent-insensitively by
+     * keyword against Lodgify's usual category labels (in French or
+     * English) — purely cosmetic, to make the "Équipements" tab scannable
+     * at a glance instead of a wall of plain text. Falls back to a generic
+     * checkmark-in-circle icon for any category that doesn't match a known
+     * keyword, so a new/unexpected Lodgify category never breaks the tab.
+     */
+    public static function amenityCategoryIcon(string $category): string
+    {
+        $normalized = strtolower((string) preg_replace('/[^a-z0-9]+/i', ' ', self::stripAccents($category)));
+        $icons = [
+            'cuisine|kitchen|salle a manger|dining' => '<path d="M3 2v7a2 2 0 0 0 2 2h1v11"/><path d="M7 2v20"/><path d="M17 2v7a2 2 0 0 1-2 2"/><path d="M17 2v20"/>',
+            'salle de bain|bathroom|toilette' => '<path d="M4 12h16v3a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5v-3Z"/><path d="M6 12V6a2 2 0 0 1 4 0"/><line x1="4" y1="20" x2="4" y2="22"/><line x1="20" y1="20" x2="20" y2="22"/>',
+            'chambre|bedroom|linge de lit' => '<path d="M2 20v-7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v7"/><path d="M2 13V8a2 2 0 0 1 2-2h6v5"/><path d="M22 13V8a2 2 0 0 0-2-2h-6v5"/><line x1="2" y1="20" x2="22" y2="20"/>',
+            'exterieur|jardin|outdoor|garden|terrasse|balcon' => '<path d="M12 2v6"/><path d="M12 22v-8"/><path d="M5 12a7 7 0 0 1 14 0c0 3-3 4-3 4H8s-3-1-3-4Z"/>',
+            'piscine|pool' => '<path d="M2 17c1.5 1.2 3 1.2 4.5 0s3-1.2 4.5 0 3 1.2 4.5 0 3-1.2 4.5 0"/><path d="M6 13V6a2 2 0 0 1 2-2h2"/><circle cx="16" cy="6" r="2"/>',
+            'securite|safety|security' => '<path d="M12 2 4 5v6c0 5 3.4 8.7 8 11 4.6-2.3 8-6 8-11V5l-8-3Z"/>',
+            'internet|bureau|wifi|office' => '<path d="M5 12.6a11 11 0 0 1 14 0"/><path d="M8.5 15.9a6.5 6.5 0 0 1 7 0"/><line x1="12" y1="19" x2="12.01" y2="19"/>',
+            'climatisation|chauffage|heating|air conditioning|air condition' => '<path d="M12 2v20"/><path d="M2 12h20"/><path d="m5 5 14 14"/><path d="m19 5-14 14"/>',
+            'parking|garage' => '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 17V7h4a3 3 0 0 1 0 6H9"/>',
+            'divertissement|entertainment|television|tv' => '<rect x="2" y="4" width="20" height="14" rx="2"/><line x1="8" y1="22" x2="16" y2="22"/><line x1="12" y1="18" x2="12" y2="22"/>',
+            'vue|view' => '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
+            'accessibilite|accessibility' => '<circle cx="12" cy="4" r="2"/><path d="M19 13v-2a3 3 0 0 0-3-3H9.5L5 12"/><path d="m9 8 1 8"/><path d="M12 22a4 4 0 0 1-3-6.6"/>',
+            'famille|enfant|family|child' => '<circle cx="9" cy="7" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M2 21v-2a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v2"/><path d="M17 12a4 4 0 0 1 4 4v1"/>',
+            'services|menage|cleaning|concierge' => '<path d="m3 21 9-9"/><path d="M12.5 5.5 18.5 11.5 21 9 15 3 12.5 5.5Z"/><path d="m9 6-4 4 6 6 4-4"/>',
+        ];
+        foreach ($icons as $pattern => $svgPath) {
+            if (preg_match('/\b(' . $pattern . ')/', $normalized) === 1) {
+                return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . $svgPath . '</svg>';
+            }
+        }
+        return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>';
+    }
+
+    /**
+     * Strips accents (é, è, à, ...) so amenityCategoryIcon() can match
+     * category keywords regardless of accents (e.g. "Sécurité" and
+     * "Securite" both match "securite").
+     */
+    private static function stripAccents(string $value): string
+    {
+        $transliterated = @iconv('UTF-8', 'ASCII//TRANSLIT', $value);
+        return $transliterated !== false ? $transliterated : $value;
+    }
+
+    /**
      * Converts a Lodgify rich-text description (which is raw HTML, e.g.
      * "<p>Welcome...</p><ul><li>...</li></ul>") into plain, safely-escaped
      * text for places like property cards/tables where only a short excerpt
