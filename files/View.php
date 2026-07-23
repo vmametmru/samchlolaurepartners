@@ -42,23 +42,66 @@ final class View
         return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     }
 
+    /** @var array<int, array<string, array<string, string>>>|null */
+    private static ?array $manualTranslations = null;
+
     /**
      * Picks the French translation of a Lodgify-sourced field (e.g. "name",
-     * "description") when the site is currently displayed in French and a
-     * "{$field}_fr" translation was cached (see LodgifyClient::mapProperty()
-     * / getProperty() culture=fr-FR fetch), otherwise falls back to the
-     * property's default field, which is whatever language the Lodgify
-     * account itself is configured in (English on this account).
+     * "description") when the site is currently displayed in French. Checks,
+     * in order: (1) a manual override entered on the admin "Traductions"
+     * page (property_translations table) — used whenever Lodgify itself has
+     * no French translation configured for that property/field; (2) the
+     * "{$field}_fr" translation fetched live from Lodgify (see
+     * LodgifyClient::fetchFrenchTranslation()); (3) the property's default
+     * field, which is whatever language the Lodgify account itself is
+     * configured in (English on this account).
      */
     public static function localized(array $property, string $field): string
     {
-        if (I18n::current() === 'fr') {
+        $lang = I18n::current();
+        $propertyId = (int) ($property['id'] ?? 0);
+        if ($propertyId > 0) {
+            $manual = trim((string) (self::manualTranslationsIndex()[$propertyId][$field][$lang] ?? ''));
+            if ($manual !== '') {
+                return $manual;
+            }
+        }
+        if ($lang === 'fr') {
             $translated = trim((string) ($property[$field . '_fr'] ?? ''));
             if ($translated !== '') {
                 return $translated;
             }
         }
         return (string) ($property[$field] ?? '');
+    }
+
+    /**
+     * Loads every row of property_translations once per request (admin
+     * "Traductions" manual overrides), indexed by property id / field /
+     * language, so localized() can look them up with a plain array read
+     * instead of one SQL query per property per field per page render.
+     * Best-effort: if the table doesn't exist yet (migration not applied)
+     * or the query fails for any reason, this must never break page
+     * rendering — it simply returns no overrides.
+     *
+     * @return array<int, array<string, array<string, string>>>
+     */
+    private static function manualTranslationsIndex(): array
+    {
+        if (self::$manualTranslations !== null) {
+            return self::$manualTranslations;
+        }
+        $index = [];
+        try {
+            $rows = Database::connection()->query('SELECT property_id, field, language, text_value FROM property_translations')->fetchAll();
+            foreach ($rows as $row) {
+                $index[(int) $row['property_id']][(string) $row['field']][(string) $row['language']] = (string) $row['text_value'];
+            }
+        } catch (\Throwable $e) {
+            error_log('View: failed to load property_translations: ' . $e->getMessage());
+        }
+        self::$manualTranslations = $index;
+        return self::$manualTranslations;
     }
 
     /**
@@ -76,6 +119,21 @@ final class View
             $text = mb_strimwidth($text, 0, $maxLength, '…');
         }
         return self::e($text);
+    }
+
+    /**
+     * Same as plainText() but returns the raw (un-escaped) decoded text
+     * instead of HTML-escaped output — used when the plain text needs to be
+     * sent elsewhere (e.g. to a translation API), not printed into HTML.
+     */
+    public static function plainTextRaw(mixed $value, ?int $maxLength = null): string
+    {
+        $text = html_entity_decode(strip_tags((string) $value), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $text = trim(preg_replace('/\s+/u', ' ', $text) ?? $text);
+        if ($maxLength !== null) {
+            $text = mb_strimwidth($text, 0, $maxLength, '…');
+        }
+        return $text;
     }
 
     /**

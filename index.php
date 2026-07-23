@@ -251,6 +251,13 @@ try {
             PageController::adminSaveTax();
         case route($method, $path, 'POST', '#^/admin/fees/cleaning-default$#'):
             PageController::adminSaveDefaultCleaningFee();
+        case route($method, $path, 'GET', '#^/admin/translations$#'):
+            PageController::adminTranslations();
+            break;
+        case route($method, $path, 'POST', '#^/admin/translations/save$#'):
+            PageController::adminSaveTranslation();
+        case route($method, $path, 'POST', '#^/admin/translations/suggest$#'):
+            PageController::adminSuggestTranslation();
         case route($method, $path, 'GET', '#^/admin/versions$#'):
             PageController::adminVersions();
             break;

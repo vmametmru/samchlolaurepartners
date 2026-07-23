@@ -54,6 +54,7 @@ $navLangHref = '/lang/' . $navOtherLang . '?back=' . rawurlencode($navBackPath);
               <a href="/admin/partners">Partenaires</a>
               <a href="/admin/templates">Templates email</a>
               <a href="/admin/lodgify-properties">Biens Lodgify</a>
+              <a href="/admin/translations">Traductions</a>
               <a href="/admin/sync">Synchronisation</a>
               <a href="/admin/fees">Frais &amp; Taxes</a>
               <a href="/admin/smtp-settings">SMTP par défaut</a>

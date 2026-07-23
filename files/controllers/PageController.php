@@ -896,6 +896,200 @@ final class PageController extends Controller
         self::redirect('/admin/fees', 'Frais de nettoyage par défaut sauvegardés.');
     }
 
+    /**
+     * Fields of a Lodgify property that can be translated on the admin
+     * "Traductions" page. Lodgify itself never machine-translates: it only
+     * returns whatever text was typed per-language in its own back-office,
+     * so any property whose owner never filled in a French name/description
+     * over there keeps showing English everywhere the site language is FR.
+     * This page lets an admin fill the gap manually (or accept an automatic
+     * suggestion) instead of depending on Lodgify's own translations.
+     */
+    private const TRANSLATABLE_FIELDS = ['name', 'description'];
+
+    /**
+     * Admin "Traductions" page: lists every Lodgify property with its
+     * default (English) text, Lodgify's own French translation if any, and
+     * the manual override (if one was saved) — so an admin can see at a
+     * glance which properties still need a French name/description typed
+     * in, without having to touch the Lodgify back-office.
+     */
+    public static function adminTranslations(): void
+    {
+        self::requireAdminUser();
+        $client = new LodgifyClient();
+        $properties = $client->getProperties();
+        $overrides = self::propertyTranslationOverrides();
+        $rows = [];
+        foreach ($properties as $property) {
+            $propertyId = (int) ($property['id'] ?? 0);
+            $fields = [];
+            foreach (self::TRANSLATABLE_FIELDS as $field) {
+                $fields[$field] = [
+                    'default' => (string) ($property[$field] ?? ''),
+                    'lodgify_fr' => (string) ($property[$field . '_fr'] ?? ''),
+                    'manual_fr' => $overrides[$propertyId][$field]['fr'] ?? '',
+                ];
+            }
+            $rows[] = [
+                'id' => $propertyId,
+                'name' => (string) ($property['name'] ?? ''),
+                'fields' => $fields,
+            ];
+        }
+        View::render('pages/admin-translations', [
+            'pageTitle' => 'Traductions',
+            'rows' => $rows,
+        ]);
+    }
+
+    /**
+     * @return array<int, array<string, array<string, string>>>
+     */
+    private static function propertyTranslationOverrides(): array
+    {
+        $overrides = [];
+        try {
+            $stmt = Database::connection()->query('SELECT property_id, field, language, text_value FROM property_translations');
+            foreach ($stmt->fetchAll() as $row) {
+                $overrides[(int) $row['property_id']][(string) $row['field']][(string) $row['language']] = (string) $row['text_value'];
+            }
+        } catch (\Throwable $e) {
+            error_log('adminTranslations: failed to load property_translations: ' . $e->getMessage());
+        }
+        return $overrides;
+    }
+
+    /**
+     * Saves (or, if the submitted text is blank, removes) the manual French
+     * translation for one property/field, entered on the admin
+     * "Traductions" page. Removing an override falls back to Lodgify's own
+     * French translation if it has one, otherwise the default (English)
+     * text, exactly like before an override existed.
+     */
+    public static function adminSaveTranslation(): never
+    {
+        self::requireAdminUser();
+        $propertyId = (int) ($_POST['property_id'] ?? 0);
+        $field = (string) ($_POST['field'] ?? '');
+        $language = 'fr';
+        $text = trim((string) ($_POST['text'] ?? ''));
+        if ($propertyId <= 0 || !in_array($field, self::TRANSLATABLE_FIELDS, true)) {
+            self::redirect('/admin/translations', 'Requête de traduction invalide.', 'error');
+        }
+        if ($text === '') {
+            Database::connection()->prepare('DELETE FROM property_translations WHERE property_id = ? AND field = ? AND language = ?')
+                ->execute([$propertyId, $field, $language]);
+        } else {
+            Database::connection()->prepare(
+                'INSERT INTO property_translations (property_id, field, language, text_value)
+                 VALUES (?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE text_value = VALUES(text_value), updated_at = NOW()'
+            )->execute([$propertyId, $field, $language, $text]);
+        }
+        self::redirect('/admin/translations', 'Traduction sauvegardée.');
+    }
+
+    /**
+     * AJAX endpoint used by the "Suggérer" button on the admin "Traductions"
+     * page: sends the default (English) text to a free machine-translation
+     * API and returns the suggested French text so the admin can review and
+     * edit it before saving — this never saves anything by itself. This is
+     * purely best-effort: if the outbound call fails (network restrictions,
+     * API downtime, text too long, ...) it returns a clear error instead of
+     * a translation, and the admin can still type the translation by hand.
+     */
+    public static function adminSuggestTranslation(): never
+    {
+        self::requireAdminUser();
+        $input = self::input();
+        $text = trim((string) ($input['text'] ?? ''));
+        if ($text === '') {
+            self::json(['error' => 'Aucun texte à traduire.'], 400);
+        }
+        $plainText = View::plainTextRaw($text);
+        try {
+            $suggestion = self::translateToFrench($plainText);
+        } catch (\Throwable $e) {
+            error_log('adminSuggestTranslation: ' . $e->getMessage());
+            self::json(['error' => 'Suggestion indisponible pour le moment, merci de traduire manuellement.'], 502);
+        }
+        if ($suggestion === '') {
+            self::json(['error' => 'Suggestion indisponible pour le moment, merci de traduire manuellement.'], 502);
+        }
+        self::json(['suggestion' => $suggestion]);
+    }
+
+    /**
+     * Calls a free machine-translation API (MyMemory) to translate English
+     * text to French, chunking the request when the text is longer than the
+     * API's ~500 character per-query limit. A self-hosted/paid translation
+     * endpoint can be configured instead via the TRANSLATE_API_URL setting
+     * (expected to accept the same "q"/"langpair" query parameters and
+     * return {"responseData": {"translatedText": "..."}}).
+     */
+    private static function translateToFrench(string $text): string
+    {
+        if ($text === '') {
+            return '';
+        }
+        $endpoint = trim((string) (Settings::get('TRANSLATE_API_URL', '') ?: 'https://api.mymemory.translated.net/get'));
+        $chunks = self::splitForTranslation($text, 480);
+        $translated = [];
+        foreach ($chunks as $chunk) {
+            $url = $endpoint . '?' . http_build_query(['q' => $chunk, 'langpair' => 'en|fr']);
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 15,
+                CURLOPT_HTTPHEADER => ['Accept: application/json'],
+            ]);
+            $body = curl_exec($ch);
+            $error = curl_error($ch);
+            curl_close($ch);
+            if ($body === false || $error !== '') {
+                throw new \RuntimeException('Translation API request failed: ' . $error);
+            }
+            $decoded = json_decode((string) $body, true);
+            $piece = trim((string) ($decoded['responseData']['translatedText'] ?? ''));
+            if ($piece === '') {
+                throw new \RuntimeException('Translation API returned no text');
+            }
+            $translated[] = $piece;
+        }
+        return implode(' ', $translated);
+    }
+
+    /**
+     * Splits text on sentence/word boundaries into chunks no longer than
+     * $maxLength, so long property descriptions can still be translated
+     * through APIs (like MyMemory) that cap each request's length.
+     *
+     * @return list<string>
+     */
+    private static function splitForTranslation(string $text, int $maxLength): array
+    {
+        if (mb_strlen($text) <= $maxLength) {
+            return [$text];
+        }
+        $sentences = preg_split('/(?<=[.!?])\s+/u', $text) ?: [$text];
+        $chunks = [];
+        $current = '';
+        foreach ($sentences as $sentence) {
+            $candidate = $current === '' ? $sentence : $current . ' ' . $sentence;
+            if (mb_strlen($candidate) > $maxLength && $current !== '') {
+                $chunks[] = $current;
+                $current = $sentence;
+            } else {
+                $current = $candidate;
+            }
+        }
+        if ($current !== '') {
+            $chunks[] = $current;
+        }
+        return $chunks !== [] ? $chunks : [mb_substr($text, 0, $maxLength)];
+    }
+
     public static function adminVersions(): void
     {
         self::requireAdminUser();

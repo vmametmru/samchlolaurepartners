@@ -48,6 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initHeroSearchCollapse,
     initConfirmSubmit,
     initUpdateProgress,
+    initTranslationSuggestions,
   ].forEach(runInit);
 });
 
@@ -3137,4 +3138,44 @@ function initPartnerCodeFromHash() {
   const nextInput = form.querySelector('input[name="next"]');
   if (nextInput && page) nextInput.value = '/' + page;
   form.submit();
+}
+
+// Admin "Traductions" page: each "Suggérer" button asks the server to
+// machine-translate the default (English) text for that field and fills the
+// suggestion into the textarea WITHOUT saving it, so the admin can still
+// review/edit before hitting "Sauvegarder" — see PageController::
+// adminSuggestTranslation().
+function initTranslationSuggestions() {
+  const buttons = document.querySelectorAll('[data-suggest-translation]');
+  if (!buttons.length) return;
+  buttons.forEach((button) => {
+    button.addEventListener('click', async () => {
+      const targetSelector = button.getAttribute('data-suggest-translation');
+      const sourceSelector = button.getAttribute('data-suggest-source');
+      const textarea = targetSelector ? document.querySelector(targetSelector) : null;
+      const source = sourceSelector ? document.querySelector(sourceSelector) : null;
+      if (!textarea || !source) return;
+      const text = source.value || source.textContent || '';
+      if (!text.trim()) return;
+      const originalLabel = button.textContent;
+      button.disabled = true;
+      button.textContent = '…';
+      try {
+        const response = await fetch('/admin/translations/suggest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ text }),
+          credentials: 'same-origin'
+        });
+        const data = await response.json();
+        if (!response.ok || !data.suggestion) throw new Error(data.error || 'Erreur');
+        textarea.value = data.suggestion;
+      } catch (error) {
+        window.alert((error && error.message) || 'Suggestion indisponible, merci de traduire manuellement.');
+      } finally {
+        button.disabled = false;
+        button.textContent = originalLabel;
+      }
+    });
+  });
 }
