@@ -20,6 +20,8 @@ $formatHour = static function (?int $hour): ?string {
 };
 $checkinLabel = $formatHour($property['checkin_hour'] ?? null);
 $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
+$priceMinPeople = $priceMinPeople ?? null;
+$priceExtraPersonFee = $priceExtraPersonFee ?? null;
 ?>
 <section class="container section-lg" data-gallery>
   <div class="property-detail-header">
@@ -118,7 +120,16 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
           <?php if ($minRate === null): ?>
             <p class="muted">Tarifs non disponibles pour le moment.</p>
           <?php else: ?>
-            <p class="muted calendar-price-note">Prix de la nuité en Euros. Le prix inclus les frais de nettoyage 2 fois par semaine.</p>
+            <p class="muted calendar-price-note">
+              Prix de la nuité en Euros. Le prix inclus les frais de nettoyage 2 fois par semaine.
+              <?php if ($priceMinPeople !== null): ?>
+                Les prix affichés sont pour <?= (int) $priceMinPeople ?> personnes.
+                <?php if ($priceExtraPersonFee !== null && $priceExtraPersonFee > 0): ?>
+                  Frais additionnel de <?= \App\View::e(number_format((float) $priceExtraPersonFee, 0, ',', ' ')) ?> Euros par nuit par personne
+                <?php endif; ?>
+                + 2 enfants de moins de 3 ans (Gratuitement)
+              <?php endif; ?>
+            </p>
           <?php endif; ?>
           <p class="muted">Cliquez sur une date disponible du calendrier pour renseigner votre date d'arrivée, puis cliquez sur une seconde date pour la date de départ.</p>
           <?php require BASE_PATH . '/files/views/partials/calendar.php'; ?>

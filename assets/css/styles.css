@@ -225,7 +225,7 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .dot-gray { background: #f3f4f6; border: 1px solid #d1d5db; }
 
 /* Calendrier board: one row per property, dates scroll horizontally. */
-.calendar-board { --cal-day-w: 46px; --cal-photo-w: 56px; --cal-name-w: 200px; --cal-num-w: 70px; overflow-x: auto; overflow-y: hidden; margin-top: 1.25rem; border: 1px solid var(--border, #e5e7eb); border-radius: .8rem; max-width: 100%; width: calc(var(--cal-photo-w) + var(--cal-name-w) + (2 * var(--cal-num-w)) + (var(--cal-visible-days, 31) * var(--cal-day-w))); }
+.calendar-board { --cal-day-w: 46px; --cal-photo-w: 56px; --cal-name-w: 200px; --cal-num-w: 70px; overflow-x: auto; overflow-y: hidden; margin-top: 1.25rem; border: 1px solid var(--border, #e5e7eb); border-radius: .8rem; max-width: 100%; width: calc(var(--cal-photo-w) + var(--cal-name-w) + (3 * var(--cal-num-w)) + (var(--cal-visible-days, 31) * var(--cal-day-w))); }
 .calendar-board-table { border-collapse: separate; border-spacing: 0; table-layout: fixed; font-size: .8rem; font-weight: 600; line-height: 1.15; }
 .calendar-board-table th, .calendar-board-table td { border-bottom: 1px solid var(--border, #e5e7eb); border-right: 1px solid var(--border, #e5e7eb); font-size: inherit; font-weight: inherit; }
 .calendar-board-table thead th { position: sticky; top: 0; z-index: 3; background: #f9fafb; }
@@ -236,6 +236,7 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .cal-col-num { width: var(--cal-num-w); min-width: var(--cal-num-w); text-align: center; }
 .cal-col-capacity { left: calc(var(--cal-photo-w) + var(--cal-name-w)); }
 .cal-col-rooms { left: calc(var(--cal-photo-w) + var(--cal-name-w) + var(--cal-num-w)); }
+.cal-col-sofa { left: calc(var(--cal-photo-w) + var(--cal-name-w) + (2 * var(--cal-num-w))); }
 .cal-icon { font-size: 1.1rem; line-height: 1; }
 .cal-col-name.cal-fixed { left: var(--cal-photo-w); }
 .calendar-board-table tbody tr { height: 40px; }
@@ -305,6 +306,10 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .calendar-price-note { margin-top: 1rem; font-size: .85rem; }
 .booking-policy-block { margin-top: 1.5rem; border: 1px solid var(--border); border-radius: .75rem; padding: 1rem 1.25rem; background: #fafafa; }
 .booking-policy-block .prose { font-size: .9rem; color: var(--muted); }
+.calendar-info-blocks { align-items: start; margin-top: 1.5rem; }
+.calendar-info-blocks .booking-policy-block { margin-top: 0; }
+.price-info-list { margin: .5rem 0 0; padding-left: 1.1rem; }
+.price-info-list li { margin-bottom: .4rem; }
 
 .calendar-help-btn { padding: .5rem .9rem; border-radius: .6rem; font-size: .9rem; flex-shrink: 0; }
 .help-dialog { max-width: 32rem; width: calc(100% - 2rem); border: 1px solid var(--border, #e5e7eb); border-radius: .9rem; padding: 1.25rem; }

@@ -9,9 +9,9 @@
 /** @var int $children3to12 */
 /** @var int $totalGuests */
 /** @var int $countedGuests */
-/** @var ?int $minBasePeople */
+/** @var array<int, array{name: string, min_people: int, extra_person_fee: ?float}> $priceInfoRows */
 $visibleDays = $visibleDays ?? 31;
-$minBasePeople = $minBasePeople ?? null;
+$priceInfoRows = $priceInfoRows ?? [];
 $dateFrom = $dateFrom ?? '';
 $dateTo = $dateTo ?? '';
 $adults = $adults ?? 0;
@@ -55,7 +55,7 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
   <?php elseif ($rows === []): ?>
     <p class="muted">Aucun hébergement à afficher.</p>
   <?php else: ?>
-    <p class="muted calendar-price-note">Prix de la nuité en Euros. Le prix inclus les frais de nettoyage 2 fois par semaine. <?php if ($minBasePeople !== null): ?>Les prix affichés sont pour un maximum de <?= (int) $minBasePeople ?> personnes + 2 enfants de moins de 3 ans. <?php endif; ?>Cliquez sur les dates que vous souhaitez afin de renseigner votre demande.</p>
+    <p class="muted calendar-price-note">Cliquez sur les dates que vous souhaitez afin de renseigner votre demande.</p>
     <label class="calendar-name-toggle">
       <input type="checkbox" data-calendar-name-toggle>
       Afficher le nom du bien
@@ -84,6 +84,10 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
             <th class="cal-fixed cal-col-num cal-col-rooms" title="Chambres">
               <span class="cal-icon" aria-hidden="true">🛏️</span>
               <span class="sr-only">Chambres</span>
+            </th>
+            <th class="cal-fixed cal-col-num cal-col-sofa" title="Canapé-lit(s)">
+              <span class="cal-icon" aria-hidden="true">🛋️</span>
+              <span class="sr-only">Canapé-lit(s)</span>
             </th>
             <?php foreach ($dates as $date):
               $dow = (int) $date->format('w');
@@ -121,6 +125,7 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
               </td>
               <td class="cal-fixed cal-col-num cal-col-capacity"><?= (int) ($property['max_guests'] ?? 0) ?></td>
               <td class="cal-fixed cal-col-num cal-col-rooms"><?= (int) ($property['bedrooms'] ?? 0) ?></td>
+              <td class="cal-fixed cal-col-num cal-col-sofa"><?= $row['sofa_bed_count'] !== null ? (int) $row['sofa_bed_count'] : '—' ?></td>
               <?php if (!empty($row['restricted'])): ?>
                 <td class="cal-cell cal-restricted" colspan="<?= count($dates) ?>">
                   <p class="muted cal-restricted-note">Merci de contacter votre agence pour ce bien.</p>
@@ -207,17 +212,42 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
       </div>
     </div>
 
-    <div class="booking-policy-block">
-      <h3 class="section-title">Politique de réservation</h3>
-      <?php
-        $bookingPolicyText = \App\controllers\PageController::bookingPolicyText();
-        $bookingPolicyLines = preg_split('/\r\n|\r|\n/', $bookingPolicyText) ?: [];
-        if (isset($bookingPolicyLines[0]) && trim($bookingPolicyLines[0]) !== '' && mb_strtolower(trim($bookingPolicyLines[0])) === 'politique de réservation') {
-          array_shift($bookingPolicyLines);
-        }
-        $bookingPolicyText = trim(implode("\n", $bookingPolicyLines));
-      ?>
-      <div class="prose"><?= nl2br(\App\View::e($bookingPolicyText)) ?></div>
+    <div class="form-grid cols-2 calendar-info-blocks">
+      <div class="booking-policy-block">
+        <h3 class="section-title">Politique de réservation</h3>
+        <?php
+          $bookingPolicyText = \App\controllers\PageController::bookingPolicyText();
+          $bookingPolicyLines = preg_split('/\r\n|\r|\n/', $bookingPolicyText) ?: [];
+          if (isset($bookingPolicyLines[0]) && trim($bookingPolicyLines[0]) !== '' && mb_strtolower(trim($bookingPolicyLines[0])) === 'politique de réservation') {
+            array_shift($bookingPolicyLines);
+          }
+          $bookingPolicyText = trim(implode("\n", $bookingPolicyLines));
+        ?>
+        <div class="prose"><?= nl2br(\App\View::e($bookingPolicyText)) ?></div>
+      </div>
+
+      <div class="booking-policy-block price-info-block">
+        <h3 class="section-title">Information sur les prix affichés</h3>
+        <div class="prose">
+          <p>Prix de la nuité en Euros. Le prix inclus les frais de nettoyage 2 fois par semaine. Les prix affichés sont pour un maximum de :</p>
+          <?php if ($priceInfoRows === []): ?>
+            <p class="muted">Aucune information tarifaire disponible pour le moment.</p>
+          <?php else: ?>
+            <ul class="price-info-list">
+              <?php foreach ($priceInfoRows as $info): ?>
+                <li>
+                  <strong><?= \App\View::e($info['name']) ?></strong> :
+                  <?= (int) $info['min_people'] ?> personnes
+                  <?php if ($info['extra_person_fee'] !== null && $info['extra_person_fee'] > 0): ?>
+                    (Frais additionnel de <?= \App\View::e(number_format((float) $info['extra_person_fee'], 0, ',', ' ')) ?> Euros par nuit par personne)
+                  <?php endif; ?>
+                  + 2 enfants de moins de 3 ans (Gratuitement)
+                </li>
+              <?php endforeach; ?>
+            </ul>
+          <?php endif; ?>
+        </div>
+      </div>
     </div>
   <?php endif; ?>
 </section>

@@ -220,6 +220,11 @@ final class PageController extends Controller
         // is the guest count used for the initial render; the price note is
         // then kept in sync client-side as the visitor adjusts guest counts.
         $cleaningFeePerPerson = $partner ? (float) ($partner['cleaning_fee_per_person_per_night'] ?? 0) : 0.0;
+        // The price note also states the base-rate headcount ("Min personnes
+        // (tarif de base)") and the extra-person fee, both set manually per
+        // property in the admin "Biens Lodgify" table.
+        $manualOverrides = self::manualLodgifyColumnsByPropertyId([$id]);
+        $manual = $manualOverrides[$id] ?? ['sofa_bed_count' => null, 'min_people' => null, 'extra_person_fee' => null];
         View::render('pages/property-detail', [
             'pageTitle' => View::localized($property, 'name'),
             'property' => $property,
@@ -231,6 +236,8 @@ final class PageController extends Controller
             'cleaningFeePerPerson' => $cleaningFeePerPerson,
             'calendarGuests' => 2,
             'ratesRestricted' => $visibility === PartnerPropertyVisibility::PARTIAL,
+            'priceMinPeople' => $manual['min_people'],
+            'priceExtraPersonFee' => $manual['extra_person_fee'],
         ]);
     }
 
@@ -304,20 +311,20 @@ final class PageController extends Controller
 
         // The nightly price shown must include the cleaning fee configured for
         // the active partner (partners.cleaning_fee_per_person_per_night),
-        // multiplied by the number of guests entered above the table.
+        // multiplied by the number of guests counted for pricing (adults +
+        // children 3-12ans) — babies under 3 are always free and must not be
+        // charged for cleaning, exactly like the reservation quote in
+        // ReservationsController.
         $partner = Tenant::current();
         $cleaningFeePerPerson = $partner ? (float) ($partner['cleaning_fee_per_person_per_night'] ?? 0) : 0.0;
-        $cleaningFeePerNight = $cleaningFeePerPerson * $totalGuests;
+        $cleaningFeePerNight = $cleaningFeePerPerson * $countedGuests;
 
         $rows = [];
-        // Base-rate headcount ("Min personnes (tarif de base)", set manually per
-        // property in the admin "Biens Lodgify" table) is used below to tell
-        // visitors up to how many people the displayed nightly prices cover
-        // before any extra-person fee would apply. Since this table lists
-        // several properties at once, the most conservative (lowest) value
-        // among the properties actually shown is used, so the note always
-        // stays true regardless of which property the visitor picks.
-        $minBasePeople = null;
+        // Per-property price info ("Information sur les prix affichés" block,
+        // shown next to the booking policy) lists, for every property visible
+        // in the table, its base-rate headcount and extra-person fee (both
+        // set manually per property in the admin "Biens Lodgify" table).
+        $priceInfoRows = [];
         if ($totalGuests > 0) {
             $properties = [];
             try {
@@ -331,11 +338,6 @@ final class PageController extends Controller
                 $properties
             )));
             $manualOverrides = self::manualLodgifyColumnsByPropertyId($propertyIds);
-            foreach ($manualOverrides as $manual) {
-                if ($manual['min_people'] !== null && ($minBasePeople === null || $manual['min_people'] < $minBasePeople)) {
-                    $minBasePeople = $manual['min_people'];
-                }
-            }
 
             foreach ($properties as $property) {
                 $id = (int) ($property['id'] ?? 0);
@@ -373,6 +375,7 @@ final class PageController extends Controller
                     }
                 }
                 $maxGuests = (int) ($property['max_guests'] ?? 0);
+                $manual = $manualOverrides[$id] ?? ['sofa_bed_count' => null, 'min_people' => null, 'extra_person_fee' => null];
                 $rows[] = [
                     'property' => $property,
                     'availability' => $availabilityMap,
@@ -381,7 +384,15 @@ final class PageController extends Controller
                     'capacity_ok' => $maxGuests <= 0 || $maxGuests >= $countedGuests,
                     'load_failed' => $loadFailed,
                     'restricted' => $restricted,
+                    'sofa_bed_count' => $manual['sofa_bed_count'],
                 ];
+                if ($manual['min_people'] !== null) {
+                    $priceInfoRows[] = [
+                        'name' => View::localized($property, 'name'),
+                        'min_people' => $manual['min_people'],
+                        'extra_person_fee' => $manual['extra_person_fee'],
+                    ];
+                }
             }
         }
 
@@ -398,7 +409,7 @@ final class PageController extends Controller
             'totalGuests' => $totalGuests,
             'countedGuests' => $countedGuests,
             'today' => $today,
-            'minBasePeople' => $minBasePeople,
+            'priceInfoRows' => $priceInfoRows,
         ]);
     }
 
