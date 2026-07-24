@@ -21,6 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initPropertyTabs,
     initMaps,
     initApiForms,
+    initFormStatusPopups,
     initNationalities,
     initTemplateEditor,
     initZipImportForm,
@@ -825,6 +826,11 @@ function initMaps() {
   });
 }
 
+// The confirmation/error popup used to auto-dismiss itself after 3s. Emails
+// can land in Junk/Spam (client-side mailbox filtering, out of this app's
+// control), so a success message that disappears on its own before the
+// visitor has read the "check your spam folder" note is actively unhelpful.
+// The popup now stays open until the visitor explicitly clicks "Fermer".
 function showTransientFormPopup(form, message, state = 'success') {
   const popupId = form.dataset.feedbackPopupId || '';
   if (!popupId) return;
@@ -838,6 +844,8 @@ function showTransientFormPopup(form, message, state = 'success') {
     box.classList.toggle('success', state === 'success');
     box.classList.toggle('error', state === 'error');
   }
+  const spamNote = popup.querySelector('[data-form-status-popup-spam-note]');
+  if (spamNote) spamNote.hidden = state !== 'success';
 
   if (popup._hideTimer) window.clearTimeout(popup._hideTimer);
   if (popup._hideTransitionTimer) window.clearTimeout(popup._hideTransitionTimer);
@@ -846,13 +854,30 @@ function showTransientFormPopup(form, message, state = 'success') {
   requestAnimationFrame(() => {
     popup.classList.add('visible');
   });
+}
 
-  popup._hideTimer = window.setTimeout(() => {
-    popup.classList.remove('visible');
-    popup._hideTransitionTimer = window.setTimeout(() => {
-      if (!popup.classList.contains('visible')) popup.hidden = true;
-    }, 200);
-  }, 3000);
+function hideFormStatusPopup(popup) {
+  popup.classList.remove('visible');
+  if (popup._hideTransitionTimer) window.clearTimeout(popup._hideTransitionTimer);
+  popup._hideTransitionTimer = window.setTimeout(() => {
+    if (!popup.classList.contains('visible')) popup.hidden = true;
+  }, 200);
+}
+
+/**
+ * Wires the "Fermer" button on every form status popup (see
+ * showTransientFormPopup()) plus a click on the dimmed overlay itself, since
+ * the popup no longer auto-dismisses.
+ */
+function initFormStatusPopups() {
+  document.querySelectorAll('[data-form-status-popup]').forEach((popup) => {
+    popup.querySelectorAll('[data-form-status-popup-close]').forEach((btn) => {
+      btn.addEventListener('click', () => hideFormStatusPopup(popup));
+    });
+    popup.addEventListener('click', (event) => {
+      if (event.target === popup) hideFormStatusPopup(popup);
+    });
+  });
 }
 
 function initApiForms() {

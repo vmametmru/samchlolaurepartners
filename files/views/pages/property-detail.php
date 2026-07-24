@@ -240,6 +240,8 @@ $priceExtraPersonFee = $priceExtraPersonFee ?? null;
 <div class="booking-status-popup" id="booking-status-popup-<?= (int) $property['id'] ?>" data-form-status-popup hidden aria-live="polite" aria-atomic="true">
   <div class="booking-status-popup-box" data-form-status-popup-box>
     <p class="booking-status-popup-message" data-form-status-popup-message></p>
+    <p class="booking-status-popup-note" data-form-status-popup-spam-note hidden>Vérifiez vos courriers indésirables, il arrive que les emails soient catégorisés comme indésirables.</p>
+    <button type="button" class="booking-status-popup-close" data-form-status-popup-close>Fermer</button>
   </div>
 </div>
 </section>
