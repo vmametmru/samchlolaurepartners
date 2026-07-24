@@ -8,8 +8,24 @@ use RuntimeException;
 
 final class Mailer
 {
+    /** Hard cap on a single externally-fetched (non-local) embedded image, to bound memory/bandwidth use. */
+    private const MAX_EXTERNAL_IMAGE_BYTES = 5 * 1024 * 1024;
+
     public static function renderTemplate(string $template, array $variables): string
     {
+        // Support "{{var1}}+{{var2}}(+{{var3}}...)" expressions in the
+        // template body: when every referenced variable resolves to a plain
+        // number or a formatted money amount (e.g. "1 234,56 EUR"), the
+        // whole expression is replaced by their sum instead of being left as
+        // separate values glued to a literal "+".
+        $template = preg_replace_callback(
+            '/\{\{[a-zA-Z0-9_]+\}\}(?:\s*\+\s*\{\{[a-zA-Z0-9_]+\}\})+/',
+            static function (array $matches) use ($variables): string {
+                return self::sumVariableExpression($matches[0], $variables);
+            },
+            $template
+        ) ?? $template;
+
         $rendered = preg_replace_callback('/\{\{([a-zA-Z0-9_]+)(?::(\d{1,4}))?\}\}/', static function (array $matches) use ($variables): string {
             $name = (string) $matches[1];
             $size = isset($matches[2]) ? (int) $matches[2] : null;
@@ -55,22 +71,256 @@ final class Mailer
         );
     }
 
-    public static function sendTemplatedEmail(array $partner, array $template, string $to, array $variables, array $embeds = []): void
+    /**
+     * Resolves a "{{var1}}+{{var2}}(+...)" expression to the sum of the
+     * referenced variables when every one of them is a plain number or a
+     * money-formatted amount (as produced by
+     * ReservationsController::formatMoneyFr(), e.g. "1 234,56 EUR"). If any
+     * variable is missing or not numeric, the expression is left untouched
+     * so the surrounding single-variable substitution still applies to each
+     * {{name}} token individually.
+     */
+    private static function sumVariableExpression(string $expression, array $variables): string
+    {
+        preg_match_all('/\{\{([a-zA-Z0-9_]+)\}\}/', $expression, $names);
+
+        $sum = 0.0;
+        $suffix = null;
+        $hasDecimals = false;
+
+        foreach ($names[1] as $name) {
+            $value = $variables[$name] ?? null;
+            if ($value instanceof \Closure || (is_object($value) && is_callable($value))) {
+                $value = $value(null);
+            }
+            if ($value === null) {
+                return $expression;
+            }
+
+            $parsed = self::parseNumericAmount((string) $value);
+            if ($parsed === null) {
+                return $expression;
+            }
+
+            $sum += $parsed['amount'];
+            if ($parsed['decimals']) {
+                $hasDecimals = true;
+            }
+            if ($parsed['suffix'] !== '') {
+                $suffix = $parsed['suffix'];
+            }
+        }
+
+        $formatted = number_format($sum, $hasDecimals || $suffix !== null ? 2 : 0, ',', ' ');
+
+        return $suffix !== null ? $formatted . ' ' . $suffix : $formatted;
+    }
+
+    /**
+     * @return array{amount: float, decimals: bool, suffix: string}|null
+     */
+    private static function parseNumericAmount(string $raw): ?array
+    {
+        $trimmed = trim($raw);
+        if ($trimmed === '') {
+            return null;
+        }
+
+        // Accepts plain numbers ("3", "12.5") and money-formatted amounts
+        // ("1 234,56", "1 234,56 EUR", "1 234,56 €"), with a French
+        // (space thousands, comma decimals) or plain decimal notation.
+        if (!preg_match('/^(-?[0-9][0-9\x{00A0}\s]*(?:[.,][0-9]+)?)\s*([A-Za-zÀ-ÿ€$£]{0,10})$/u', $trimmed, $matches)) {
+            return null;
+        }
+
+        $numberPart = str_replace(["\xC2\xA0", ' '], '', $matches[1]);
+        $hasDecimals = strpos($numberPart, ',') !== false || strpos($numberPart, '.') !== false;
+        $numberPart = str_replace(',', '.', $numberPart);
+        if (!is_numeric($numberPart)) {
+            return null;
+        }
+
+        return [
+            'amount' => (float) $numberPart,
+            'decimals' => $hasDecimals,
+            'suffix' => trim($matches[2]),
+        ];
+    }
+
+    public static function sendTemplatedEmail(array $partner, array $template, string $to, array $variables, array $embeds = [], ?string $replyTo = null): void
     {
         $html = self::renderTemplate((string) $template['body_html'], $variables);
+        $inlined = self::embedHotlinkedImages($html, $embeds);
         self::deliver(
             $partner,
             $to,
             self::renderTemplate((string) $template['subject'], $variables),
-            $html,
-            null,
-            self::filterUnusedEmbeds($html, $embeds)
+            $inlined['html'],
+            $replyTo,
+            self::filterUnusedEmbeds($inlined['html'], $inlined['embeds'])
         );
     }
 
-    public static function sendRawEmail(array $partner, string $to, string $subject, string $html, array $embeds = []): void
+    public static function sendRawEmail(array $partner, string $to, string $subject, string $html, array $embeds = [], ?string $replyTo = null): void
     {
-        self::deliver($partner, $to, $subject, $html, null, self::filterUnusedEmbeds($html, $embeds));
+        $inlined = self::embedHotlinkedImages($html, $embeds);
+        self::deliver($partner, $to, $subject, $inlined['html'], $replyTo, self::filterUnusedEmbeds($inlined['html'], $inlined['embeds']));
+    }
+
+    /**
+     * Converts every remaining hotlinked <img src="http(s)://..."> in the
+     * final rendered HTML into an inline Content-ID embed, so a recipient's
+     * mail client never has to fetch a remote image just to display the
+     * message — several providers (Microsoft/Outlook among them) treat
+     * hotlinked remote images as a spam signal and are more likely to bin
+     * such messages. This runs as a last, generic pass over the fully
+     * rendered HTML, so it transparently covers every image source: the
+     * property photo/logo/signature variables (which mostly already embed
+     * local files directly), any {{photoN_url}}/{{logo_partenaire_url}}/
+     * {{signature_photo_url}} used raw in an <img> tag, and any image
+     * inserted from the WYSIWYG "Mini galerie graphique".
+     *
+     * Local site-hosted images are read straight off disk. A genuinely
+     * external image (e.g. a partner pasting an external logo URL) is
+     * fetched once with a short timeout, best-effort: if that fetch fails,
+     * the original hotlinked src is left untouched rather than failing the
+     * whole send.
+     *
+     * @param array<int, array{cid: string, data: string, mime: string}> $embeds Already-known embeds (photo_bien, signature, ...)
+     * @return array{html: string, embeds: array<int, array{cid: string, data: string, mime: string}>}
+     */
+    private static function embedHotlinkedImages(string $html, array $embeds): array
+    {
+        $baseUrl = Auth::currentBaseUrl();
+        $rootPath = realpath(defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__));
+
+        $html = (string) preg_replace_callback(
+            '/(<img\b[^>]*\ssrc=)(["\'])(https?:\/\/[^"\'>]+)\2/i',
+            static function (array $matches) use (&$embeds, $baseUrl, $rootPath): string {
+                $url = $matches[3];
+                $data = null;
+                $mime = null;
+
+                if ($baseUrl !== '' && str_starts_with($url, $baseUrl . '/')) {
+                    $relative = substr($url, strlen($baseUrl));
+                    $path = ($rootPath !== false ? $rootPath : '') . parse_url($relative, PHP_URL_PATH);
+                    $realPath = $rootPath !== false ? realpath($path) : false;
+                    if ($realPath !== false && str_starts_with($realPath, $rootPath) && is_file($realPath)) {
+                        $fileData = @file_get_contents($realPath);
+                        if ($fileData !== false && $fileData !== '') {
+                            $data = $fileData;
+                            $mime = self::detectImageMime($data, pathinfo($realPath, PATHINFO_EXTENSION));
+                        }
+                    }
+                }
+
+                if ($data === null && self::isFetchableExternalImageUrl($url)) {
+                    $context = stream_context_create([
+                        'http' => ['timeout' => 4, 'ignore_errors' => true, 'follow_location' => 0],
+                        'https' => ['timeout' => 4, 'ignore_errors' => true, 'follow_location' => 0],
+                    ]);
+                    $fetched = @file_get_contents($url, false, $context, 0, self::MAX_EXTERNAL_IMAGE_BYTES);
+                    if ($fetched !== false && $fetched !== '' && self::looksLikeImageData($fetched)) {
+                        $data = $fetched;
+                        $mime = self::detectImageMime($data, pathinfo((string) parse_url($url, PHP_URL_PATH), PATHINFO_EXTENSION));
+                    }
+                }
+
+                if ($data === null || $data === '') {
+                    return $matches[0];
+                }
+
+                $cid = 'inline-' . bin2hex(random_bytes(6)) . '@local';
+                $embeds[] = ['cid' => $cid, 'data' => $data, 'mime' => $mime ?: 'image/jpeg'];
+                return $matches[1] . $matches[2] . 'cid:' . $cid . $matches[2];
+            },
+            $html
+        ) ?? $html;
+
+        return ['html' => $html, 'embeds' => $embeds];
+    }
+
+    /**
+     * Guards against SSRF when embedHotlinkedImages() falls back to fetching
+     * a genuinely external image URL (e.g. a partner-pasted external logo):
+     * only http(s) URLs whose host resolves to a public, non-reserved IP
+     * address are fetched. This blocks a partner-controlled template/logo
+     * URL from being used to reach loopback, private (RFC1918/RFC4193),
+     * link-local, or other reserved addresses (e.g. cloud metadata
+     * endpoints) from the server.
+     */
+    private static function isFetchableExternalImageUrl(string $url): bool
+    {
+        $parts = parse_url($url);
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+        $host = (string) ($parts['host'] ?? '');
+        if (!in_array($scheme, ['http', 'https'], true) || $host === '') {
+            return false;
+        }
+
+        $ips = [];
+        if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
+            $ips[] = $host;
+        } else {
+            $records = @dns_get_record($host, DNS_A + DNS_AAAA);
+            if (is_array($records)) {
+                foreach ($records as $record) {
+                    $ip = $record['ip'] ?? $record['ipv6'] ?? null;
+                    if (is_string($ip) && $ip !== '') {
+                        $ips[] = $ip;
+                    }
+                }
+            }
+        }
+
+        if ($ips === []) {
+            return false;
+        }
+
+        foreach ($ips as $ip) {
+            if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Confirms fetched bytes actually decode as an image before embedding
+     * them, so a URL that (deliberately or not) doesn't serve an image
+     * can't be embedded as one.
+     */
+    private static function looksLikeImageData(string $data): bool
+    {
+        return @getimagesizefromstring($data) !== false;
+    }
+
+    /**
+     * Best-effort image MIME sniffing from raw bytes (via fileinfo), falling
+     * back to the file extension when fileinfo is unavailable or the data
+     * isn't recognized as an image.
+     */
+    private static function detectImageMime(string $data, string $fallbackExtension): string
+    {
+        if (function_exists('finfo_open')) {
+            $finfo = @finfo_open(FILEINFO_MIME_TYPE);
+            if ($finfo !== false) {
+                $mime = finfo_buffer($finfo, $data);
+                finfo_close($finfo);
+                if (is_string($mime) && str_starts_with($mime, 'image/')) {
+                    return $mime;
+                }
+            }
+        }
+
+        return match (strtolower($fallbackExtension)) {
+            'png' => 'image/png',
+            'gif' => 'image/gif',
+            'webp' => 'image/webp',
+            'svg' => 'image/svg+xml',
+            default => 'image/jpeg',
+        };
     }
 
     /**
@@ -97,9 +347,9 @@ final class Mailer
         ));
     }
 
-    public static function sendContactEmail(array $partner, string $replyTo, string $subject, string $html): void
+    public static function sendContactEmail(array $partner, string $to, string $subject, string $html, ?string $replyTo = null): void
     {
-        self::deliver($partner, (string) $partner['email'], $subject, $html, $replyTo);
+        self::deliver($partner, $to, $subject, $html, $replyTo);
     }
 
     /**
@@ -132,7 +382,13 @@ final class Mailer
             $to = self::sanitizeAddress($to, 'recipient');
             $subject = self::stripCrlf($subject);
             if ($replyTo !== null) {
-                $replyTo = self::sanitizeAddress($replyTo, 'Reply-To');
+                // A malformed/empty Reply-To (e.g. a blank client email on an
+                // older, pre-validation request row) must never abort the
+                // whole send — it's a nice-to-have so replies route to the
+                // other party, not a requirement for the message itself.
+                $replyTo = trim($replyTo) !== '' && filter_var(trim($replyTo), FILTER_VALIDATE_EMAIL) !== false
+                    ? self::sanitizeAddress($replyTo, 'Reply-To')
+                    : null;
             }
 
             $config = [
@@ -152,27 +408,25 @@ final class Mailer
                 $meta['security'] = $config['security'];
                 self::sendSmtp($config, $to, $subject, $html, $replyTo, $embeds, $trace);
             } else {
-                $boundary = self::boundary();
+                $mime = self::buildMimeMessage($html, $embeds);
                 $headers = [
                     'MIME-Version: 1.0',
+                    'Date: ' . date(DATE_RFC2822),
+                    'Message-ID: ' . self::messageId((string) $config['from_email']),
                     'From: "' . addslashes(self::stripCrlf($config['from_name'])) . '" <' . $config['from_email'] . '>',
                 ];
                 if ($replyTo) {
                     $headers[] = 'Reply-To: ' . $replyTo;
                 }
-                if ($embeds !== []) {
-                    // RFC 2387 §3.1: multipart/related needs a "type" parameter
-                    // naming the root body part's media type. Without it, some
-                    // mail clients (notably Apple Mail / iCloud Mail) fail to
-                    // resolve the HTML's cid: references and instead render
-                    // every embedded image as a plain attachment at the end of
-                    // the message instead of inline where referenced.
-                    $headers[] = 'Content-Type: multipart/related; type="text/html"; boundary="' . $boundary . '"';
-                    $body = self::buildRelatedBody($boundary, $html, $embeds);
-                } else {
-                    $headers[] = 'Content-Type: text/html; charset=UTF-8';
-                    $body = $html;
-                }
+                // Always send as multipart/alternative with a plain-text part
+                // alongside the HTML: several providers (notably Microsoft/
+                // Outlook and Gmail's spam filters) treat HTML-only messages
+                // with no text/plain alternative as a strong spam signal.
+                // This never changes what the recipient sees in an HTML-capable
+                // client — it just adds a fallback text version they'd only
+                // ever see in a plain-text-only reader.
+                $headers[] = $mime['contentType'];
+                $body = $mime['body'];
 
                 $trace[] = 'mail(' . $to . ', ' . $subject . ', ' . strlen($body) . ' bytes body, ' . count($headers) . ' headers)';
                 if (!@mail($to, $subject, $body, implode("\r\n", $headers))) {
@@ -294,6 +548,7 @@ final class Mailer
 
         $headers = [
             'Date: ' . date(DATE_RFC2822),
+            'Message-ID: ' . self::messageId($fromEmail),
             'To: <' . $to . '>',
             'From: "' . addslashes(self::stripCrlf((string) $config['from_name'])) . '" <' . $fromEmail . '>',
             'Subject: ' . self::encodeHeader($subject),
@@ -303,19 +558,17 @@ final class Mailer
             $headers[] = 'Reply-To: ' . $replyTo;
         }
 
-        if ($embeds !== []) {
-            $boundary = self::boundary();
-            // See the matching comment in deliver()'s mail() fallback: the
-            // "type" parameter is required by RFC 2387 for mail clients to
-            // reliably inline cid:-referenced images instead of showing them
-            // as trailing attachments.
-            $headers[] = 'Content-Type: multipart/related; type="text/html"; boundary="' . $boundary . '"';
-            $body = self::buildRelatedBody($boundary, $html, $embeds);
-        } else {
-            $headers[] = 'Content-Type: text/html; charset=UTF-8';
-            $headers[] = 'Content-Transfer-Encoding: 8bit';
-            $body = $html;
-        }
+        // Always send as multipart/alternative with a plain-text part
+        // alongside the HTML: several providers (notably Microsoft/Outlook
+        // and Gmail's spam filters) treat HTML-only messages with no
+        // text/plain alternative as a strong spam signal, which was causing
+        // otherwise-legitimate reservation emails to land in Junk. This
+        // never changes what the recipient sees in an HTML-capable client —
+        // it just adds a fallback text version they'd only ever see in a
+        // plain-text-only reader.
+        $mime = self::buildMimeMessage($html, $embeds);
+        $headers[] = $mime['contentType'];
+        $body = $mime['body'];
 
         $trace[] = 'DATA payload: ' . count($embeds) . ' embed(s), ' . strlen($body) . ' bytes body';
         $message = implode("\r\n", $headers) . "\r\n\r\n" . self::dotStuff($body) . "\r\n.";
@@ -361,6 +614,83 @@ final class Mailer
     private static function boundary(): string
     {
         return 'boundary_' . bin2hex(random_bytes(16));
+    }
+
+    /**
+     * Wraps the HTML body (and its inline embeds, if any) in a
+     * multipart/alternative envelope alongside a plain-text rendering, so
+     * every outgoing message always has a text/plain part. Sending
+     * HTML-only messages with no alternative text part is a well-known
+     * spam signal for several providers (Microsoft/Outlook and Gmail among
+     * them), which contributed to legitimate reservation emails landing in
+     * Junk. HTML-capable clients still render the exact same HTML as
+     * before — only plain-text-only readers ever see the fallback part.
+     *
+     * @param array<int, array{cid: string, data: string, mime: string}> $embeds
+     * @return array{contentType: string, body: string}
+     */
+    private static function buildMimeMessage(string $html, array $embeds): array
+    {
+        $altBoundary = self::boundary();
+        $textPart = "--{$altBoundary}\r\n"
+            . "Content-Type: text/plain; charset=UTF-8\r\n"
+            . "Content-Transfer-Encoding: 8bit\r\n\r\n"
+            . self::htmlToPlainText($html);
+
+        if ($embeds !== []) {
+            $relatedBoundary = self::boundary();
+            $htmlPart = "--{$altBoundary}\r\n"
+                // See buildRelatedBody()'s caller for why the "type" param is
+                // required (RFC 2387 §3.1) so cid: references resolve inline.
+                . "Content-Type: multipart/related; type=\"text/html\"; boundary=\"{$relatedBoundary}\"\r\n\r\n"
+                . self::buildRelatedBody($relatedBoundary, $html, $embeds);
+        } else {
+            $htmlPart = "--{$altBoundary}\r\n"
+                . "Content-Type: text/html; charset=UTF-8\r\n"
+                . "Content-Transfer-Encoding: 8bit\r\n\r\n"
+                . $html;
+        }
+
+        return [
+            'contentType' => 'Content-Type: multipart/alternative; boundary="' . $altBoundary . '"',
+            'body' => $textPart . "\r\n" . $htmlPart . "\r\n--{$altBoundary}--",
+        ];
+    }
+
+    /**
+     * Best-effort plain-text rendering of an email's HTML body, used only
+     * for the text/plain alternative part (see buildMimeMessage()) — never
+     * for what an HTML-capable client displays.
+     */
+    private static function htmlToPlainText(string $html): string
+    {
+        $text = preg_replace('/<(br|\/tr|\/table|\/p|\/div|\/h[1-6])\b[^>]*>/i', "\n", $html) ?? $html;
+        $text = strip_tags($text);
+        $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = preg_replace('/[ \t]+/', ' ', $text) ?? $text;
+        $text = preg_replace('/\n[ \t]+/', "\n", $text) ?? $text;
+        $text = preg_replace('/\n{3,}/', "\n\n", $text) ?? $text;
+
+        return trim($text);
+    }
+
+    /**
+     * Generates a unique Message-ID header. Its absence is another common
+     * spam signal several providers weigh heavily; every message must have
+     * exactly one.
+     */
+    private static function messageId(string $fromEmail): string
+    {
+        $domain = 'local';
+        $at = strrpos($fromEmail, '@');
+        if ($at !== false) {
+            $candidate = substr($fromEmail, $at + 1);
+            if ($candidate !== '') {
+                $domain = $candidate;
+            }
+        }
+
+        return '<' . bin2hex(random_bytes(16)) . '.' . (string) time() . '@' . $domain . '>';
     }
 
     /**

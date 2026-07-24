@@ -10,6 +10,7 @@ use App\Database;
 use App\I18n;
 use App\LodgifyClient;
 use App\Mailer;
+use App\View;
 use PDO;
 use Throwable;
 
@@ -72,6 +73,35 @@ final class ReservationsController extends Controller
         return $stmt !== false && $stmt->fetch() !== false;
     }
 
+    /**
+     * @param array{room_total: float, partner_rate: float, commission_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, total_traveler: float, nights: int, currency: string} $breakdown
+     * @return array{0: array<int, string>, 1: array<int, mixed>}
+     */
+    private static function quoteInsertColumnsAndParams(PDO $pdo, array $breakdown): array
+    {
+        if (!self::hasQuoteColumns($pdo)) {
+            return [[], []];
+        }
+        return [
+            [
+                'quote_currency', 'quote_nights', 'quote_room_total', 'quote_partner_rate',
+                'quote_commission_total', 'quote_extra_person_total', 'quote_cleaning_total',
+                'quote_tourist_tax_total', 'quote_total_traveler',
+            ],
+            [
+                $breakdown['currency'],
+                $breakdown['nights'],
+                $breakdown['room_total'],
+                $breakdown['partner_rate'],
+                $breakdown['commission_total'],
+                $breakdown['extra_person_total'],
+                $breakdown['cleaning_total'],
+                $breakdown['tourist_tax_total'],
+                $breakdown['total_traveler'],
+            ],
+        ];
+    }
+
     private static ?bool $languageColumnExists = null;
 
     /**
@@ -94,6 +124,26 @@ final class ReservationsController extends Controller
         return self::$languageColumnExists;
     }
 
+    private static ?bool $quoteColumnsExist = null;
+
+    /**
+     * Whether reservation_requests already has the quote_* breakdown columns
+     * added by migration 028 (quote_room_total, quote_partner_rate, ...).
+     * Guarded the same way as hasLanguageColumn() so submissions never 500
+     * if that migration hasn't applied yet on a given install.
+     */
+    private static function hasQuoteColumns(PDO $pdo): bool
+    {
+        if (self::$quoteColumnsExist === null) {
+            try {
+                self::$quoteColumnsExist = self::reservationRequestColumnExists($pdo, 'quote_room_total');
+            } catch (Throwable $e) {
+                self::$quoteColumnsExist = false;
+            }
+        }
+        return self::$quoteColumnsExist;
+    }
+
 
     private static function childCount(array $source, string $primaryField, string $legacyField, int $fallback = 0): int
     {
@@ -114,6 +164,42 @@ final class ReservationsController extends Controller
                 (int) ($source['children'] ?? 0)
             ),
         ];
+    }
+
+    /**
+     * Builds the {{nationalites}} email variable: one "Adulte N : <nationalité>"
+     * / "Enfant N : <nationalité>" line per guest (joined with <br>), so
+     * templates can show each traveler's nationality individually instead of
+     * only the aggregate adult/children counts. Guests without a nationality
+     * set (e.g. requests submitted before per-guest detail existed) are
+     * skipped rather than shown blank.
+     *
+     * @param array<int, array{type?: string, nationality?: string}> $guests
+     */
+    public static function guestNationalitiesText(array $guests): string
+    {
+        $adultIndex = 0;
+        $childIndex = 0;
+        $lines = [];
+        foreach ($guests as $guest) {
+            if (!is_array($guest)) {
+                continue;
+            }
+            $nationality = trim((string) ($guest['nationality'] ?? ''));
+            if ($nationality === '') {
+                continue;
+            }
+            $type = (string) ($guest['type'] ?? 'adult');
+            if ($type === 'adult') {
+                $adultIndex++;
+                $label = 'Adulte ' . $adultIndex;
+            } else {
+                $childIndex++;
+                $label = 'Enfant ' . $childIndex;
+            }
+            $lines[] = htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . ' : ' . htmlspecialchars($nationality, ENT_QUOTES, 'UTF-8');
+        }
+        return implode('<br>', $lines);
     }
 
     /**
@@ -417,6 +503,17 @@ final class ReservationsController extends Controller
         $columns[] = 'message';
         $params[] = json_encode($input['guests'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $params[] = self::nullableString($input['message'] ?? null);
+        $quoteBreakdown = self::computeQuoteBreakdown([
+            'room_total' => $input['quote_room_total'] ?? 0,
+            'extra_person_total' => $input['quote_extra_person_total'] ?? 0,
+            'cleaning_total' => $input['quote_cleaning_total'] ?? 0,
+            'tourist_tax_total' => $input['quote_tourist_tax_total'] ?? 0,
+            'nights' => $input['quote_nights'] ?? 0,
+            'currency' => $input['quote_currency'] ?? 'EUR',
+        ], (float) ($partner['markup_percent'] ?? 0));
+        [$quoteColumns, $quoteParams] = self::quoteInsertColumnsAndParams($pdo, $quoteBreakdown);
+        $columns = [...$columns, ...$quoteColumns];
+        $params = [...$params, ...$quoteParams];
 
         try {
             $stmt = $pdo->prepare(
@@ -618,6 +715,16 @@ final class ReservationsController extends Controller
             }
             $columns[] = 'guests';
             $columns[] = 'message';
+            $hasQuoteColumns = self::hasQuoteColumns($pdo);
+            $quoteColumnNames = [];
+            if ($hasQuoteColumns) {
+                $quoteColumnNames = [
+                    'quote_currency', 'quote_nights', 'quote_room_total', 'quote_partner_rate',
+                    'quote_commission_total', 'quote_extra_person_total', 'quote_cleaning_total',
+                    'quote_tourist_tax_total', 'quote_total_traveler',
+                ];
+                $columns = [...$columns, ...$quoteColumnNames];
+            }
             $stmt = $pdo->prepare(
                 'INSERT INTO reservation_requests (' . implode(', ', $columns) . ')
                  VALUES (' . implode(', ', array_fill(0, count($columns), '?')) . ')'
@@ -644,6 +751,21 @@ final class ReservationsController extends Controller
                 }
                 $params[] = $guestsJson;
                 $params[] = $message;
+                if ($hasQuoteColumns) {
+                    $itemBreakdown = self::computeQuoteBreakdown(
+                        $item['quote'] ?? [],
+                        (float) ($partner['markup_percent'] ?? 0)
+                    );
+                    $params[] = $itemBreakdown['currency'];
+                    $params[] = $itemBreakdown['nights'];
+                    $params[] = $itemBreakdown['room_total'];
+                    $params[] = $itemBreakdown['partner_rate'];
+                    $params[] = $itemBreakdown['commission_total'];
+                    $params[] = $itemBreakdown['extra_person_total'];
+                    $params[] = $itemBreakdown['cleaning_total'];
+                    $params[] = $itemBreakdown['tourist_tax_total'];
+                    $params[] = $itemBreakdown['total_traveler'];
+                }
                 $stmt->execute($params);
                 $createdIds[] = (int) $pdo->lastInsertId();
             }
@@ -678,6 +800,7 @@ final class ReservationsController extends Controller
                     'children_3to12' => $children3to12,
                     'property_name' => $item['property_name'],
                     'message' => $message,
+                    'guests' => $input['guests'] ?? [],
                     'quote_currency' => $quote['currency'] ?? 'EUR',
                     'quote_nights' => $quote['nights'] ?? 0,
                     'quote_room_total' => $quote['room_total'] ?? 0,
@@ -864,6 +987,43 @@ final class ReservationsController extends Controller
         return $rows;
     }
 
+    /**
+     * Admin-only: lists reservation requests across every partner, with
+     * optional filtering by partner and/or status. Used by the admin
+     * "Réservations" page so an admin can review demand across the whole
+     * platform instead of one partner at a time.
+     *
+     * @param array{partner_id?: int, status?: string} $filters
+     */
+    public static function listAll(array $filters = []): array
+    {
+        $conditions = [];
+        $params = [];
+        if (!empty($filters['partner_id'])) {
+            $conditions[] = 'rr.partner_id = ?';
+            $params[] = (int) $filters['partner_id'];
+        }
+        if (!empty($filters['status'])) {
+            $conditions[] = 'rr.status = ?';
+            $params[] = (string) $filters['status'];
+        }
+        $where = $conditions !== [] ? ('WHERE ' . implode(' AND ', $conditions)) : '';
+        $stmt = Database::connection()->prepare(
+            "SELECT rr.*, r.id AS reservation_id, r.confirmed_at, r.cancelled_at, r.notes, p.name AS partner_name
+             FROM reservation_requests rr
+             LEFT JOIN reservations r ON r.request_id = rr.id
+             LEFT JOIN partners p ON p.id = rr.partner_id
+             {$where}
+             ORDER BY rr.created_at DESC"
+        );
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as &$row) {
+            $row['guests'] = self::decodeGuests($row['guests'] ?? null);
+        }
+        return $rows;
+    }
+
     public static function findForPartner(int $partnerId, int $id): ?array
     {
         $stmt = Database::connection()->prepare(
@@ -888,6 +1048,7 @@ final class ReservationsController extends Controller
         );
         $checkin = (string) ($input['checkin_date'] ?? '');
         $checkout = (string) ($input['checkout_date'] ?? '');
+        $childBreakdown = self::childBreakdownValues($input);
         $variables = [
             'nom_client' => (string) ($input['client_name'] ?? ''),
             'email_client' => (string) ($input['client_email'] ?? ''),
@@ -896,7 +1057,9 @@ final class ReservationsController extends Controller
             'hebergement' => (string) ($input['property_name'] ?? ''),
             'message' => (string) ($input['message'] ?? ''),
             'partenaire' => (string) ($partner['name'] ?? ''),
+            'nationalites' => self::guestNationalitiesText(is_array($input['guests'] ?? null) ? $input['guests'] : []),
             'photo_bien' => $photo['html'],
+            'photo_bien_url' => self::propertyPhotoUrlValue((int) ($input['property_id'] ?? 0), 1),
             'photo1' => self::propertyPhotoVariable((int) ($input['property_id'] ?? 0), (string) ($input['property_name'] ?? ''), 1),
             'photo2' => self::propertyPhotoVariable((int) ($input['property_id'] ?? 0), (string) ($input['property_name'] ?? ''), 2),
             'photo3' => self::propertyPhotoVariable((int) ($input['property_id'] ?? 0), (string) ($input['property_name'] ?? ''), 3),
@@ -909,11 +1072,17 @@ final class ReservationsController extends Controller
                 (string) ($partner['name'] ?? '')
             ),
             'logo_partenaire_url' => self::partnerLogoUrlValue((string) ($partner['logo_url'] ?? '')),
-            'politique_reservation' => nl2br(htmlspecialchars(PageController::bookingPolicyText())),
+            'politique_reservation' => PageController::formatBookingPolicyHtml(PageController::bookingPolicyText()),
+            'bouton_reservation' => self::bookingLinkButtonHtml(
+                (int) ($input['property_id'] ?? 0),
+                $checkin,
+                $checkout,
+                (int) ($input['adults'] ?? 0),
+                $childBreakdown['from3to12']
+            ),
         ];
-        $childBreakdown = self::childBreakdownValues($input);
-        $variables += self::stayVariables($checkin, $checkout, $childBreakdown['under3'], $childBreakdown['from3to12']);
-        $variables += self::requestQuoteVariables($input, $itemCount);
+        $variables += self::stayVariables($checkin, $checkout, $childBreakdown['under3'], $childBreakdown['from3to12'], (int) ($input['adults'] ?? 0));
+        $variables += self::requestQuoteVariables($input, $itemCount, (float) ($partner['markup_percent'] ?? 0));
         $signature = self::signatureVariables((int) ($partner['id'] ?? 0));
         $variables += $signature['variables'];
         $embeds = $photo['embed'] !== null ? [$photo['embed']] : [];
@@ -935,11 +1104,15 @@ final class ReservationsController extends Controller
         // The partner/host-facing copy always stays in French: the visitor's
         // site language reflects the *guest's* language, not the partner's.
         $partnerTemplate = self::findEmailTemplate($pdo, (int) $partner['id'], 'REQUEST_RECEIVED_PARTNER', I18n::DEFAULT_LANGUAGE);
+        // Reply-To the client's own address on the partner-facing copy, so a
+        // partner hitting "Reply" in their mailbox writes straight back to
+        // the guest instead of to the shared sending mailbox.
+        $clientReplyTo = (string) ($input['client_email'] ?? '');
         try {
             if ($partnerTemplate) {
-                Mailer::sendTemplatedEmail($partner, $partnerTemplate, (string) $partner['email'], $variables, $embeds);
+                Mailer::sendTemplatedEmail($partner, $partnerTemplate, (string) $partner['email'], $variables, $embeds, $clientReplyTo);
             } else {
-                Mailer::sendRawEmail($partner, (string) $partner['email'], 'Nouvelle demande de réservation - ' . $variables['nom_client'], '<p>Nouvelle demande de ' . htmlspecialchars($variables['nom_client']) . ' (' . htmlspecialchars($variables['email_client']) . ') pour ' . htmlspecialchars($variables['hebergement'] !== '' ? $variables['hebergement'] : 'hébergement non spécifié') . ' du ' . htmlspecialchars($variables['date_arrivee']) . ' au ' . htmlspecialchars($variables['date_depart']) . '.</p>' . $variables['tarif_bloc']);
+                Mailer::sendRawEmail($partner, (string) $partner['email'], 'Nouvelle demande de réservation - ' . $variables['nom_client'], '<p>Nouvelle demande de ' . htmlspecialchars($variables['nom_client']) . ' (' . htmlspecialchars($variables['email_client']) . ') pour ' . htmlspecialchars($variables['hebergement'] !== '' ? $variables['hebergement'] : 'hébergement non spécifié') . ' du ' . htmlspecialchars($variables['date_arrivee']) . ' au ' . htmlspecialchars($variables['date_depart']) . '.</p>' . $variables['tarif_bloc'], [], $clientReplyTo);
             }
         } catch (Throwable $e) {
             error_log('Failed to send REQUEST_RECEIVED_PARTNER email to partner #' . (int) ($partner['id'] ?? 0) . ' (' . (string) ($partner['email'] ?? '') . '): ' . $e);
@@ -949,11 +1122,19 @@ final class ReservationsController extends Controller
         // site in (I18n::current() at submission time), falling back to the
         // partner's French template if no translated variant exists yet.
         $clientTemplate = self::findEmailTemplate($pdo, (int) $partner['id'], 'REQUEST_RECEIVED_CLIENT', $guestLanguage);
+        // Partner-only variables (commission, amount owed to SamChloLaure)
+        // must never reach the client, even if a partner mistakenly inserted
+        // one into their client-facing template — see redactPartnerOnlyVariables().
+        $clientVariables = self::redactPartnerOnlyVariables($variables);
+        // Reply-To the partner's own address on the client-facing copy, so a
+        // guest hitting "Reply" writes straight back to the partner instead
+        // of to the shared sending mailbox.
+        $partnerReplyTo = (string) ($partner['email'] ?? '');
         try {
             if ($clientTemplate) {
-                Mailer::sendTemplatedEmail($partner, $clientTemplate, (string) $input['client_email'], $variables, $embeds);
+                Mailer::sendTemplatedEmail($partner, $clientTemplate, (string) $input['client_email'], $clientVariables, $embeds, $partnerReplyTo);
             } else {
-                Mailer::sendRawEmail($partner, (string) $input['client_email'], 'Confirmation de votre demande - ' . (string) $partner['name'], '<p>Bonjour ' . htmlspecialchars((string) $input['client_name']) . ',</p><p>Nous avons bien reçu votre demande de réservation pour ' . htmlspecialchars((string) ($input['property_name'] ?? 'l\'hébergement')) . ' du ' . htmlspecialchars((string) $input['checkin_date']) . ' au ' . htmlspecialchars((string) $input['checkout_date']) . '.</p>' . $variables['tarif_bloc'] . '<p>Nous vous contacterons très prochainement.</p><p>Cordialement,<br>' . htmlspecialchars((string) $partner['name']) . '</p>');
+                Mailer::sendRawEmail($partner, (string) $input['client_email'], 'Confirmation de votre demande - ' . (string) $partner['name'], '<p>Bonjour ' . htmlspecialchars((string) $input['client_name']) . ',</p><p>Nous avons bien reçu votre demande de réservation pour ' . htmlspecialchars((string) ($input['property_name'] ?? 'l\'hébergement')) . ' du ' . htmlspecialchars((string) $input['checkin_date']) . ' au ' . htmlspecialchars((string) $input['checkout_date']) . '.</p>' . $variables['tarif_bloc'] . '<p>Nous vous contacterons très prochainement.</p><p>Cordialement,<br>' . htmlspecialchars((string) $partner['name']) . '</p>', [], $partnerReplyTo);
             }
         } catch (Throwable $e) {
             error_log('Failed to send REQUEST_RECEIVED_CLIENT email to ' . (string) ($input['client_email'] ?? '') . ': ' . $e);
@@ -967,6 +1148,25 @@ final class ReservationsController extends Controller
      * — so an admin can enable English progressively, type by type, without
      * guest-facing emails ever silently going out with no template at all.
      */
+    /**
+     * Strips partner-only/confidential variables (commission_partenaire,
+     * paiement_a_samchlolaure — see View::emailTemplateVariableCatalog())
+     * from a variable set before it is rendered into a client-facing email.
+     * This is a defense-in-depth safety net: even if a partner's
+     * client-facing template mistakenly references one of these variables
+     * (they are documented but not meant to be used there), the actual
+     * commission/payout figures must never leak to the client.
+     */
+    private static function redactPartnerOnlyVariables(array $variables): array
+    {
+        foreach (View::emailTemplateVariableCatalog() as $definition) {
+            if (!empty($definition['partnerOnly']) && array_key_exists($definition['key'], $variables)) {
+                $variables[$definition['key']] = '';
+            }
+        }
+        return $variables;
+    }
+
     public static function findEmailTemplate(PDO $pdo, int $partnerId, string $type, string $language): ?array
     {
         $stmt = $pdo->prepare('SELECT * FROM email_templates WHERE partner_id = ? AND type = ? AND language = ? LIMIT 1');
@@ -989,14 +1189,18 @@ final class ReservationsController extends Controller
             (int) ($request['property_id'] ?? 0),
             (string) $request['property_name']
         );
+        $childBreakdown = self::childBreakdownValues($request);
         $variables = [
             'nom_client' => (string) $request['client_name'],
             'email_client' => (string) $request['client_email'],
+            'telephone_client' => (string) ($request['client_phone'] ?? ''),
             'adultes' => (string) $request['adults'],
             'hebergement' => (string) $request['property_name'],
             'notes' => $notes ?? '',
             'partenaire' => (string) $partner['name'],
+            'nationalites' => self::guestNationalitiesText(self::decodeGuests($request['guests'] ?? null)),
             'photo_bien' => $photo['html'],
+            'photo_bien_url' => self::propertyPhotoUrlValue((int) ($request['property_id'] ?? 0), 1),
             'photo1' => self::propertyPhotoVariable((int) ($request['property_id'] ?? 0), (string) $request['property_name'], 1),
             'photo2' => self::propertyPhotoVariable((int) ($request['property_id'] ?? 0), (string) $request['property_name'], 2),
             'photo3' => self::propertyPhotoVariable((int) ($request['property_id'] ?? 0), (string) $request['property_name'], 3),
@@ -1009,15 +1213,37 @@ final class ReservationsController extends Controller
                 (string) ($partner['name'] ?? '')
             ),
             'logo_partenaire_url' => self::partnerLogoUrlValue((string) ($partner['logo_url'] ?? '')),
-            'politique_reservation' => nl2br(htmlspecialchars(PageController::bookingPolicyText())),
+            'politique_reservation' => PageController::formatBookingPolicyHtml(PageController::bookingPolicyText()),
+            'bouton_reservation' => self::bookingLinkButtonHtml(
+                (int) ($request['property_id'] ?? 0),
+                (string) $request['checkin_date'],
+                (string) $request['checkout_date'],
+                (int) $request['adults'],
+                $childBreakdown['from3to12']
+            ),
         ];
-        $childBreakdown = self::childBreakdownValues($request);
         $variables += self::stayVariables(
             (string) $request['checkin_date'],
             (string) $request['checkout_date'],
             $childBreakdown['under3'],
-            $childBreakdown['from3to12']
+            $childBreakdown['from3to12'],
+            (int) $request['adults']
         );
+        // The quote breakdown persisted on the request row at submission time
+        // (quote_room_total, quote_partner_rate, ...) lets confirmation/
+        // cancellation emails reuse the exact same {{tarif_*}}/{{total_voyageur}}
+        // variables as the initial request email, without a live (and
+        // possibly since-changed) Lodgify rate re-fetch.
+        if (($request['quote_room_total'] ?? null) !== null) {
+            $variables += self::buildQuoteVariables(self::computeQuoteBreakdown([
+                'room_total' => $request['quote_room_total'] ?? 0,
+                'extra_person_total' => $request['quote_extra_person_total'] ?? 0,
+                'cleaning_total' => $request['quote_cleaning_total'] ?? 0,
+                'tourist_tax_total' => $request['quote_tourist_tax_total'] ?? 0,
+                'nights' => $request['quote_nights'] ?? 0,
+                'currency' => $request['quote_currency'] ?? 'EUR',
+            ], (float) ($request['quote_partner_rate'] ?? ($partner['markup_percent'] ?? 0))));
+        }
         $signature = self::signatureVariables((int) ($partner['id'] ?? 0));
         $variables += $signature['variables'];
         $embeds = $photo['embed'] !== null ? [$photo['embed']] : [];
@@ -1025,13 +1251,23 @@ final class ReservationsController extends Controller
             $embeds[] = $signature['embed'];
         }
 
+        // This method only ever emails the client (confirmation/cancellation/
+        // reminder), so partner-only variables (commission, amount owed to
+        // SamChloLaure) are always stripped before rendering.
+        $variables = self::redactPartnerOnlyVariables($variables);
+
+        // Reply-To the partner's own address, so a guest hitting "Reply"
+        // writes straight back to the partner instead of to the shared
+        // sending mailbox.
+        $partnerReplyTo = (string) ($partner['email'] ?? '');
+
         if ($template) {
-            Mailer::sendTemplatedEmail($partner, $template, (string) $request['client_email'], $variables, $embeds);
+            Mailer::sendTemplatedEmail($partner, $template, (string) $request['client_email'], $variables, $embeds, $partnerReplyTo);
             return;
         }
 
         if ($type === 'RESERVATION_CONFIRMED') {
-            Mailer::sendRawEmail($partner, (string) $request['client_email'], 'Votre réservation est confirmée - ' . (string) $partner['name'], '<p>Bonjour ' . htmlspecialchars((string) $request['client_name']) . ',</p><p>Votre réservation pour ' . htmlspecialchars((string) $request['property_name']) . ' du ' . htmlspecialchars((string) $request['checkin_date']) . ' au ' . htmlspecialchars((string) $request['checkout_date']) . ' est confirmée.</p><p>Cordialement,<br>' . htmlspecialchars((string) $partner['name']) . '</p>');
+            Mailer::sendRawEmail($partner, (string) $request['client_email'], 'Votre réservation est confirmée - ' . (string) $partner['name'], '<p>Bonjour ' . htmlspecialchars((string) $request['client_name']) . ',</p><p>Votre réservation pour ' . htmlspecialchars((string) $request['property_name']) . ' du ' . htmlspecialchars((string) $request['checkin_date']) . ' au ' . htmlspecialchars((string) $request['checkout_date']) . ' est confirmée.</p><p>Cordialement,<br>' . htmlspecialchars((string) $partner['name']) . '</p>', [], $partnerReplyTo);
         }
     }
 
@@ -1043,8 +1279,9 @@ final class ReservationsController extends Controller
      * always defaulting numeric values to 0 instead of leaving the
      * placeholder unresolved when a field is empty.
      */
-    public static function stayVariables(string $checkin, string $checkout, int $childrenUnder3, int $children3to12): array
+    public static function stayVariables(string $checkin, string $checkout, int $childrenUnder3, int $children3to12, int $adults = 0): array
     {
+        $adults = max(0, $adults);
         $childrenUnder3 = max(0, $childrenUnder3);
         $children3to12 = max(0, $children3to12);
         $formattedCheckin = self::formatDateFr($checkin);
@@ -1058,6 +1295,7 @@ final class ReservationsController extends Controller
             'nuits' => (string) $nights,
             'enfants' => (string) $children3to12,
             'bebes' => (string) $childrenUnder3,
+            'total_personnes' => (string) ($adults + $children3to12 + $childrenUnder3),
         ];
     }
 
@@ -1127,19 +1365,72 @@ final class ReservationsController extends Controller
      * {{multi_biens_note}} variable is populated so partner templates can
      * mention it near "Vos Voyageurs" (e.g. "Pour les 2 biens sélectionnés").
      */
-    private static function requestQuoteVariables(array $input, int $itemCount = 1): array
+    /**
+     * @param array{room_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, nights: int, currency: string} $quote
+     * @return array{room_total: float, partner_rate: float, commission_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, total_traveler: float, nights: int, currency: string}
+     */
+    private static function computeQuoteBreakdown(array $quote, float $markupPercent): array
     {
-        $currency = trim((string) ($input['quote_currency'] ?? 'EUR'));
-        if ($currency === '') {
-            $currency = 'EUR';
-        }
+        $roomTotal = self::toMoneyValue($quote['room_total'] ?? 0);
+        $extraPersonTotal = self::toMoneyValue($quote['extra_person_total'] ?? 0);
+        $cleaningTotal = self::toMoneyValue($quote['cleaning_total'] ?? 0);
+        $touristTaxTotal = self::toMoneyValue($quote['tourist_tax_total'] ?? 0);
+        // "Commissions Partenaire" = Tarif Normal x Taux du partenaire (the
+        // partner's markup_percent, i.e. their commission rate on the room
+        // price), and "Total Voyageur" is the sum of every line the traveler
+        // is billed for.
+        $commissionTotal = round($roomTotal * $markupPercent / 100, 2);
+        $totalTraveler = round($roomTotal + $commissionTotal + $extraPersonTotal + $cleaningTotal, 2);
 
-        $roomTotal = self::toMoneyValue($input['quote_room_total'] ?? 0);
-        $extraPersonTotal = self::toMoneyValue($input['quote_extra_person_total'] ?? 0);
-        $cleaningTotal = self::toMoneyValue($input['quote_cleaning_total'] ?? 0);
-        $totalWithoutTax = self::toMoneyValue($input['quote_total_without_tax'] ?? 0);
-        $touristTaxTotal = self::toMoneyValue($input['quote_tourist_tax_total'] ?? 0);
-        $nights = max(0, (int) ($input['quote_nights'] ?? 0));
+        return [
+            'room_total' => $roomTotal,
+            'partner_rate' => round($markupPercent, 2),
+            'commission_total' => $commissionTotal,
+            'extra_person_total' => $extraPersonTotal,
+            'cleaning_total' => $cleaningTotal,
+            'tourist_tax_total' => $touristTaxTotal,
+            'total_traveler' => $totalTraveler,
+            'nights' => max(0, (int) ($quote['nights'] ?? 0)),
+            'currency' => trim((string) ($quote['currency'] ?? 'EUR')) ?: 'EUR',
+        ];
+    }
+
+    private static function requestQuoteVariables(array $input, int $itemCount = 1, float $markupPercent = 0.0): array
+    {
+        $breakdown = self::computeQuoteBreakdown([
+            'room_total' => $input['quote_room_total'] ?? 0,
+            'extra_person_total' => $input['quote_extra_person_total'] ?? 0,
+            'cleaning_total' => $input['quote_cleaning_total'] ?? 0,
+            'tourist_tax_total' => $input['quote_tourist_tax_total'] ?? 0,
+            'nights' => $input['quote_nights'] ?? 0,
+            'currency' => $input['quote_currency'] ?? 'EUR',
+        ], $markupPercent);
+
+        return self::buildQuoteVariables($breakdown, $itemCount);
+    }
+
+    /**
+     * Builds the {{tarif_*}}/{{tarif_bloc}} plus the individually insertable
+     * {{tarif_normal}}/{{commission_partenaire}}/{{personnes_additionnelles}}/
+     * {{nettoyage}}/{{total_voyageur}} email variables from an already
+     * computed price breakdown. Shared by requestQuoteVariables() (live quote
+     * at submission time) and sendReservationStatusEmail() (the breakdown
+     * persisted on the reservation_requests row), so both sources of
+     * variables stay perfectly consistent.
+     *
+     * @param array{room_total: float, partner_rate: float, commission_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, total_traveler: float, nights: int, currency: string} $breakdown
+     */
+    private static function buildQuoteVariables(array $breakdown, int $itemCount = 1): array
+    {
+        $currency = $breakdown['currency'];
+        $roomTotal = $breakdown['room_total'];
+        $extraPersonTotal = $breakdown['extra_person_total'];
+        $cleaningTotal = $breakdown['cleaning_total'];
+        $touristTaxTotal = $breakdown['tourist_tax_total'];
+        $nights = $breakdown['nights'];
+        // Includes the partner's commission (Tarif Normal + Commissions +
+        // Ménage + Personnes Additionnelles), but never the tourist tax.
+        $totalWithoutTax = round($roomTotal + $breakdown['commission_total'] + $extraPersonTotal + $cleaningTotal, 2);
         $itemCount = max(1, $itemCount);
 
         $tarifBloc = '<div style="padding:12px 24px 16px;">'
@@ -1150,7 +1441,7 @@ final class ReservationsController extends Controller
         }
         $tarifBloc .= '<table style="width:100%;border-collapse:collapse;font-size:14px;">'
             . '<tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;color:#374151;">Tarif</td>'
-            . '<td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;color:#374151;">' . self::formatMoneyFr($roomTotal, $currency) . '</td></tr>';
+            . '<td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;color:#374151;">' . self::formatMoneyFr($roomTotal + $breakdown['commission_total'], $currency) . '</td></tr>';
         if ($extraPersonTotal > 0) {
             $tarifBloc .= '<tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;color:#374151;">Personne(s) supplémentaire(s)</td>'
                 . '<td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;color:#374151;">' . self::formatMoneyFr($extraPersonTotal, $currency) . '</td></tr>';
@@ -1181,6 +1472,25 @@ final class ReservationsController extends Controller
             'taxe_touristique' => self::formatMoneyFr($touristTaxTotal, 'EUR'),
             'tarif_bloc' => $tarifBloc,
             'multi_biens_note' => $itemCount > 1 ? "Pour les {$itemCount} biens sélectionnés" : '',
+            // Individually insertable variables for the partner-facing quote
+            // breakdown (Tarif Normal / Commissions Partenaire / Personnes
+            // Additionnels / Nettoyage / Total Voyageur). Commission is never
+            // referenced by tarif_bloc so it never leaks into client-facing
+            // emails unless the partner explicitly inserts it themselves.
+            'tarif_normal' => self::formatMoneyFr($roomTotal, $currency),
+            'commission_partenaire' => self::formatMoneyFr($breakdown['commission_total'], $currency),
+            // Tarif Normal + marge du partenaire (commission), volontairement
+            // sans nettoyage et sans taxe touristique — distinct de
+            // {{total_voyageur}} qui inclut en plus le ménage et les
+            // personnes supplémentaires.
+            'tarif_client' => self::formatMoneyFr($roomTotal + $breakdown['commission_total'], $currency),
+            'personnes_additionnelles' => self::formatMoneyFr($extraPersonTotal, $currency),
+            'nettoyage' => self::formatMoneyFr($cleaningTotal, $currency),
+            'total_voyageur' => self::formatMoneyFr($breakdown['total_traveler'], $currency),
+            // Amount actually due to SamChloLaure once the partner's
+            // commission (already included in "Total Voyageur") is deducted:
+            // Total à payer par le client - Commissions Partenaire.
+            'paiement_a_samchlolaure' => self::formatMoneyFr($breakdown['total_traveler'] - $breakdown['commission_total'], $currency),
         ];
     }
 
@@ -1189,7 +1499,7 @@ final class ReservationsController extends Controller
         return round((float) $value, 2);
     }
 
-    private static function formatMoneyFr(float $amount, string $currency): string
+    public static function formatMoneyFr(float $amount, string $currency): string
     {
         return number_format($amount, 2, ',', ' ') . ' ' . $currency;
     }
@@ -1236,7 +1546,7 @@ final class ReservationsController extends Controller
         // surrounding email container in most mail clients (inline style
         // wins over the width attribute), defeating the point of a fixed
         // 320px thumbnail. Use a fixed width instead.
-        $html = '<img src="cid:' . htmlspecialchars($cid, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($propertyName, ENT_QUOTES, 'UTF-8') . '" width="320" style="display:block;width:320px;max-width:320px;height:auto;">';
+        $html = '<img src="cid:' . htmlspecialchars($cid, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($propertyName, ENT_QUOTES, 'UTF-8') . '" width="320" style="display:block;width:320px;max-width:100%;height:auto;">';
 
         return [
             'html' => $html,
@@ -1354,7 +1664,7 @@ final class ReservationsController extends Controller
             };
             $cid = 'signature-photo-' . bin2hex(random_bytes(4)) . '@local';
             return [
-                'html' => '<img src="cid:' . htmlspecialchars($cid, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($alt, ENT_QUOTES, 'UTF-8') . '" width="64" height="64" style="display:inline-block;width:64px;height:64px;border-radius:50%;object-fit:cover;">',
+                'html' => '<img src="cid:' . htmlspecialchars($cid, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($alt, ENT_QUOTES, 'UTF-8') . '" width="64" height="64" style="display:inline-block;width:64px;height:64px;max-width:100%;border-radius:50%;object-fit:cover;">',
                 'embed' => ['cid' => $cid, 'data' => $data, 'mime' => $mime],
             ];
         }
@@ -1385,7 +1695,7 @@ final class ReservationsController extends Controller
         }
 
         $width = self::normalizeImageWidth($size, 64);
-        return '<img src="' . htmlspecialchars($photoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($alt, ENT_QUOTES, 'UTF-8') . '" width="' . $width . '" height="' . $width . '" style="display:inline-block;width:' . $width . 'px;height:' . $width . 'px;border-radius:50%;object-fit:cover;">';
+        return '<img src="' . htmlspecialchars($photoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($alt, ENT_QUOTES, 'UTF-8') . '" width="' . $width . '" height="' . $width . '" style="display:inline-block;width:' . $width . 'px;height:' . $width . 'px;max-width:100%;border-radius:50%;object-fit:cover;">';
     }
 
     private static function partnerLogoTag(string $logoUrl, string $alt): string
@@ -1409,6 +1719,47 @@ final class ReservationsController extends Controller
         }
         $width = self::normalizeImageWidth($size, 80);
         return '<img src="' . htmlspecialchars($logoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($alt, ENT_QUOTES, 'UTF-8') . '" width="' . $width . '" style="display:block;margin:0 auto;width:' . $width . 'px;max-width:100%;height:auto;">';
+    }
+
+    /**
+     * Builds the {{bouton_reservation}} email variable: a ready-made HTML
+     * button linking back to this property's page, with the check-in/
+     * check-out dates and party size already pre-filled as query params
+     * (see /files/views/pages/partner-reservation-detail.php's "Voir le
+     * bien avec ces dates" button, and initBookingLinkPrefillGuests() in
+     * assets/js/app.js which reads them back client-side). Insertable
+     * anywhere in a template body — unlike {{tarif_bloc}}, it is not
+     * referenced by any other variable, so partners are free to place it
+     * wherever they want (e.g. right after the stay summary, or in the
+     * signature block) or to omit it entirely.
+     */
+    public static function bookingLinkButtonHtml(
+        int $propertyId,
+        string $checkin,
+        string $checkout,
+        int $adults,
+        int $children3to12
+    ): string {
+        if ($propertyId <= 0) {
+            return '';
+        }
+        $baseUrl = Auth::currentBaseUrl();
+        if ($baseUrl === '') {
+            return '';
+        }
+        $params = [
+            'arrival' => $checkin,
+            'departure' => $checkout,
+            'adults' => $adults,
+            'children' => $children3to12,
+        ];
+        $url = $baseUrl . '/properties/' . $propertyId . '?' . http_build_query($params);
+
+        return '<div style="text-align:center;margin:20px 0;">'
+            . '<a href="' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '" target="_blank" rel="noopener" '
+            . 'style="display:inline-block;background:#3b82f6;color:#ffffff;text-decoration:none;'
+            . 'font-weight:bold;font-size:14px;padding:12px 28px;border-radius:6px;">Réserver maintenant</a>'
+            . '</div>';
     }
 
     /**
@@ -1455,8 +1806,11 @@ final class ReservationsController extends Controller
     }
 
 
-    private static function decodeGuests(mixed $guests): array
+    public static function decodeGuests(mixed $guests): array
     {
+        if (is_array($guests)) {
+            return $guests;
+        }
         if (!is_string($guests) || $guests === '') {
             return [];
         }

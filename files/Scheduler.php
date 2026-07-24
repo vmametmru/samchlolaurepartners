@@ -30,12 +30,14 @@ SELECT
   r.id AS reservation_id,
   rr.client_name,
   rr.client_email,
+  rr.client_phone,
   rr.checkin_date,
   rr.checkout_date,
   rr.adults,
   rr.children,
   rr.property_id,
   rr.property_name,
+  rr.guests,
   rr.language AS request_language,
   p.*
 FROM email_schedules es
@@ -67,11 +69,16 @@ SQL;
             $variables = [
                 'nom_client' => (string) $row['client_name'],
                 'email_client' => (string) $row['client_email'],
+                'telephone_client' => (string) ($row['client_phone'] ?? ''),
                 'adultes' => (string) $row['adults'],
                 'enfants' => (string) $row['children'],
                 'hebergement' => (string) $row['property_name'],
                 'partenaire' => (string) $row['name'],
+                'nationalites' => \App\controllers\ReservationsController::guestNationalitiesText(
+                    \App\controllers\ReservationsController::decodeGuests($row['guests'] ?? null)
+                ),
                 'photo_bien' => \App\controllers\ReservationsController::propertyPhotoVariable((int) ($row['property_id'] ?? 0), (string) $row['property_name'], 1),
+                'photo_bien_url' => \App\controllers\ReservationsController::propertyPhotoUrlValue((int) ($row['property_id'] ?? 0), 1),
                 'photo1' => \App\controllers\ReservationsController::propertyPhotoVariable((int) ($row['property_id'] ?? 0), (string) $row['property_name'], 1),
                 'photo2' => \App\controllers\ReservationsController::propertyPhotoVariable((int) ($row['property_id'] ?? 0), (string) $row['property_name'], 2),
                 'photo3' => \App\controllers\ReservationsController::propertyPhotoVariable((int) ($row['property_id'] ?? 0), (string) $row['property_name'], 3),
@@ -81,6 +88,14 @@ SQL;
                 'logo_partenaire' => \App\controllers\ReservationsController::partnerLogoVariable((string) ($row['logo_url'] ?? ''), (string) $row['name']),
                 'logo_partenaire_url' => \App\controllers\ReservationsController::partnerLogoUrlValue((string) ($row['logo_url'] ?? '')),
                 'email_partenaire' => (string) ($row['email'] ?? ''),
+                'politique_reservation' => \App\controllers\PageController::formatBookingPolicyHtml(\App\controllers\PageController::bookingPolicyText()),
+                'bouton_reservation' => \App\controllers\ReservationsController::bookingLinkButtonHtml(
+                    (int) ($row['property_id'] ?? 0),
+                    (string) $row['checkin_date'],
+                    (string) $row['checkout_date'],
+                    (int) $row['adults'],
+                    (int) ($row['children'] ?? 0)
+                ),
             ];
             $variables += \App\controllers\ReservationsController::stayVariables(
                 (string) $row['checkin_date'],
@@ -93,7 +108,7 @@ SQL;
             $embeds = $signature['embed'] !== null ? [$signature['embed']] : [];
 
             try {
-                Mailer::sendTemplatedEmail($row, $template, (string) $row['client_email'], $variables, $embeds);
+                Mailer::sendTemplatedEmail($row, $template, (string) $row['client_email'], $variables, $embeds, (string) ($row['email'] ?? ''));
                 $markStmt = $pdo->prepare('INSERT IGNORE INTO sent_schedule_emails (schedule_id, reservation_id) VALUES (?, ?)');
                 $markStmt->execute([(int) $row['schedule_id'], (int) $row['reservation_id']]);
                 $sent++;

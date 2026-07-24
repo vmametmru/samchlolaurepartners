@@ -13,7 +13,7 @@ final class Auth
 {
     private const COOKIE_NAME = 'auth_token';
     private const EXPIRY_SECONDS = 604800;
-    private const INACTIVITY_SECONDS = 600;
+    private const INACTIVITY_SECONDS = 7200;
 
     public static function login(string $email, string $password): ?array
     {

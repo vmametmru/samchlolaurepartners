@@ -215,15 +215,7 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
     <div class="form-grid cols-2 calendar-info-blocks">
       <div class="booking-policy-block">
         <h3 class="section-title">Politique de réservation</h3>
-        <?php
-          $bookingPolicyText = \App\controllers\PageController::bookingPolicyText();
-          $bookingPolicyLines = preg_split('/\r\n|\r|\n/', $bookingPolicyText) ?: [];
-          if (isset($bookingPolicyLines[0]) && trim($bookingPolicyLines[0]) !== '' && mb_strtolower(trim($bookingPolicyLines[0])) === 'politique de réservation') {
-            array_shift($bookingPolicyLines);
-          }
-          $bookingPolicyText = trim(implode("\n", $bookingPolicyLines));
-        ?>
-        <div class="prose"><?= nl2br(\App\View::e($bookingPolicyText)) ?></div>
+        <div class="prose"><?= \App\controllers\PageController::formatBookingPolicyHtml(\App\controllers\PageController::bookingPolicyText()) ?></div>
       </div>
 
       <div class="booking-policy-block price-info-block">

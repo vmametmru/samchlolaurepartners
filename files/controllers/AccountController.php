@@ -90,8 +90,9 @@ final class AccountController extends Controller
 
     public static function forgotPassword(): void
     {
-        if (Auth::user()) {
-            header('Location: /partner/dashboard');
+        $user = Auth::user();
+        if ($user) {
+            header('Location: ' . (($user['role'] ?? '') === 'admin' ? '/admin/partners' : '/partner/dashboard'));
             exit;
         }
         View::render('pages/forgot-password', ['pageTitle' => 'Mot de passe oublié']);

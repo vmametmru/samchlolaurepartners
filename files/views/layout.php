@@ -15,6 +15,7 @@ $jsVersion = is_file($jsPath) ? (string) filemtime($jsPath) : '1';
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title><?= \App\View::e($pageTitle) ?></title>
   <link rel="stylesheet" href="/assets/css/styles.css?v=<?= \App\View::e($cssVersion) ?>">
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
   <?php if (!empty($preloadHeroVideo)): ?>
     <link rel="preload" href="/medias/home.mp4" as="video" type="video/mp4">

@@ -401,9 +401,15 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .template-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: .5rem; }
 .btn-sm { padding: .4rem .75rem; font-size: .85rem; border-radius: .6rem; }
 .insert-var-dropdown { position: relative; }
-.insert-var-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 200; background: white; border: 1px solid var(--border); border-radius: .75rem; box-shadow: 0 4px 16px rgba(0,0,0,.12); min-width: 220px; max-height: 340px; overflow-y: auto; padding: .4rem 0; }
-.insert-var-item { display: block; width: 100%; text-align: left; border: 0; background: none; padding: .45rem 1rem; font-family: monospace; font-size: .85rem; cursor: pointer; color: var(--text); }
+.insert-var-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 200; background: white; border: 1px solid var(--border); border-radius: .75rem; box-shadow: 0 4px 16px rgba(0,0,0,.12); min-width: 320px; max-width: 380px; max-height: 420px; overflow-y: auto; padding: .4rem 0; }
+.insert-var-item { display: flex; flex-direction: column; gap: .1rem; width: 100%; text-align: left; border: 0; background: none; padding: .45rem 1rem; cursor: pointer; color: var(--text); }
 .insert-var-item:hover { background: #f3f4f6; }
+.insert-var-item-name { font-family: monospace; font-size: .85rem; }
+.insert-var-item-desc { font-size: .75rem; color: var(--muted); white-space: normal; }
+.insert-var-item--restricted .insert-var-item-name { color: #b45309; font-weight: 700; }
+.recipient-note { margin: 0 0 .75rem; padding: .5rem .8rem; border-radius: .6rem; font-size: .85rem; }
+.recipient-note--client { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+.recipient-note--partner { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
 .breadcrumb { font-size: .9rem; color: var(--muted); margin-bottom: .75rem; }
 .breadcrumb a { color: var(--brand); text-decoration: none; }
 .breadcrumb a:hover { text-decoration: underline; }

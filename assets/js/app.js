@@ -30,6 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initBookingCalendarSelection,
     initPhoneInputs,
     initGuestSteppers,
+    initBookingLinkPrefillGuests,
     initCalendarGuestPricing,
     initBookingModal,
     initBookingAccordion,
@@ -591,6 +592,25 @@ function initBookingCalendarSelection() {
       form.dispatchEvent(new CustomEvent('booking-dates-changed'));
     }
 
+    // Pre-fill arrival/departure from ?arrival=YYYY-MM-DD&departure=YYYY-MM-DD
+    // query parameters, e.g. a link a partner shares with themselves/a guest
+    // to jump straight to a specific property with the dates (and, via
+    // initBookingLinkPrefill(), guest counts) already filled in.
+    const dateParams = new URLSearchParams(window.location.search);
+    const isDateStr = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value || '');
+    const arrivalParam = dateParams.get('arrival');
+    const departureParam = dateParams.get('departure');
+    if (isDateStr(arrivalParam) && isDateStr(departureParam) && departureParam > arrivalParam) {
+      checkin = arrivalParam;
+      checkout = departureParam;
+      // Deferred to a macrotask so every other init function (in particular
+      // initBookingModal(), which listens for 'booking-dates-changed' to
+      // auto-open the slide-in booking panel) has already run and attached
+      // its listeners by the time this fires.
+      window.setTimeout(update, 0);
+    }
+
+
     calendarWidget.addEventListener('click', (event) => {
       const cell = event.target.closest('[data-calendar-date]');
       if (!cell) return;
@@ -978,6 +998,35 @@ function initGuestSteppers() {
 }
 
 /**
+ * Pre-fills the "Nombre de Voyageur(s)" adults/children steppers from
+ * ?adults=X&children=Y query parameters (children = 3 to 12 years old), e.g.
+ * a link shared by the partner to jump straight to a property's page with
+ * the party size already filled in — see the "Voir le bien avec ces dates"
+ * button on /partner/reservations/{id}. Must run after initGuestSteppers()
+ * so the existing change listeners (clamping, capacity note) pick it up.
+ */
+function initBookingLinkPrefillGuests() {
+  document.querySelectorAll('[data-booking-form]').forEach((form) => {
+    const params = new URLSearchParams(window.location.search);
+    const adultsParam = params.get('adults');
+    const childrenParam = params.get('children');
+
+    function applyTo(inputName, rawValue) {
+      if (rawValue === null || rawValue === '') return;
+      const value = parseInt(rawValue, 10);
+      if (!Number.isFinite(value) || value < 0) return;
+      const input = form.querySelector(`[data-guest-stepper] input[name="${inputName}"]`);
+      if (!input) return;
+      input.value = String(value);
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    applyTo('adults', adultsParam);
+    applyTo('children_3to12', childrenParam);
+  });
+}
+
+/**
  * Accordion behaviour between the booking form's "Nombre de Voyageur(s)"
  * block and the "détails des voyageurs" block: opening one collapses the
  * other. The dates block above is always visible (not part of the
@@ -1104,10 +1153,13 @@ function initTemplateEditor() {
     photo3: { src: '{{photo3_url}}', alt: '{{hebergement}}', label: 'photo3', defaultSize: 320, shape: 'rect' },
     logo_partenaire: { src: '{{logo_partenaire_url}}', alt: '{{partenaire}}', label: 'logo', defaultSize: 80, shape: 'rect' },
     signature_photo: { src: '{{signature_photo_url}}', alt: '{{signature_nom}}', label: 'photo profil', defaultSize: 64, shape: 'circle' },
-    // photo_bien is generated server-side as a full <img> tag (no separate
-    // "_url" variable exists for it), so it can only be shown as a preview
-    // placeholder — it isn't click-editable like the variables above.
-    photo_bien: { src: '{{photo_bien}}', alt: '{{hebergement}}', label: 'photo du bien', defaultSize: 320, shape: 'rect', editable: false }
+    // Like photo1/photo2/photo3, "photo du bien" resolves to a plain image
+    // URL ({{photo_bien_url}}) so it can be picked, resized and repositioned
+    // from the image editor just like the other photo variables. The
+    // legacy {{photo_bien}} token (a full server-generated <img> tag, kept
+    // for templates saved before this variable existed) is still rendered
+    // as a preview-only placeholder further below.
+    photo_bien: { src: '{{photo_bien_url}}', alt: '{{hebergement}}', label: 'photo du bien', defaultSize: 320, shape: 'rect' }
   };
 
   // Sample values used only to populate the HTML preview so every plain-text
@@ -1123,6 +1175,8 @@ function initTemplateEditor() {
     adultes: '2',
     enfants: '1',
     bebes: '0',
+    total_personnes: '3',
+    nationalites: 'Adulte 1 : Française, Adulte 2 : Britannique, Enfant 1 : Française',
     hebergement: 'Villa Bleu Océan',
     partenaire: 'Grand Baie Escapes',
     notes: 'Merci de prévoir un lit bébé supplémentaire.',
@@ -1132,20 +1186,34 @@ function initTemplateEditor() {
     tarif_hebergement: '1 200,00 €',
     tarif_personnes_supplementaires: '80,00 €',
     tarif_nettoyage: '60,00 €',
-    tarif_total: '1 340,00 €',
+    tarif_total: '1 460,00 €',
     taxe_touristique: '14,00 €',
+    tarif_normal: '1 200,00 €',
+    commission_partenaire: '120,00 €',
+    tarif_client: '1 320,00 €',
+    personnes_additionnelles: '80,00 €',
+    nettoyage: '60,00 €',
+    total_voyageur: '1 460,00 €',
+    paiement_a_samchlolaure: '1 340,00 €',
     signature_nom: 'Marie Lemoine',
     email_partenaire: 'contact@grandbaie-escapes.com',
     lien_partenaire: 'https://exemple-partenaire.grand-baie-maurice.com/espace',
-    telephone_partenaire: '+230 5698 7412'
+    telephone_partenaire: '+230 5698 7412',
+    politique_reservation: 'Annulation gratuite jusqu\u2019à 30 jours avant l\u2019arrivée. Merci de vous référer aux conditions complètes fournies par l\u2019hébergeur.'
   };
 
   // These tokens are rendered as real <img> elements (or a dedicated block,
   // for tarif_bloc) earlier in decoratePreviewHtml/substituteVariablesInPreview,
   // so the generic text-variable substitution must ignore them.
   const nonTextVariableNames = new Set([
-    'photo1', 'photo2', 'photo3', 'logo_partenaire', 'signature_photo', 'photo_bien', 'tarif_bloc'
+    'photo1', 'photo2', 'photo3', 'logo_partenaire', 'signature_photo', 'photo_bien', 'tarif_bloc', 'bouton_reservation'
   ]);
+
+  function buildSampleBoutonReservationHtml() {
+    return '<div data-template-var="bouton_reservation" contenteditable="false" style="text-align:center;margin:20px 0;" title="Bouton généré automatiquement (aperçu avec données temporaires)">'
+      + '<a href="#" style="display:inline-block;background:#3b82f6;color:#ffffff;text-decoration:none;font-weight:bold;font-size:14px;padding:12px 28px;border-radius:6px;">Réserver maintenant</a>'
+      + '</div>';
+  }
 
   function buildSampleTarifBlocHtml() {
     return '<div data-template-var="tarif_bloc" contenteditable="false" style="padding:12px 24px 16px;border:1px dashed #93c5fd;border-radius:8px;" title="Bloc généré automatiquement (aperçu avec données temporaires)">'
@@ -1386,7 +1454,7 @@ function initTemplateEditor() {
     let output = html;
 
     output = output.replace(
-      /<img\b([^>]*?)\ssrc=(['"])\{\{(photo[123]_url|logo_partenaire_url|signature_photo_url)\}\}\2([^>]*)>/gi,
+      /<img\b([^>]*?)\ssrc=(['"])\{\{(photo_bien_url|photo[123]_url|logo_partenaire_url|signature_photo_url)\}\}\2([^>]*)>/gi,
       (match, before, quote, tokenName, after) => {
         const source = `{{${tokenName}}}`;
         const template = mediaTemplateBySource(source);
@@ -1443,7 +1511,7 @@ function initTemplateEditor() {
         const name = match[1].trim();
         // Image tokens are already converted to real <img> elements earlier
         // (in decoratePreviewHtml); leave any leftover occurrence untouched.
-        if (nonTextVariableNames.has(name) && name !== 'tarif_bloc') continue;
+        if (nonTextVariableNames.has(name) && name !== 'tarif_bloc' && name !== 'bouton_reservation') continue;
         matched = true;
         if (match.index > lastIndex) {
           fragment.appendChild(doc.createTextNode(text.slice(lastIndex, match.index)));
@@ -1452,6 +1520,10 @@ function initTemplateEditor() {
         if (name === 'tarif_bloc') {
           const wrapper = doc.createElement('div');
           wrapper.innerHTML = buildSampleTarifBlocHtml();
+          fragment.appendChild(wrapper.firstElementChild);
+        } else if (name === 'bouton_reservation') {
+          const wrapper = doc.createElement('div');
+          wrapper.innerHTML = buildSampleBoutonReservationHtml();
           fragment.appendChild(wrapper.firstElementChild);
         } else {
           const wrapper = doc.createElement('span');
@@ -2075,6 +2147,12 @@ function initTemplateEditor() {
 
     form.querySelectorAll('[data-insert-variable]').forEach((button) => {
       button.addEventListener('click', () => {
+        if (button.dataset.variablePartnerOnly === '1' && !window.confirm(
+          'Cette variable affiche des informations confidentielles réservées au partenaire (commission, montant à reverser…). '
+          + 'Ce template est envoyé au client : voulez-vous vraiment l’insérer ?'
+        )) {
+          return;
+        }
         if (button.dataset.variableResizable === '1') {
           const variableName = button.dataset.insertVariable || '';
           const defaultSize = button.dataset.variableDefaultSize || '320';
