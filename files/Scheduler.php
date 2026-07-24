@@ -89,6 +89,13 @@ SQL;
                 'logo_partenaire_url' => \App\controllers\ReservationsController::partnerLogoUrlValue((string) ($row['logo_url'] ?? '')),
                 'email_partenaire' => (string) ($row['email'] ?? ''),
                 'politique_reservation' => nl2br(htmlspecialchars(\App\controllers\PageController::bookingPolicyText())),
+                'bouton_reservation' => \App\controllers\ReservationsController::bookingLinkButtonHtml(
+                    (int) ($row['property_id'] ?? 0),
+                    (string) $row['checkin_date'],
+                    (string) $row['checkout_date'],
+                    (int) $row['adults'],
+                    (int) ($row['children'] ?? 0)
+                ),
             ];
             $variables += \App\controllers\ReservationsController::stayVariables(
                 (string) $row['checkin_date'],

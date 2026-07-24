@@ -1189,6 +1189,7 @@ function initTemplateEditor() {
     taxe_touristique: '14,00 €',
     tarif_normal: '1 200,00 €',
     commission_partenaire: '120,00 €',
+    tarif_client: '1 320,00 €',
     personnes_additionnelles: '80,00 €',
     nettoyage: '60,00 €',
     total_voyageur: '1 460,00 €',
@@ -1203,8 +1204,14 @@ function initTemplateEditor() {
   // for tarif_bloc) earlier in decoratePreviewHtml/substituteVariablesInPreview,
   // so the generic text-variable substitution must ignore them.
   const nonTextVariableNames = new Set([
-    'photo1', 'photo2', 'photo3', 'logo_partenaire', 'signature_photo', 'photo_bien', 'tarif_bloc'
+    'photo1', 'photo2', 'photo3', 'logo_partenaire', 'signature_photo', 'photo_bien', 'tarif_bloc', 'bouton_reservation'
   ]);
+
+  function buildSampleBoutonReservationHtml() {
+    return '<div data-template-var="bouton_reservation" contenteditable="false" style="text-align:center;margin:20px 0;" title="Bouton généré automatiquement (aperçu avec données temporaires)">'
+      + '<a href="#" style="display:inline-block;background:#3b82f6;color:#ffffff;text-decoration:none;font-weight:bold;font-size:14px;padding:12px 28px;border-radius:6px;">Réserver maintenant</a>'
+      + '</div>';
+  }
 
   function buildSampleTarifBlocHtml() {
     return '<div data-template-var="tarif_bloc" contenteditable="false" style="padding:12px 24px 16px;border:1px dashed #93c5fd;border-radius:8px;" title="Bloc généré automatiquement (aperçu avec données temporaires)">'
@@ -1502,7 +1509,7 @@ function initTemplateEditor() {
         const name = match[1].trim();
         // Image tokens are already converted to real <img> elements earlier
         // (in decoratePreviewHtml); leave any leftover occurrence untouched.
-        if (nonTextVariableNames.has(name) && name !== 'tarif_bloc') continue;
+        if (nonTextVariableNames.has(name) && name !== 'tarif_bloc' && name !== 'bouton_reservation') continue;
         matched = true;
         if (match.index > lastIndex) {
           fragment.appendChild(doc.createTextNode(text.slice(lastIndex, match.index)));
@@ -1511,6 +1518,10 @@ function initTemplateEditor() {
         if (name === 'tarif_bloc') {
           const wrapper = doc.createElement('div');
           wrapper.innerHTML = buildSampleTarifBlocHtml();
+          fragment.appendChild(wrapper.firstElementChild);
+        } else if (name === 'bouton_reservation') {
+          const wrapper = doc.createElement('div');
+          wrapper.innerHTML = buildSampleBoutonReservationHtml();
           fragment.appendChild(wrapper.firstElementChild);
         } else {
           const wrapper = doc.createElement('span');

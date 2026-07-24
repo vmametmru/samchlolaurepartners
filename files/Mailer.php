@@ -8,6 +8,9 @@ use RuntimeException;
 
 final class Mailer
 {
+    /** Hard cap on a single externally-fetched (non-local) embedded image, to bound memory/bandwidth use. */
+    private const MAX_EXTERNAL_IMAGE_BYTES = 5 * 1024 * 1024;
+
     public static function renderTemplate(string $template, array $variables): string
     {
         $rendered = preg_replace_callback('/\{\{([a-zA-Z0-9_]+)(?::(\d{1,4}))?\}\}/', static function (array $matches) use ($variables): string {
@@ -58,19 +61,177 @@ final class Mailer
     public static function sendTemplatedEmail(array $partner, array $template, string $to, array $variables, array $embeds = []): void
     {
         $html = self::renderTemplate((string) $template['body_html'], $variables);
+        $inlined = self::embedHotlinkedImages($html, $embeds);
         self::deliver(
             $partner,
             $to,
             self::renderTemplate((string) $template['subject'], $variables),
-            $html,
+            $inlined['html'],
             null,
-            self::filterUnusedEmbeds($html, $embeds)
+            self::filterUnusedEmbeds($inlined['html'], $inlined['embeds'])
         );
     }
 
     public static function sendRawEmail(array $partner, string $to, string $subject, string $html, array $embeds = []): void
     {
-        self::deliver($partner, $to, $subject, $html, null, self::filterUnusedEmbeds($html, $embeds));
+        $inlined = self::embedHotlinkedImages($html, $embeds);
+        self::deliver($partner, $to, $subject, $inlined['html'], null, self::filterUnusedEmbeds($inlined['html'], $inlined['embeds']));
+    }
+
+    /**
+     * Converts every remaining hotlinked <img src="http(s)://..."> in the
+     * final rendered HTML into an inline Content-ID embed, so a recipient's
+     * mail client never has to fetch a remote image just to display the
+     * message — several providers (Microsoft/Outlook among them) treat
+     * hotlinked remote images as a spam signal and are more likely to bin
+     * such messages. This runs as a last, generic pass over the fully
+     * rendered HTML, so it transparently covers every image source: the
+     * property photo/logo/signature variables (which mostly already embed
+     * local files directly), any {{photoN_url}}/{{logo_partenaire_url}}/
+     * {{signature_photo_url}} used raw in an <img> tag, and any image
+     * inserted from the WYSIWYG "Mini galerie graphique".
+     *
+     * Local site-hosted images are read straight off disk. A genuinely
+     * external image (e.g. a partner pasting an external logo URL) is
+     * fetched once with a short timeout, best-effort: if that fetch fails,
+     * the original hotlinked src is left untouched rather than failing the
+     * whole send.
+     *
+     * @param array<int, array{cid: string, data: string, mime: string}> $embeds Already-known embeds (photo_bien, signature, ...)
+     * @return array{html: string, embeds: array<int, array{cid: string, data: string, mime: string}>}
+     */
+    private static function embedHotlinkedImages(string $html, array $embeds): array
+    {
+        $baseUrl = Auth::currentBaseUrl();
+        $rootPath = realpath(defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__));
+
+        $html = (string) preg_replace_callback(
+            '/(<img\b[^>]*\ssrc=)(["\'])(https?:\/\/[^"\'>]+)\2/i',
+            static function (array $matches) use (&$embeds, $baseUrl, $rootPath): string {
+                $url = $matches[3];
+                $data = null;
+                $mime = null;
+
+                if ($baseUrl !== '' && str_starts_with($url, $baseUrl . '/')) {
+                    $relative = substr($url, strlen($baseUrl));
+                    $path = ($rootPath !== false ? $rootPath : '') . parse_url($relative, PHP_URL_PATH);
+                    $realPath = $rootPath !== false ? realpath($path) : false;
+                    if ($realPath !== false && str_starts_with($realPath, $rootPath) && is_file($realPath)) {
+                        $fileData = @file_get_contents($realPath);
+                        if ($fileData !== false && $fileData !== '') {
+                            $data = $fileData;
+                            $mime = self::detectImageMime($data, pathinfo($realPath, PATHINFO_EXTENSION));
+                        }
+                    }
+                }
+
+                if ($data === null && self::isFetchableExternalImageUrl($url)) {
+                    $context = stream_context_create([
+                        'http' => ['timeout' => 4, 'ignore_errors' => true, 'follow_location' => 0],
+                        'https' => ['timeout' => 4, 'ignore_errors' => true, 'follow_location' => 0],
+                    ]);
+                    $fetched = @file_get_contents($url, false, $context, 0, self::MAX_EXTERNAL_IMAGE_BYTES);
+                    if ($fetched !== false && $fetched !== '' && self::looksLikeImageData($fetched)) {
+                        $data = $fetched;
+                        $mime = self::detectImageMime($data, pathinfo((string) parse_url($url, PHP_URL_PATH), PATHINFO_EXTENSION));
+                    }
+                }
+
+                if ($data === null || $data === '') {
+                    return $matches[0];
+                }
+
+                $cid = 'inline-' . bin2hex(random_bytes(6)) . '@local';
+                $embeds[] = ['cid' => $cid, 'data' => $data, 'mime' => $mime ?: 'image/jpeg'];
+                return $matches[1] . $matches[2] . 'cid:' . $cid . $matches[2];
+            },
+            $html
+        ) ?? $html;
+
+        return ['html' => $html, 'embeds' => $embeds];
+    }
+
+    /**
+     * Guards against SSRF when embedHotlinkedImages() falls back to fetching
+     * a genuinely external image URL (e.g. a partner-pasted external logo):
+     * only http(s) URLs whose host resolves to a public, non-reserved IP
+     * address are fetched. This blocks a partner-controlled template/logo
+     * URL from being used to reach loopback, private (RFC1918/RFC4193),
+     * link-local, or other reserved addresses (e.g. cloud metadata
+     * endpoints) from the server.
+     */
+    private static function isFetchableExternalImageUrl(string $url): bool
+    {
+        $parts = parse_url($url);
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+        $host = (string) ($parts['host'] ?? '');
+        if (!in_array($scheme, ['http', 'https'], true) || $host === '') {
+            return false;
+        }
+
+        $ips = [];
+        if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
+            $ips[] = $host;
+        } else {
+            $records = @dns_get_record($host, DNS_A + DNS_AAAA);
+            if (is_array($records)) {
+                foreach ($records as $record) {
+                    $ip = $record['ip'] ?? $record['ipv6'] ?? null;
+                    if (is_string($ip) && $ip !== '') {
+                        $ips[] = $ip;
+                    }
+                }
+            }
+        }
+
+        if ($ips === []) {
+            return false;
+        }
+
+        foreach ($ips as $ip) {
+            if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Confirms fetched bytes actually decode as an image before embedding
+     * them, so a URL that (deliberately or not) doesn't serve an image
+     * can't be embedded as one.
+     */
+    private static function looksLikeImageData(string $data): bool
+    {
+        return @getimagesizefromstring($data) !== false;
+    }
+
+    /**
+     * Best-effort image MIME sniffing from raw bytes (via fileinfo), falling
+     * back to the file extension when fileinfo is unavailable or the data
+     * isn't recognized as an image.
+     */
+    private static function detectImageMime(string $data, string $fallbackExtension): string
+    {
+        if (function_exists('finfo_open')) {
+            $finfo = @finfo_open(FILEINFO_MIME_TYPE);
+            if ($finfo !== false) {
+                $mime = finfo_buffer($finfo, $data);
+                finfo_close($finfo);
+                if (is_string($mime) && str_starts_with($mime, 'image/')) {
+                    return $mime;
+                }
+            }
+        }
+
+        return match (strtolower($fallbackExtension)) {
+            'png' => 'image/png',
+            'gif' => 'image/gif',
+            'webp' => 'image/webp',
+            'svg' => 'image/svg+xml',
+            default => 'image/jpeg',
+        };
     }
 
     /**

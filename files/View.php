@@ -465,6 +465,7 @@ final class View
             ['key' => 'tarif_bloc', 'description' => 'Bloc récapitulatif du tarif déjà mis en forme (tableau complet). À privilégier plutôt que d\'assembler les variables tarif_* une par une', 'partnerOnly' => false],
             ['key' => 'tarif_normal', 'description' => 'Identique à {{tarif_hebergement}} : tarif de base du logement, sans commission', 'partnerOnly' => false],
             ['key' => 'commission_partenaire', 'description' => 'Montant de la commission du partenaire (tarif de base x taux de commission)', 'partnerOnly' => true],
+            ['key' => 'tarif_client', 'description' => 'Tarif normal + marge du partenaire (commission), sans frais de ménage et sans taxe touristique', 'partnerOnly' => false],
             ['key' => 'personnes_additionnelles', 'description' => 'Identique à {{tarif_personnes_supplementaires}}', 'partnerOnly' => false],
             ['key' => 'nettoyage', 'description' => 'Identique à {{tarif_nettoyage}}', 'partnerOnly' => false],
             ['key' => 'total_voyageur', 'description' => 'Montant total réellement payé par le client (tarif + commission + personnes supplémentaires + ménage, hors taxe touristique)', 'partnerOnly' => false],
@@ -474,6 +475,7 @@ final class View
             ['key' => 'lien_partenaire', 'description' => 'Lien vers le site web du partenaire', 'partnerOnly' => false],
             ['key' => 'telephone_partenaire', 'description' => 'Téléphone de contact du partenaire', 'partnerOnly' => false],
             ['key' => 'politique_reservation', 'description' => 'Texte de la politique de réservation/annulation configurée par le partenaire', 'partnerOnly' => false],
+            ['key' => 'bouton_reservation', 'description' => 'Bouton "Réserver maintenant" prêt à l\'emploi, pointant vers la fiche du bien avec les dates/voyageurs déjà pré-remplis. Insérable n\'importe où dans l\'email', 'partnerOnly' => false],
         ];
     }
 

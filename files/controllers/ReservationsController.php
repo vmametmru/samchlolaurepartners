@@ -1048,6 +1048,7 @@ final class ReservationsController extends Controller
         );
         $checkin = (string) ($input['checkin_date'] ?? '');
         $checkout = (string) ($input['checkout_date'] ?? '');
+        $childBreakdown = self::childBreakdownValues($input);
         $variables = [
             'nom_client' => (string) ($input['client_name'] ?? ''),
             'email_client' => (string) ($input['client_email'] ?? ''),
@@ -1072,8 +1073,14 @@ final class ReservationsController extends Controller
             ),
             'logo_partenaire_url' => self::partnerLogoUrlValue((string) ($partner['logo_url'] ?? '')),
             'politique_reservation' => nl2br(htmlspecialchars(PageController::bookingPolicyText())),
+            'bouton_reservation' => self::bookingLinkButtonHtml(
+                (int) ($input['property_id'] ?? 0),
+                $checkin,
+                $checkout,
+                (int) ($input['adults'] ?? 0),
+                $childBreakdown['from3to12']
+            ),
         ];
-        $childBreakdown = self::childBreakdownValues($input);
         $variables += self::stayVariables($checkin, $checkout, $childBreakdown['under3'], $childBreakdown['from3to12']);
         $variables += self::requestQuoteVariables($input, $itemCount, (float) ($partner['markup_percent'] ?? 0));
         $signature = self::signatureVariables((int) ($partner['id'] ?? 0));
@@ -1174,6 +1181,7 @@ final class ReservationsController extends Controller
             (int) ($request['property_id'] ?? 0),
             (string) $request['property_name']
         );
+        $childBreakdown = self::childBreakdownValues($request);
         $variables = [
             'nom_client' => (string) $request['client_name'],
             'email_client' => (string) $request['client_email'],
@@ -1198,8 +1206,14 @@ final class ReservationsController extends Controller
             ),
             'logo_partenaire_url' => self::partnerLogoUrlValue((string) ($partner['logo_url'] ?? '')),
             'politique_reservation' => nl2br(htmlspecialchars(PageController::bookingPolicyText())),
+            'bouton_reservation' => self::bookingLinkButtonHtml(
+                (int) ($request['property_id'] ?? 0),
+                (string) $request['checkin_date'],
+                (string) $request['checkout_date'],
+                (int) $request['adults'],
+                $childBreakdown['from3to12']
+            ),
         ];
-        $childBreakdown = self::childBreakdownValues($request);
         $variables += self::stayVariables(
             (string) $request['checkin_date'],
             (string) $request['checkout_date'],
@@ -1447,6 +1461,11 @@ final class ReservationsController extends Controller
             // emails unless the partner explicitly inserts it themselves.
             'tarif_normal' => self::formatMoneyFr($roomTotal, $currency),
             'commission_partenaire' => self::formatMoneyFr($breakdown['commission_total'], $currency),
+            // Tarif Normal + marge du partenaire (commission), volontairement
+            // sans nettoyage et sans taxe touristique — distinct de
+            // {{total_voyageur}} qui inclut en plus le ménage et les
+            // personnes supplémentaires.
+            'tarif_client' => self::formatMoneyFr($roomTotal + $breakdown['commission_total'], $currency),
             'personnes_additionnelles' => self::formatMoneyFr($extraPersonTotal, $currency),
             'nettoyage' => self::formatMoneyFr($cleaningTotal, $currency),
             'total_voyageur' => self::formatMoneyFr($breakdown['total_traveler'], $currency),
@@ -1696,7 +1715,7 @@ final class ReservationsController extends Controller
      * wherever they want (e.g. right after the stay summary, or in the
      * signature block) or to omit it entirely.
      */
-    private static function bookingLinkButtonHtml(
+    public static function bookingLinkButtonHtml(
         int $propertyId,
         string $checkin,
         string $checkout,
