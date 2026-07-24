@@ -1428,7 +1428,7 @@ final class ReservationsController extends Controller
         }
         $tarifBloc .= '<table style="width:100%;border-collapse:collapse;font-size:14px;">'
             . '<tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;color:#374151;">Tarif</td>'
-            . '<td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;color:#374151;">' . self::formatMoneyFr($roomTotal, $currency) . '</td></tr>';
+            . '<td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;color:#374151;">' . self::formatMoneyFr($roomTotal + $breakdown['commission_total'], $currency) . '</td></tr>';
         if ($extraPersonTotal > 0) {
             $tarifBloc .= '<tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;color:#374151;">Personne(s) supplémentaire(s)</td>'
                 . '<td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;color:#374151;">' . self::formatMoneyFr($extraPersonTotal, $currency) . '</td></tr>';
@@ -1533,7 +1533,7 @@ final class ReservationsController extends Controller
         // surrounding email container in most mail clients (inline style
         // wins over the width attribute), defeating the point of a fixed
         // 320px thumbnail. Use a fixed width instead.
-        $html = '<img src="cid:' . htmlspecialchars($cid, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($propertyName, ENT_QUOTES, 'UTF-8') . '" width="320" style="display:block;width:320px;max-width:320px;height:auto;">';
+        $html = '<img src="cid:' . htmlspecialchars($cid, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($propertyName, ENT_QUOTES, 'UTF-8') . '" width="320" style="display:block;width:320px;max-width:100%;height:auto;">';
 
         return [
             'html' => $html,
@@ -1651,7 +1651,7 @@ final class ReservationsController extends Controller
             };
             $cid = 'signature-photo-' . bin2hex(random_bytes(4)) . '@local';
             return [
-                'html' => '<img src="cid:' . htmlspecialchars($cid, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($alt, ENT_QUOTES, 'UTF-8') . '" width="64" height="64" style="display:inline-block;width:64px;height:64px;border-radius:50%;object-fit:cover;">',
+                'html' => '<img src="cid:' . htmlspecialchars($cid, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($alt, ENT_QUOTES, 'UTF-8') . '" width="64" height="64" style="display:inline-block;width:64px;height:64px;max-width:100%;border-radius:50%;object-fit:cover;">',
                 'embed' => ['cid' => $cid, 'data' => $data, 'mime' => $mime],
             ];
         }
@@ -1682,7 +1682,7 @@ final class ReservationsController extends Controller
         }
 
         $width = self::normalizeImageWidth($size, 64);
-        return '<img src="' . htmlspecialchars($photoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($alt, ENT_QUOTES, 'UTF-8') . '" width="' . $width . '" height="' . $width . '" style="display:inline-block;width:' . $width . 'px;height:' . $width . 'px;border-radius:50%;object-fit:cover;">';
+        return '<img src="' . htmlspecialchars($photoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($alt, ENT_QUOTES, 'UTF-8') . '" width="' . $width . '" height="' . $width . '" style="display:inline-block;width:' . $width . 'px;height:' . $width . 'px;max-width:100%;border-radius:50%;object-fit:cover;">';
     }
 
     private static function partnerLogoTag(string $logoUrl, string $alt): string

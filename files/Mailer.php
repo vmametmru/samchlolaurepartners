@@ -402,27 +402,25 @@ final class Mailer
                 $meta['security'] = $config['security'];
                 self::sendSmtp($config, $to, $subject, $html, $replyTo, $embeds, $trace);
             } else {
-                $boundary = self::boundary();
+                $mime = self::buildMimeMessage($html, $embeds);
                 $headers = [
                     'MIME-Version: 1.0',
+                    'Date: ' . date(DATE_RFC2822),
+                    'Message-ID: ' . self::messageId((string) $config['from_email']),
                     'From: "' . addslashes(self::stripCrlf($config['from_name'])) . '" <' . $config['from_email'] . '>',
                 ];
                 if ($replyTo) {
                     $headers[] = 'Reply-To: ' . $replyTo;
                 }
-                if ($embeds !== []) {
-                    // RFC 2387 §3.1: multipart/related needs a "type" parameter
-                    // naming the root body part's media type. Without it, some
-                    // mail clients (notably Apple Mail / iCloud Mail) fail to
-                    // resolve the HTML's cid: references and instead render
-                    // every embedded image as a plain attachment at the end of
-                    // the message instead of inline where referenced.
-                    $headers[] = 'Content-Type: multipart/related; type="text/html"; boundary="' . $boundary . '"';
-                    $body = self::buildRelatedBody($boundary, $html, $embeds);
-                } else {
-                    $headers[] = 'Content-Type: text/html; charset=UTF-8';
-                    $body = $html;
-                }
+                // Always send as multipart/alternative with a plain-text part
+                // alongside the HTML: several providers (notably Microsoft/
+                // Outlook and Gmail's spam filters) treat HTML-only messages
+                // with no text/plain alternative as a strong spam signal.
+                // This never changes what the recipient sees in an HTML-capable
+                // client — it just adds a fallback text version they'd only
+                // ever see in a plain-text-only reader.
+                $headers[] = $mime['contentType'];
+                $body = $mime['body'];
 
                 $trace[] = 'mail(' . $to . ', ' . $subject . ', ' . strlen($body) . ' bytes body, ' . count($headers) . ' headers)';
                 if (!@mail($to, $subject, $body, implode("\r\n", $headers))) {
@@ -544,6 +542,7 @@ final class Mailer
 
         $headers = [
             'Date: ' . date(DATE_RFC2822),
+            'Message-ID: ' . self::messageId($fromEmail),
             'To: <' . $to . '>',
             'From: "' . addslashes(self::stripCrlf((string) $config['from_name'])) . '" <' . $fromEmail . '>',
             'Subject: ' . self::encodeHeader($subject),
@@ -553,19 +552,17 @@ final class Mailer
             $headers[] = 'Reply-To: ' . $replyTo;
         }
 
-        if ($embeds !== []) {
-            $boundary = self::boundary();
-            // See the matching comment in deliver()'s mail() fallback: the
-            // "type" parameter is required by RFC 2387 for mail clients to
-            // reliably inline cid:-referenced images instead of showing them
-            // as trailing attachments.
-            $headers[] = 'Content-Type: multipart/related; type="text/html"; boundary="' . $boundary . '"';
-            $body = self::buildRelatedBody($boundary, $html, $embeds);
-        } else {
-            $headers[] = 'Content-Type: text/html; charset=UTF-8';
-            $headers[] = 'Content-Transfer-Encoding: 8bit';
-            $body = $html;
-        }
+        // Always send as multipart/alternative with a plain-text part
+        // alongside the HTML: several providers (notably Microsoft/Outlook
+        // and Gmail's spam filters) treat HTML-only messages with no
+        // text/plain alternative as a strong spam signal, which was causing
+        // otherwise-legitimate reservation emails to land in Junk. This
+        // never changes what the recipient sees in an HTML-capable client —
+        // it just adds a fallback text version they'd only ever see in a
+        // plain-text-only reader.
+        $mime = self::buildMimeMessage($html, $embeds);
+        $headers[] = $mime['contentType'];
+        $body = $mime['body'];
 
         $trace[] = 'DATA payload: ' . count($embeds) . ' embed(s), ' . strlen($body) . ' bytes body';
         $message = implode("\r\n", $headers) . "\r\n\r\n" . self::dotStuff($body) . "\r\n.";
@@ -611,6 +608,83 @@ final class Mailer
     private static function boundary(): string
     {
         return 'boundary_' . bin2hex(random_bytes(16));
+    }
+
+    /**
+     * Wraps the HTML body (and its inline embeds, if any) in a
+     * multipart/alternative envelope alongside a plain-text rendering, so
+     * every outgoing message always has a text/plain part. Sending
+     * HTML-only messages with no alternative text part is a well-known
+     * spam signal for several providers (Microsoft/Outlook and Gmail among
+     * them), which contributed to legitimate reservation emails landing in
+     * Junk. HTML-capable clients still render the exact same HTML as
+     * before — only plain-text-only readers ever see the fallback part.
+     *
+     * @param array<int, array{cid: string, data: string, mime: string}> $embeds
+     * @return array{contentType: string, body: string}
+     */
+    private static function buildMimeMessage(string $html, array $embeds): array
+    {
+        $altBoundary = self::boundary();
+        $textPart = "--{$altBoundary}\r\n"
+            . "Content-Type: text/plain; charset=UTF-8\r\n"
+            . "Content-Transfer-Encoding: 8bit\r\n\r\n"
+            . self::htmlToPlainText($html);
+
+        if ($embeds !== []) {
+            $relatedBoundary = self::boundary();
+            $htmlPart = "--{$altBoundary}\r\n"
+                // See buildRelatedBody()'s caller for why the "type" param is
+                // required (RFC 2387 §3.1) so cid: references resolve inline.
+                . "Content-Type: multipart/related; type=\"text/html\"; boundary=\"{$relatedBoundary}\"\r\n\r\n"
+                . self::buildRelatedBody($relatedBoundary, $html, $embeds);
+        } else {
+            $htmlPart = "--{$altBoundary}\r\n"
+                . "Content-Type: text/html; charset=UTF-8\r\n"
+                . "Content-Transfer-Encoding: 8bit\r\n\r\n"
+                . $html;
+        }
+
+        return [
+            'contentType' => 'Content-Type: multipart/alternative; boundary="' . $altBoundary . '"',
+            'body' => $textPart . "\r\n" . $htmlPart . "\r\n--{$altBoundary}--",
+        ];
+    }
+
+    /**
+     * Best-effort plain-text rendering of an email's HTML body, used only
+     * for the text/plain alternative part (see buildMimeMessage()) — never
+     * for what an HTML-capable client displays.
+     */
+    private static function htmlToPlainText(string $html): string
+    {
+        $text = preg_replace('/<(br|\/tr|\/table|\/p|\/div|\/h[1-6])\b[^>]*>/i', "\n", $html) ?? $html;
+        $text = strip_tags($text);
+        $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = preg_replace('/[ \t]+/', ' ', $text) ?? $text;
+        $text = preg_replace('/\n[ \t]+/', "\n", $text) ?? $text;
+        $text = preg_replace('/\n{3,}/', "\n\n", $text) ?? $text;
+
+        return trim($text);
+    }
+
+    /**
+     * Generates a unique Message-ID header. Its absence is another common
+     * spam signal several providers weigh heavily; every message must have
+     * exactly one.
+     */
+    private static function messageId(string $fromEmail): string
+    {
+        $domain = 'local';
+        $at = strrpos($fromEmail, '@');
+        if ($at !== false) {
+            $candidate = substr($fromEmail, $at + 1);
+            if ($candidate !== '') {
+                $domain = $candidate;
+            }
+        }
+
+        return '<' . bin2hex(random_bytes(16)) . '.' . (string) time() . '@' . $domain . '>';
     }
 
     /**
