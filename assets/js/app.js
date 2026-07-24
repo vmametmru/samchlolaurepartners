@@ -30,6 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initBookingCalendarSelection,
     initPhoneInputs,
     initGuestSteppers,
+    initBookingLinkPrefillGuests,
     initCalendarGuestPricing,
     initBookingModal,
     initBookingAccordion,
@@ -591,6 +592,25 @@ function initBookingCalendarSelection() {
       form.dispatchEvent(new CustomEvent('booking-dates-changed'));
     }
 
+    // Pre-fill arrival/departure from ?arrival=YYYY-MM-DD&departure=YYYY-MM-DD
+    // query parameters, e.g. a link a partner shares with themselves/a guest
+    // to jump straight to a specific property with the dates (and, via
+    // initBookingLinkPrefill(), guest counts) already filled in.
+    const dateParams = new URLSearchParams(window.location.search);
+    const isDateStr = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value || '');
+    const arrivalParam = dateParams.get('arrival');
+    const departureParam = dateParams.get('departure');
+    if (isDateStr(arrivalParam) && isDateStr(departureParam) && departureParam > arrivalParam) {
+      checkin = arrivalParam;
+      checkout = departureParam;
+      // Deferred to a macrotask so every other init function (in particular
+      // initBookingModal(), which listens for 'booking-dates-changed' to
+      // auto-open the slide-in booking panel) has already run and attached
+      // its listeners by the time this fires.
+      window.setTimeout(update, 0);
+    }
+
+
     calendarWidget.addEventListener('click', (event) => {
       const cell = event.target.closest('[data-calendar-date]');
       if (!cell) return;
@@ -974,6 +994,35 @@ function initGuestSteppers() {
 
     form.addEventListener('reset', () => setTimeout(updateCapacityState, 0));
     updateCapacityState();
+  });
+}
+
+/**
+ * Pre-fills the "Nombre de Voyageur(s)" adults/children steppers from
+ * ?adults=X&children=Y query parameters (children = 3 to 12 years old), e.g.
+ * a link shared by the partner to jump straight to a property's page with
+ * the party size already filled in — see the "Voir le bien avec ces dates"
+ * button on /partner/reservations/{id}. Must run after initGuestSteppers()
+ * so the existing change listeners (clamping, capacity note) pick it up.
+ */
+function initBookingLinkPrefillGuests() {
+  document.querySelectorAll('[data-booking-form]').forEach((form) => {
+    const params = new URLSearchParams(window.location.search);
+    const adultsParam = params.get('adults');
+    const childrenParam = params.get('children');
+
+    function applyTo(inputName, rawValue) {
+      if (rawValue === null || rawValue === '') return;
+      const value = parseInt(rawValue, 10);
+      if (!Number.isFinite(value) || value < 0) return;
+      const input = form.querySelector(`[data-guest-stepper] input[name="${inputName}"]`);
+      if (!input) return;
+      input.value = String(value);
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    applyTo('adults', adultsParam);
+    applyTo('children_3to12', childrenParam);
   });
 }
 

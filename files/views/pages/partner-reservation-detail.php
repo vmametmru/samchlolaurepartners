@@ -33,6 +33,22 @@
         <?php else: ?>, <?= (int) $reservation['children'] ?> enfant(s)<?php endif; ?>
       </div>
     </div>
+    <?php if ((int) ($reservation['property_id'] ?? 0) > 0): ?>
+      <?php
+        $propertyLinkParams = [
+          'arrival' => (string) $reservation['checkin_date'],
+          'departure' => (string) $reservation['checkout_date'],
+          'adults' => (int) $reservation['adults'],
+          'children' => (int) ($children3to12 ?? $reservation['children'] ?? 0),
+        ];
+        $propertyLinkUrl = '/properties/' . (int) $reservation['property_id'] . '?' . http_build_query($propertyLinkParams);
+      ?>
+      <div class="button-row">
+        <a class="btn-secondary" href="<?= \App\View::e($propertyLinkUrl) ?>" target="_blank" rel="noopener">
+          🏠 Voir le bien avec ces dates
+        </a>
+      </div>
+    <?php endif; ?>
     <?php if ($guests !== []): ?>
       <div>
         <span class="muted">Nationalités :</span>
