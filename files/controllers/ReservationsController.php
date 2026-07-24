@@ -10,6 +10,7 @@ use App\Database;
 use App\I18n;
 use App\LodgifyClient;
 use App\Mailer;
+use App\View;
 use PDO;
 use Throwable;
 
@@ -1110,9 +1111,13 @@ final class ReservationsController extends Controller
         // site in (I18n::current() at submission time), falling back to the
         // partner's French template if no translated variant exists yet.
         $clientTemplate = self::findEmailTemplate($pdo, (int) $partner['id'], 'REQUEST_RECEIVED_CLIENT', $guestLanguage);
+        // Partner-only variables (commission, amount owed to SamChloLaure)
+        // must never reach the client, even if a partner mistakenly inserted
+        // one into their client-facing template — see redactPartnerOnlyVariables().
+        $clientVariables = self::redactPartnerOnlyVariables($variables);
         try {
             if ($clientTemplate) {
-                Mailer::sendTemplatedEmail($partner, $clientTemplate, (string) $input['client_email'], $variables, $embeds);
+                Mailer::sendTemplatedEmail($partner, $clientTemplate, (string) $input['client_email'], $clientVariables, $embeds);
             } else {
                 Mailer::sendRawEmail($partner, (string) $input['client_email'], 'Confirmation de votre demande - ' . (string) $partner['name'], '<p>Bonjour ' . htmlspecialchars((string) $input['client_name']) . ',</p><p>Nous avons bien reçu votre demande de réservation pour ' . htmlspecialchars((string) ($input['property_name'] ?? 'l\'hébergement')) . ' du ' . htmlspecialchars((string) $input['checkin_date']) . ' au ' . htmlspecialchars((string) $input['checkout_date']) . '.</p>' . $variables['tarif_bloc'] . '<p>Nous vous contacterons très prochainement.</p><p>Cordialement,<br>' . htmlspecialchars((string) $partner['name']) . '</p>');
             }
@@ -1128,6 +1133,25 @@ final class ReservationsController extends Controller
      * — so an admin can enable English progressively, type by type, without
      * guest-facing emails ever silently going out with no template at all.
      */
+    /**
+     * Strips partner-only/confidential variables (commission_partenaire,
+     * paiement_a_samchlolaure — see View::emailTemplateVariableCatalog())
+     * from a variable set before it is rendered into a client-facing email.
+     * This is a defense-in-depth safety net: even if a partner's
+     * client-facing template mistakenly references one of these variables
+     * (they are documented but not meant to be used there), the actual
+     * commission/payout figures must never leak to the client.
+     */
+    private static function redactPartnerOnlyVariables(array $variables): array
+    {
+        foreach (View::emailTemplateVariableCatalog() as $definition) {
+            if (!empty($definition['partnerOnly']) && array_key_exists($definition['key'], $variables)) {
+                $variables[$definition['key']] = '';
+            }
+        }
+        return $variables;
+    }
+
     public static function findEmailTemplate(PDO $pdo, int $partnerId, string $type, string $language): ?array
     {
         $stmt = $pdo->prepare('SELECT * FROM email_templates WHERE partner_id = ? AND type = ? AND language = ? LIMIT 1');
@@ -1203,6 +1227,11 @@ final class ReservationsController extends Controller
         if ($signature['embed'] !== null) {
             $embeds[] = $signature['embed'];
         }
+
+        // This method only ever emails the client (confirmation/cancellation/
+        // reminder), so partner-only variables (commission, amount owed to
+        // SamChloLaure) are always stripped before rendering.
+        $variables = self::redactPartnerOnlyVariables($variables);
 
         if ($template) {
             Mailer::sendTemplatedEmail($partner, $template, (string) $request['client_email'], $variables, $embeds);

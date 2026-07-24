@@ -3,15 +3,9 @@ $labels = [];
 foreach (($templateCatalog ?? []) as $type => $definition) {
   $labels[$type] = $definition['label'] ?? $type;
 }
-$plainVariables = ['{{nom_client}}','{{email_client}}','{{telephone_client}}','{{dates}}','{{date_arrivee}}','{{date_depart}}','{{nuits}}','{{adultes}}','{{enfants}}','{{bebes}}','{{nationalites}}','{{multi_biens_note}}','{{hebergement}}','{{partenaire}}','{{notes}}','{{message}}','{{tarif_nuits}}','{{tarif_hebergement}}','{{tarif_personnes_supplementaires}}','{{tarif_nettoyage}}','{{tarif_total}}','{{taxe_touristique}}','{{tarif_bloc}}','{{tarif_normal}}','{{commission_partenaire}}','{{personnes_additionnelles}}','{{nettoyage}}','{{total_voyageur}}','{{paiement_a_samchlolaure}}','{{signature_nom}}','{{email_partenaire}}','{{lien_partenaire}}','{{telephone_partenaire}}','{{politique_reservation}}'];
-$resizableVariables = [
-  ['name' => 'photo_bien', 'label' => '{{photo_bien}}', 'default' => 320],
-  ['name' => 'photo1', 'label' => '{{photo1}}', 'default' => 320],
-  ['name' => 'photo2', 'label' => '{{photo2}}', 'default' => 320],
-  ['name' => 'photo3', 'label' => '{{photo3}}', 'default' => 320],
-  ['name' => 'logo_partenaire', 'label' => '{{logo_partenaire}}', 'default' => 80],
-  ['name' => 'signature_photo', 'label' => '{{signature_photo}}', 'default' => 64],
-];
+$plainVariables = \App\View::emailTemplateVariableCatalog();
+$resizableVariables = \App\View::emailTemplateImageVariableCatalog();
+$isClientFacingTemplate = $selected ? \App\View::isClientFacingTemplateType((string) $selected['type']) : false;
 $baseUrl = '/admin/templates';
 $selectedLanguage = $selectedLanguage ?? 'fr';
 ?>
@@ -176,6 +170,11 @@ $selectedLanguage = $selectedLanguage ?? 'fr';
         <?php else: ?>
           <div class="card card-body">
             <h2 class="section-title"><?= \App\View::e($labels[$selected['type']] ?? $selected['type']) ?></h2>
+            <p class="<?= $isClientFacingTemplate ? 'recipient-note recipient-note--client' : 'recipient-note recipient-note--partner' ?>">
+              <?= $isClientFacingTemplate
+                ? '📧 Ce template est envoyé au <strong>client</strong> (le voyageur). N\'y insérez jamais une variable réservée au partenaire (commission, montant à reverser…).'
+                : '📧 Ce template est envoyé au <strong>partenaire</strong>, jamais au client.' ?>
+            </p>
             <form method="post" action="<?= $baseUrl ?>/<?= $selectedPartnerId ?>/<?= (int) $selected['id'] ?>" class="stack-md" data-template-editor data-gallery-assets="<?= \App\View::e(json_encode($galleryAssets ?? [])) ?>">
               <label><span>Objet de l'email</span><input class="input" type="text" name="subject" value="<?= \App\View::e($selected['subject']) ?>"></label>
               <details class="code-box">
@@ -185,7 +184,17 @@ $selectedLanguage = $selectedLanguage ?? 'fr';
                     <button type="button" class="btn-secondary btn-sm" data-insert-dropdown-toggle>📋 Insérer variable ▾</button>
                     <div class="insert-var-menu" hidden>
                       <?php foreach ($plainVariables as $variable): ?>
-                        <button type="button" class="insert-var-item" data-insert-variable="<?= \App\View::e($variable) ?>"><?= \App\View::e($variable) ?></button>
+                        <?php $isRestricted = $isClientFacingTemplate && !empty($variable['partnerOnly']); ?>
+                        <button
+                          type="button"
+                          class="insert-var-item<?= $isRestricted ? ' insert-var-item--restricted' : '' ?>"
+                          data-insert-variable="<?= \App\View::e('{{' . $variable['key'] . '}}') ?>"
+                          <?= !empty($variable['partnerOnly']) ? 'data-variable-partner-only="1"' : '' ?>
+                          title="<?= \App\View::e($variable['description']) ?>"
+                        >
+                          <span class="insert-var-item-name"><?= \App\View::e('{{' . $variable['key'] . '}}') ?><?= !empty($variable['partnerOnly']) ? ' ⚠️' : '' ?></span>
+                          <span class="insert-var-item-desc"><?= \App\View::e($variable['description']) ?></span>
+                        </button>
                       <?php endforeach; ?>
                       <div style="padding:.4rem .9rem;font-size:.8rem;color:#6b7280;border-top:1px solid #e5e7eb;">Variables image avec taille</div>
                       <?php foreach ($resizableVariables as $variable): ?>
@@ -195,7 +204,11 @@ $selectedLanguage = $selectedLanguage ?? 'fr';
                           data-insert-variable="<?= \App\View::e($variable['name']) ?>"
                           data-variable-resizable="1"
                           data-variable-default-size="<?= (int) $variable['default'] ?>"
-                        ><?= \App\View::e($variable['label']) ?> · taille</button>
+                          title="<?= \App\View::e($variable['description']) ?>"
+                        >
+                          <span class="insert-var-item-name">{{<?= \App\View::e($variable['name']) ?>}} · taille</span>
+                          <span class="insert-var-item-desc"><?= \App\View::e($variable['description']) ?></span>
+                        </button>
                       <?php endforeach; ?>
                     </div>
                   </div>

@@ -2085,6 +2085,12 @@ function initTemplateEditor() {
 
     form.querySelectorAll('[data-insert-variable]').forEach((button) => {
       button.addEventListener('click', () => {
+        if (button.dataset.variablePartnerOnly === '1' && !window.confirm(
+          'Cette variable affiche des informations confidentielles réservées au partenaire (commission, montant à reverser…). '
+          + 'Ce template est envoyé au client : voulez-vous vraiment l’insérer ?'
+        )) {
+          return;
+        }
         if (button.dataset.variableResizable === '1') {
           const variableName = button.dataset.insertVariable || '';
           const defaultSize = button.dataset.variableDefaultSize || '320';
