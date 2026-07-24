@@ -1685,6 +1685,47 @@ final class ReservationsController extends Controller
     }
 
     /**
+     * Builds the {{bouton_reservation}} email variable: a ready-made HTML
+     * button linking back to this property's page, with the check-in/
+     * check-out dates and party size already pre-filled as query params
+     * (see /files/views/pages/partner-reservation-detail.php's "Voir le
+     * bien avec ces dates" button, and initBookingLinkPrefillGuests() in
+     * assets/js/app.js which reads them back client-side). Insertable
+     * anywhere in a template body — unlike {{tarif_bloc}}, it is not
+     * referenced by any other variable, so partners are free to place it
+     * wherever they want (e.g. right after the stay summary, or in the
+     * signature block) or to omit it entirely.
+     */
+    private static function bookingLinkButtonHtml(
+        int $propertyId,
+        string $checkin,
+        string $checkout,
+        int $adults,
+        int $children3to12
+    ): string {
+        if ($propertyId <= 0) {
+            return '';
+        }
+        $baseUrl = Auth::currentBaseUrl();
+        if ($baseUrl === '') {
+            return '';
+        }
+        $params = [
+            'arrival' => $checkin,
+            'departure' => $checkout,
+            'adults' => $adults,
+            'children' => $children3to12,
+        ];
+        $url = $baseUrl . '/properties/' . $propertyId . '?' . http_build_query($params);
+
+        return '<div style="text-align:center;margin:20px 0;">'
+            . '<a href="' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '" target="_blank" rel="noopener" '
+            . 'style="display:inline-block;background:#3b82f6;color:#ffffff;text-decoration:none;'
+            . 'font-weight:bold;font-size:14px;padding:12px 28px;border-radius:6px;">Réserver maintenant</a>'
+            . '</div>';
+    }
+
+    /**
      * Deep-link back to this partner's own site (see assets/js/app.js
      * initPartnerCodeFromHash() and PageController::submitPartnerCode()),
      * e.g. https://example.com/#scl, so clicking it from the signature opens
