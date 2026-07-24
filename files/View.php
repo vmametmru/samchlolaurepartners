@@ -409,4 +409,90 @@ final class View
             default => $status,
         };
     }
+
+    /**
+     * Email template types whose recipient is always the *client* (the
+     * guest), never the partner. Used to warn/guard against a partner
+     * accidentally inserting a partner-only/commission variable (see
+     * emailTemplateVariableCatalog()'s 'partnerOnly' flag) into a template
+     * the client will actually receive.
+     */
+    public static function clientFacingTemplateTypes(): array
+    {
+        return ['REQUEST_RECEIVED_CLIENT', 'RESERVATION_CONFIRMED', 'RESERVATION_CANCELLED', 'REMINDER'];
+    }
+
+    public static function isClientFacingTemplateType(string $type): bool
+    {
+        return in_array($type, self::clientFacingTemplateTypes(), true);
+    }
+
+    /**
+     * Documents every {{variable}} insertable in an email template editor:
+     * what data it renders, so partners/admins stop confusing similarly
+     * named variables (e.g. "tarif_hebergement" vs "tarif_total" vs
+     * "tarif_normal"). 'partnerOnly' flags variables that reveal
+     * partner-confidential figures (commission, amount owed to
+     * SamChloLaure) and must never be used in a client-facing template.
+     *
+     * @return array<int, array{key: string, description: string, partnerOnly: bool}>
+     */
+    public static function emailTemplateVariableCatalog(): array
+    {
+        return [
+            ['key' => 'nom_client', 'description' => 'Nom complet du client', 'partnerOnly' => false],
+            ['key' => 'email_client', 'description' => 'Adresse email du client', 'partnerOnly' => false],
+            ['key' => 'telephone_client', 'description' => 'Numéro de téléphone du client', 'partnerOnly' => false],
+            ['key' => 'dates', 'description' => 'Dates du séjour formatées en une phrase (ex : "du 12 août 2026 au 15 août 2026")', 'partnerOnly' => false],
+            ['key' => 'date_arrivee', 'description' => 'Date d\'arrivée seule, formatée (ex : "mer. 12 août 2026")', 'partnerOnly' => false],
+            ['key' => 'date_depart', 'description' => 'Date de départ seule, formatée (ex : "sam. 15 août 2026")', 'partnerOnly' => false],
+            ['key' => 'nuits', 'description' => 'Nombre de nuits du séjour', 'partnerOnly' => false],
+            ['key' => 'adultes', 'description' => 'Nombre d\'adultes', 'partnerOnly' => false],
+            ['key' => 'enfants', 'description' => 'Nombre d\'enfants de 3 à 12 ans', 'partnerOnly' => false],
+            ['key' => 'bebes', 'description' => 'Nombre de bébés de moins de 3 ans', 'partnerOnly' => false],
+            ['key' => 'nationalites', 'description' => 'Liste des nationalités déclarées par les voyageurs', 'partnerOnly' => false],
+            ['key' => 'multi_biens_note', 'description' => 'Note ajoutée automatiquement si la demande concerne plusieurs biens à la fois (sinon vide)', 'partnerOnly' => false],
+            ['key' => 'hebergement', 'description' => 'Nom du bien/hébergement demandé ou réservé', 'partnerOnly' => false],
+            ['key' => 'partenaire', 'description' => 'Nom du partenaire (l\'hébergeur)', 'partnerOnly' => false],
+            ['key' => 'notes', 'description' => 'Notes internes saisies par le partenaire lors de la confirmation/annulation', 'partnerOnly' => false],
+            ['key' => 'message', 'description' => 'Message libre laissé par le client dans sa demande', 'partnerOnly' => false],
+            ['key' => 'tarif_nuits', 'description' => 'Nombre de nuits utilisé dans le calcul du tarif', 'partnerOnly' => false],
+            ['key' => 'tarif_hebergement', 'description' => 'Tarif de base du logement seul, avant frais de ménage, personnes supplémentaires et commission', 'partnerOnly' => false],
+            ['key' => 'tarif_personnes_supplementaires', 'description' => 'Montant facturé pour les personnes supplémentaires', 'partnerOnly' => false],
+            ['key' => 'tarif_nettoyage', 'description' => 'Montant des frais de ménage', 'partnerOnly' => false],
+            ['key' => 'tarif_total', 'description' => 'Tarif hébergement + personnes supplémentaires + ménage (hors taxe touristique, hors commission)', 'partnerOnly' => false],
+            ['key' => 'taxe_touristique', 'description' => 'Taxe touristique à régler sur place (non comprise dans les autres totaux)', 'partnerOnly' => false],
+            ['key' => 'tarif_bloc', 'description' => 'Bloc récapitulatif du tarif déjà mis en forme (tableau complet). À privilégier plutôt que d\'assembler les variables tarif_* une par une', 'partnerOnly' => false],
+            ['key' => 'tarif_normal', 'description' => 'Identique à {{tarif_hebergement}} : tarif de base du logement, sans commission', 'partnerOnly' => false],
+            ['key' => 'commission_partenaire', 'description' => 'Montant de la commission du partenaire (tarif de base x taux de commission)', 'partnerOnly' => true],
+            ['key' => 'personnes_additionnelles', 'description' => 'Identique à {{tarif_personnes_supplementaires}}', 'partnerOnly' => false],
+            ['key' => 'nettoyage', 'description' => 'Identique à {{tarif_nettoyage}}', 'partnerOnly' => false],
+            ['key' => 'total_voyageur', 'description' => 'Montant total réellement payé par le client (tarif + commission + personnes supplémentaires + ménage, hors taxe touristique)', 'partnerOnly' => false],
+            ['key' => 'paiement_a_samchlolaure', 'description' => 'Montant net à reverser à SamChloLaure (Total Voyageur moins Commission Partenaire)', 'partnerOnly' => true],
+            ['key' => 'signature_nom', 'description' => 'Nom affiché dans la signature de l\'email', 'partnerOnly' => false],
+            ['key' => 'email_partenaire', 'description' => 'Adresse email de contact du partenaire', 'partnerOnly' => false],
+            ['key' => 'lien_partenaire', 'description' => 'Lien vers le site web du partenaire', 'partnerOnly' => false],
+            ['key' => 'telephone_partenaire', 'description' => 'Téléphone de contact du partenaire', 'partnerOnly' => false],
+            ['key' => 'politique_reservation', 'description' => 'Texte de la politique de réservation/annulation configurée par le partenaire', 'partnerOnly' => false],
+        ];
+    }
+
+    /**
+     * Same purpose as emailTemplateVariableCatalog() but for the resizable
+     * image variables (inserted as {{name:width}} and shown with a size
+     * control in the editor).
+     *
+     * @return array<int, array{name: string, default: int, description: string}>
+     */
+    public static function emailTemplateImageVariableCatalog(): array
+    {
+        return [
+            ['name' => 'photo_bien', 'default' => 320, 'description' => 'Photo principale du bien (taille réglable)'],
+            ['name' => 'photo1', 'default' => 320, 'description' => '1ère photo du bien'],
+            ['name' => 'photo2', 'default' => 320, 'description' => '2e photo du bien'],
+            ['name' => 'photo3', 'default' => 320, 'description' => '3e photo du bien'],
+            ['name' => 'logo_partenaire', 'default' => 80, 'description' => 'Logo du partenaire'],
+            ['name' => 'signature_photo', 'default' => 64, 'description' => 'Photo/avatar affiché dans la signature'],
+        ];
+    }
 }
