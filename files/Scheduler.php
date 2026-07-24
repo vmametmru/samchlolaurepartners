@@ -88,7 +88,7 @@ SQL;
                 'logo_partenaire' => \App\controllers\ReservationsController::partnerLogoVariable((string) ($row['logo_url'] ?? ''), (string) $row['name']),
                 'logo_partenaire_url' => \App\controllers\ReservationsController::partnerLogoUrlValue((string) ($row['logo_url'] ?? '')),
                 'email_partenaire' => (string) ($row['email'] ?? ''),
-                'politique_reservation' => nl2br(htmlspecialchars(\App\controllers\PageController::bookingPolicyText())),
+                'politique_reservation' => \App\controllers\PageController::formatBookingPolicyHtml(\App\controllers\PageController::bookingPolicyText()),
                 'bouton_reservation' => \App\controllers\ReservationsController::bookingLinkButtonHtml(
                     (int) ($row['property_id'] ?? 0),
                     (string) $row['checkin_date'],

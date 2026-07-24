@@ -988,6 +988,57 @@ TEXT;
         return Settings::get('BOOKING_POLICY_TEXT', self::DEFAULT_BOOKING_POLICY) ?? self::DEFAULT_BOOKING_POLICY;
     }
 
+    /**
+     * Turns the raw "Politique de réservation" text (typically pasted with a
+     * blank line after every single line, and a *double* blank line between
+     * sections) into ready-to-display HTML:
+     * - a leading "Politique de réservation" title line is dropped (it's
+     *   already shown as the block's own heading everywhere it's used),
+     * - a run of 2+ blank lines in the source marks the start of a new
+     *   section; any other blank line is just a soft line-break and is
+     *   collapsed away, so only a single blank line remains between
+     *   sections in the rendered output,
+     * - the first line of a section is treated as its title (and
+     *   underlined) when it ends with ":" (e.g. "Remboursement :",
+     *   "Paiements :", "Dépôt de garantie :"); a colon-terminated line in
+     *   the middle of a section (e.g. a sentence ending in ":") is left as
+     *   plain text.
+     * Shared by the property-detail/calendar booking-policy blocks and the
+     * {{politique_reservation}} email variable so both stay identical.
+     */
+    public static function formatBookingPolicyHtml(string $text): string
+    {
+        $rawLines = preg_split('/\r\n|\r|\n/', $text) ?: [];
+        if (isset($rawLines[0]) && trim($rawLines[0]) !== '' && mb_strtolower(trim($rawLines[0])) === 'politique de réservation') {
+            array_shift($rawLines);
+        }
+
+        $htmlLines = [];
+        $blankRun = 0;
+        $isFirstContentLine = true;
+        foreach ($rawLines as $rawLine) {
+            $trimmedLine = trim($rawLine);
+            if ($trimmedLine === '') {
+                $blankRun++;
+                continue;
+            }
+
+            $isSectionStart = $isFirstContentLine || $blankRun >= 2;
+            if ($isSectionStart && !$isFirstContentLine) {
+                $htmlLines[] = '';
+            }
+
+            $isHeader = $isSectionStart && (bool) preg_match('/:\s*$/u', $trimmedLine);
+            $escaped = htmlspecialchars($trimmedLine, ENT_QUOTES, 'UTF-8');
+            $htmlLines[] = $isHeader ? '<u>' . $escaped . '</u>' : $escaped;
+
+            $blankRun = 0;
+            $isFirstContentLine = false;
+        }
+
+        return implode('<br>', $htmlLines);
+    }
+
     public static function adminBookingPolicy(): void
     {
         self::requireAdminUser();

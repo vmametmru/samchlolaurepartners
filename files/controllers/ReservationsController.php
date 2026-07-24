@@ -1072,7 +1072,7 @@ final class ReservationsController extends Controller
                 (string) ($partner['name'] ?? '')
             ),
             'logo_partenaire_url' => self::partnerLogoUrlValue((string) ($partner['logo_url'] ?? '')),
-            'politique_reservation' => nl2br(htmlspecialchars(PageController::bookingPolicyText())),
+            'politique_reservation' => PageController::formatBookingPolicyHtml(PageController::bookingPolicyText()),
             'bouton_reservation' => self::bookingLinkButtonHtml(
                 (int) ($input['property_id'] ?? 0),
                 $checkin,
@@ -1205,7 +1205,7 @@ final class ReservationsController extends Controller
                 (string) ($partner['name'] ?? '')
             ),
             'logo_partenaire_url' => self::partnerLogoUrlValue((string) ($partner['logo_url'] ?? '')),
-            'politique_reservation' => nl2br(htmlspecialchars(PageController::bookingPolicyText())),
+            'politique_reservation' => PageController::formatBookingPolicyHtml(PageController::bookingPolicyText()),
             'bouton_reservation' => self::bookingLinkButtonHtml(
                 (int) ($request['property_id'] ?? 0),
                 (string) $request['checkin_date'],
@@ -1415,7 +1415,9 @@ final class ReservationsController extends Controller
         $cleaningTotal = $breakdown['cleaning_total'];
         $touristTaxTotal = $breakdown['tourist_tax_total'];
         $nights = $breakdown['nights'];
-        $totalWithoutTax = round($roomTotal + $extraPersonTotal + $cleaningTotal, 2);
+        // Includes the partner's commission (Tarif Normal + Commissions +
+        // Ménage + Personnes Additionnelles), but never the tourist tax.
+        $totalWithoutTax = round($roomTotal + $breakdown['commission_total'] + $extraPersonTotal + $cleaningTotal, 2);
         $itemCount = max(1, $itemCount);
 
         $tarifBloc = '<div style="padding:12px 24px 16px;">'

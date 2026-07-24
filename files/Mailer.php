@@ -13,6 +13,19 @@ final class Mailer
 
     public static function renderTemplate(string $template, array $variables): string
     {
+        // Support "{{var1}}+{{var2}}(+{{var3}}...)" expressions in the
+        // template body: when every referenced variable resolves to a plain
+        // number or a formatted money amount (e.g. "1 234,56 EUR"), the
+        // whole expression is replaced by their sum instead of being left as
+        // separate values glued to a literal "+".
+        $template = preg_replace_callback(
+            '/\{\{[a-zA-Z0-9_]+\}\}(?:\s*\+\s*\{\{[a-zA-Z0-9_]+\}\})+/',
+            static function (array $matches) use ($variables): string {
+                return self::sumVariableExpression($matches[0], $variables);
+            },
+            $template
+        ) ?? $template;
+
         $rendered = preg_replace_callback('/\{\{([a-zA-Z0-9_]+)(?::(\d{1,4}))?\}\}/', static function (array $matches) use ($variables): string {
             $name = (string) $matches[1];
             $size = isset($matches[2]) ? (int) $matches[2] : null;
@@ -56,6 +69,82 @@ final class Mailer
             },
             $rendered
         );
+    }
+
+    /**
+     * Resolves a "{{var1}}+{{var2}}(+...)" expression to the sum of the
+     * referenced variables when every one of them is a plain number or a
+     * money-formatted amount (as produced by
+     * ReservationsController::formatMoneyFr(), e.g. "1 234,56 EUR"). If any
+     * variable is missing or not numeric, the expression is left untouched
+     * so the surrounding single-variable substitution still applies to each
+     * {{name}} token individually.
+     */
+    private static function sumVariableExpression(string $expression, array $variables): string
+    {
+        preg_match_all('/\{\{([a-zA-Z0-9_]+)\}\}/', $expression, $names);
+
+        $sum = 0.0;
+        $suffix = null;
+        $hasDecimals = false;
+
+        foreach ($names[1] as $name) {
+            $value = $variables[$name] ?? null;
+            if ($value instanceof \Closure || (is_object($value) && is_callable($value))) {
+                $value = $value(null);
+            }
+            if ($value === null) {
+                return $expression;
+            }
+
+            $parsed = self::parseNumericAmount((string) $value);
+            if ($parsed === null) {
+                return $expression;
+            }
+
+            $sum += $parsed['amount'];
+            if ($parsed['decimals']) {
+                $hasDecimals = true;
+            }
+            if ($parsed['suffix'] !== '') {
+                $suffix = $parsed['suffix'];
+            }
+        }
+
+        $formatted = number_format($sum, $hasDecimals || $suffix !== null ? 2 : 0, ',', ' ');
+
+        return $suffix !== null ? $formatted . ' ' . $suffix : $formatted;
+    }
+
+    /**
+     * @return array{amount: float, decimals: bool, suffix: string}|null
+     */
+    private static function parseNumericAmount(string $raw): ?array
+    {
+        $trimmed = trim($raw);
+        if ($trimmed === '') {
+            return null;
+        }
+
+        // Accepts plain numbers ("3", "12.5") and money-formatted amounts
+        // ("1 234,56", "1 234,56 EUR", "1 234,56 €"), with a French
+        // (space thousands, comma decimals) or plain decimal notation.
+        if (!preg_match('/^(-?[0-9][0-9\x{00A0}\s]*(?:[.,][0-9]+)?)\s*([A-Za-zÀ-ÿ€$£]{0,10})$/u', $trimmed, $matches)) {
+            return null;
+        }
+
+        $numberPart = str_replace(["\xC2\xA0", ' '], '', $matches[1]);
+        $hasDecimals = strpos($numberPart, ',') !== false || strpos($numberPart, '.') !== false;
+        $numberPart = str_replace(',', '.', $numberPart);
+        if (!is_numeric($numberPart)) {
+            return null;
+        }
+
+        return [
+            'amount' => (float) $numberPart,
+            'decimals' => $hasDecimals,
+            'suffix' => trim($matches[2]),
+        ];
     }
 
     public static function sendTemplatedEmail(array $partner, array $template, string $to, array $variables, array $embeds = []): void
@@ -258,9 +347,9 @@ final class Mailer
         ));
     }
 
-    public static function sendContactEmail(array $partner, string $replyTo, string $subject, string $html): void
+    public static function sendContactEmail(array $partner, string $to, string $subject, string $html, ?string $replyTo = null): void
     {
-        self::deliver($partner, (string) $partner['email'], $subject, $html, $replyTo);
+        self::deliver($partner, $to, $subject, $html, $replyTo);
     }
 
     /**

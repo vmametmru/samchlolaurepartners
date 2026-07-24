@@ -1186,7 +1186,7 @@ function initTemplateEditor() {
     tarif_hebergement: '1 200,00 €',
     tarif_personnes_supplementaires: '80,00 €',
     tarif_nettoyage: '60,00 €',
-    tarif_total: '1 340,00 €',
+    tarif_total: '1 460,00 €',
     taxe_touristique: '14,00 €',
     tarif_normal: '1 200,00 €',
     commission_partenaire: '120,00 €',

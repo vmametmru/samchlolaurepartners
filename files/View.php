@@ -461,7 +461,7 @@ final class View
             ['key' => 'tarif_hebergement', 'description' => 'Tarif de base du logement seul, avant frais de ménage, personnes supplémentaires et commission', 'partnerOnly' => false],
             ['key' => 'tarif_personnes_supplementaires', 'description' => 'Montant facturé pour les personnes supplémentaires', 'partnerOnly' => false],
             ['key' => 'tarif_nettoyage', 'description' => 'Montant des frais de ménage', 'partnerOnly' => false],
-            ['key' => 'tarif_total', 'description' => 'Tarif hébergement + personnes supplémentaires + ménage (hors taxe touristique, hors commission)', 'partnerOnly' => false],
+            ['key' => 'tarif_total', 'description' => 'Tarif normal + commissions + ménage + personnes supplémentaires (hors taxe touristique)', 'partnerOnly' => false],
             ['key' => 'taxe_touristique', 'description' => 'Taxe touristique à régler sur place (non comprise dans les autres totaux)', 'partnerOnly' => false],
             ['key' => 'tarif_bloc', 'description' => 'Bloc récapitulatif du tarif déjà mis en forme (tableau complet). À privilégier plutôt que d\'assembler les variables tarif_* une par une', 'partnerOnly' => false],
             ['key' => 'tarif_normal', 'description' => 'Identique à {{tarif_hebergement}} : tarif de base du logement, sans commission', 'partnerOnly' => false],
