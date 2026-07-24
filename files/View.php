@@ -450,6 +450,7 @@ final class View
             ['key' => 'adultes', 'description' => 'Nombre d\'adultes', 'partnerOnly' => false],
             ['key' => 'enfants', 'description' => 'Nombre d\'enfants de 3 à 12 ans', 'partnerOnly' => false],
             ['key' => 'bebes', 'description' => 'Nombre de bébés de moins de 3 ans', 'partnerOnly' => false],
+            ['key' => 'total_personnes', 'description' => 'Nombre total de personnes (adultes + enfants + bébés)', 'partnerOnly' => false],
             ['key' => 'nationalites', 'description' => 'Liste des nationalités déclarées par les voyageurs', 'partnerOnly' => false],
             ['key' => 'multi_biens_note', 'description' => 'Note ajoutée automatiquement si la demande concerne plusieurs biens à la fois (sinon vide)', 'partnerOnly' => false],
             ['key' => 'hebergement', 'description' => 'Nom du bien/hébergement demandé ou réservé', 'partnerOnly' => false],

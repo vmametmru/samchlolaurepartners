@@ -1175,6 +1175,7 @@ function initTemplateEditor() {
     adultes: '2',
     enfants: '1',
     bebes: '0',
+    total_personnes: '3',
     nationalites: 'Adulte 1 : Française, Adulte 2 : Britannique, Enfant 1 : Française',
     hebergement: 'Villa Bleu Océan',
     partenaire: 'Grand Baie Escapes',
@@ -1197,7 +1198,8 @@ function initTemplateEditor() {
     signature_nom: 'Marie Lemoine',
     email_partenaire: 'contact@grandbaie-escapes.com',
     lien_partenaire: 'https://exemple-partenaire.grand-baie-maurice.com/espace',
-    telephone_partenaire: '+230 5698 7412'
+    telephone_partenaire: '+230 5698 7412',
+    politique_reservation: 'Annulation gratuite jusqu\u2019à 30 jours avant l\u2019arrivée. Merci de vous référer aux conditions complètes fournies par l\u2019hébergeur.'
   };
 
   // These tokens are rendered as real <img> elements (or a dedicated block,

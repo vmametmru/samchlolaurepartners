@@ -1081,7 +1081,7 @@ final class ReservationsController extends Controller
                 $childBreakdown['from3to12']
             ),
         ];
-        $variables += self::stayVariables($checkin, $checkout, $childBreakdown['under3'], $childBreakdown['from3to12']);
+        $variables += self::stayVariables($checkin, $checkout, $childBreakdown['under3'], $childBreakdown['from3to12'], (int) ($input['adults'] ?? 0));
         $variables += self::requestQuoteVariables($input, $itemCount, (float) ($partner['markup_percent'] ?? 0));
         $signature = self::signatureVariables((int) ($partner['id'] ?? 0));
         $variables += $signature['variables'];
@@ -1218,7 +1218,8 @@ final class ReservationsController extends Controller
             (string) $request['checkin_date'],
             (string) $request['checkout_date'],
             $childBreakdown['under3'],
-            $childBreakdown['from3to12']
+            $childBreakdown['from3to12'],
+            (int) $request['adults']
         );
         // The quote breakdown persisted on the request row at submission time
         // (quote_room_total, quote_partner_rate, ...) lets confirmation/
@@ -1265,8 +1266,9 @@ final class ReservationsController extends Controller
      * always defaulting numeric values to 0 instead of leaving the
      * placeholder unresolved when a field is empty.
      */
-    public static function stayVariables(string $checkin, string $checkout, int $childrenUnder3, int $children3to12): array
+    public static function stayVariables(string $checkin, string $checkout, int $childrenUnder3, int $children3to12, int $adults = 0): array
     {
+        $adults = max(0, $adults);
         $childrenUnder3 = max(0, $childrenUnder3);
         $children3to12 = max(0, $children3to12);
         $formattedCheckin = self::formatDateFr($checkin);
@@ -1280,6 +1282,7 @@ final class ReservationsController extends Controller
             'nuits' => (string) $nights,
             'enfants' => (string) $children3to12,
             'bebes' => (string) $childrenUnder3,
+            'total_personnes' => (string) ($adults + $children3to12 + $childrenUnder3),
         ];
     }
 
