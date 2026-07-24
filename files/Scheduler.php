@@ -108,7 +108,7 @@ SQL;
             $embeds = $signature['embed'] !== null ? [$signature['embed']] : [];
 
             try {
-                Mailer::sendTemplatedEmail($row, $template, (string) $row['client_email'], $variables, $embeds);
+                Mailer::sendTemplatedEmail($row, $template, (string) $row['client_email'], $variables, $embeds, (string) ($row['email'] ?? ''));
                 $markStmt = $pdo->prepare('INSERT IGNORE INTO sent_schedule_emails (schedule_id, reservation_id) VALUES (?, ?)');
                 $markStmt->execute([(int) $row['schedule_id'], (int) $row['reservation_id']]);
                 $sent++;

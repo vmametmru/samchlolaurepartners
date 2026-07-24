@@ -147,7 +147,7 @@ final class Mailer
         ];
     }
 
-    public static function sendTemplatedEmail(array $partner, array $template, string $to, array $variables, array $embeds = []): void
+    public static function sendTemplatedEmail(array $partner, array $template, string $to, array $variables, array $embeds = [], ?string $replyTo = null): void
     {
         $html = self::renderTemplate((string) $template['body_html'], $variables);
         $inlined = self::embedHotlinkedImages($html, $embeds);
@@ -156,15 +156,15 @@ final class Mailer
             $to,
             self::renderTemplate((string) $template['subject'], $variables),
             $inlined['html'],
-            null,
+            $replyTo,
             self::filterUnusedEmbeds($inlined['html'], $inlined['embeds'])
         );
     }
 
-    public static function sendRawEmail(array $partner, string $to, string $subject, string $html, array $embeds = []): void
+    public static function sendRawEmail(array $partner, string $to, string $subject, string $html, array $embeds = [], ?string $replyTo = null): void
     {
         $inlined = self::embedHotlinkedImages($html, $embeds);
-        self::deliver($partner, $to, $subject, $inlined['html'], null, self::filterUnusedEmbeds($inlined['html'], $inlined['embeds']));
+        self::deliver($partner, $to, $subject, $inlined['html'], $replyTo, self::filterUnusedEmbeds($inlined['html'], $inlined['embeds']));
     }
 
     /**
@@ -382,7 +382,13 @@ final class Mailer
             $to = self::sanitizeAddress($to, 'recipient');
             $subject = self::stripCrlf($subject);
             if ($replyTo !== null) {
-                $replyTo = self::sanitizeAddress($replyTo, 'Reply-To');
+                // A malformed/empty Reply-To (e.g. a blank client email on an
+                // older, pre-validation request row) must never abort the
+                // whole send — it's a nice-to-have so replies route to the
+                // other party, not a requirement for the message itself.
+                $replyTo = trim($replyTo) !== '' && filter_var(trim($replyTo), FILTER_VALIDATE_EMAIL) !== false
+                    ? self::sanitizeAddress($replyTo, 'Reply-To')
+                    : null;
             }
 
             $config = [

@@ -1104,11 +1104,15 @@ final class ReservationsController extends Controller
         // The partner/host-facing copy always stays in French: the visitor's
         // site language reflects the *guest's* language, not the partner's.
         $partnerTemplate = self::findEmailTemplate($pdo, (int) $partner['id'], 'REQUEST_RECEIVED_PARTNER', I18n::DEFAULT_LANGUAGE);
+        // Reply-To the client's own address on the partner-facing copy, so a
+        // partner hitting "Reply" in their mailbox writes straight back to
+        // the guest instead of to the shared sending mailbox.
+        $clientReplyTo = (string) ($input['client_email'] ?? '');
         try {
             if ($partnerTemplate) {
-                Mailer::sendTemplatedEmail($partner, $partnerTemplate, (string) $partner['email'], $variables, $embeds);
+                Mailer::sendTemplatedEmail($partner, $partnerTemplate, (string) $partner['email'], $variables, $embeds, $clientReplyTo);
             } else {
-                Mailer::sendRawEmail($partner, (string) $partner['email'], 'Nouvelle demande de réservation - ' . $variables['nom_client'], '<p>Nouvelle demande de ' . htmlspecialchars($variables['nom_client']) . ' (' . htmlspecialchars($variables['email_client']) . ') pour ' . htmlspecialchars($variables['hebergement'] !== '' ? $variables['hebergement'] : 'hébergement non spécifié') . ' du ' . htmlspecialchars($variables['date_arrivee']) . ' au ' . htmlspecialchars($variables['date_depart']) . '.</p>' . $variables['tarif_bloc']);
+                Mailer::sendRawEmail($partner, (string) $partner['email'], 'Nouvelle demande de réservation - ' . $variables['nom_client'], '<p>Nouvelle demande de ' . htmlspecialchars($variables['nom_client']) . ' (' . htmlspecialchars($variables['email_client']) . ') pour ' . htmlspecialchars($variables['hebergement'] !== '' ? $variables['hebergement'] : 'hébergement non spécifié') . ' du ' . htmlspecialchars($variables['date_arrivee']) . ' au ' . htmlspecialchars($variables['date_depart']) . '.</p>' . $variables['tarif_bloc'], [], $clientReplyTo);
             }
         } catch (Throwable $e) {
             error_log('Failed to send REQUEST_RECEIVED_PARTNER email to partner #' . (int) ($partner['id'] ?? 0) . ' (' . (string) ($partner['email'] ?? '') . '): ' . $e);
@@ -1122,11 +1126,15 @@ final class ReservationsController extends Controller
         // must never reach the client, even if a partner mistakenly inserted
         // one into their client-facing template — see redactPartnerOnlyVariables().
         $clientVariables = self::redactPartnerOnlyVariables($variables);
+        // Reply-To the partner's own address on the client-facing copy, so a
+        // guest hitting "Reply" writes straight back to the partner instead
+        // of to the shared sending mailbox.
+        $partnerReplyTo = (string) ($partner['email'] ?? '');
         try {
             if ($clientTemplate) {
-                Mailer::sendTemplatedEmail($partner, $clientTemplate, (string) $input['client_email'], $clientVariables, $embeds);
+                Mailer::sendTemplatedEmail($partner, $clientTemplate, (string) $input['client_email'], $clientVariables, $embeds, $partnerReplyTo);
             } else {
-                Mailer::sendRawEmail($partner, (string) $input['client_email'], 'Confirmation de votre demande - ' . (string) $partner['name'], '<p>Bonjour ' . htmlspecialchars((string) $input['client_name']) . ',</p><p>Nous avons bien reçu votre demande de réservation pour ' . htmlspecialchars((string) ($input['property_name'] ?? 'l\'hébergement')) . ' du ' . htmlspecialchars((string) $input['checkin_date']) . ' au ' . htmlspecialchars((string) $input['checkout_date']) . '.</p>' . $variables['tarif_bloc'] . '<p>Nous vous contacterons très prochainement.</p><p>Cordialement,<br>' . htmlspecialchars((string) $partner['name']) . '</p>');
+                Mailer::sendRawEmail($partner, (string) $input['client_email'], 'Confirmation de votre demande - ' . (string) $partner['name'], '<p>Bonjour ' . htmlspecialchars((string) $input['client_name']) . ',</p><p>Nous avons bien reçu votre demande de réservation pour ' . htmlspecialchars((string) ($input['property_name'] ?? 'l\'hébergement')) . ' du ' . htmlspecialchars((string) $input['checkin_date']) . ' au ' . htmlspecialchars((string) $input['checkout_date']) . '.</p>' . $variables['tarif_bloc'] . '<p>Nous vous contacterons très prochainement.</p><p>Cordialement,<br>' . htmlspecialchars((string) $partner['name']) . '</p>', [], $partnerReplyTo);
             }
         } catch (Throwable $e) {
             error_log('Failed to send REQUEST_RECEIVED_CLIENT email to ' . (string) ($input['client_email'] ?? '') . ': ' . $e);
@@ -1248,13 +1256,18 @@ final class ReservationsController extends Controller
         // SamChloLaure) are always stripped before rendering.
         $variables = self::redactPartnerOnlyVariables($variables);
 
+        // Reply-To the partner's own address, so a guest hitting "Reply"
+        // writes straight back to the partner instead of to the shared
+        // sending mailbox.
+        $partnerReplyTo = (string) ($partner['email'] ?? '');
+
         if ($template) {
-            Mailer::sendTemplatedEmail($partner, $template, (string) $request['client_email'], $variables, $embeds);
+            Mailer::sendTemplatedEmail($partner, $template, (string) $request['client_email'], $variables, $embeds, $partnerReplyTo);
             return;
         }
 
         if ($type === 'RESERVATION_CONFIRMED') {
-            Mailer::sendRawEmail($partner, (string) $request['client_email'], 'Votre réservation est confirmée - ' . (string) $partner['name'], '<p>Bonjour ' . htmlspecialchars((string) $request['client_name']) . ',</p><p>Votre réservation pour ' . htmlspecialchars((string) $request['property_name']) . ' du ' . htmlspecialchars((string) $request['checkin_date']) . ' au ' . htmlspecialchars((string) $request['checkout_date']) . ' est confirmée.</p><p>Cordialement,<br>' . htmlspecialchars((string) $partner['name']) . '</p>');
+            Mailer::sendRawEmail($partner, (string) $request['client_email'], 'Votre réservation est confirmée - ' . (string) $partner['name'], '<p>Bonjour ' . htmlspecialchars((string) $request['client_name']) . ',</p><p>Votre réservation pour ' . htmlspecialchars((string) $request['property_name']) . ' du ' . htmlspecialchars((string) $request['checkin_date']) . ' au ' . htmlspecialchars((string) $request['checkout_date']) . ' est confirmée.</p><p>Cordialement,<br>' . htmlspecialchars((string) $partner['name']) . '</p>', [], $partnerReplyTo);
         }
     }
 
