@@ -1195,12 +1195,37 @@ final class ReservationsController extends Controller
      * default's French variant when no translated default exists either.
      * Returns null when neither exists (e.g. the admin never created a
      * default template for this type), leaving the caller's own
-     * hardcoded-HTML fallback as the last resort.
+     * hardcoded-HTML fallback as the last resort. Also self-heals the
+     * default_email_templates table if a request race the fresh-deploy
+     * migration throttle (see PageController::ensureDefaultEmailTemplatesTable()).
      */
     private static function findDefaultEmailTemplate(PDO $pdo, string $type, string $language): ?array
     {
-        $stmt = $pdo->prepare('SELECT * FROM default_email_templates WHERE type = ? AND language = ? LIMIT 1');
-        $stmt->execute([$type, $language]);
+        try {
+            $stmt = $pdo->prepare('SELECT * FROM default_email_templates WHERE type = ? AND language = ? LIMIT 1');
+            $stmt->execute([$type, $language]);
+        } catch (\PDOException $e) {
+            $pdo->exec(
+                "CREATE TABLE IF NOT EXISTS default_email_templates (
+                  id INT AUTO_INCREMENT PRIMARY KEY,
+                  type ENUM(
+                    'REQUEST_RECEIVED_PARTNER',
+                    'REQUEST_RECEIVED_CLIENT',
+                    'RESERVATION_CONFIRMED',
+                    'RESERVATION_CANCELLED',
+                    'REMINDER'
+                  ) NOT NULL,
+                  language VARCHAR(5) NOT NULL DEFAULT 'fr',
+                  subject VARCHAR(500) NOT NULL,
+                  body_html MEDIUMTEXT NOT NULL,
+                  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  UNIQUE KEY unique_type_lang (type, language)
+                )"
+            );
+            $stmt = $pdo->prepare('SELECT * FROM default_email_templates WHERE type = ? AND language = ? LIMIT 1');
+            $stmt->execute([$type, $language]);
+        }
         $template = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
         if ($template !== null || $language === I18n::DEFAULT_LANGUAGE) {
             return $template;

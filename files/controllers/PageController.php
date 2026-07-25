@@ -2262,6 +2262,38 @@ TEXT;
     }
 
     /**
+     * Creates the default_email_templates table on the fly if it doesn't
+     * exist yet. Migrator::autoRun() already does this on every request,
+     * but it is throttled (a marker file skips the check for up to 60s) and
+     * only runs from index.php, so hitting this page right after a fresh
+     * deploy (before the throttle window elapses) could still hit "Table
+     * ... doesn't exist" — this mirrors
+     * db/migrations/029_create_default_email_templates.sql (see also
+     * ensurePropertyTranslationsTable() for the same pattern).
+     */
+    private static function ensureDefaultEmailTemplatesTable(): void
+    {
+        Database::connection()->exec(
+            "CREATE TABLE IF NOT EXISTS default_email_templates (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              type ENUM(
+                'REQUEST_RECEIVED_PARTNER',
+                'REQUEST_RECEIVED_CLIENT',
+                'RESERVATION_CONFIRMED',
+                'RESERVATION_CANCELLED',
+                'REMINDER'
+              ) NOT NULL,
+              language VARCHAR(5) NOT NULL DEFAULT 'fr',
+              subject VARCHAR(500) NOT NULL,
+              body_html MEDIUMTEXT NOT NULL,
+              created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              UNIQUE KEY unique_type_lang (type, language)
+            )"
+        );
+    }
+
+    /**
      * Admin-managed "default" templates page (/admin/templates/default):
      * lets the admin maintain one template per type/language, used by
      * ReservationsController::findEmailTemplate() as the fallback whenever
@@ -2270,6 +2302,7 @@ TEXT;
     public static function adminDefaultTemplates(): void
     {
         self::requireAdminUser();
+        self::ensureDefaultEmailTemplatesTable();
         $selectedLanguage = in_array((string) ($_GET['language'] ?? ''), I18n::SUPPORTED, true)
             ? (string) $_GET['language']
             : I18n::DEFAULT_LANGUAGE;
@@ -2312,6 +2345,7 @@ TEXT;
     public static function adminCreateDefaultTemplate(): never
     {
         self::requireAdminUser();
+        self::ensureDefaultEmailTemplatesTable();
         $type = trim((string) ($_POST['type'] ?? ''));
         $language = in_array((string) ($_POST['language'] ?? ''), I18n::SUPPORTED, true)
             ? (string) $_POST['language']
@@ -2343,6 +2377,7 @@ TEXT;
     public static function adminSaveDefaultTemplate(int $id): never
     {
         self::requireAdminUser();
+        self::ensureDefaultEmailTemplatesTable();
         Database::connection()->prepare(
             'UPDATE default_email_templates SET subject = ?, body_html = ?, updated_at = NOW() WHERE id = ?'
         )->execute([
@@ -2359,6 +2394,7 @@ TEXT;
     public static function adminDeleteDefaultTemplate(int $id): never
     {
         self::requireAdminUser();
+        self::ensureDefaultEmailTemplatesTable();
         Database::connection()->prepare('DELETE FROM default_email_templates WHERE id = ?')->execute([$id]);
         self::redirect('/admin/templates/default', 'Template par défaut supprimé.');
     }
