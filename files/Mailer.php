@@ -505,6 +505,22 @@ final class Mailer
         return trim(str_replace(["\r", "\n"], '', $value));
     }
 
+    /**
+     * Picks the hostname to announce in the SMTP EHLO command: the domain of
+     * the authenticated From address (e.g. "grand-baie-maurice.com"), which
+     * is the domain that actually publishes the SPF/DKIM/DMARC records,
+     * falling back to the configured SMTP host if the From address is
+     * somehow malformed. Never returns "localhost" (a common spam signal).
+     */
+    private static function ehloHostname(string $fromEmail, string $fallbackHost): string
+    {
+        $atPos = strrpos($fromEmail, '@');
+        $domain = $atPos !== false ? substr($fromEmail, $atPos + 1) : '';
+        $domain = self::stripCrlf($domain);
+
+        return $domain !== '' ? $domain : $fallbackHost;
+    }
+
     private static function sendSmtp(array $config, string $to, string $subject, string $html, ?string $replyTo, array $embeds, array &$trace): void
     {
         $host = (string) $config['host'];
@@ -518,8 +534,16 @@ final class Mailer
         }
         stream_set_timeout($socket, 15);
 
+        // EHLO with "localhost" is a well-known spam signal: it never
+        // resolves to the connecting host, and many receiving filters
+        // (Gmail/iCloud included) weigh it against the sender's reputation.
+        // Announcing the sender's own domain instead — the same domain that
+        // publishes the SPF/DKIM/DMARC records — is what legitimate mail
+        // scripts on shared hosting are expected to send.
+        $ehloHost = self::ehloHostname((string) $config['from_email'], $host);
+
         self::expect($socket, [220], $trace);
-        self::command($socket, 'EHLO localhost', [250], $trace);
+        self::command($socket, 'EHLO ' . $ehloHost, [250], $trace);
 
         if ($transport === $host && function_exists('stream_socket_enable_crypto')) {
             self::command($socket, 'STARTTLS', [220], $trace);
@@ -528,7 +552,7 @@ final class Mailer
                 throw new RuntimeException('SMTP STARTTLS negotiation failed.');
             }
             $trace[] = 'STARTTLS negotiated';
-            self::command($socket, 'EHLO localhost', [250], $trace);
+            self::command($socket, 'EHLO ' . $ehloHost, [250], $trace);
         }
 
         if (!empty($config['user'])) {
