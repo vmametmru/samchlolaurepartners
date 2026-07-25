@@ -476,7 +476,8 @@ final class View
             ['key' => 'lien_partenaire', 'description' => 'Lien vers le site web du partenaire', 'partnerOnly' => false],
             ['key' => 'telephone_partenaire', 'description' => 'Téléphone de contact du partenaire', 'partnerOnly' => false],
             ['key' => 'politique_reservation', 'description' => 'Texte de la politique de réservation/annulation configurée par le partenaire', 'partnerOnly' => false],
-            ['key' => 'bouton_reservation', 'description' => 'Bouton "Réserver maintenant" prêt à l\'emploi, pointant vers la fiche du bien avec les dates/voyageurs déjà pré-remplis. Insérable n\'importe où dans l\'email', 'partnerOnly' => false],
+            ['key' => 'bouton_reservation', 'description' => 'Bouton "Réserver maintenant" prêt à l\'emploi. Revérifie la disponibilité en temps réel au moment du clic puis ouvre directement la page de paiement Lodgify (checkout) si les dates sont toujours disponibles, ou renvoie vers la fiche du bien avec un message d\'indisponibilité sinon. Insérable n\'importe où dans l\'email', 'partnerOnly' => false],
+            ['key' => 'bouton_verifier_disponibilites', 'description' => 'Bouton "Vérifier les disponibilités" prêt à l\'emploi. Revérifie la disponibilité en temps réel au moment du clic et affiche une page de confirmation avec un bouton "Réserver" vers la page de paiement Lodgify si les dates sont disponibles. Insérable n\'importe où dans l\'email', 'partnerOnly' => false],
         ];
     }
 
