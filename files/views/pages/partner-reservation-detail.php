@@ -33,6 +33,22 @@
         <?php else: ?>, <?= (int) $reservation['children'] ?> enfant(s)<?php endif; ?>
       </div>
     </div>
+    <?php if ((int) ($reservation['property_id'] ?? 0) > 0): ?>
+      <?php
+        $propertyLinkParams = [
+          'arrival' => (string) $reservation['checkin_date'],
+          'departure' => (string) $reservation['checkout_date'],
+          'adults' => (int) $reservation['adults'],
+          'children' => (int) ($children3to12 ?? $reservation['children'] ?? 0),
+        ];
+        $propertyLinkUrl = '/properties/' . (int) $reservation['property_id'] . '?' . http_build_query($propertyLinkParams);
+      ?>
+      <div class="button-row">
+        <a class="btn-secondary" href="<?= \App\View::e($propertyLinkUrl) ?>" target="_blank" rel="noopener">
+          🏠 Voir le bien avec ces dates
+        </a>
+      </div>
+    <?php endif; ?>
     <?php if ($guests !== []): ?>
       <div>
         <span class="muted">Nationalités :</span>
@@ -49,6 +65,22 @@
     <?php endif; ?>
     <?php if (!empty($reservation['message'])): ?><div><span class="muted">Message :</span><p class="message-box"><?= nl2br(\App\View::e($reservation['message'])) ?></p></div><?php endif; ?>
   </div>
+  <?php if (($reservation['quote_room_total'] ?? null) !== null): ?>
+    <?php $quoteCurrency = (string) ($reservation['quote_currency'] ?? 'EUR'); ?>
+    <div class="card card-body stack-md">
+      <h2 class="section-title">Détail du devis</h2>
+      <div class="form-grid cols-2 compact-grid">
+        <div><span class="muted">Tarif Normal :</span> <strong><?= \App\View::e(\App\controllers\ReservationsController::formatMoneyFr((float) $reservation['quote_room_total'], $quoteCurrency)) ?></strong></div>
+        <div><span class="muted">Commissions Partenaire :</span> <strong><?= \App\View::e(\App\controllers\ReservationsController::formatMoneyFr((float) ($reservation['quote_commission_total'] ?? 0), $quoteCurrency)) ?></strong></div>
+        <div><span class="muted">Personnes Additionnels :</span> <strong><?= \App\View::e(\App\controllers\ReservationsController::formatMoneyFr((float) ($reservation['quote_extra_person_total'] ?? 0), $quoteCurrency)) ?></strong></div>
+        <div><span class="muted">Nettoyage :</span> <strong><?= \App\View::e(\App\controllers\ReservationsController::formatMoneyFr((float) ($reservation['quote_cleaning_total'] ?? 0), $quoteCurrency)) ?></strong></div>
+        <?php if ((float) ($reservation['quote_tourist_tax_total'] ?? 0) > 0): ?>
+          <div><span class="muted">Taxe touristique :</span> <strong><?= \App\View::e(\App\controllers\ReservationsController::formatMoneyFr((float) $reservation['quote_tourist_tax_total'], $quoteCurrency)) ?></strong></div>
+        <?php endif; ?>
+        <div><span class="muted">Total Voyageur :</span> <strong><?= \App\View::e(\App\controllers\ReservationsController::formatMoneyFr((float) ($reservation['quote_total_traveler'] ?? 0), $quoteCurrency)) ?></strong></div>
+      </div>
+    </div>
+  <?php endif; ?>
   <?php if ($reservation['status'] !== 'pending'): ?>
     <div class="card card-body stack-md">
       <h2 class="section-title">Statut</h2>

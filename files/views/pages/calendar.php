@@ -209,21 +209,15 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
     <div class="booking-status-popup" id="multi-cart-status-popup" data-form-status-popup hidden aria-live="polite" aria-atomic="true">
       <div class="booking-status-popup-box" data-form-status-popup-box>
         <p class="booking-status-popup-message" data-form-status-popup-message></p>
+        <p class="booking-status-popup-note" data-form-status-popup-spam-note hidden>Vérifiez vos courriers indésirables, il arrive que les emails soient catégorisés comme indésirables.</p>
+        <button type="button" class="booking-status-popup-close" data-form-status-popup-close>Fermer</button>
       </div>
     </div>
 
     <div class="form-grid cols-2 calendar-info-blocks">
       <div class="booking-policy-block">
         <h3 class="section-title">Politique de réservation</h3>
-        <?php
-          $bookingPolicyText = \App\controllers\PageController::bookingPolicyText();
-          $bookingPolicyLines = preg_split('/\r\n|\r|\n/', $bookingPolicyText) ?: [];
-          if (isset($bookingPolicyLines[0]) && trim($bookingPolicyLines[0]) !== '' && mb_strtolower(trim($bookingPolicyLines[0])) === 'politique de réservation') {
-            array_shift($bookingPolicyLines);
-          }
-          $bookingPolicyText = trim(implode("\n", $bookingPolicyLines));
-        ?>
-        <div class="prose"><?= nl2br(\App\View::e($bookingPolicyText)) ?></div>
+        <div class="prose"><?= \App\controllers\PageController::formatBookingPolicyHtml(\App\controllers\PageController::bookingPolicyText()) ?></div>
       </div>
 
       <div class="booking-policy-block price-info-block">

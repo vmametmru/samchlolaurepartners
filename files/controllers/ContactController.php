@@ -39,7 +39,7 @@ final class ContactController extends Controller
             . '<p><strong>Message:</strong><br>' . nl2br(htmlspecialchars($message)) . '</p>';
 
         try {
-            Mailer::sendContactEmail($partner, $email, 'Contact de ' . $name . ' - ' . $partner['name'], $html);
+            Mailer::sendContactEmail($partner, (string) $partner['email'], 'Contact de ' . $name . ' - ' . $partner['name'], $html, $email);
             $stmt = Database::connection()->prepare('SELECT * FROM partners WHERE id = ? LIMIT 1');
             $stmt->execute([(int) $partner['id']]);
             $fullPartner = $stmt->fetch(PDO::FETCH_ASSOC) ?: $partner;

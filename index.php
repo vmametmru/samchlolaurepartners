@@ -239,6 +239,9 @@ try {
             PageController::adminSavePartnerTemplate((int) $matches[1], (int) $matches[2]);
         case route($method, $path, 'POST', '#^/admin/partners/(\d+)/templates/(\d+)/delete$#', $matches):
             PageController::adminDeletePartnerTemplate((int) $matches[1], (int) $matches[2]);
+        case route($method, $path, 'GET', '#^/admin/reservations$#'):
+            PageController::adminReservations();
+            break;
         case route($method, $path, 'GET', '#^/admin/fees$#'):
             PageController::adminFees();
             break;
@@ -273,6 +276,17 @@ try {
         case route($method, $path, 'GET', '#^/admin/templates$#'):
             PageController::adminAllTemplates();
             break;
+        case route($method, $path, 'GET', '#^/admin/templates/default$#'):
+            PageController::adminDefaultTemplates();
+            break;
+        case route($method, $path, 'POST', '#^/admin/templates/default/create$#'):
+            PageController::adminCreateDefaultTemplate();
+        case route($method, $path, 'POST', '#^/admin/templates/default/(\d+)$#', $matches):
+            PageController::adminSaveDefaultTemplate((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/admin/templates/default/(\d+)/delete$#', $matches):
+            PageController::adminDeleteDefaultTemplate((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/admin/templates/default/import-zip$#'):
+            PageController::adminImportDefaultTemplateZip();
         case route($method, $path, 'POST', '#^/admin/templates/create$#'):
             PageController::adminCreateAllTemplate();
         case route($method, $path, 'POST', '#^/admin/templates/import$#'):

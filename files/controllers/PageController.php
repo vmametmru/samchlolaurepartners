@@ -473,8 +473,9 @@ final class PageController extends Controller
 
     public static function login(): void
     {
-        if (Auth::user()) {
-            header('Location: /partner/dashboard');
+        $user = Auth::user();
+        if ($user) {
+            header('Location: ' . (($user['role'] ?? '') === 'admin' ? '/admin/partners' : '/partner/dashboard'));
             exit;
         }
         View::render('pages/login', ['pageTitle' => 'Connexion']);
@@ -484,7 +485,7 @@ final class PageController extends Controller
     {
         $user = self::requirePartnerUser();
         $requests = ReservationsController::listForPartner((int) $user['partner_id']);
-        View::render('pages/partner-dashboard', ['pageTitle' => 'Dashboard partenaire', 'requests' => $requests]);
+        View::render('pages/partner-dashboard', ['pageTitle' => 'Tableau de Bord partenaire', 'requests' => $requests]);
     }
 
     public static function partnerReservations(): void
@@ -496,6 +497,33 @@ final class PageController extends Controller
             $reservations = array_values(array_filter($reservations, static fn(array $row): bool => $row['status'] === $filter));
         }
         View::render('pages/partner-reservations', ['pageTitle' => 'Réservations', 'reservations' => $reservations, 'filter' => $filter]);
+    }
+
+    /**
+     * Admin-only view of every partner's reservation requests, filterable by
+     * partner and/or status (?partner_id=&status=).
+     */
+    public static function adminReservations(): void
+    {
+        self::requireAdminUser();
+        $partners = Database::connection()->query('SELECT id, name FROM partners ORDER BY name')->fetchAll(PDO::FETCH_ASSOC);
+        $partnerId = (int) ($_GET['partner_id'] ?? 0);
+        $status = (string) ($_GET['status'] ?? 'all');
+        $filters = [];
+        if ($partnerId > 0) {
+            $filters['partner_id'] = $partnerId;
+        }
+        if ($status !== 'all' && $status !== '') {
+            $filters['status'] = $status;
+        }
+        $reservations = ReservationsController::listAll($filters);
+        View::render('pages/admin-reservations', [
+            'pageTitle' => 'Réservations',
+            'reservations' => $reservations,
+            'partners' => $partners,
+            'partnerId' => $partnerId,
+            'status' => $status,
+        ]);
     }
 
     public static function partnerReservationDetail(int $id): void
@@ -958,6 +986,57 @@ TEXT;
     public static function bookingPolicyText(): string
     {
         return Settings::get('BOOKING_POLICY_TEXT', self::DEFAULT_BOOKING_POLICY) ?? self::DEFAULT_BOOKING_POLICY;
+    }
+
+    /**
+     * Turns the raw "Politique de réservation" text (typically pasted with a
+     * blank line after every single line, and a *double* blank line between
+     * sections) into ready-to-display HTML:
+     * - a leading "Politique de réservation" title line is dropped (it's
+     *   already shown as the block's own heading everywhere it's used),
+     * - a run of 2+ blank lines in the source marks the start of a new
+     *   section; any other blank line is just a soft line-break and is
+     *   collapsed away, so only a single blank line remains between
+     *   sections in the rendered output,
+     * - the first line of a section is treated as its title (and
+     *   underlined) when it ends with ":" (e.g. "Remboursement :",
+     *   "Paiements :", "Dépôt de garantie :"); a colon-terminated line in
+     *   the middle of a section (e.g. a sentence ending in ":") is left as
+     *   plain text.
+     * Shared by the property-detail/calendar booking-policy blocks and the
+     * {{politique_reservation}} email variable so both stay identical.
+     */
+    public static function formatBookingPolicyHtml(string $text): string
+    {
+        $rawLines = preg_split('/\r\n|\r|\n/', $text) ?: [];
+        if (isset($rawLines[0]) && trim($rawLines[0]) !== '' && mb_strtolower(trim($rawLines[0])) === 'politique de réservation') {
+            array_shift($rawLines);
+        }
+
+        $htmlLines = [];
+        $blankRun = 0;
+        $isFirstContentLine = true;
+        foreach ($rawLines as $rawLine) {
+            $trimmedLine = trim($rawLine);
+            if ($trimmedLine === '') {
+                $blankRun++;
+                continue;
+            }
+
+            $isSectionStart = $isFirstContentLine || $blankRun >= 2;
+            if ($isSectionStart && !$isFirstContentLine) {
+                $htmlLines[] = '';
+            }
+
+            $isHeader = $isSectionStart && (bool) preg_match('/:\s*$/u', $trimmedLine);
+            $escaped = htmlspecialchars($trimmedLine, ENT_QUOTES, 'UTF-8');
+            $htmlLines[] = $isHeader ? '<u>' . $escaped . '</u>' : $escaped;
+
+            $blankRun = 0;
+            $isFirstContentLine = false;
+        }
+
+        return implode('<br>', $htmlLines);
     }
 
     public static function adminBookingPolicy(): void
@@ -1862,7 +1941,23 @@ TEXT;
             return [];
         }
 
-        $dir = BASE_PATH . '/images/others/email-template-assets/partner-' . $partnerId;
+        return self::galleryAssetsInFolder('partner-' . $partnerId);
+    }
+
+    /**
+     * @return array<int, array{name: string, url: string}>
+     */
+    private static function defaultTemplateGalleryAssets(): array
+    {
+        return self::galleryAssetsInFolder('default');
+    }
+
+    /**
+     * @return array<int, array{name: string, url: string}>
+     */
+    private static function galleryAssetsInFolder(string $folder): array
+    {
+        $dir = BASE_PATH . '/images/others/email-template-assets/' . $folder;
         if (!is_dir($dir)) {
             return [];
         }
@@ -1879,7 +1974,7 @@ TEXT;
             }
             $assets[] = [
                 'name' => $basename,
-                'url' => '/images/others/email-template-assets/partner-' . $partnerId . '/' . $basename,
+                'url' => '/images/others/email-template-assets/' . $folder . '/' . $basename,
             ];
         }
 
@@ -1916,10 +2011,22 @@ TEXT;
         View::render('pages/error', ['pageTitle' => 'Erreur', 'message' => $message]);
     }
 
+    /**
+     * Partner-scoped pages/actions (dashboard, reservations, templates,
+     * settings, ...) are only ever meaningful for a partner user tied to a
+     * single partner_id. Admins never have a partner_id, so instead of
+     * rendering a broken/empty partner view, any admin landing here is sent
+     * straight back to the admin dashboard (see the login() redirect and
+     * the navbar "dashboard" link, which behave the same way).
+     */
     private static function requirePartnerUser(): array
     {
         $user = Auth::requireUser();
-        if (($user['role'] ?? '') !== 'partner' && ($user['role'] ?? '') !== 'admin') {
+        if (($user['role'] ?? '') === 'admin') {
+            header('Location: /admin/partners');
+            exit;
+        }
+        if (($user['role'] ?? '') !== 'partner') {
             throw new HttpException(403, 'Forbidden', 'Accès partenaire requis.');
         }
         return $user;
@@ -1962,7 +2069,7 @@ TEXT;
         $partner = Tenant::current();
         $markup = $partner ? (float) ($partner['markup_percent'] ?? 0) : 0.0;
         return array_map(static function (array $rate) use ($markup): array {
-            $markedUp = round(((float) $rate['price_per_night']) * (1 + $markup / 100), 2);
+            $markedUp = (float) ceil(((float) $rate['price_per_night']) * (1 + $markup / 100));
             return [
                 'date_from' => $rate['date_from'],
                 'date_to' => $rate['date_to'],
@@ -2170,7 +2277,147 @@ TEXT;
         self::redirect('/admin/templates?partner_id=' . $partnerId . '&language=' . $language . '&id=' . $targetId, 'Template importé.');
     }
 
+    /**
+     * Creates the default_email_templates table on the fly if it doesn't
+     * exist yet. Migrator::autoRun() already does this on every request,
+     * but it is throttled (a marker file skips the check for up to 60s) and
+     * only runs from index.php, so hitting this page right after a fresh
+     * deploy (before the throttle window elapses) could still hit "Table
+     * ... doesn't exist" — this mirrors
+     * db/migrations/029_create_default_email_templates.sql (see also
+     * ensurePropertyTranslationsTable() for the same pattern).
+     */
+    private static function ensureDefaultEmailTemplatesTable(): void
+    {
+        Database::connection()->exec(
+            "CREATE TABLE IF NOT EXISTS default_email_templates (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              type ENUM(
+                'REQUEST_RECEIVED_PARTNER',
+                'REQUEST_RECEIVED_CLIENT',
+                'RESERVATION_CONFIRMED',
+                'RESERVATION_CANCELLED',
+                'REMINDER'
+              ) NOT NULL,
+              language VARCHAR(5) NOT NULL DEFAULT 'fr',
+              subject VARCHAR(500) NOT NULL,
+              body_html MEDIUMTEXT NOT NULL,
+              created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              UNIQUE KEY unique_type_lang (type, language)
+            )"
+        );
+    }
+
+    /**
+     * Admin-managed "default" templates page (/admin/templates/default):
+     * lets the admin maintain one template per type/language, used by
+     * ReservationsController::findEmailTemplate() as the fallback whenever
+     * a partner has not created their own template for that type/language.
+     */
+    public static function adminDefaultTemplates(): void
+    {
+        self::requireAdminUser();
+        self::ensureDefaultEmailTemplatesTable();
+        $selectedLanguage = in_array((string) ($_GET['language'] ?? ''), I18n::SUPPORTED, true)
+            ? (string) $_GET['language']
+            : I18n::DEFAULT_LANGUAGE;
+        $templateCatalog = self::adminTemplateCatalog($selectedLanguage);
+
+        $stmt = Database::connection()->prepare('SELECT * FROM default_email_templates WHERE language = ? ORDER BY type');
+        $stmt->execute([$selectedLanguage]);
+        $templates = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $existingTypes = [];
+        foreach ($templates as $template) {
+            $existingTypes[(string) $template['type']] = true;
+        }
+        $creatableTemplates = [];
+        foreach ($templateCatalog as $type => $definition) {
+            if (!isset($existingTypes[$type])) {
+                $creatableTemplates[$type] = $definition;
+            }
+        }
+
+        $selectedId = isset($_GET['id']) ? (int) $_GET['id'] : (int) ($templates[0]['id'] ?? 0);
+        $selected = null;
+        foreach ($templates as $tpl) {
+            if ((int) $tpl['id'] === $selectedId) {
+                $selected = $tpl;
+                break;
+            }
+        }
+
+        View::render('pages/admin-default-templates', [
+            'pageTitle' => 'Templates par défaut',
+            'selectedLanguage' => $selectedLanguage,
+            'templates' => $templates,
+            'selected' => $selected,
+            'templateCatalog' => $templateCatalog,
+            'creatableTemplates' => $creatableTemplates,
+            'galleryAssets' => self::defaultTemplateGalleryAssets(),
+        ]);
+    }
+
+    public static function adminCreateDefaultTemplate(): never
+    {
+        self::requireAdminUser();
+        self::ensureDefaultEmailTemplatesTable();
+        $type = trim((string) ($_POST['type'] ?? ''));
+        $language = in_array((string) ($_POST['language'] ?? ''), I18n::SUPPORTED, true)
+            ? (string) $_POST['language']
+            : I18n::DEFAULT_LANGUAGE;
+        $templateCatalog = self::adminTemplateCatalog($language);
+        if (!isset($templateCatalog[$type])) {
+            self::redirect('/admin/templates/default?language=' . $language, 'Template invalide.', 'error');
+        }
+
+        $existingStmt = Database::connection()->prepare('SELECT id FROM default_email_templates WHERE type = ? AND language = ? LIMIT 1');
+        $existingStmt->execute([$type, $language]);
+        if ($existingId = (int) ($existingStmt->fetchColumn() ?: 0)) {
+            self::redirect('/admin/templates/default?language=' . $language . '&id=' . $existingId, 'Ce template par défaut existe déjà.', 'info');
+        }
+
+        $definition = $templateCatalog[$type];
+        Database::connection()->prepare(
+            'INSERT INTO default_email_templates (type, language, subject, body_html) VALUES (?, ?, ?, ?)'
+        )->execute([
+            $type,
+            $language,
+            $definition['subject'],
+            $definition['body_html'],
+        ]);
+
+        self::redirect('/admin/templates/default?language=' . $language . '&id=' . (int) Database::connection()->lastInsertId(), 'Nouveau template par défaut créé.');
+    }
+
+    public static function adminSaveDefaultTemplate(int $id): never
+    {
+        self::requireAdminUser();
+        self::ensureDefaultEmailTemplatesTable();
+        Database::connection()->prepare(
+            'UPDATE default_email_templates SET subject = ?, body_html = ?, updated_at = NOW() WHERE id = ?'
+        )->execute([
+            (string) ($_POST['subject'] ?? ''),
+            (string) ($_POST['body_html'] ?? ''),
+            $id,
+        ]);
+        $languageStmt = Database::connection()->prepare('SELECT language FROM default_email_templates WHERE id = ? LIMIT 1');
+        $languageStmt->execute([$id]);
+        $language = (string) ($languageStmt->fetchColumn() ?: I18n::DEFAULT_LANGUAGE);
+        self::redirect('/admin/templates/default?language=' . $language . '&id=' . $id, 'Template par défaut sauvegardé.');
+    }
+
+    public static function adminDeleteDefaultTemplate(int $id): never
+    {
+        self::requireAdminUser();
+        self::ensureDefaultEmailTemplatesTable();
+        Database::connection()->prepare('DELETE FROM default_email_templates WHERE id = ?')->execute([$id]);
+        self::redirect('/admin/templates/default', 'Template par défaut supprimé.');
+    }
+
     private const IMPORT_ZIP_MODES = ['all', 'images_only', 'html_only'];
+
 
     /**
      * Imports a Canva-exported ZIP (HTML + images/ folder). Depending on
@@ -2299,6 +2546,136 @@ TEXT;
                     Database::connection()->prepare(
                         'UPDATE email_templates SET body_html = ?, updated_at = NOW() WHERE id = ? AND partner_id = ?'
                     )->execute([$html, $templateId, $partnerId]);
+                    $successMessage = 'Template Canva importé (' . $imported . ' image(s) copiée(s) dans la galerie).';
+                }
+            }
+        } finally {
+            self::cleanupTmpDir($tmpDir);
+        }
+
+        self::redirect($redirectBase, $successMessage);
+    }
+
+    /**
+     * Same as adminImportTemplateZip() but for the admin-managed "default"
+     * templates (default_email_templates, no partner_id): images are
+     * copied into a shared "default" gallery folder instead of a
+     * partner-specific one.
+     */
+    public static function adminImportDefaultTemplateZip(): never
+    {
+        self::requireAdminUser();
+        self::ensureDefaultEmailTemplatesTable();
+        $templateId = (int) ($_POST['id'] ?? 0);
+        $importMode = (string) ($_POST['import_mode'] ?? 'all');
+        if (!in_array($importMode, self::IMPORT_ZIP_MODES, true)) {
+            $importMode = 'all';
+        }
+        $language = in_array((string) ($_POST['language'] ?? ''), I18n::SUPPORTED, true)
+            ? (string) $_POST['language']
+            : I18n::DEFAULT_LANGUAGE;
+        $redirectBase = '/admin/templates/default?language=' . $language . ($templateId > 0 ? '&id=' . $templateId : '');
+
+        $needsTemplate = $importMode !== 'images_only';
+        if ($needsTemplate) {
+            if ($templateId <= 0) {
+                self::redirect($redirectBase, 'Sélectionnez un template avant d’importer un ZIP.', 'error');
+            }
+            $ownerStmt = Database::connection()->prepare('SELECT id FROM default_email_templates WHERE id = ? AND language = ? LIMIT 1');
+            $ownerStmt->execute([$templateId, $language]);
+            if (!$ownerStmt->fetchColumn()) {
+                self::redirect($redirectBase, 'Template par défaut introuvable.', 'error');
+            }
+        }
+
+        $file = $_FILES['template_zip'] ?? null;
+        if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            self::redirect($redirectBase, 'Aucun fichier ZIP valide envoyé.', 'error');
+        }
+        if (!is_uploaded_file((string) $file['tmp_name'])) {
+            self::redirect($redirectBase, 'Fichier invalide.', 'error');
+        }
+        $originalName = (string) ($file['name'] ?? '');
+        if (strtolower(pathinfo($originalName, PATHINFO_EXTENSION)) !== 'zip') {
+            self::redirect($redirectBase, 'Le fichier doit être un ZIP.', 'error');
+        }
+        if ((int) ($file['size'] ?? 0) > 25 * 1024 * 1024) {
+            self::redirect($redirectBase, 'Le ZIP ne doit pas dépasser 25 Mo.', 'error');
+        }
+
+        $tmpDir = sys_get_temp_dir() . '/canva-import-' . bin2hex(random_bytes(8));
+        if (!@mkdir($tmpDir, 0775, true)) {
+            throw new HttpException(500, 'Internal Server Error', 'Impossible de créer le dossier temporaire.');
+        }
+
+        $successMessage = null;
+        try {
+            $zip = new \ZipArchive();
+            if ($zip->open((string) $file['tmp_name']) !== true) {
+                self::redirect($redirectBase, 'Impossible de lire le fichier ZIP.', 'error');
+            }
+            $zip->extractTo($tmpDir);
+            $zip->close();
+
+            if ($importMode === 'images_only') {
+                $galleryDir = BASE_PATH . '/images/others/email-template-assets/default';
+                if (!is_dir($galleryDir) && !@mkdir($galleryDir, 0775, true) && !is_dir($galleryDir)) {
+                    throw new HttpException(500, 'Internal Server Error', 'Impossible de créer le dossier de galerie.');
+                }
+                $imported = self::copyAllZipImagesToGallery($tmpDir, $galleryDir);
+                $successMessage = $imported . ' image(s) importée(s) dans la galerie.';
+            } else {
+                $htmlPath = self::findHtmlFileInDirectory($tmpDir);
+                if ($htmlPath === null) {
+                    self::redirect($redirectBase, 'Aucun fichier HTML trouvé dans le ZIP.', 'error');
+                }
+
+                $html = file_get_contents($htmlPath);
+                if ($html === false) {
+                    self::redirect($redirectBase, 'Impossible de lire le fichier HTML du ZIP.', 'error');
+                }
+
+                if ($importMode === 'html_only') {
+                    // Import the HTML structure only: leave image references
+                    // untouched and don't copy any file into the gallery.
+                    Database::connection()->prepare(
+                        'UPDATE default_email_templates SET body_html = ?, updated_at = NOW() WHERE id = ?'
+                    )->execute([$html, $templateId]);
+                    $successMessage = 'Template Canva importé (HTML uniquement, images non copiées).';
+                } else {
+                    $galleryDir = BASE_PATH . '/images/others/email-template-assets/default';
+                    if (!is_dir($galleryDir) && !@mkdir($galleryDir, 0775, true) && !is_dir($galleryDir)) {
+                        throw new HttpException(500, 'Internal Server Error', 'Impossible de créer le dossier de galerie.');
+                    }
+
+                    $imported = 0;
+                    $html = (string) preg_replace_callback(
+                        '/(["\'])((?:images?|assets)\/[a-zA-Z0-9_\-.\/]+\.(?:png|jpe?g|gif|webp|svg))\1/i',
+                        function (array $matches) use ($tmpDir, $galleryDir, &$imported): string {
+                            [$full, $quote, $relativePath] = $matches;
+                            $basename = basename($relativePath);
+                            $sourcePath = self::locateFileByBasename($tmpDir, $basename);
+                            if ($sourcePath === null) {
+                                return $full;
+                            }
+                            $extension = strtolower(pathinfo($basename, PATHINFO_EXTENSION));
+                            if (!in_array($extension, [...self::ALLOWED_TEMPLATE_ASSET_EXTENSIONS, 'svg'], true)) {
+                                return $full;
+                            }
+                            $newName = 'canva-' . bin2hex(random_bytes(8)) . '.' . $extension;
+                            if (!copy($sourcePath, $galleryDir . '/' . $newName)) {
+                                return $full;
+                            }
+                            $imported++;
+                            $newUrl = '/images/others/email-template-assets/default/' . $newName;
+                            return $quote . $newUrl . $quote;
+                        },
+                        $html
+                    );
+
+                    Database::connection()->prepare(
+                        'UPDATE default_email_templates SET body_html = ?, updated_at = NOW() WHERE id = ?'
+                    )->execute([$html, $templateId]);
                     $successMessage = 'Template Canva importé (' . $imported . ' image(s) copiée(s) dans la galerie).';
                 }
             }

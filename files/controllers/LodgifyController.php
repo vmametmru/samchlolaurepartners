@@ -74,7 +74,7 @@ final class LodgifyController extends Controller
                 }
             }
             $rates = array_map(static function (array $rate) use ($markup): array {
-                $markedUp = round(((float) $rate['price_per_night']) * (1 + $markup / 100), 2);
+                $markedUp = (float) ceil(((float) $rate['price_per_night']) * (1 + $markup / 100));
                 return [
                     'date_from' => $rate['date_from'],
                     'date_to' => $rate['date_to'],
