@@ -150,21 +150,31 @@ final class Mailer
     public static function sendTemplatedEmail(array $partner, array $template, string $to, array $variables, array $embeds = [], ?string $replyTo = null): void
     {
         $html = self::renderTemplate((string) $template['body_html'], $variables);
-        $inlined = self::embedHotlinkedImages($html, $embeds);
-        self::deliver(
-            $partner,
-            $to,
-            self::renderTemplate((string) $template['subject'], $variables),
-            $inlined['html'],
-            $replyTo,
-            self::filterUnusedEmbeds($inlined['html'], $inlined['embeds'])
-        );
+        self::sendWithEmbeds($partner, $to, self::renderTemplate((string) $template['subject'], $variables), $html, $embeds, $replyTo);
     }
 
     public static function sendRawEmail(array $partner, string $to, string $subject, string $html, array $embeds = [], ?string $replyTo = null): void
     {
-        $inlined = self::embedHotlinkedImages($html, $embeds);
-        self::deliver($partner, $to, $subject, $inlined['html'], $replyTo, self::filterUnusedEmbeds($inlined['html'], $inlined['embeds']));
+        self::sendWithEmbeds($partner, $to, $subject, $html, $embeds, $replyTo);
+    }
+
+    /**
+     * Shared final step of every send*() entry point: inlines hotlinked
+     * images (resizing each one down to the width the template actually
+     * displays it at along the way, see embedHotlinkedImages()) and hands
+     * off to deliver(). Any temp files staged during resizing (see
+     * resizeForEmail()) are always removed once this send attempt is over,
+     * whether it succeeded or the underlying deliver() call threw.
+     */
+    private static function sendWithEmbeds(array $partner, string $to, string $subject, string $html, array $embeds, ?string $replyTo): void
+    {
+        $tempFiles = [];
+        try {
+            $inlined = self::embedHotlinkedImages($html, $embeds, $tempFiles);
+            self::deliver($partner, $to, $subject, $inlined['html'], $replyTo, self::filterUnusedEmbeds($inlined['html'], $inlined['embeds']));
+        } finally {
+            self::cleanupTempFiles($tempFiles);
+        }
     }
 
     /**
@@ -186,17 +196,28 @@ final class Mailer
      * the original hotlinked src is left untouched rather than failing the
      * whole send.
      *
+     * Every image is also downscaled (see resizeForEmail()) to the pixel
+     * width the template actually displays it at — the tag's own "width"
+     * attribute (e.g. width="320") — before being embedded, instead of
+     * inlining whatever resolution happens to be stored on disk (a synced
+     * property photo can be up to 1920px wide). This keeps the outgoing
+     * message payload proportional to what the recipient will actually
+     * see, which matters both for send time and for spam/junk filters that
+     * penalize oversized messages.
+     *
      * @param array<int, array{cid: string, data: string, mime: string}> $embeds Already-known embeds (photo_bien, signature, ...)
+     * @param list<string> $tempFiles Populated with the path of every temp file staged by resizeForEmail(), for the
+     *        caller to delete once the send attempt is over (see sendWithEmbeds()/cleanupTempFiles()).
      * @return array{html: string, embeds: array<int, array{cid: string, data: string, mime: string}>}
      */
-    private static function embedHotlinkedImages(string $html, array $embeds): array
+    private static function embedHotlinkedImages(string $html, array $embeds, array &$tempFiles): array
     {
         $baseUrl = Auth::currentBaseUrl();
         $rootPath = realpath(defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__));
 
         $html = (string) preg_replace_callback(
-            '/(<img\b[^>]*\ssrc=)(["\'])(https?:\/\/[^"\'>]+)\2/i',
-            static function (array $matches) use (&$embeds, $baseUrl, $rootPath): string {
+            '/(<img\b[^>]*\ssrc=)(["\'])(https?:\/\/[^"\'>]+)\2([^>]*)>/i',
+            static function (array $matches) use (&$embeds, &$tempFiles, $baseUrl, $rootPath): string {
                 $url = $matches[3];
                 $data = null;
                 $mime = null;
@@ -230,14 +251,82 @@ final class Mailer
                     return $matches[0];
                 }
 
+                $targetWidth = self::extractImgWidth($matches[0]);
+                if ($targetWidth !== null) {
+                    $data = self::resizeForEmail($data, $targetWidth, $tempFiles);
+                }
+
                 $cid = 'inline-' . bin2hex(random_bytes(6)) . '@local';
                 $embeds[] = ['cid' => $cid, 'data' => $data, 'mime' => $mime ?: 'image/jpeg'];
-                return $matches[1] . $matches[2] . 'cid:' . $cid . $matches[2];
+                return $matches[1] . $matches[2] . 'cid:' . $cid . $matches[2] . $matches[4] . '>';
             },
             $html
         ) ?? $html;
 
         return ['html' => $html, 'embeds' => $embeds];
+    }
+
+    /**
+     * Reads the numeric "width" HTML attribute (e.g. width="320") off the
+     * full <img> tag, ignoring any CSS width set via "style" (which is
+     * often a percentage, not a pixel target). Returns null when
+     * absent/non-numeric, so the caller leaves the image at its original
+     * resolution rather than guessing a target width.
+     */
+    private static function extractImgWidth(string $imgTag): ?int
+    {
+        if (preg_match('/\swidth\s*=\s*(["\']?)(\d+)\1/i', $imgTag, $match) === 1) {
+            $width = (int) $match[2];
+            return $width > 0 ? $width : null;
+        }
+        return null;
+    }
+
+    /**
+     * Downscales $data to at most $targetWidth px — the width the template
+     * actually displays the image at — before it's embedded, reusing the
+     * exact same GD downscale logic already relied on for synced property
+     * photos (ImageCache::resizeIfTooWide()): never upscales, preserves
+     * format/transparency, and is a no-op if GD is unavailable or the image
+     * can't be decoded/re-encoded.
+     *
+     * The resized bytes are also staged to a dedicated temp directory
+     * (under the OS temp dir) purely so a resize this size never lingers
+     * only in memory for the whole request; every path written here is
+     * collected into $tempFiles and removed by cleanupTempFiles() once the
+     * current send attempt (success or failure) is over.
+     */
+    private static function resizeForEmail(string $data, int $targetWidth, array &$tempFiles): string
+    {
+        $resized = ImageCache::resizeIfTooWide($data, $targetWidth);
+        if ($resized === $data) {
+            // Nothing to stage: already narrow enough, or resizing wasn't possible.
+            return $data;
+        }
+
+        $tempDir = sys_get_temp_dir() . '/email-image-resize';
+        if (is_dir($tempDir) || @mkdir($tempDir, 0775, true)) {
+            $tempPath = $tempDir . '/' . bin2hex(random_bytes(8)) . '.tmp';
+            if (@file_put_contents($tempPath, $resized) !== false) {
+                $tempFiles[] = $tempPath;
+            }
+        }
+
+        return $resized;
+    }
+
+    /**
+     * Deletes every temp file staged by resizeForEmail() during a single
+     * send attempt. Always called from sendWithEmbeds()'s finally block, so
+     * these files never accumulate even when the send itself fails.
+     *
+     * @param list<string> $tempFiles
+     */
+    private static function cleanupTempFiles(array $tempFiles): void
+    {
+        foreach ($tempFiles as $path) {
+            @unlink($path);
+        }
     }
 
     /**
