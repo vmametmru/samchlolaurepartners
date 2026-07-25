@@ -448,8 +448,10 @@ final class ReservationsController extends Controller
         // property can actually accommodate. Babies (children_under3) don't
         // count toward this limit — consistent with the front-end guest
         // steppers and requestMultiple()'s capacity check.
+        $property = null;
+        $countedGuests = $adults + $children3to12;
+        $totalGuests = $adults + $childrenUnder3 + $children3to12;
         if ($propertyId > 0) {
-            $countedGuests = $adults + $children3to12;
             try {
                 $property = (new LodgifyClient())->getProperty($propertyId);
                 $maxGuests = (int) ($property['max_guests'] ?? 0);
@@ -502,16 +504,40 @@ final class ReservationsController extends Controller
         }
         $columns[] = 'guests';
         $columns[] = 'message';
-        $params[] = json_encode($input['guests'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $guests = is_array($input['guests'] ?? null) ? $input['guests'] : [];
+        $params[] = json_encode($guests, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $params[] = self::nullableString($input['message'] ?? null);
-        $quoteBreakdown = self::computeQuoteBreakdown([
+        // The client-submitted quote_* hidden fields (populated by the
+        // property-detail booking form's live quote box) are only used as a
+        // last-resort fallback: if the visitor's browser never finished
+        // fetching a quote (slow/failed request, or the form was submitted
+        // before fetchQuote()/renderQuote() populated the hidden fields),
+        // those fields stay at their default "0"/empty value and every
+        // {{tarif_*}}/{{commission_partenaire}}/{{paiement_a_samchlolaure}}
+        // email variable would silently show 0,00 EUR. Recomputing the
+        // breakdown server-side here (same authoritative logic as quote()
+        // and requestMultiple()'s computeItemQuote()) keeps the persisted
+        // and emailed amounts trustworthy regardless of what the client sent.
+        $quoteInput = [
             'room_total' => $input['quote_room_total'] ?? 0,
             'extra_person_total' => $input['quote_extra_person_total'] ?? 0,
             'cleaning_total' => $input['quote_cleaning_total'] ?? 0,
             'tourist_tax_total' => $input['quote_tourist_tax_total'] ?? 0,
             'nights' => $input['quote_nights'] ?? 0,
             'currency' => $input['quote_currency'] ?? 'EUR',
-        ], (float) ($partner['markup_percent'] ?? 0));
+        ];
+        if ($propertyId > 0 && $checkin !== '' && $checkout !== '') {
+            try {
+                $checkoutDate = new \DateTimeImmutable($checkout);
+                $serverQuote = self::computeItemQuote($propertyId, $property, $checkin, $checkoutDate, $adults, $totalGuests, $countedGuests, $guests);
+                if ($serverQuote !== null) {
+                    $quoteInput = $serverQuote;
+                }
+            } catch (Throwable $e) {
+                error_log('Failed to recompute server-side quote for property ' . $propertyId . ': ' . $e->getMessage());
+            }
+        }
+        $quoteBreakdown = self::computeQuoteBreakdown($quoteInput, (float) ($partner['markup_percent'] ?? 0));
         [$quoteColumns, $quoteParams] = self::quoteInsertColumnsAndParams($pdo, $quoteBreakdown);
         $columns = [...$columns, ...$quoteColumns];
         $params = [...$params, ...$quoteParams];
