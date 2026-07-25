@@ -252,7 +252,16 @@ final class Mailer
                 }
 
                 $targetWidth = self::extractImgWidth($matches[0]);
-                if ($targetWidth !== null) {
+                $targetHeight = self::extractImgHeight($matches[0]);
+                if ($targetWidth !== null && $targetHeight !== null) {
+                    // Both dimensions are fixed (e.g. the photo1/photo2/photo3
+                    // slots, always inserted as a fixed WxH box): crop the
+                    // actual bytes to that exact box instead of only scaling
+                    // to width, so photo1/photo2/photo3 always embed at the
+                    // same pixel size without ever distorting proportions,
+                    // even in mail clients that ignore CSS object-fit.
+                    $data = self::cropForEmail($data, $targetWidth, $targetHeight, $tempFiles);
+                } elseif ($targetWidth !== null) {
                     $data = self::resizeForEmail($data, $targetWidth, $tempFiles);
                 }
 
@@ -278,6 +287,21 @@ final class Mailer
         if (preg_match('/\swidth\s*=\s*(["\']?)(\d+)\1/i', $imgTag, $match) === 1) {
             $width = (int) $match[2];
             return $width > 0 ? $width : null;
+        }
+        return null;
+    }
+
+    /**
+     * Same as extractImgWidth() but for the "height" HTML attribute, used
+     * alongside it to detect a fixed WxH box (e.g. the photo1/photo2/photo3
+     * template slots) so that box can be cropped to instead of only scaled
+     * by width (see cropForEmail()).
+     */
+    private static function extractImgHeight(string $imgTag): ?int
+    {
+        if (preg_match('/\sheight\s*=\s*(["\']?)(\d+)\1/i', $imgTag, $match) === 1) {
+            $height = (int) $match[2];
+            return $height > 0 ? $height : null;
         }
         return null;
     }
@@ -313,6 +337,37 @@ final class Mailer
         }
 
         return $resized;
+    }
+
+    /**
+     * Crops $data to an exact $targetWidth x $targetHeight box (see
+     * ImageCache::resizeCover()) before it's embedded, so an <img> tag with
+     * both width and height fixed (e.g. photo1/photo2/photo3) always embeds
+     * bytes at that exact pixel size — guaranteeing identical dimensions
+     * across every photo slot with no distortion, regardless of whether the
+     * recipient's mail client honours CSS object-fit.
+     *
+     * Stages the cropped bytes the same way resizeForEmail() does, so they
+     * are cleaned up by cleanupTempFiles() once the current send attempt is
+     * over.
+     */
+    private static function cropForEmail(string $data, int $targetWidth, int $targetHeight, array &$tempFiles): string
+    {
+        $cropped = ImageCache::resizeCover($data, $targetWidth, $targetHeight);
+        if ($cropped === $data) {
+            // Nothing to stage: already the right size, or cropping wasn't possible.
+            return $data;
+        }
+
+        $tempDir = sys_get_temp_dir() . '/email-image-resize';
+        if (is_dir($tempDir) || @mkdir($tempDir, 0775, true)) {
+            $tempPath = $tempDir . '/' . bin2hex(random_bytes(8)) . '.tmp';
+            if (@file_put_contents($tempPath, $cropped) !== false) {
+                $tempFiles[] = $tempPath;
+            }
+        }
+
+        return $cropped;
     }
 
     /**

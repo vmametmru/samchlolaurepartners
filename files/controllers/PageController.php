@@ -2261,7 +2261,110 @@ TEXT;
         self::redirect('/admin/templates?partner_id=' . $partnerId . '&language=' . $language . '&id=' . $targetId, 'Template importé.');
     }
 
+    /**
+     * Admin-managed "default" templates page (/admin/templates/default):
+     * lets the admin maintain one template per type/language, used by
+     * ReservationsController::findEmailTemplate() as the fallback whenever
+     * a partner has not created their own template for that type/language.
+     */
+    public static function adminDefaultTemplates(): void
+    {
+        self::requireAdminUser();
+        $selectedLanguage = in_array((string) ($_GET['language'] ?? ''), I18n::SUPPORTED, true)
+            ? (string) $_GET['language']
+            : I18n::DEFAULT_LANGUAGE;
+        $templateCatalog = self::adminTemplateCatalog($selectedLanguage);
+
+        $stmt = Database::connection()->prepare('SELECT * FROM default_email_templates WHERE language = ? ORDER BY type');
+        $stmt->execute([$selectedLanguage]);
+        $templates = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $existingTypes = [];
+        foreach ($templates as $template) {
+            $existingTypes[(string) $template['type']] = true;
+        }
+        $creatableTemplates = [];
+        foreach ($templateCatalog as $type => $definition) {
+            if (!isset($existingTypes[$type])) {
+                $creatableTemplates[$type] = $definition;
+            }
+        }
+
+        $selectedId = isset($_GET['id']) ? (int) $_GET['id'] : (int) ($templates[0]['id'] ?? 0);
+        $selected = null;
+        foreach ($templates as $tpl) {
+            if ((int) $tpl['id'] === $selectedId) {
+                $selected = $tpl;
+                break;
+            }
+        }
+
+        View::render('pages/admin-default-templates', [
+            'pageTitle' => 'Templates par défaut',
+            'selectedLanguage' => $selectedLanguage,
+            'templates' => $templates,
+            'selected' => $selected,
+            'templateCatalog' => $templateCatalog,
+            'creatableTemplates' => $creatableTemplates,
+        ]);
+    }
+
+    public static function adminCreateDefaultTemplate(): never
+    {
+        self::requireAdminUser();
+        $type = trim((string) ($_POST['type'] ?? ''));
+        $language = in_array((string) ($_POST['language'] ?? ''), I18n::SUPPORTED, true)
+            ? (string) $_POST['language']
+            : I18n::DEFAULT_LANGUAGE;
+        $templateCatalog = self::adminTemplateCatalog($language);
+        if (!isset($templateCatalog[$type])) {
+            self::redirect('/admin/templates/default?language=' . $language, 'Template invalide.', 'error');
+        }
+
+        $existingStmt = Database::connection()->prepare('SELECT id FROM default_email_templates WHERE type = ? AND language = ? LIMIT 1');
+        $existingStmt->execute([$type, $language]);
+        if ($existingId = (int) ($existingStmt->fetchColumn() ?: 0)) {
+            self::redirect('/admin/templates/default?language=' . $language . '&id=' . $existingId, 'Ce template par défaut existe déjà.', 'info');
+        }
+
+        $definition = $templateCatalog[$type];
+        Database::connection()->prepare(
+            'INSERT INTO default_email_templates (type, language, subject, body_html) VALUES (?, ?, ?, ?)'
+        )->execute([
+            $type,
+            $language,
+            $definition['subject'],
+            $definition['body_html'],
+        ]);
+
+        self::redirect('/admin/templates/default?language=' . $language . '&id=' . (int) Database::connection()->lastInsertId(), 'Nouveau template par défaut créé.');
+    }
+
+    public static function adminSaveDefaultTemplate(int $id): never
+    {
+        self::requireAdminUser();
+        Database::connection()->prepare(
+            'UPDATE default_email_templates SET subject = ?, body_html = ?, updated_at = NOW() WHERE id = ?'
+        )->execute([
+            (string) ($_POST['subject'] ?? ''),
+            (string) ($_POST['body_html'] ?? ''),
+            $id,
+        ]);
+        $languageStmt = Database::connection()->prepare('SELECT language FROM default_email_templates WHERE id = ? LIMIT 1');
+        $languageStmt->execute([$id]);
+        $language = (string) ($languageStmt->fetchColumn() ?: I18n::DEFAULT_LANGUAGE);
+        self::redirect('/admin/templates/default?language=' . $language . '&id=' . $id, 'Template par défaut sauvegardé.');
+    }
+
+    public static function adminDeleteDefaultTemplate(int $id): never
+    {
+        self::requireAdminUser();
+        Database::connection()->prepare('DELETE FROM default_email_templates WHERE id = ?')->execute([$id]);
+        self::redirect('/admin/templates/default', 'Template par défaut supprimé.');
+    }
+
     private const IMPORT_ZIP_MODES = ['all', 'images_only', 'html_only'];
+
 
     /**
      * Imports a Canva-exported ZIP (HTML + images/ folder). Depending on

@@ -284,6 +284,97 @@ final class ImageCache
         return $encoded;
     }
 
+    /**
+     * Resizes+crops $data to exactly $targetWidth x $targetHeight px
+     * ("object-fit: cover" semantics, centered), preserving the original
+     * image format (JPEG/PNG/GIF/WEBP) and never distorting proportions.
+     * Used for the email template photo1/photo2/photo3 slots so every one
+     * of them embeds an image whose pixel dimensions already match the
+     * fixed box the template displays it in — CSS "object-fit: cover" only
+     * crops visually in browsers/webmail that support it, but several mail
+     * clients (notably Outlook desktop) instead stretch the raw image to
+     * the <img> width/height attributes, distorting it. Cropping the actual
+     * bytes here guarantees a consistent, undistorted result everywhere.
+     *
+     * Returns the original $data unchanged whenever: GD is unavailable, the
+     * image can't be decoded, either target dimension is invalid, the image
+     * already matches the target size exactly, or re-encoding fails —
+     * cropping is a best-effort optimization, never a requirement for the
+     * image to be embeddable.
+     */
+    public static function resizeCover(string $data, int $targetWidth, int $targetHeight): string
+    {
+        if (!function_exists('imagecreatefromstring') || $targetWidth <= 0 || $targetHeight <= 0) {
+            return $data;
+        }
+
+        $info = @getimagesizefromstring($data);
+        if ($info === false) {
+            return $data;
+        }
+        [$srcWidth, $srcHeight] = $info;
+        $type = $info[2] ?? null;
+        if ($srcWidth <= 0 || $srcHeight <= 0) {
+            return $data;
+        }
+        if ($srcWidth === $targetWidth && $srcHeight === $targetHeight) {
+            return $data;
+        }
+
+        $source = @imagecreatefromstring($data);
+        if ($source === false) {
+            self::recordError('could not decode image data while cropping to ' . $targetWidth . 'x' . $targetHeight);
+            return $data;
+        }
+
+        // Scale so the source fully covers the target box (may overflow on
+        // one axis), then crop that overflow evenly from both sides.
+        $scale = max($targetWidth / $srcWidth, $targetHeight / $srcHeight);
+        $scaledWidth = max(1, (int) round($srcWidth * $scale));
+        $scaledHeight = max(1, (int) round($srcHeight * $scale));
+
+        $scaled = imagecreatetruecolor($scaledWidth, $scaledHeight);
+        $isTransparent = $type === IMAGETYPE_PNG || $type === IMAGETYPE_GIF || (defined('IMAGETYPE_WEBP') && $type === IMAGETYPE_WEBP);
+        if ($isTransparent) {
+            imagealphablending($scaled, false);
+            imagesavealpha($scaled, true);
+            $transparent = imagecolorallocatealpha($scaled, 0, 0, 0, 127);
+            imagefill($scaled, 0, 0, $transparent);
+        }
+        imagecopyresampled($scaled, $source, 0, 0, 0, 0, $scaledWidth, $scaledHeight, $srcWidth, $srcHeight);
+        imagedestroy($source);
+
+        $cropped = imagecreatetruecolor($targetWidth, $targetHeight);
+        if ($isTransparent) {
+            imagealphablending($cropped, false);
+            imagesavealpha($cropped, true);
+            $transparent = imagecolorallocatealpha($cropped, 0, 0, 0, 127);
+            imagefill($cropped, 0, 0, $transparent);
+        }
+        $srcX = (int) round(($scaledWidth - $targetWidth) / 2);
+        $srcY = (int) round(($scaledHeight - $targetHeight) / 2);
+        imagecopy($cropped, $scaled, 0, 0, max(0, $srcX), max(0, $srcY), $targetWidth, $targetHeight);
+        imagedestroy($scaled);
+
+        ob_start();
+        $ok = match ($type) {
+            IMAGETYPE_PNG => imagepng($cropped, null, 9),
+            IMAGETYPE_GIF => imagegif($cropped),
+            IMAGETYPE_WEBP => function_exists('imagewebp') ? imagewebp($cropped, null, 90) : false,
+            IMAGETYPE_JPEG => imagejpeg($cropped, null, 90),
+            default => false,
+        };
+        $encoded = ob_get_clean();
+        imagedestroy($cropped);
+
+        if (!$ok || $encoded === false || $encoded === '') {
+            self::recordError('could not re-encode cropped image (' . $srcWidth . 'x' . $srcHeight . ' -> ' . $targetWidth . 'x' . $targetHeight . ')');
+            return $data;
+        }
+
+        return $encoded;
+    }
+
     private static function extensionFromUrl(string $url): string
     {
         $path = (string) parse_url($url, PHP_URL_PATH);

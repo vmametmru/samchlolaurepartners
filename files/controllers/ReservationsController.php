@@ -1142,13 +1142,6 @@ final class ReservationsController extends Controller
     }
 
     /**
-     * Fetches the email_templates row for the given partner/type/language,
-     * falling back to the partner's French template (the always-present
-     * default language) when no translated variant exists for $language yet
-     * — so an admin can enable English progressively, type by type, without
-     * guest-facing emails ever silently going out with no template at all.
-     */
-    /**
      * Strips partner-only/confidential variables (commission_partenaire,
      * paiement_a_samchlolaure — see View::emailTemplateVariableCatalog())
      * from a variable set before it is rendered into a client-facing email.
@@ -1167,15 +1160,52 @@ final class ReservationsController extends Controller
         return $variables;
     }
 
+    /**
+     * Fetches the email_templates row for the given partner/type/language,
+     * falling back (in order) to: the partner's French template (the
+     * always-present default language) when no translated variant exists
+     * for $language yet, then to the admin-managed "default" template (see
+     * findDefaultEmailTemplate()) if the partner has no template at all for
+     * this type — so a partner who never customized a given template type
+     * still has guest-facing emails sent using the site-wide default rather
+     * than falling back to the bare-bones hardcoded HTML.
+     */
     public static function findEmailTemplate(PDO $pdo, int $partnerId, string $type, string $language): ?array
     {
         $stmt = $pdo->prepare('SELECT * FROM email_templates WHERE partner_id = ? AND type = ? AND language = ? LIMIT 1');
         $stmt->execute([$partnerId, $type, $language]);
         $template = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if ($template !== null) {
+            return $template;
+        }
+        if ($language !== I18n::DEFAULT_LANGUAGE) {
+            $stmt->execute([$partnerId, $type, I18n::DEFAULT_LANGUAGE]);
+            $template = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+            if ($template !== null) {
+                return $template;
+            }
+        }
+        return self::findDefaultEmailTemplate($pdo, $type, $language);
+    }
+
+    /**
+     * Fetches the admin-managed default_email_templates row for $type,
+     * used by findEmailTemplate() whenever a partner has no template of
+     * their own for that type (in any language) — falling back to the
+     * default's French variant when no translated default exists either.
+     * Returns null when neither exists (e.g. the admin never created a
+     * default template for this type), leaving the caller's own
+     * hardcoded-HTML fallback as the last resort.
+     */
+    private static function findDefaultEmailTemplate(PDO $pdo, string $type, string $language): ?array
+    {
+        $stmt = $pdo->prepare('SELECT * FROM default_email_templates WHERE type = ? AND language = ? LIMIT 1');
+        $stmt->execute([$type, $language]);
+        $template = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
         if ($template !== null || $language === I18n::DEFAULT_LANGUAGE) {
             return $template;
         }
-        $stmt->execute([$partnerId, $type, I18n::DEFAULT_LANGUAGE]);
+        $stmt->execute([$type, I18n::DEFAULT_LANGUAGE]);
         return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
     }
 

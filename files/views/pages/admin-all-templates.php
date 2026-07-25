@@ -11,6 +11,7 @@ $selectedLanguage = $selectedLanguage ?? 'fr';
 ?>
 <section class="container section-lg">
   <h1>Templates email</h1>
+  <p class="text-muted"><a href="/admin/templates/default">⭐ Gérer les templates par défaut</a> (utilisés si un partenaire n'a pas encore créé son propre template)</p>
   <div class="two-panel">
     <div class="card overflow-hidden side-list partner-accordion-list">
       <div class="card-header">Partenaires</div>
