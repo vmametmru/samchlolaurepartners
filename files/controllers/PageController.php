@@ -1941,7 +1941,23 @@ TEXT;
             return [];
         }
 
-        $dir = BASE_PATH . '/images/others/email-template-assets/partner-' . $partnerId;
+        return self::galleryAssetsInFolder('partner-' . $partnerId);
+    }
+
+    /**
+     * @return array<int, array{name: string, url: string}>
+     */
+    private static function defaultTemplateGalleryAssets(): array
+    {
+        return self::galleryAssetsInFolder('default');
+    }
+
+    /**
+     * @return array<int, array{name: string, url: string}>
+     */
+    private static function galleryAssetsInFolder(string $folder): array
+    {
+        $dir = BASE_PATH . '/images/others/email-template-assets/' . $folder;
         if (!is_dir($dir)) {
             return [];
         }
@@ -1958,7 +1974,7 @@ TEXT;
             }
             $assets[] = [
                 'name' => $basename,
-                'url' => '/images/others/email-template-assets/partner-' . $partnerId . '/' . $basename,
+                'url' => '/images/others/email-template-assets/' . $folder . '/' . $basename,
             ];
         }
 
@@ -2339,6 +2355,7 @@ TEXT;
             'selected' => $selected,
             'templateCatalog' => $templateCatalog,
             'creatableTemplates' => $creatableTemplates,
+            'galleryAssets' => self::defaultTemplateGalleryAssets(),
         ]);
     }
 
@@ -2529,6 +2546,136 @@ TEXT;
                     Database::connection()->prepare(
                         'UPDATE email_templates SET body_html = ?, updated_at = NOW() WHERE id = ? AND partner_id = ?'
                     )->execute([$html, $templateId, $partnerId]);
+                    $successMessage = 'Template Canva importé (' . $imported . ' image(s) copiée(s) dans la galerie).';
+                }
+            }
+        } finally {
+            self::cleanupTmpDir($tmpDir);
+        }
+
+        self::redirect($redirectBase, $successMessage);
+    }
+
+    /**
+     * Same as adminImportTemplateZip() but for the admin-managed "default"
+     * templates (default_email_templates, no partner_id): images are
+     * copied into a shared "default" gallery folder instead of a
+     * partner-specific one.
+     */
+    public static function adminImportDefaultTemplateZip(): never
+    {
+        self::requireAdminUser();
+        self::ensureDefaultEmailTemplatesTable();
+        $templateId = (int) ($_POST['id'] ?? 0);
+        $importMode = (string) ($_POST['import_mode'] ?? 'all');
+        if (!in_array($importMode, self::IMPORT_ZIP_MODES, true)) {
+            $importMode = 'all';
+        }
+        $language = in_array((string) ($_POST['language'] ?? ''), I18n::SUPPORTED, true)
+            ? (string) $_POST['language']
+            : I18n::DEFAULT_LANGUAGE;
+        $redirectBase = '/admin/templates/default?language=' . $language . ($templateId > 0 ? '&id=' . $templateId : '');
+
+        $needsTemplate = $importMode !== 'images_only';
+        if ($needsTemplate) {
+            if ($templateId <= 0) {
+                self::redirect($redirectBase, 'Sélectionnez un template avant d’importer un ZIP.', 'error');
+            }
+            $ownerStmt = Database::connection()->prepare('SELECT id FROM default_email_templates WHERE id = ? AND language = ? LIMIT 1');
+            $ownerStmt->execute([$templateId, $language]);
+            if (!$ownerStmt->fetchColumn()) {
+                self::redirect($redirectBase, 'Template par défaut introuvable.', 'error');
+            }
+        }
+
+        $file = $_FILES['template_zip'] ?? null;
+        if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            self::redirect($redirectBase, 'Aucun fichier ZIP valide envoyé.', 'error');
+        }
+        if (!is_uploaded_file((string) $file['tmp_name'])) {
+            self::redirect($redirectBase, 'Fichier invalide.', 'error');
+        }
+        $originalName = (string) ($file['name'] ?? '');
+        if (strtolower(pathinfo($originalName, PATHINFO_EXTENSION)) !== 'zip') {
+            self::redirect($redirectBase, 'Le fichier doit être un ZIP.', 'error');
+        }
+        if ((int) ($file['size'] ?? 0) > 25 * 1024 * 1024) {
+            self::redirect($redirectBase, 'Le ZIP ne doit pas dépasser 25 Mo.', 'error');
+        }
+
+        $tmpDir = sys_get_temp_dir() . '/canva-import-' . bin2hex(random_bytes(8));
+        if (!@mkdir($tmpDir, 0775, true)) {
+            throw new HttpException(500, 'Internal Server Error', 'Impossible de créer le dossier temporaire.');
+        }
+
+        $successMessage = null;
+        try {
+            $zip = new \ZipArchive();
+            if ($zip->open((string) $file['tmp_name']) !== true) {
+                self::redirect($redirectBase, 'Impossible de lire le fichier ZIP.', 'error');
+            }
+            $zip->extractTo($tmpDir);
+            $zip->close();
+
+            if ($importMode === 'images_only') {
+                $galleryDir = BASE_PATH . '/images/others/email-template-assets/default';
+                if (!is_dir($galleryDir) && !@mkdir($galleryDir, 0775, true) && !is_dir($galleryDir)) {
+                    throw new HttpException(500, 'Internal Server Error', 'Impossible de créer le dossier de galerie.');
+                }
+                $imported = self::copyAllZipImagesToGallery($tmpDir, $galleryDir);
+                $successMessage = $imported . ' image(s) importée(s) dans la galerie.';
+            } else {
+                $htmlPath = self::findHtmlFileInDirectory($tmpDir);
+                if ($htmlPath === null) {
+                    self::redirect($redirectBase, 'Aucun fichier HTML trouvé dans le ZIP.', 'error');
+                }
+
+                $html = file_get_contents($htmlPath);
+                if ($html === false) {
+                    self::redirect($redirectBase, 'Impossible de lire le fichier HTML du ZIP.', 'error');
+                }
+
+                if ($importMode === 'html_only') {
+                    // Import the HTML structure only: leave image references
+                    // untouched and don't copy any file into the gallery.
+                    Database::connection()->prepare(
+                        'UPDATE default_email_templates SET body_html = ?, updated_at = NOW() WHERE id = ?'
+                    )->execute([$html, $templateId]);
+                    $successMessage = 'Template Canva importé (HTML uniquement, images non copiées).';
+                } else {
+                    $galleryDir = BASE_PATH . '/images/others/email-template-assets/default';
+                    if (!is_dir($galleryDir) && !@mkdir($galleryDir, 0775, true) && !is_dir($galleryDir)) {
+                        throw new HttpException(500, 'Internal Server Error', 'Impossible de créer le dossier de galerie.');
+                    }
+
+                    $imported = 0;
+                    $html = (string) preg_replace_callback(
+                        '/(["\'])((?:images?|assets)\/[a-zA-Z0-9_\-.\/]+\.(?:png|jpe?g|gif|webp|svg))\1/i',
+                        function (array $matches) use ($tmpDir, $galleryDir, &$imported): string {
+                            [$full, $quote, $relativePath] = $matches;
+                            $basename = basename($relativePath);
+                            $sourcePath = self::locateFileByBasename($tmpDir, $basename);
+                            if ($sourcePath === null) {
+                                return $full;
+                            }
+                            $extension = strtolower(pathinfo($basename, PATHINFO_EXTENSION));
+                            if (!in_array($extension, [...self::ALLOWED_TEMPLATE_ASSET_EXTENSIONS, 'svg'], true)) {
+                                return $full;
+                            }
+                            $newName = 'canva-' . bin2hex(random_bytes(8)) . '.' . $extension;
+                            if (!copy($sourcePath, $galleryDir . '/' . $newName)) {
+                                return $full;
+                            }
+                            $imported++;
+                            $newUrl = '/images/others/email-template-assets/default/' . $newName;
+                            return $quote . $newUrl . $quote;
+                        },
+                        $html
+                    );
+
+                    Database::connection()->prepare(
+                        'UPDATE default_email_templates SET body_html = ?, updated_at = NOW() WHERE id = ?'
+                    )->execute([$html, $templateId]);
                     $successMessage = 'Template Canva importé (' . $imported . ' image(s) copiée(s) dans la galerie).';
                 }
             }

@@ -18,7 +18,7 @@ $selectedLanguage = $selectedLanguage ?? 'fr';
       <a href="<?= $baseUrl ?>?language=en" class="btn-sm <?= $selectedLanguage === 'en' ? 'btn-primary' : 'btn-secondary' ?>">🇬🇧 English</a>
     </div>
 
-    <div class="form-grid cols-2">
+    <div class="form-grid cols-3">
       <div class="card card-body stack-sm">
         <h2 class="section-title">Templates existants</h2>
         <?php if (($templates ?? []) === []): ?>
@@ -54,6 +54,30 @@ $selectedLanguage = $selectedLanguage ?? 'fr';
           </form>
         <?php endif; ?>
       </div>
+
+      <div class="card card-body stack-sm">
+        <h2 class="section-title">Importer un ZIP Canva.com</h2>
+        <form method="post" action="<?= $baseUrl ?>/import-zip" enctype="multipart/form-data" class="stack-md" data-zip-import-form>
+          <input type="hidden" name="language" value="<?= \App\View::e($selectedLanguage) ?>">
+          <?php if ($selected): ?><input type="hidden" name="id" value="<?= (int) $selected['id'] ?>"><?php endif; ?>
+          <label>
+            <span>Fichier ZIP (HTML + images)</span>
+            <input class="input" type="file" name="template_zip" accept=".zip,application/zip,application/x-zip-compressed" required data-zip-file-input>
+          </label>
+          <label>
+            <span>Que faut-il importer ?</span>
+            <select class="input" name="import_mode" data-zip-import-mode>
+              <option value="all" <?= !$selected ? 'disabled' : '' ?> <?= $selected ? 'selected' : '' ?>>Tout (HTML + images)</option>
+              <option value="images_only" <?= !$selected ? 'selected' : '' ?>>Juste les images</option>
+              <option value="html_only" <?= !$selected ? 'disabled' : '' ?>>Tout sauf les images (HTML seul)</option>
+            </select>
+          </label>
+          <button class="btn-secondary" type="submit">📦 Importer le ZIP</button>
+          <?php if (!$selected): ?>
+            <p class="text-muted" style="margin:0;">Sélectionnez un template pour activer les options « Tout » et « Tout sauf les images ».</p>
+          <?php endif; ?>
+        </form>
+      </div>
     </div>
 
     <?php if ($selected): ?>
@@ -64,7 +88,7 @@ $selectedLanguage = $selectedLanguage ?? 'fr';
             ? '📧 Ce template est envoyé au <strong>client</strong> (le voyageur). N\'y insérez jamais une variable réservée au partenaire (commission, montant à reverser…).'
             : '📧 Ce template est envoyé au <strong>partenaire</strong>, jamais au client.' ?>
         </p>
-        <form method="post" action="<?= $baseUrl ?>/<?= (int) $selected['id'] ?>" class="stack-md" data-template-editor data-gallery-assets="[]">
+        <form method="post" action="<?= $baseUrl ?>/<?= (int) $selected['id'] ?>" class="stack-md" data-template-editor data-gallery-assets="<?= \App\View::e(json_encode($galleryAssets ?? [])) ?>">
           <label><span>Objet de l'email</span><input class="input" type="text" name="subject" value="<?= \App\View::e($selected['subject']) ?>"></label>
           <details class="code-box">
             <summary>Corps de l'email (HTML)</summary>

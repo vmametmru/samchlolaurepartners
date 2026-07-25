@@ -285,6 +285,8 @@ try {
             PageController::adminSaveDefaultTemplate((int) $matches[1]);
         case route($method, $path, 'POST', '#^/admin/templates/default/(\d+)/delete$#', $matches):
             PageController::adminDeleteDefaultTemplate((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/admin/templates/default/import-zip$#'):
+            PageController::adminImportDefaultTemplateZip();
         case route($method, $path, 'POST', '#^/admin/templates/create$#'):
             PageController::adminCreateAllTemplate();
         case route($method, $path, 'POST', '#^/admin/templates/import$#'):
