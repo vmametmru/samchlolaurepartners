@@ -563,6 +563,19 @@ final class ReservationsController extends Controller
             $emailInput['children_under3'] = $childrenUnder3;
             $emailInput['children_3to12'] = $children3to12;
             $emailInput['language'] = $requestLanguage;
+            // Use the server-recomputed/authoritative $quoteInput (the same
+            // values just persisted to reservation_requests above), never
+            // the client-submitted quote_* fields still sitting in $input:
+            // those can be stale (debounced AJAX quote not yet resolved,
+            // guest count changed after the last fetch, ...) and would make
+            // the emailed price diverge from what was actually shown on the
+            // site and stored in the database.
+            $emailInput['quote_currency'] = $quoteInput['currency'] ?? 'EUR';
+            $emailInput['quote_nights'] = $quoteInput['nights'] ?? 0;
+            $emailInput['quote_room_total'] = $quoteInput['room_total'] ?? 0;
+            $emailInput['quote_extra_person_total'] = $quoteInput['extra_person_total'] ?? 0;
+            $emailInput['quote_cleaning_total'] = $quoteInput['cleaning_total'] ?? 0;
+            $emailInput['quote_tourist_tax_total'] = $quoteInput['tourist_tax_total'] ?? 0;
             self::sendRequestEmails($partner, $emailInput);
         } catch (Throwable $e) {
             error_log('Failed to send reservation request emails: ' . $e);
