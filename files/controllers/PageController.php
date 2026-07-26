@@ -238,6 +238,7 @@ final class PageController extends Controller
             'ratesRestricted' => $visibility === PartnerPropertyVisibility::PARTIAL,
             'priceMinPeople' => $manual['min_people'],
             'priceExtraPersonFee' => $manual['extra_person_fee'],
+            'partnerCode' => $partner['subdomain'] ?? null,
         ]);
     }
 
