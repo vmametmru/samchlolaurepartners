@@ -399,7 +399,13 @@ function initShareButton() {
     const toast = btn.closest('.gallery-share')?.querySelector('[data-share-toast]');
     let hideTimeout = null;
     btn.addEventListener('click', async () => {
-      const url = window.location.href;
+      const partnerCode = btn.dataset.partnerCode || '';
+      let url = window.location.href;
+      if (partnerCode) {
+        const shareUrl = new URL(url);
+        shareUrl.searchParams.set('partner', partnerCode);
+        url = shareUrl.toString();
+      }
       try {
         if (navigator.clipboard && window.isSecureContext) {
           await navigator.clipboard.writeText(url);

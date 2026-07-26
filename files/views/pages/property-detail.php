@@ -35,7 +35,7 @@ $priceExtraPersonFee = $priceExtraPersonFee ?? null;
     <img src="<?= \App\View::e($mainImage) ?>" alt="<?= \App\View::e($propertyName) ?>" data-gallery-main loading="eager" decoding="async" fetchpriority="high">
     <div class="gallery-share">
       <span class="gallery-share-toast" data-share-toast>Lien copié</span>
-      <button type="button" class="gallery-share-btn" data-share-btn aria-label="Partager" title="Partager">
+      <button type="button" class="gallery-share-btn" data-share-btn data-partner-code="<?= \App\View::e((string) ($partnerCode ?? '')) ?>" aria-label="Partager" title="Partager">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="18" cy="5" r="3"></circle>
           <circle cx="6" cy="12" r="3"></circle>
