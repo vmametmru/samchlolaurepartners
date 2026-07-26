@@ -10,6 +10,7 @@ use App\Database;
 use App\I18n;
 use App\LodgifyClient;
 use App\Mailer;
+use App\Settings;
 use App\View;
 use PDO;
 use Throwable;
@@ -447,8 +448,10 @@ final class ReservationsController extends Controller
         // property can actually accommodate. Babies (children_under3) don't
         // count toward this limit — consistent with the front-end guest
         // steppers and requestMultiple()'s capacity check.
+        $property = null;
+        $countedGuests = $adults + $children3to12;
+        $totalGuests = $adults + $childrenUnder3 + $children3to12;
         if ($propertyId > 0) {
-            $countedGuests = $adults + $children3to12;
             try {
                 $property = (new LodgifyClient())->getProperty($propertyId);
                 $maxGuests = (int) ($property['max_guests'] ?? 0);
@@ -501,16 +504,40 @@ final class ReservationsController extends Controller
         }
         $columns[] = 'guests';
         $columns[] = 'message';
-        $params[] = json_encode($input['guests'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $guests = is_array($input['guests'] ?? null) ? $input['guests'] : [];
+        $params[] = json_encode($guests, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $params[] = self::nullableString($input['message'] ?? null);
-        $quoteBreakdown = self::computeQuoteBreakdown([
+        // The client-submitted quote_* hidden fields (populated by the
+        // property-detail booking form's live quote box) are only used as a
+        // last-resort fallback: if the visitor's browser never finished
+        // fetching a quote (slow/failed request, or the form was submitted
+        // before fetchQuote()/renderQuote() populated the hidden fields),
+        // those fields stay at their default "0"/empty value and every
+        // {{tarif_*}}/{{commission_partenaire}}/{{paiement_a_samchlolaure}}
+        // email variable would silently show 0,00 EUR. Recomputing the
+        // breakdown server-side here (same authoritative logic as quote()
+        // and requestMultiple()'s computeItemQuote()) keeps the persisted
+        // and emailed amounts trustworthy regardless of what the client sent.
+        $quoteInput = [
             'room_total' => $input['quote_room_total'] ?? 0,
             'extra_person_total' => $input['quote_extra_person_total'] ?? 0,
             'cleaning_total' => $input['quote_cleaning_total'] ?? 0,
             'tourist_tax_total' => $input['quote_tourist_tax_total'] ?? 0,
             'nights' => $input['quote_nights'] ?? 0,
             'currency' => $input['quote_currency'] ?? 'EUR',
-        ], (float) ($partner['markup_percent'] ?? 0));
+        ];
+        if ($propertyId > 0 && $checkin !== '' && $checkout !== '') {
+            try {
+                $checkoutDate = new \DateTimeImmutable($checkout);
+                $serverQuote = self::computeItemQuote($propertyId, $property, $checkin, $checkoutDate, $adults, $totalGuests, $countedGuests, $guests);
+                if ($serverQuote !== null) {
+                    $quoteInput = $serverQuote;
+                }
+            } catch (Throwable $e) {
+                error_log('Failed to recompute server-side quote for property ' . $propertyId . ': ' . $e->getMessage());
+            }
+        }
+        $quoteBreakdown = self::computeQuoteBreakdown($quoteInput, (float) ($partner['markup_percent'] ?? 0));
         [$quoteColumns, $quoteParams] = self::quoteInsertColumnsAndParams($pdo, $quoteBreakdown);
         $columns = [...$columns, ...$quoteColumns];
         $params = [...$params, ...$quoteParams];
@@ -1080,6 +1107,13 @@ final class ReservationsController extends Controller
                 (int) ($input['adults'] ?? 0),
                 $childBreakdown['from3to12']
             ),
+            'bouton_verifier_disponibilites' => self::availabilityCheckButtonHtml(
+                (int) ($input['property_id'] ?? 0),
+                $checkin,
+                $checkout,
+                (int) ($input['adults'] ?? 0),
+                $childBreakdown['from3to12']
+            ),
         ];
         $variables += self::stayVariables($checkin, $checkout, $childBreakdown['under3'], $childBreakdown['from3to12'], (int) ($input['adults'] ?? 0));
         $variables += self::requestQuoteVariables($input, $itemCount, (float) ($partner['markup_percent'] ?? 0));
@@ -1276,6 +1310,13 @@ final class ReservationsController extends Controller
                 (int) $request['adults'],
                 $childBreakdown['from3to12']
             ),
+            'bouton_verifier_disponibilites' => self::availabilityCheckButtonHtml(
+                (int) ($request['property_id'] ?? 0),
+                (string) $request['checkin_date'],
+                (string) $request['checkout_date'],
+                (int) $request['adults'],
+                $childBreakdown['from3to12']
+            ),
         ];
         $variables += self::stayVariables(
             (string) $request['checkin_date'],
@@ -1360,7 +1401,7 @@ final class ReservationsController extends Controller
      * database date format. Falls back to the original (unformatted) value
      * when it isn't a valid date, rather than throwing.
      */
-    private static function formatDateFr(string $isoDate): string
+    public static function formatDateFr(string $isoDate): string
     {
         $isoDate = trim($isoDate);
         if ($isoDate === '') {
@@ -1778,17 +1819,99 @@ final class ReservationsController extends Controller
 
     /**
      * Builds the {{bouton_reservation}} email variable: a ready-made HTML
-     * button linking back to this property's page, with the check-in/
-     * check-out dates and party size already pre-filled as query params
-     * (see /files/views/pages/partner-reservation-detail.php's "Voir le
-     * bien avec ces dates" button, and initBookingLinkPrefillGuests() in
-     * assets/js/app.js which reads them back client-side). Insertable
+     * button that first has our own site re-check this property's live
+     * Lodgify availability for the requested dates/party size at the exact
+     * moment it is clicked (an email can go unopened for days, so the
+     * availability at send-time can no longer be trusted), then either:
+     * - redirects straight to the Lodgify checkout page
+     *   (checkout.lodgify.com/.../reservation) to confirm the booking, if
+     *   still available, or
+     * - sends the visitor back to the property page on our own site with an
+     *   "indisponible" notice, if not.
+     * See PageController::bookingRedirect() (route
+     * "/properties/{id}/reservation-directe") for that live check. Insertable
      * anywhere in a template body — unlike {{tarif_bloc}}, it is not
      * referenced by any other variable, so partners are free to place it
      * wherever they want (e.g. right after the stay summary, or in the
      * signature block) or to omit it entirely.
      */
     public static function bookingLinkButtonHtml(
+        int $propertyId,
+        string $checkin,
+        string $checkout,
+        int $adults,
+        int $children3to12
+    ): string {
+        $url = self::bookingRedirectUrl($propertyId, $checkin, $checkout, $adults, $children3to12);
+        if ($url === '') {
+            return '';
+        }
+
+        return '<div style="text-align:center;margin:20px 0;">'
+            . '<a href="' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '" target="_blank" rel="noopener" '
+            . 'style="display:inline-block;background:#3b82f6;color:#ffffff;text-decoration:none;'
+            . 'font-weight:bold;font-size:14px;padding:12px 28px;border-radius:6px;">Réserver maintenant</a>'
+            . '</div>';
+    }
+
+    /**
+     * Builds the {{bouton_verifier_disponibilites}} email variable: a second
+     * button, next to {{bouton_reservation}}, that sends the visitor to a
+     * confirmation page on our own site (PageController::availabilityCheck(),
+     * route "/properties/{id}/verifier-disponibilites") which re-checks this
+     * property's live Lodgify availability for these dates/party size and
+     * displays the result, with its own "Réserver" button linking to the
+     * Lodgify checkout page once availability is confirmed.
+     */
+    public static function availabilityCheckButtonHtml(
+        int $propertyId,
+        string $checkin,
+        string $checkout,
+        int $adults,
+        int $children3to12
+    ): string {
+        $url = self::availabilityCheckUrl($propertyId, $checkin, $checkout, $adults, $children3to12);
+        if ($url === '') {
+            return '';
+        }
+
+        return '<div style="text-align:center;margin:20px 0;">'
+            . '<a href="' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '" target="_blank" rel="noopener" '
+            . 'style="display:inline-block;background:#ffffff;color:#3b82f6;text-decoration:none;'
+            . 'font-weight:bold;font-size:14px;padding:11px 27px;border-radius:6px;border:2px solid #3b82f6;">Vérifier les disponibilités</a>'
+            . '</div>';
+    }
+
+    /**
+     * URL of the "book now" live-availability-check redirect, on our own
+     * site (see bookingLinkButtonHtml() above).
+     */
+    public static function bookingRedirectUrl(
+        int $propertyId,
+        string $checkin,
+        string $checkout,
+        int $adults,
+        int $children3to12
+    ): string {
+        return self::propertyActionUrl('reservation-directe', $propertyId, $checkin, $checkout, $adults, $children3to12);
+    }
+
+    /**
+     * URL of the "check availability" confirmation page, on our own site
+     * (see availabilityCheckButtonHtml() above).
+     */
+    public static function availabilityCheckUrl(
+        int $propertyId,
+        string $checkin,
+        string $checkout,
+        int $adults,
+        int $children3to12
+    ): string {
+        return self::propertyActionUrl('verifier-disponibilites', $propertyId, $checkin, $checkout, $adults, $children3to12);
+    }
+
+    private static function propertyActionUrl(
+        string $action,
         int $propertyId,
         string $checkin,
         string $checkout,
@@ -1808,13 +1931,41 @@ final class ReservationsController extends Controller
             'adults' => $adults,
             'children' => $children3to12,
         ];
-        $url = $baseUrl . '/properties/' . $propertyId . '?' . http_build_query($params);
+        return $baseUrl . '/properties/' . $propertyId . '/' . $action . '?' . http_build_query($params);
+    }
 
-        return '<div style="text-align:center;margin:20px 0;">'
-            . '<a href="' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '" target="_blank" rel="noopener" '
-            . 'style="display:inline-block;background:#3b82f6;color:#ffffff;text-decoration:none;'
-            . 'font-weight:bold;font-size:14px;padding:12px 28px;border-radius:6px;">Réserver maintenant</a>'
-            . '</div>';
+    /**
+     * Direct deep-link to the Lodgify checkout page for this property/dates,
+     * e.g. https://checkout.lodgify.com/fr/sam-chlo/494936/reservation?
+     * currency=EUR&arrival=2026-10-14&departure=2026-10-16&adults=2&
+     * slug=sam-chlo&propertyId=494936 — only ever used *after* a live
+     * availability check confirms the property is bookable for those dates
+     * (see PageController::bookingRedirect()/availabilityCheck()), never
+     * linked to directly from an unchecked email button.
+     */
+    public static function lodgifyCheckoutUrl(
+        int $propertyId,
+        string $checkin,
+        string $checkout,
+        int $adults,
+        string $lang = 'fr'
+    ): string {
+        $slug = trim((string) (Settings::get('LODGIFY_CHECKOUT_SLUG') ?? '')) ?: 'sam-chlo';
+        $currency = trim((string) (Settings::get('LODGIFY_CHECKOUT_CURRENCY') ?? '')) ?: 'EUR';
+        $checkoutBase = rtrim(
+            trim((string) (Settings::get('LODGIFY_CHECKOUT_BASE_URL') ?? '')) ?: 'https://checkout.lodgify.com',
+            '/'
+        );
+        $lang = $lang !== '' ? $lang : 'fr';
+        $params = [
+            'currency' => $currency,
+            'arrival' => $checkin,
+            'departure' => $checkout,
+            'adults' => max(1, $adults),
+            'slug' => $slug,
+            'propertyId' => $propertyId,
+        ];
+        return $checkoutBase . '/' . $lang . '/' . $slug . '/' . $propertyId . '/reservation?' . http_build_query($params);
     }
 
     /**

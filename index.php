@@ -157,6 +157,12 @@ try {
         case route($method, $path, 'GET', '#^/properties/(\d+)$#', $matches):
             PageController::propertyDetail((int) $matches[1]);
             break;
+        case route($method, $path, 'GET', '#^/properties/(\d+)/reservation-directe$#', $matches):
+            PageController::bookingRedirect((int) $matches[1]);
+            break;
+        case route($method, $path, 'GET', '#^/properties/(\d+)/verifier-disponibilites$#', $matches):
+            PageController::availabilityCheck((int) $matches[1]);
+            break;
         case route($method, $path, 'GET', '#^/contact$#'):
             PageController::contact();
             break;

@@ -241,6 +241,133 @@ final class PageController extends Controller
         ]);
     }
 
+    /**
+     * Target of the {{bouton_reservation}} email button (route
+     * "/properties/{id}/reservation-directe"): re-checks this property's
+     * live Lodgify availability for the requested dates the instant the
+     * button is clicked (an email can sit unopened for days, so the
+     * availability at send-time can no longer be trusted), then either
+     * redirects straight to the Lodgify checkout page to confirm the
+     * booking, or sends the visitor back to the property page with an
+     * "indisponible" notice so they can pick other dates.
+     */
+    public static function bookingRedirect(int $id): void
+    {
+        [$arrival, $departure, $adults, $children] = self::bookingActionParams();
+        $fallbackUrl = '/properties/' . $id . '?' . http_build_query([
+            'arrival' => $arrival,
+            'departure' => $departure,
+            'adults' => $adults,
+            'children' => $children,
+        ]);
+
+        if ($id <= 0 || !self::isValidStayRange($arrival, $departure)) {
+            self::redirect($fallbackUrl);
+        }
+
+        $partner = Tenant::current();
+        if (PartnerPropertyVisibility::visibilityFor($partner, $id) === PartnerPropertyVisibility::NONE) {
+            throw new HttpException(404, 'Not Found', 'Hébergement introuvable');
+        }
+
+        $available = self::isPropertyAvailableNow($id, $arrival, $departure);
+        if ($available) {
+            header('Location: ' . ReservationsController::lodgifyCheckoutUrl(
+                $id,
+                $arrival,
+                $departure,
+                max(1, $adults + $children)
+            ));
+            exit;
+        }
+
+        self::redirect(
+            $fallbackUrl,
+            'Ces dates ne sont malheureusement plus disponibles pour ce bien. Merci de choisir d\'autres dates.',
+            'error'
+        );
+    }
+
+    /**
+     * Target of the {{bouton_verifier_disponibilites}} email button (route
+     * "/properties/{id}/verifier-disponibilites"): re-checks this property's
+     * live Lodgify availability for the requested dates/party size and shows
+     * a confirmation page with its own "Réserver" button (linking straight to
+     * the Lodgify checkout page) once availability is confirmed.
+     */
+    public static function availabilityCheck(int $id): void
+    {
+        [$arrival, $departure, $adults, $children] = self::bookingActionParams();
+        $validRange = $id > 0 && self::isValidStayRange($arrival, $departure);
+
+        $partner = Tenant::current();
+        if ($id > 0 && PartnerPropertyVisibility::visibilityFor($partner, $id) === PartnerPropertyVisibility::NONE) {
+            throw new HttpException(404, 'Not Found', 'Hébergement introuvable');
+        }
+
+        $property = null;
+        if ($id > 0) {
+            try {
+                $property = (new LodgifyClient())->getProperty($id);
+            } catch (Throwable $e) {
+                error_log('Availability check: failed to fetch property ' . $id . ': ' . $e->getMessage());
+            }
+        }
+
+        $available = $validRange && self::isPropertyAvailableNow($id, $arrival, $departure);
+        $checkoutUrl = $available
+            ? ReservationsController::lodgifyCheckoutUrl($id, $arrival, $departure, max(1, $adults + $children))
+            : '';
+
+        View::render('pages/booking-availability', [
+            'pageTitle' => 'Vérification de disponibilité',
+            'property' => $property,
+            'propertyId' => $id,
+            'arrival' => $arrival,
+            'departure' => $departure,
+            'adults' => $adults,
+            'children' => $children,
+            'validRange' => $validRange,
+            'available' => $available,
+            'checkoutUrl' => $checkoutUrl,
+        ]);
+    }
+
+    /** @return array{0: string, 1: string, 2: int, 3: int} [arrival, departure, adults, children3to12] */
+    private static function bookingActionParams(): array
+    {
+        return [
+            trim((string) ($_GET['arrival'] ?? '')),
+            trim((string) ($_GET['departure'] ?? '')),
+            max(1, (int) ($_GET['adults'] ?? 1)),
+            max(0, (int) ($_GET['children'] ?? 0)),
+        ];
+    }
+
+    private static function isValidStayRange(string $arrival, string $departure): bool
+    {
+        if ($arrival === '' || $departure === '') {
+            return false;
+        }
+        try {
+            $checkin = new \DateTimeImmutable($arrival);
+            $checkout = new \DateTimeImmutable($departure);
+        } catch (Throwable $e) {
+            return false;
+        }
+        return $checkout > $checkin;
+    }
+
+    private static function isPropertyAvailableNow(int $id, string $arrival, string $departure): bool
+    {
+        try {
+            return (new LodgifyClient())->isAvailableForRange($id, $arrival, $departure);
+        } catch (Throwable $e) {
+            error_log('Live availability check failed for property ' . $id . ': ' . $e->getMessage());
+            return false;
+        }
+    }
+
     public static function calendar(): void
     {
         // Standalone "Calendrier" overview: one row per property, showing the
