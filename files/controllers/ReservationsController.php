@@ -1471,12 +1471,18 @@ final class ReservationsController extends Controller
         $extraPersonTotal = self::toMoneyValue($quote['extra_person_total'] ?? 0);
         $cleaningTotal = self::toMoneyValue($quote['cleaning_total'] ?? 0);
         $touristTaxTotal = self::toMoneyValue($quote['tourist_tax_total'] ?? 0);
-        // "Commissions Partenaire" = Tarif Normal x Taux du partenaire (the
-        // partner's markup_percent, i.e. their commission rate on the room
-        // price), and "Total Voyageur" is the sum of every line the traveler
-        // is billed for.
+        // $roomTotal here is the same already-marked-up per-night price shown
+        // to the guest on the property page (PageController::publicRates()
+        // bakes the partner's markup_percent into it before this method ever
+        // sees it), i.e. it's already what the traveler is billed for the
+        // accommodation itself. "Commissions Partenaire" is only an
+        // informational estimate of the partner's margin already embedded in
+        // that price (never a surcharge added on top of it), so it must NOT
+        // be added again into the traveler-facing total below — doing so
+        // used to double-apply the markup and made emailed totals higher
+        // than the price actually shown on the site.
         $commissionTotal = round($roomTotal * $markupPercent / 100, 2);
-        $totalTraveler = round($roomTotal + $commissionTotal + $extraPersonTotal + $cleaningTotal, 2);
+        $totalTraveler = round($roomTotal + $extraPersonTotal + $cleaningTotal, 2);
 
         return [
             'room_total' => $roomTotal,
@@ -1524,9 +1530,13 @@ final class ReservationsController extends Controller
         $cleaningTotal = $breakdown['cleaning_total'];
         $touristTaxTotal = $breakdown['tourist_tax_total'];
         $nights = $breakdown['nights'];
-        // Includes the partner's commission (Tarif Normal + Commissions +
-        // Ménage + Personnes Additionnelles), but never the tourist tax.
-        $totalWithoutTax = round($roomTotal + $breakdown['commission_total'] + $extraPersonTotal + $cleaningTotal, 2);
+        // $roomTotal is already the marked-up price shown to the guest on
+        // the property page (see computeQuoteBreakdown()), so it must not be
+        // added to the partner's commission again here — doing so used to
+        // make the emailed total higher than the price shown on the site for
+        // the exact same stay. Tarif Normal + Ménage + Personnes
+        // Additionnelles, never the tourist tax.
+        $totalWithoutTax = round($roomTotal + $extraPersonTotal + $cleaningTotal, 2);
         $itemCount = max(1, $itemCount);
 
         $tarifBloc = '<div style="padding:12px 24px 16px;">'
@@ -1537,7 +1547,7 @@ final class ReservationsController extends Controller
         }
         $tarifBloc .= '<table style="width:100%;border-collapse:collapse;font-size:14px;">'
             . '<tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;color:#374151;">Tarif</td>'
-            . '<td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;color:#374151;">' . self::formatMoneyFr($roomTotal + $breakdown['commission_total'], $currency) . '</td></tr>';
+            . '<td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;color:#374151;">' . self::formatMoneyFr($roomTotal, $currency) . '</td></tr>';
         if ($extraPersonTotal > 0) {
             $tarifBloc .= '<tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;color:#374151;">Personne(s) supplémentaire(s)</td>'
                 . '<td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;color:#374151;">' . self::formatMoneyFr($extraPersonTotal, $currency) . '</td></tr>';
@@ -1575,11 +1585,12 @@ final class ReservationsController extends Controller
             // emails unless the partner explicitly inserts it themselves.
             'tarif_normal' => self::formatMoneyFr($roomTotal, $currency),
             'commission_partenaire' => self::formatMoneyFr($breakdown['commission_total'], $currency),
-            // Tarif Normal + marge du partenaire (commission), volontairement
-            // sans nettoyage et sans taxe touristique — distinct de
-            // {{total_voyageur}} qui inclut en plus le ménage et les
-            // personnes supplémentaires.
-            'tarif_client' => self::formatMoneyFr($roomTotal + $breakdown['commission_total'], $currency),
+            // $roomTotal already includes the partner's commission (see
+            // computeQuoteBreakdown()), so {{tarif_client}} is simply the
+            // room total — volontairement sans nettoyage et sans taxe
+            // touristique — distinct de {{total_voyageur}} qui inclut en
+            // plus le ménage et les personnes supplémentaires.
+            'tarif_client' => self::formatMoneyFr($roomTotal, $currency),
             'personnes_additionnelles' => self::formatMoneyFr($extraPersonTotal, $currency),
             'nettoyage' => self::formatMoneyFr($cleaningTotal, $currency),
             'total_voyageur' => self::formatMoneyFr($breakdown['total_traveler'], $currency),
