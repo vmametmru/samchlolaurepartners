@@ -6,6 +6,7 @@ require __DIR__ . '/files/bootstrap.php';
 
 use App\HttpException;
 use App\Settings;
+use App\Tenant;
 use App\controllers\AccountController;
 use App\controllers\AuthController;
 use App\controllers\DiagnosticController;
@@ -57,6 +58,26 @@ if ($path === '/health') {
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode(['status' => 'ok', 'timestamp' => gmdate('c')], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
+}
+
+// Allows deep-linking straight to any page with e.g.
+// https://www.grand-baie-maurice.com/properties/123?partner=code_partenaire:
+// a valid "partner" query parameter sets the partner_code cookie for this
+// visitor exactly as if they had typed the code on the "/" gate page (see
+// PageController::submitPartnerCode()), so the requested page renders
+// directly instead of forcing a detour through the gate/hash flow. This is
+// purely additive: it never touches the "#code_partenaire" hash deep-link
+// (assets/js/app.js initPartnerCodeFromHash()) or the "/login" form, and an
+// invalid/unknown code is silently ignored so the existing cookie (if any)
+// or the gate page keeps handling the request as before.
+if (!str_starts_with($path, '/api/')) {
+    $partnerCode = trim((string) ($_GET['partner'] ?? ''));
+    if ($partnerCode !== '') {
+        $partnerFromQuery = Tenant::resolveByCode($partnerCode);
+        if ($partnerFromQuery) {
+            Tenant::setCodeCookie((string) $partnerFromQuery['subdomain']);
+        }
+    }
 }
 
 try {
