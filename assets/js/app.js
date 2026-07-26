@@ -449,8 +449,11 @@ function initPropertyTabs() {
       button.addEventListener('click', () => activate(button.dataset.tabBtn));
     });
     const hashTarget = window.location.hash ? window.location.hash.slice(1) : '';
+    const hasPartnerParam = new URLSearchParams(window.location.search).has('partner');
     if (hashTarget && tabs.querySelector(`[data-tab-btn="${hashTarget}"]`)) {
       activate(hashTarget);
+    } else if (hasPartnerParam && tabs.querySelector('[data-tab-btn="rates-availability"]')) {
+      activate('rates-availability');
     } else {
       activate('description');
     }
