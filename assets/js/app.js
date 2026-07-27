@@ -2405,7 +2405,6 @@ function initBookingQuote() {
       if (extraEl) extraEl.textContent = formatMoney(quote.extra_person_total || 0);
       const cleaningEl = form.querySelector('[data-quote-cleaning]');
       if (cleaningEl) cleaningEl.textContent = formatMoney(quote.cleaning_total);
-      form.querySelector('[data-quote-total]').textContent = formatMoney(quote.total_without_tax);
       const recap = form.querySelector('[data-quote-recap]');
       if (recap) {
         const adults = Number(form.querySelector('[name="adults"]')?.value || 0);
@@ -2418,13 +2417,16 @@ function initBookingQuote() {
       }
       const taxLine = form.querySelector('[data-quote-tax-line]');
       const taxApplies = Number(quote.tourist_tax_total) > 0 && nationalityProvided();
-      taxLine.hidden = !taxApplies;
+      if (taxLine) taxLine.hidden = !taxApplies;
       if (taxApplies) {
         const taxAmount = form.querySelector('[data-quote-tax-amount]');
-        if (taxAmount) {
-          taxAmount.textContent = Number(quote.tourist_tax_total).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        }
+        if (taxAmount) taxAmount.textContent = formatMoney(quote.tourist_tax_total);
       }
+      // The total shown to the client includes the tourist tax (when it
+      // applies) instead of leaving it out as a separate note below the
+      // total: what is displayed here must match the actual amount owed.
+      const grandTotal = Number(quote.total_without_tax || 0) + (taxApplies ? Number(quote.tourist_tax_total || 0) : 0);
+      form.querySelector('[data-quote-total]').textContent = formatMoney(grandTotal);
       setQuoteField('quote_currency', currency);
       setQuoteField('quote_nights', Number(quote.nights || 0));
       setQuoteField('quote_room_total', Number(quote.room_total || 0));
@@ -2686,6 +2688,10 @@ function initMultiPropertyCart() {
       grandTotal += Number(quote.room_total || 0) + Number(quote.extra_person_total || 0) + Number(quote.cleaning_total || 0);
       taxTotal += Number(quote.tourist_tax_total || 0);
     });
+    // The tourist tax is added to the displayed total (not left as a
+    // separate "non comprise" note), and still broken out in the summary
+    // so the visitor can see how much of the total it represents.
+    grandTotal += taxTotal;
     if (summaryTotalEl) summaryTotalEl.textContent = formatEuros(grandTotal);
     if (taxLineEl) {
       const applies = taxTotal > 0;
