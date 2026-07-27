@@ -1502,12 +1502,15 @@ final class ReservationsController extends Controller
         // be added again into the traveler-facing total below — doing so
         // used to double-apply the markup and made emailed totals higher
         // than the price actually shown on the site.
-        $commissionTotal = round($roomTotal * $markupPercent / 100, 2);
-        // {{total_voyageur}}/{{paiement_a_samchlolaure}} must include the
-        // tourist tax (due at check-in but still part of what the traveler
-        // pays overall), unlike {{tarif_total}}/tarif_bloc's "Total" line
-        // which deliberately excludes it (see buildQuoteVariables()).
-        $totalTraveler = round($roomTotal + $extraPersonTotal + $cleaningTotal + $touristTaxTotal, 2);
+        // Commission is calculated on {{tarif_client}} + {{tarif_personnes_
+        // supplementaires}} (room + extra-person fees) only, never on the
+        // cleaning fee.
+        $commissionTotal = round(($roomTotal + $extraPersonTotal) * $markupPercent / 100, 2);
+        // {{total_voyageur}}/{{paiement_a_samchlolaure}} must NOT include the
+        // tourist tax: the channel manager doesn't handle it correctly, so
+        // it's excluded here (same as {{tarif_total}}/tarif_bloc's "Total"
+        // line — see buildQuoteVariables()).
+        $totalTraveler = round($roomTotal + $extraPersonTotal + $cleaningTotal, 2);
 
         return [
             'room_total' => $roomTotal,
@@ -1614,15 +1617,18 @@ final class ReservationsController extends Controller
             // computeQuoteBreakdown()), so {{tarif_client}} is simply the
             // room total — volontairement sans nettoyage et sans taxe
             // touristique — distinct de {{total_voyageur}} qui inclut en
-            // plus le ménage, les personnes supplémentaires et la taxe
-            // touristique (voir computeQuoteBreakdown()).
+            // plus le ménage et les personnes supplémentaires (mais pas la
+            // taxe touristique, voir computeQuoteBreakdown()).
             'tarif_client' => self::formatMoneyFr($roomTotal, $currency),
             'personnes_additionnelles' => self::formatMoneyFr($extraPersonTotal, $currency),
             'nettoyage' => self::formatMoneyFr($cleaningTotal, $currency),
+            // {{total_voyageur}} deliberately excludes the tourist tax (the
+            // channel manager doesn't handle it correctly), same as
+            // {{tarif_total}} above.
             'total_voyageur' => self::formatMoneyFr($breakdown['total_traveler'], $currency),
             // Amount actually due to SamChloLaure once the partner's
             // commission (already included in "Total Voyageur") is deducted:
-            // Total à payer par le client (taxe touristique incluse) -
+            // Total à payer par le client (hors taxe touristique) -
             // Commissions Partenaire.
             'paiement_a_samchlolaure' => self::formatMoneyFr($breakdown['total_traveler'] - $breakdown['commission_total'], $currency),
         ];
