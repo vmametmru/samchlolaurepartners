@@ -22,6 +22,7 @@ $checkinLabel = $formatHour($property['checkin_hour'] ?? null);
 $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
 $priceMinPeople = $priceMinPeople ?? null;
 $priceExtraPersonFee = $priceExtraPersonFee ?? null;
+$globalTouristTax = $globalTouristTax ?? 0.0;
 ?>
 <section class="container section-lg" data-gallery>
   <div class="property-detail-header">
@@ -121,13 +122,16 @@ $priceExtraPersonFee = $priceExtraPersonFee ?? null;
             <p class="muted">Tarifs non disponibles pour le moment.</p>
           <?php else: ?>
             <p class="muted calendar-price-note">
-              Prix de la nuité en Euros. Le prix inclus les frais de nettoyage 2 fois par semaine.
+              Prix de la nuité en Euros. Le tarif inclus les frais de nettoyage 2 fois par semaine.
               <?php if ($priceMinPeople !== null): ?>
-                Les prix affichés sont pour <?= (int) $priceMinPeople ?> personnes.
+                Les tarifs affichés sont pour <?= (int) $priceMinPeople ?> personne(s).
                 <?php if ($priceExtraPersonFee !== null && $priceExtraPersonFee > 0): ?>
-                  Frais additionnel de <?= \App\View::e(number_format((float) $priceExtraPersonFee, 0, ',', ' ')) ?> Euros par nuit par personne
+                  Un frais additionnel de <?= \App\View::e(number_format((float) $priceExtraPersonFee, 0, ',', ' ')) ?> Euros par nuit par personne
                 <?php endif; ?>
                 + 2 enfants de moins de 3 ans (Gratuitement)
+                <?php if ($globalTouristTax > 0): ?>
+                  et/ou la taxe touristique de <?= \App\View::e(number_format($globalTouristTax, 0, ',', ' ')) ?> Euros par personne par nuit pour les étrangers à partir de 12ans seront rajoutés au total.
+                <?php endif; ?>
               <?php endif; ?>
             </p>
           <?php endif; ?>
@@ -205,9 +209,9 @@ $priceExtraPersonFee = $priceExtraPersonFee ?? null;
           <div class="quote-line"><span>Tarif (<span data-quote-nights></span> nuit(s))</span><span data-quote-room></span></div>
           <div class="quote-line" data-quote-extra-line hidden><span>Personne(s) supplémentaire(s)</span><span data-quote-extra></span></div>
           <div class="quote-line"><span>Nettoyage</span><span data-quote-cleaning></span></div>
+          <div class="quote-line" data-quote-tax-line hidden><span>Taxe touristique</span><span data-quote-tax-amount></span></div>
           <p class="quote-recap muted" data-quote-recap></p>
           <div class="quote-line quote-total"><span>Total</span><span data-quote-total></span></div>
-          <p class="quote-tax-note muted" data-quote-tax-line hidden>Taxe touristique de <span data-quote-tax-amount></span> Euros à régler à l'arrivée (Non comprise dans le total)</p>
         </div>
       </div>
       </div>

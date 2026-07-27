@@ -225,6 +225,10 @@ final class PageController extends Controller
         // property in the admin "Biens Lodgify" table.
         $manualOverrides = self::manualLodgifyColumnsByPropertyId([$id]);
         $manual = $manualOverrides[$id] ?? ['sofa_bed_count' => null, 'min_people' => null, 'extra_person_fee' => null];
+        // The price note also states the tourist tax rate applied to
+        // foreigners aged 12+, so visitors know it is added to the total
+        // shown in the booking quote below.
+        $globalTouristTax = (float) (Database::connection()->query('SELECT per_person_per_night FROM tourist_tax LIMIT 1')->fetchColumn() ?: 0);
         View::render('pages/property-detail', [
             'pageTitle' => View::localized($property, 'name'),
             'property' => $property,
@@ -238,6 +242,7 @@ final class PageController extends Controller
             'ratesRestricted' => $visibility === PartnerPropertyVisibility::PARTIAL,
             'priceMinPeople' => $manual['min_people'],
             'priceExtraPersonFee' => $manual['extra_person_fee'],
+            'globalTouristTax' => $globalTouristTax,
             'partnerCode' => $partner['subdomain'] ?? null,
         ]);
     }
@@ -446,6 +451,10 @@ final class PageController extends Controller
         $partner = Tenant::current();
         $cleaningFeePerPerson = $partner ? (float) ($partner['cleaning_fee_per_person_per_night'] ?? 0) : 0.0;
         $cleaningFeePerNight = $cleaningFeePerPerson * $countedGuests;
+        // Shown in the "Information sur les prix affichés" block so visitors
+        // know the tourist tax is added to the total and reflected in the
+        // selection summary below.
+        $globalTouristTax = (float) (Database::connection()->query('SELECT per_person_per_night FROM tourist_tax LIMIT 1')->fetchColumn() ?: 0);
 
         $rows = [];
         // Per-property price info ("Information sur les prix affichés" block,
@@ -538,6 +547,7 @@ final class PageController extends Controller
             'countedGuests' => $countedGuests,
             'today' => $today,
             'priceInfoRows' => $priceInfoRows,
+            'globalTouristTax' => $globalTouristTax,
         ]);
     }
 
@@ -2612,6 +2622,15 @@ TEXT;
             if ($zip->open((string) $file['tmp_name']) !== true) {
                 self::redirect($redirectBase, 'Impossible de lire le fichier ZIP.', 'error');
             }
+            if (self::zipLooksLikeSiteCodebase($zip)) {
+                $zip->close();
+                self::redirect(
+                    $redirectBase,
+                    'Ce ZIP ressemble à une mise à jour du site (index.php/composer/files/controllers détectés), pas à un export de template. ' .
+                    'Utilisez la page "Mise à jour" pour ce fichier.',
+                    'error'
+                );
+            }
             $zip->extractTo($tmpDir);
             $zip->close();
 
@@ -2741,6 +2760,15 @@ TEXT;
             $zip = new \ZipArchive();
             if ($zip->open((string) $file['tmp_name']) !== true) {
                 self::redirect($redirectBase, 'Impossible de lire le fichier ZIP.', 'error');
+            }
+            if (self::zipLooksLikeSiteCodebase($zip)) {
+                $zip->close();
+                self::redirect(
+                    $redirectBase,
+                    'Ce ZIP ressemble à une mise à jour du site (index.php/composer/files/controllers détectés), pas à un export de template. ' .
+                    'Utilisez la page "Mise à jour" pour ce fichier.',
+                    'error'
+                );
             }
             $zip->extractTo($tmpDir);
             $zip->close();
@@ -3232,6 +3260,15 @@ HTML,
         if ($zip->open($tmpZip) !== true) {
             self::redirect('/admin/mise-a-jour', 'Le fichier uploadé n\'est pas un ZIP valide.', 'error');
         }
+        if (!self::zipLooksLikeSiteUpdate($zip)) {
+            $zip->close();
+            self::redirect(
+                '/admin/mise-a-jour',
+                'Ce ZIP ne ressemble pas à une mise à jour du site (index.php et files/controllers introuvables). ' .
+                'S\'il s\'agit d\'un template Canva, importez-le depuis la page "Templates", pas ici.',
+                'error'
+            );
+        }
         $zip->close();
 
         $updatesDir = BASE_PATH . '/files/storage/updates';
@@ -3401,6 +3438,64 @@ HTML,
                 }
             }
         }
+    }
+
+    /**
+     * Checks whether an already-opened ZIP archive contains at least one
+     * entry whose path matches any of the given regexes, anywhere in the
+     * archive (some ZIP tools wrap everything under a single top-level
+     * folder, so we don't assume entries start at the archive root).
+     *
+     * @param array<int, string> $patterns PCRE patterns (without delimiters/anchors beyond what's given)
+     */
+    private static function zipContainsEntryMatching(\ZipArchive $zip, array $patterns): bool
+    {
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $name = $zip->getNameIndex($i);
+            if ($name === false) {
+                continue;
+            }
+            $name = str_replace('\\', '/', $name);
+            foreach ($patterns as $pattern) {
+                if (preg_match($pattern, $name) === 1) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * A "site update" ZIP is a full export of this application's codebase
+     * (produced by createAppBackup() or an equivalent full-project export),
+     * as opposed to a Canva/template export ZIP (HTML + images only). We
+     * only accept it as a site update if it actually contains recognizable
+     * application markers.
+     */
+    private static function zipLooksLikeSiteUpdate(\ZipArchive $zip): bool
+    {
+        return self::zipContainsEntryMatching($zip, [
+            '#(^|/)index\.php$#i',
+            '#(^|/)files/controllers(/|$)#i',
+        ]);
+    }
+
+    /**
+     * A template/Canva ZIP must never contain this application's own source
+     * files — if it does, it's almost certainly a site-update archive
+     * uploaded to the wrong form by mistake, and applying it here would
+     * silently rewrite template HTML with unrelated content while leaving
+     * the actual codebase untouched (the opposite mistake of uploading a
+     * template into "Mise à jour", which instead spills the site's PHP
+     * files into the webroot).
+     */
+    private static function zipLooksLikeSiteCodebase(\ZipArchive $zip): bool
+    {
+        return self::zipContainsEntryMatching($zip, [
+            '#(^|/)index\.php$#i',
+            '#(^|/)files/controllers(/|$)#i',
+            '#(^|/)composer\.(json|lock)$#i',
+        ]);
     }
 
     /**

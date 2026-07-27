@@ -184,7 +184,7 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
           </div>
           <div class="multi-cart-summary-total">
             <p>Montant Total : <span data-multi-cart-summary-total>0</span> Euros</p>
-            <p class="quote-tax-note muted" data-multi-cart-tax-line hidden>Taxe touristique de <span data-multi-cart-tax-amount></span> Euros à régler à l'arrivée (Non comprise dans le total)</p>
+            <p class="quote-tax-note muted" data-multi-cart-tax-line hidden>Dont taxe touristique : <span data-multi-cart-tax-amount></span> Euros (incluse dans le total)</p>
           </div>
         </div>
       </div>
@@ -223,7 +223,11 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
       <div class="booking-policy-block price-info-block">
         <h3 class="section-title">Information sur les prix affichés</h3>
         <div class="prose">
-          <p>Prix de la nuité en Euros. Le prix inclus les frais de nettoyage 2 fois par semaine. Les prix affichés sont pour un maximum de :</p>
+          <p>Tarif de la nuité en Euros. Le tarif inclus les frais de nettoyage 2 fois par semaine.
+            <?php if (($globalTouristTax ?? 0) > 0): ?>
+              La taxe touristique de <?= \App\View::e(number_format((float) $globalTouristTax, 0, ',', ' ')) ?> Euros par étranger (d'au moins 12 ans) et par nuit sera rajoutée au total et affichée dans le résumé.
+            <?php endif; ?>
+            Les prix affichés sont pour un maximum de :</p>
           <?php if ($priceInfoRows === []): ?>
             <p class="muted">Aucune information tarifaire disponible pour le moment.</p>
           <?php else: ?>

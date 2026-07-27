@@ -469,7 +469,7 @@ final class View
             ['key' => 'tarif_client', 'description' => 'Identique à {{tarif_normal}}, sans frais de ménage et sans taxe touristique', 'partnerOnly' => false],
             ['key' => 'personnes_additionnelles', 'description' => 'Identique à {{tarif_personnes_supplementaires}}', 'partnerOnly' => false],
             ['key' => 'nettoyage', 'description' => 'Identique à {{tarif_nettoyage}}', 'partnerOnly' => false],
-            ['key' => 'total_voyageur', 'description' => 'Montant total réellement payé par le client (tarif + personnes supplémentaires + ménage, hors taxe touristique)', 'partnerOnly' => false],
+            ['key' => 'total_voyageur', 'description' => 'Montant total réellement payé par le client (tarif + personnes supplémentaires + ménage + taxe touristique)', 'partnerOnly' => false],
             ['key' => 'paiement_a_samchlolaure', 'description' => 'Montant net à reverser à SamChloLaure (Total Voyageur moins Commission Partenaire)', 'partnerOnly' => true],
             ['key' => 'signature_nom', 'description' => 'Nom affiché dans la signature de l\'email', 'partnerOnly' => false],
             ['key' => 'email_partenaire', 'description' => 'Adresse email de contact du partenaire', 'partnerOnly' => false],
