@@ -225,6 +225,14 @@ final class PageController extends Controller
         // property in the admin "Biens Lodgify" table.
         $manualOverrides = self::manualLodgifyColumnsByPropertyId([$id]);
         $manual = $manualOverrides[$id] ?? ['sofa_bed_count' => null, 'min_people' => null, 'extra_person_fee' => null];
+        // The stored extra_person_fee is a raw, un-marked-up rate; the note
+        // shown to the guest below must reflect the actual amount charged,
+        // i.e. including the current partner's markup_percent (same
+        // commission already baked into the nightly rate via publicRates()).
+        $extraPersonFeeMarkup = $partner ? (float) ($partner['markup_percent'] ?? 0) : 0.0;
+        if ($manual['extra_person_fee'] !== null) {
+            $manual['extra_person_fee'] = round((float) $manual['extra_person_fee'] * (1 + $extraPersonFeeMarkup / 100), 2);
+        }
         // The price note also states the tourist tax rate applied to
         // foreigners aged 12+, so visitors know it is added to the total
         // shown in the booking quote below.
@@ -513,6 +521,15 @@ final class PageController extends Controller
                 }
                 $maxGuests = (int) ($property['max_guests'] ?? 0);
                 $manual = $manualOverrides[$id] ?? ['sofa_bed_count' => null, 'min_people' => null, 'extra_person_fee' => null];
+                // Stored extra_person_fee is a raw, un-marked-up rate; the
+                // "Information sur les prix affichés" note must reflect the
+                // actual amount charged, i.e. including the partner's
+                // markup_percent (same commission already baked into the
+                // nightly rates via publicRates()).
+                if ($manual['extra_person_fee'] !== null) {
+                    $markupPercent = $partner ? (float) ($partner['markup_percent'] ?? 0) : 0.0;
+                    $manual['extra_person_fee'] = round((float) $manual['extra_person_fee'] * (1 + $markupPercent / 100), 2);
+                }
                 $rows[] = [
                     'property' => $property,
                     'availability' => $availabilityMap,

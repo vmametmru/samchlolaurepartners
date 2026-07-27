@@ -11,6 +11,7 @@ use App\I18n;
 use App\LodgifyClient;
 use App\Mailer;
 use App\Settings;
+use App\Tenant;
 use App\View;
 use PDO;
 use Throwable;
@@ -358,9 +359,15 @@ final class ReservationsController extends Controller
         // > 3 years) exceeds the base-rate headcount (min_people). Both values
         // are stored locally in lodgify_property_manual_columns, set via the
         // admin "Biens Lodgify" table — no Lodgify API call is needed here.
+        // The stored fee is a raw, un-marked-up rate, so — like the room rate
+        // in PageController::publicRates() — the current partner's
+        // markup_percent must be applied here too, otherwise the extra-person
+        // fee is missing the partner's commission entirely.
         $extraPersonTotal = 0.0;
         $extraPersonFeeRate = 0.0;
         $extraPersonsCount = 0;
+        $partnerContext = Tenant::current();
+        $markupPercent = $partnerContext ? (float) ($partnerContext['markup_percent'] ?? 0) : 0.0;
         $manualStmt = $pdo->prepare(
             'SELECT min_people, extra_person_fee FROM lodgify_property_manual_columns WHERE property_id = ? LIMIT 1'
         );
@@ -368,7 +375,8 @@ final class ReservationsController extends Controller
         $manualRow = $manualStmt->fetch(\PDO::FETCH_ASSOC);
         if ($manualRow) {
             $minPeople = $manualRow['min_people'] !== null ? (int) $manualRow['min_people'] : null;
-            $extraPersonFeeRate = $manualRow['extra_person_fee'] !== null ? (float) $manualRow['extra_person_fee'] : 0.0;
+            $rawExtraPersonFeeRate = $manualRow['extra_person_fee'] !== null ? (float) $manualRow['extra_person_fee'] : 0.0;
+            $extraPersonFeeRate = round($rawExtraPersonFeeRate * (1 + $markupPercent / 100), 2);
             if ($minPeople !== null && $countedGuests > $minPeople && $extraPersonFeeRate > 0) {
                 $extraPersonsCount = $countedGuests - $minPeople;
                 $extraPersonTotal = round($extraPersonFeeRate * $extraPersonsCount * $nights, 2);
