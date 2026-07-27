@@ -225,6 +225,10 @@ final class PageController extends Controller
         // property in the admin "Biens Lodgify" table.
         $manualOverrides = self::manualLodgifyColumnsByPropertyId([$id]);
         $manual = $manualOverrides[$id] ?? ['sofa_bed_count' => null, 'min_people' => null, 'extra_person_fee' => null];
+        // The price note also states the tourist tax rate applied to
+        // foreigners aged 12+, so visitors know it is added to the total
+        // shown in the booking quote below.
+        $globalTouristTax = (float) (Database::connection()->query('SELECT per_person_per_night FROM tourist_tax LIMIT 1')->fetchColumn() ?: 0);
         View::render('pages/property-detail', [
             'pageTitle' => View::localized($property, 'name'),
             'property' => $property,
@@ -238,6 +242,7 @@ final class PageController extends Controller
             'ratesRestricted' => $visibility === PartnerPropertyVisibility::PARTIAL,
             'priceMinPeople' => $manual['min_people'],
             'priceExtraPersonFee' => $manual['extra_person_fee'],
+            'globalTouristTax' => $globalTouristTax,
             'partnerCode' => $partner['subdomain'] ?? null,
         ]);
     }
@@ -446,6 +451,10 @@ final class PageController extends Controller
         $partner = Tenant::current();
         $cleaningFeePerPerson = $partner ? (float) ($partner['cleaning_fee_per_person_per_night'] ?? 0) : 0.0;
         $cleaningFeePerNight = $cleaningFeePerPerson * $countedGuests;
+        // Shown in the "Information sur les prix affichés" block so visitors
+        // know the tourist tax is added to the total and reflected in the
+        // selection summary below.
+        $globalTouristTax = (float) (Database::connection()->query('SELECT per_person_per_night FROM tourist_tax LIMIT 1')->fetchColumn() ?: 0);
 
         $rows = [];
         // Per-property price info ("Information sur les prix affichés" block,
@@ -538,6 +547,7 @@ final class PageController extends Controller
             'countedGuests' => $countedGuests,
             'today' => $today,
             'priceInfoRows' => $priceInfoRows,
+            'globalTouristTax' => $globalTouristTax,
         ]);
     }
 

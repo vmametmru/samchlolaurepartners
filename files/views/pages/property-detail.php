@@ -22,6 +22,7 @@ $checkinLabel = $formatHour($property['checkin_hour'] ?? null);
 $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
 $priceMinPeople = $priceMinPeople ?? null;
 $priceExtraPersonFee = $priceExtraPersonFee ?? null;
+$globalTouristTax = $globalTouristTax ?? 0.0;
 ?>
 <section class="container section-lg" data-gallery>
   <div class="property-detail-header">
