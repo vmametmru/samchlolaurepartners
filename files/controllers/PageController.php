@@ -1168,7 +1168,7 @@ TEXT;
 
             $isHeader = $isSectionStart && (bool) preg_match('/:\s*$/u', $trimmedLine);
             $escaped = htmlspecialchars($trimmedLine, ENT_QUOTES, 'UTF-8');
-            $htmlLines[] = $isHeader ? '<u>' . $escaped . '</u>' : $escaped;
+            $htmlLines[] = $isHeader ? '<strong><u>' . $escaped . '</u></strong>' : $escaped;
 
             $blankRun = 0;
             $isFirstContentLine = false;
