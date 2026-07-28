@@ -1567,25 +1567,31 @@ final class ReservationsController extends Controller
         // For VAT-registered properties, $roomTotal/$extraPersonTotal also
         // have the property's vat_rate baked in on top of the markup (see
         // PageController::publicRates()/ReservationsController::
-        // computeItemQuote()): the VAT collected on behalf of the property
-        // owner is not part of the partner's commission, so it must first be
-        // stripped back out before extracting the commission, otherwise the
-        // commission would be overstated by also "taxing" the VAT portion.
+        // computeItemQuote()). The channel manager (Lodgify) pays out the
+        // partner's commission on the full VAT-inclusive room + extra-person
+        // total — it does NOT strip VAT out first — so the commission here
+        // must be extracted from $combinedTotal directly (VAT included), not
+        // from a VAT-stripped base. Previously stripping VAT first
+        // understated the commission (e.g. 16,00€ instead of 18,40€ for a
+        // 202,42€ combined total at a 10% commission rate and 15% VAT),
+        // which made the site's "Montant à payer à Sam Chlo Laure Ltd."
+        // total (D - E) higher than the amount actually shown on the
+        // channel manager.
         $combinedTotal = $roomTotal + $extraPersonTotal;
+        $commissionTotal = $markupPercent > -100
+            ? round($combinedTotal * $markupPercent / (100 + $markupPercent), 2)
+            : 0.0;
+        // Amount of VAT actually charged on the room + extra-person total
+        // (0 for properties not registered for VAT, i.e. vat_rate 0/null):
+        // the difference between the VAT-inclusive amount ($combinedTotal)
+        // and the VAT-exclusive amount ($combinedBeforeVat). Exposed as
+        // {{tva_totale}} so a partner can show it separately without having
+        // to reverse-engineer it from {{tarif_ht}}/{{tarif_ttc}}. This is
+        // purely informational and is not used for the commission
+        // calculation above.
         $combinedBeforeVat = $vatRate > -100 && $vatRate != 0.0
             ? round($combinedTotal / (1 + $vatRate / 100), 2)
             : $combinedTotal;
-        $commissionTotal = $markupPercent > -100
-            ? round($combinedBeforeVat * $markupPercent / (100 + $markupPercent), 2)
-            : 0.0;
-        // Amount of VAT actually charged on the room + extra-person total
-        // (0 for properties not registered for VAT, i.e. vat_rate 0/null —
-        // see the note above): the difference between the VAT-inclusive
-        // amount ($combinedTotal) and the VAT-exclusive amount
-        // ($combinedBeforeVat) already computed above to strip VAT out of
-        // the commission base. Exposed as {{tva_totale}} so a partner can
-        // show it separately without having to reverse-engineer it from
-        // {{tarif_ht}}/{{tarif_ttc}}.
         $vatTotal = round($combinedTotal - $combinedBeforeVat, 2);
         // {{total_voyageur}}/{{paiement_a_samchlolaure}} must NOT include the
         // tourist tax: the channel manager doesn't handle it correctly, so
