@@ -2433,6 +2433,7 @@ function initBookingQuote() {
       setQuoteField('quote_cleaning_total', Number(quote.cleaning_total || 0));
       setQuoteField('quote_total_without_tax', Number(quote.total_without_tax || 0));
       setQuoteField('quote_tourist_tax_total', Number(quote.tourist_tax_total || 0));
+      setQuoteField('quote_vat_rate', Number(quote.vat_rate || 0));
       result.hidden = false;
     }
 

@@ -73,8 +73,19 @@ final class LodgifyController extends Controller
                     $markup = (float) $row['markup_percent'];
                 }
             }
-            $rates = array_map(static function (array $rate) use ($markup): array {
-                $markedUp = round(((float) $rate['price_per_night']) * (1 + $markup / 100), 2);
+            // VAT is not included in Lodgify's rate and must be added on top
+            // for VAT-registered properties (vat_rate = 0/null for properties
+            // not registered for VAT leaves the price unchanged), same as
+            // the public property page (PageController::publicRates()).
+            $vatRate = 0.0;
+            $vatStmt = Database::connection()->prepare('SELECT vat_rate FROM lodgify_property_manual_columns WHERE property_id = ? LIMIT 1');
+            $vatStmt->execute([$id]);
+            $vatRow = $vatStmt->fetch(PDO::FETCH_ASSOC);
+            if ($vatRow && $vatRow['vat_rate'] !== null) {
+                $vatRate = (float) $vatRow['vat_rate'];
+            }
+            $rates = array_map(static function (array $rate) use ($markup, $vatRate): array {
+                $markedUp = round(((float) $rate['price_per_night']) * (1 + $markup / 100) * (1 + $vatRate / 100), 2);
                 return [
                     'date_from' => $rate['date_from'],
                     'date_to' => $rate['date_to'],
@@ -82,6 +93,7 @@ final class LodgifyController extends Controller
                     'price_per_night' => $markedUp,
                     'price_per_night_with_markup' => $markedUp,
                     'markup_percent' => $markup,
+                    'vat_rate' => $vatRate,
                 ];
             }, $rawRates);
             self::json(['data' => $rates]);

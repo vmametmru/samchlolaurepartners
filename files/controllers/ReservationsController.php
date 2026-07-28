@@ -76,7 +76,7 @@ final class ReservationsController extends Controller
     }
 
     /**
-     * @param array{room_total: float, partner_rate: float, commission_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, total_traveler: float, nights: int, currency: string} $breakdown
+     * @param array{room_total: float, partner_rate: float, vat_rate: float, commission_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, total_traveler: float, nights: int, currency: string} $breakdown
      * @return array{0: array<int, string>, 1: array<int, mixed>}
      */
     private static function quoteInsertColumnsAndParams(PDO $pdo, array $breakdown): array
@@ -84,24 +84,27 @@ final class ReservationsController extends Controller
         if (!self::hasQuoteColumns($pdo)) {
             return [[], []];
         }
-        return [
-            [
-                'quote_currency', 'quote_nights', 'quote_room_total', 'quote_partner_rate',
-                'quote_commission_total', 'quote_extra_person_total', 'quote_cleaning_total',
-                'quote_tourist_tax_total', 'quote_total_traveler',
-            ],
-            [
-                $breakdown['currency'],
-                $breakdown['nights'],
-                $breakdown['room_total'],
-                $breakdown['partner_rate'],
-                $breakdown['commission_total'],
-                $breakdown['extra_person_total'],
-                $breakdown['cleaning_total'],
-                $breakdown['tourist_tax_total'],
-                $breakdown['total_traveler'],
-            ],
+        $columns = [
+            'quote_currency', 'quote_nights', 'quote_room_total', 'quote_partner_rate',
+            'quote_commission_total', 'quote_extra_person_total', 'quote_cleaning_total',
+            'quote_tourist_tax_total', 'quote_total_traveler',
         ];
+        $params = [
+            $breakdown['currency'],
+            $breakdown['nights'],
+            $breakdown['room_total'],
+            $breakdown['partner_rate'],
+            $breakdown['commission_total'],
+            $breakdown['extra_person_total'],
+            $breakdown['cleaning_total'],
+            $breakdown['tourist_tax_total'],
+            $breakdown['total_traveler'],
+        ];
+        if (self::hasVatRateColumn($pdo)) {
+            $columns[] = 'quote_vat_rate';
+            $params[] = $breakdown['vat_rate'];
+        }
+        return [$columns, $params];
     }
 
     private static ?bool $languageColumnExists = null;
@@ -144,6 +147,27 @@ final class ReservationsController extends Controller
             }
         }
         return self::$quoteColumnsExist;
+    }
+
+    private static ?bool $vatRateColumnExists = null;
+
+    /**
+     * Whether reservation_requests already has the quote_vat_rate column
+     * added by migration 031. Guarded the same way as hasQuoteColumns() so
+     * submissions never 500 if that migration hasn't applied yet on a given
+     * install, and so installs upgraded before migration 031 keep working
+     * (commission is simply computed as if vat_rate were 0 in that case).
+     */
+    private static function hasVatRateColumn(PDO $pdo): bool
+    {
+        if (self::$vatRateColumnExists === null) {
+            try {
+                self::$vatRateColumnExists = self::reservationRequestColumnExists($pdo, 'quote_vat_rate');
+            } catch (Throwable $e) {
+                self::$vatRateColumnExists = false;
+            }
+        }
+        return self::$vatRateColumnExists;
     }
 
 
@@ -299,7 +323,7 @@ final class ReservationsController extends Controller
      * multi-property submission).
      *
      * @param array<int, array{type?: string, nationality?: string}> $guests
-     * @return array{nights: int, currency: string, room_total: float, extra_person_total: float, extra_person_fee_rate: float, extra_persons_count: int, cleaning_total: float, tourist_tax_total: float, tourist_tax_rate: float, total_without_tax: float}|null
+     * @return array{nights: int, currency: string, room_total: float, extra_person_total: float, extra_person_fee_rate: float, extra_persons_count: int, cleaning_total: float, tourist_tax_total: float, tourist_tax_rate: float, total_without_tax: float, vat_rate: float}|null
      */
     private static function computeItemQuote(
         int $propertyId,
@@ -312,8 +336,20 @@ final class ReservationsController extends Controller
         array $guests
     ): ?array {
         $nights = (int) (new \DateTimeImmutable($checkin))->diff($checkoutDate)->days;
+        $pdo = Database::connection();
+        // Fetched up-front so vat_rate is available to PageController::
+        // publicRates() below: VAT is not included in Lodgify's rate and
+        // must be added on top for VAT-registered properties (vat_rate is
+        // 0/null for properties not registered for VAT, leaving the price
+        // unchanged).
+        $manualStmt = $pdo->prepare(
+            'SELECT min_people, extra_person_fee, vat_rate FROM lodgify_property_manual_columns WHERE property_id = ? LIMIT 1'
+        );
+        $manualStmt->execute([$propertyId]);
+        $manualRow = $manualStmt->fetch(\PDO::FETCH_ASSOC);
+        $vatRate = $manualRow && $manualRow['vat_rate'] !== null ? (float) $manualRow['vat_rate'] : 0.0;
         try {
-            $rates = PageController::publicRates(new LodgifyClient(), $propertyId, $checkin, $checkoutDate->modify('-1 day')->format('Y-m-d'));
+            $rates = PageController::publicRates(new LodgifyClient(), $propertyId, $checkin, $checkoutDate->modify('-1 day')->format('Y-m-d'), $vatRate);
         } catch (Throwable $e) {
             error_log((string) $e);
             return null;
@@ -323,8 +359,6 @@ final class ReservationsController extends Controller
         foreach ($rates as $rate) {
             $roomTotal += (float) $rate['price_per_night'];
         }
-
-        $pdo = Database::connection();
 
         // Lodgify exposes the real per-guest/per-night cleaning fee (shown on
         // the "Tarifs & Disponibilités" tab, e.g. "+ 2,00 EUR par invité /
@@ -362,21 +396,18 @@ final class ReservationsController extends Controller
         // The stored fee is a raw, un-marked-up rate, so — like the room rate
         // in PageController::publicRates() — the current partner's
         // markup_percent must be applied here too, otherwise the extra-person
-        // fee is missing the partner's commission entirely.
+        // fee is missing the partner's commission entirely. The property's
+        // vat_rate (fetched above) must also be applied, same as the room
+        // rate, for VAT-registered properties.
         $extraPersonTotal = 0.0;
         $extraPersonFeeRate = 0.0;
         $extraPersonsCount = 0;
         $partnerContext = Tenant::current();
         $markupPercent = $partnerContext ? (float) ($partnerContext['markup_percent'] ?? 0) : 0.0;
-        $manualStmt = $pdo->prepare(
-            'SELECT min_people, extra_person_fee FROM lodgify_property_manual_columns WHERE property_id = ? LIMIT 1'
-        );
-        $manualStmt->execute([$propertyId]);
-        $manualRow = $manualStmt->fetch(\PDO::FETCH_ASSOC);
         if ($manualRow) {
             $minPeople = $manualRow['min_people'] !== null ? (int) $manualRow['min_people'] : null;
             $rawExtraPersonFeeRate = $manualRow['extra_person_fee'] !== null ? (float) $manualRow['extra_person_fee'] : 0.0;
-            $extraPersonFeeRate = round($rawExtraPersonFeeRate * (1 + $markupPercent / 100), 2);
+            $extraPersonFeeRate = round($rawExtraPersonFeeRate * (1 + $markupPercent / 100) * (1 + $vatRate / 100), 2);
             if ($minPeople !== null && $countedGuests > $minPeople && $extraPersonFeeRate > 0) {
                 $extraPersonsCount = $countedGuests - $minPeople;
                 $extraPersonTotal = round($extraPersonFeeRate * $extraPersonsCount * $nights, 2);
@@ -427,6 +458,7 @@ final class ReservationsController extends Controller
             'tourist_tax_total' => $touristTaxTotal,
             'tourist_tax_rate' => $taxRate,
             'total_without_tax' => $totalWithoutTax,
+            'vat_rate' => $vatRate,
         ];
     }
 
@@ -533,6 +565,7 @@ final class ReservationsController extends Controller
             'tourist_tax_total' => $input['quote_tourist_tax_total'] ?? 0,
             'nights' => $input['quote_nights'] ?? 0,
             'currency' => $input['quote_currency'] ?? 'EUR',
+            'vat_rate' => $input['quote_vat_rate'] ?? 0,
         ];
         if ($propertyId > 0 && $checkin !== '' && $checkout !== '') {
             try {
@@ -545,7 +578,7 @@ final class ReservationsController extends Controller
                 error_log('Failed to recompute server-side quote for property ' . $propertyId . ': ' . $e->getMessage());
             }
         }
-        $quoteBreakdown = self::computeQuoteBreakdown($quoteInput, (float) ($partner['markup_percent'] ?? 0));
+        $quoteBreakdown = self::computeQuoteBreakdown($quoteInput, (float) ($partner['markup_percent'] ?? 0), (float) ($quoteInput['vat_rate'] ?? 0));
         [$quoteColumns, $quoteParams] = self::quoteInsertColumnsAndParams($pdo, $quoteBreakdown);
         $columns = [...$columns, ...$quoteColumns];
         $params = [...$params, ...$quoteParams];
@@ -584,6 +617,7 @@ final class ReservationsController extends Controller
             $emailInput['quote_extra_person_total'] = $quoteInput['extra_person_total'] ?? 0;
             $emailInput['quote_cleaning_total'] = $quoteInput['cleaning_total'] ?? 0;
             $emailInput['quote_tourist_tax_total'] = $quoteInput['tourist_tax_total'] ?? 0;
+            $emailInput['quote_vat_rate'] = $quoteInput['vat_rate'] ?? 0;
             self::sendRequestEmails($partner, $emailInput);
         } catch (Throwable $e) {
             error_log('Failed to send reservation request emails: ' . $e);
@@ -764,6 +798,7 @@ final class ReservationsController extends Controller
             $columns[] = 'guests';
             $columns[] = 'message';
             $hasQuoteColumns = self::hasQuoteColumns($pdo);
+            $hasVatRateColumn = self::hasVatRateColumn($pdo);
             $quoteColumnNames = [];
             if ($hasQuoteColumns) {
                 $quoteColumnNames = [
@@ -771,6 +806,9 @@ final class ReservationsController extends Controller
                     'quote_commission_total', 'quote_extra_person_total', 'quote_cleaning_total',
                     'quote_tourist_tax_total', 'quote_total_traveler',
                 ];
+                if ($hasVatRateColumn) {
+                    $quoteColumnNames[] = 'quote_vat_rate';
+                }
                 $columns = [...$columns, ...$quoteColumnNames];
             }
             $stmt = $pdo->prepare(
@@ -802,7 +840,8 @@ final class ReservationsController extends Controller
                 if ($hasQuoteColumns) {
                     $itemBreakdown = self::computeQuoteBreakdown(
                         $item['quote'] ?? [],
-                        (float) ($partner['markup_percent'] ?? 0)
+                        (float) ($partner['markup_percent'] ?? 0),
+                        (float) ($item['quote']['vat_rate'] ?? 0)
                     );
                     $params[] = $itemBreakdown['currency'];
                     $params[] = $itemBreakdown['nights'];
@@ -813,6 +852,9 @@ final class ReservationsController extends Controller
                     $params[] = $itemBreakdown['cleaning_total'];
                     $params[] = $itemBreakdown['tourist_tax_total'];
                     $params[] = $itemBreakdown['total_traveler'];
+                    if ($hasVatRateColumn) {
+                        $params[] = $itemBreakdown['vat_rate'];
+                    }
                 }
                 $stmt->execute($params);
                 $createdIds[] = (int) $pdo->lastInsertId();
@@ -856,6 +898,7 @@ final class ReservationsController extends Controller
                     'quote_cleaning_total' => $quote['cleaning_total'] ?? 0,
                     'quote_total_without_tax' => $quote['total_without_tax'] ?? 0,
                     'quote_tourist_tax_total' => $quote['tourist_tax_total'] ?? 0,
+                    'quote_vat_rate' => $quote['vat_rate'] ?? 0,
                     'language' => $requestLanguage,
                 ], $itemCount);
             } catch (Throwable $e) {
@@ -1359,7 +1402,7 @@ final class ReservationsController extends Controller
                 'tourist_tax_total' => $request['quote_tourist_tax_total'] ?? 0,
                 'nights' => $request['quote_nights'] ?? 0,
                 'currency' => $request['quote_currency'] ?? 'EUR',
-            ], (float) ($request['quote_partner_rate'] ?? ($partner['markup_percent'] ?? 0))));
+            ], (float) ($request['quote_partner_rate'] ?? ($partner['markup_percent'] ?? 0)), (float) ($request['quote_vat_rate'] ?? 0)));
         }
         $signature = self::signatureVariables((int) ($partner['id'] ?? 0));
         $variables += $signature['variables'];
@@ -1483,10 +1526,10 @@ final class ReservationsController extends Controller
      * mention it near "Vos Voyageurs" (e.g. "Pour les 2 biens sélectionnés").
      */
     /**
-     * @param array{room_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, nights: int, currency: string} $quote
-     * @return array{room_total: float, partner_rate: float, commission_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, total_traveler: float, nights: int, currency: string}
+     * @param array{room_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, nights: int, currency: string, vat_rate?: float} $quote
+     * @return array{room_total: float, partner_rate: float, vat_rate: float, commission_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, total_traveler: float, nights: int, currency: string}
      */
-    private static function computeQuoteBreakdown(array $quote, float $markupPercent): array
+    private static function computeQuoteBreakdown(array $quote, float $markupPercent, float $vatRate = 0.0): array
     {
         $roomTotal = self::toMoneyValue($quote['room_total'] ?? 0);
         $extraPersonTotal = self::toMoneyValue($quote['extra_person_total'] ?? 0);
@@ -1514,8 +1557,19 @@ final class ReservationsController extends Controller
         // commission = base * rate/100 = markedUp * rate/(100 + rate).
         // Dividing by 100 instead of (100 + rate) overstated the commission
         // by also taxing the commission portion of the marked-up price.
+        // For VAT-registered properties, $roomTotal/$extraPersonTotal also
+        // have the property's vat_rate baked in on top of the markup (see
+        // PageController::publicRates()/ReservationsController::
+        // computeItemQuote()): the VAT collected on behalf of the property
+        // owner is not part of the partner's commission, so it must first be
+        // stripped back out before extracting the commission, otherwise the
+        // commission would be overstated by also "taxing" the VAT portion.
+        $combinedTotal = $roomTotal + $extraPersonTotal;
+        $combinedBeforeVat = $vatRate > -100 && $vatRate != 0.0
+            ? round($combinedTotal / (1 + $vatRate / 100), 2)
+            : $combinedTotal;
         $commissionTotal = $markupPercent > -100
-            ? round(($roomTotal + $extraPersonTotal) * $markupPercent / (100 + $markupPercent), 2)
+            ? round($combinedBeforeVat * $markupPercent / (100 + $markupPercent), 2)
             : 0.0;
         // {{total_voyageur}}/{{paiement_a_samchlolaure}} must NOT include the
         // tourist tax: the channel manager doesn't handle it correctly, so
@@ -1526,6 +1580,7 @@ final class ReservationsController extends Controller
         return [
             'room_total' => $roomTotal,
             'partner_rate' => round($markupPercent, 2),
+            'vat_rate' => round($vatRate, 2),
             'commission_total' => $commissionTotal,
             'extra_person_total' => $extraPersonTotal,
             'cleaning_total' => $cleaningTotal,
@@ -1545,7 +1600,7 @@ final class ReservationsController extends Controller
             'tourist_tax_total' => $input['quote_tourist_tax_total'] ?? 0,
             'nights' => $input['quote_nights'] ?? 0,
             'currency' => $input['quote_currency'] ?? 'EUR',
-        ], $markupPercent);
+        ], $markupPercent, (float) ($input['quote_vat_rate'] ?? 0));
 
         return self::buildQuoteVariables($breakdown, $itemCount);
     }
