@@ -25,15 +25,6 @@ foreach (($rates ?? []) as $rate) {
     $rateMap[$rate['date_from']] = $rate;
 }
 
-// The nightly price shown must include the cleaning fee configured for the
-// active partner (partners.cleaning_fee_per_person_per_night), just like the
-// /calendrier board. $calendarGuests is the guest count used for this
-// server-side render (the client keeps the displayed price in sync as the
-// visitor adjusts guest counts, see initCalendarGuestPricing in app.js).
-$cleaningFeePerPerson = isset($cleaningFeePerPerson) ? (float) $cleaningFeePerPerson : 0.0;
-$calendarGuests = isset($calendarGuests) ? (int) $calendarGuests : 0;
-$cleaningFeePerNight = $cleaningFeePerPerson * $calendarGuests;
-
 $frenchMonths = [1 => 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
 ?>
 <div class="calendar-months">
@@ -63,12 +54,10 @@ $frenchMonths = [1 => 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Ju
           $isAvailable = !$isPast && $state === true;
           $rate = $rateMap[$date] ?? null;
           $minStay = isset($rate['min_stay']) && $rate['min_stay'] !== null ? (int) $rate['min_stay'] : 1;
-          // The cleaning fee is VAT-exclusive, like the nightly rate: VAT
-          // must be applied to it too, otherwise this initial server-render
-          // diverges from the /calendrier board and from the client-side
-          // recalculation in initCalendarGuestPricing (assets/js/app.js).
-          $rateVatRate = isset($rate['vat_rate']) ? (float) $rate['vat_rate'] : 0.0;
-          $displayPrice = $rate !== null ? round((float) $rate['price_per_night'] + $cleaningFeePerNight * (1 + $rateVatRate / 100), 2) : null;
+          // The cleaning fee is not folded into the nightly price shown here:
+          // it is a separate line item in the booking quote (see the
+          // "Nettoyage" quote line), not part of the per-night rate.
+          $displayPrice = $rate !== null ? (float) $rate['price_per_night'] : null;
         ?>
           <div class="calendar-cell <?= $class ?>" data-calendar-date="<?= $date ?>" data-calendar-available="<?= $isAvailable ? '1' : '0' ?>" data-calendar-minstay="<?= $minStay > 0 ? $minStay : 1 ?>"<?php if ($rate !== null && !$isPast): ?> data-calendar-rate="<?= (float) $rate['price_per_night'] ?>" data-calendar-currency="<?= \App\View::e($rate['currency']) ?>"<?php endif; ?>>
             <span class="calendar-day"><?= $dayNumber ?></span>

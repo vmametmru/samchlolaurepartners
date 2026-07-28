@@ -32,7 +32,6 @@ document.addEventListener('DOMContentLoaded', () => {
     initPhoneInputs,
     initGuestSteppers,
     initBookingLinkPrefillGuests,
-    initCalendarGuestPricing,
     initBookingModal,
     initBookingAccordion,
     initBookingQuote,
@@ -665,52 +664,6 @@ function initBookingCalendarSelection() {
       checkout = null;
       update();
     });
-  });
-}
-
-/**
- * Keeps the nightly price shown in the property-detail "Tarifs &
- * Disponibilités" calendar in sync with the cleaning fee for the currently
- * selected number of guests (adults + children), the same way the
- * /calendrier board folds the cleaning fee into the displayed price.
- * data-calendar-rate on each cell holds the base nightly rate (no cleaning
- * fee); data-cleaning-fee-per-person on the widget holds the per-person,
- * per-night cleaning fee configured for the active partner.
- */
-function initCalendarGuestPricing() {
-  document.querySelectorAll('[data-booking-form]').forEach((form) => {
-    const propertyId = form.dataset.propertyId;
-    const calendarWidget = propertyId
-      ? document.querySelector(`[data-calendar-widget][data-property-id="${propertyId}"]`)
-      : null;
-    if (!calendarWidget) return;
-
-    const cleaningFeePerPerson = Number(calendarWidget.dataset.cleaningFeePerPerson || 0);
-    // The cleaning fee is VAT-exclusive, like the nightly rate baked into
-    // data-calendar-rate: VAT must be applied to it too, otherwise this
-    // client-side recalculation diverges from the server-rendered price and
-    // from the /calendrier board (see PageController::calendar()).
-    const vatRate = Number(calendarWidget.dataset.vatRate || 0);
-    const guestInputs = Array.from(form.querySelectorAll('[data-guest-stepper] input'));
-    if (!guestInputs.length) return;
-
-    function totalGuests() {
-      return guestInputs.reduce((sum, input) => sum + Number(input.value || 0), 0);
-    }
-
-    function updatePrices() {
-      const cleaningFeePerNight = cleaningFeePerPerson * totalGuests() * (1 + vatRate / 100);
-      calendarWidget.querySelectorAll('[data-calendar-rate]').forEach((cell) => {
-        const baseRate = Number(cell.dataset.calendarRate || 0);
-        const priceEl = cell.querySelector('.calendar-price');
-        if (!priceEl) return;
-        const total = Math.round((baseRate + cleaningFeePerNight) * 100) / 100;
-        priceEl.textContent = total.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      });
-    }
-
-    guestInputs.forEach((input) => input.addEventListener('input', updatePrices));
-    form.addEventListener('reset', () => setTimeout(updatePrices, 0));
   });
 }
 

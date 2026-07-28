@@ -224,7 +224,7 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
       <div class="booking-policy-block price-info-block">
         <h3 class="section-title">Information sur les prix affichés</h3>
         <div class="prose">
-          <p>Tarif de la nuité en Euros. Le tarif inclus les frais de nettoyage 2 fois par semaine.
+          <p>Tarif de la nuité en Euros. Le tarif exclus les frais de nettoyage<?php if (($cleaningFeePerPerson ?? 0) > 0): ?> de <?= \App\View::e(number_format((float) $cleaningFeePerPerson, 2, ',', ' ')) ?> Euros par personne par nuit<?php endif; ?> (2 fois par semaine), qui sont ajoutés séparément au total.
             <?php if (($globalTouristTax ?? 0) > 0): ?>
               La taxe touristique de <?= \App\View::e(number_format((float) $globalTouristTax, 2, ',', ' ')) ?> Euros par étranger (d'au moins 12 ans) et par nuit sera rajoutée au total et affichée dans le résumé.
             <?php endif; ?>

@@ -461,15 +461,12 @@ final class PageController extends Controller
         // children 3-12 are compared against each property's max_guests.
         $countedGuests = $adults + $children3to12;
 
-        // The nightly price shown must include the cleaning fee configured for
-        // the active partner (partners.cleaning_fee_per_person_per_night),
-        // multiplied by the number of guests counted for pricing (adults +
-        // children 3-12ans) — babies under 3 are always free and must not be
-        // charged for cleaning, exactly like the reservation quote in
-        // ReservationsController.
+        // The nightly price shown does not include the cleaning fee: it is a
+        // separate line item added at checkout, not folded into the
+        // per-night rate. $cleaningFeePerPerson is still surfaced to the
+        // view for the "Information sur les prix affichés" note (see below).
         $partner = Tenant::current();
         $cleaningFeePerPerson = $partner ? (float) ($partner['cleaning_fee_per_person_per_night'] ?? 0) : 0.0;
-        $cleaningFeePerNight = $cleaningFeePerPerson * $countedGuests;
         // Shown in the "Information sur les prix affichés" block so visitors
         // know the tourist tax is added to the total and reflected in the
         // selection summary below.
@@ -521,16 +518,6 @@ final class PageController extends Controller
                             $singleNightMap[$day['date']] = !empty($day['single_night']);
                         }
                         foreach (self::publicRates($client, $id, $rangeStart, $rangeEnd, $vatRate) as $rate) {
-                            if ($cleaningFeePerNight > 0) {
-                                // The cleaning fee, like the nightly rate, is
-                                // VAT-exclusive: VAT must be applied to it
-                                // too (not just to the base+markup rate),
-                                // otherwise the total shown here diverges
-                                // from the manual formula
-                                // ((base*markup)+cleaning)*VAT and from the
-                                // mini calendar on the property-detail page.
-                                $rate['price_per_night'] = round($rate['price_per_night'] + $cleaningFeePerNight * (1 + $vatRate / 100), 2);
-                            }
                             $rateMap[$rate['date_from']] = $rate;
                         }
                     } catch (Throwable $e) {
@@ -589,6 +576,7 @@ final class PageController extends Controller
             'today' => $today,
             'priceInfoRows' => $priceInfoRows,
             'globalTouristTax' => $globalTouristTax,
+            'cleaningFeePerPerson' => $cleaningFeePerPerson,
         ]);
     }
 
