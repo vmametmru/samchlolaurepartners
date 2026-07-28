@@ -77,7 +77,10 @@ final class LodgifyController extends Controller
             // for VAT-registered properties (vat_rate = 0/null for properties
             // not registered for VAT leaves the price unchanged), same as
             // the public property page (PageController::publicRates()).
-            $vatRate = 0.0;
+            // A manual override in the admin "Biens Lodgify" table always
+            // wins; when none is set, fall back to the VAT rate best-effort
+            // read live from Lodgify (PageController::resolveVatRate()).
+            $manualVatRate = null;
             // vat_rate was added by migration 030; guard against installs
             // where it hasn't applied yet (same as PageController's
             // manualLodgifyColumnsByPropertyId()) so this endpoint never
@@ -87,9 +90,10 @@ final class LodgifyController extends Controller
                 $vatStmt->execute([$id]);
                 $vatRow = $vatStmt->fetch(PDO::FETCH_ASSOC);
                 if ($vatRow && $vatRow['vat_rate'] !== null) {
-                    $vatRate = (float) $vatRow['vat_rate'];
+                    $manualVatRate = (float) $vatRow['vat_rate'];
                 }
             }
+            $vatRate = PageController::resolveVatRate($client, $id, $manualVatRate);
             $rates = array_map(static function (array $rate) use ($markup, $vatRate): array {
                 $markedUp = round(((float) $rate['price_per_night']) * (1 + $markup / 100) * (1 + $vatRate / 100), 2);
                 return [

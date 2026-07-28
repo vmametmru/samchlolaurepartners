@@ -876,7 +876,7 @@ final class LodgifyClient
      */
     private function getRateSettingsFor(int $propertyId): array
     {
-        $default = ['check_in_hour' => null, 'check_out_hour' => null, 'min_people' => null, 'extra_person_fee' => null, 'fees' => []];
+        $default = ['check_in_hour' => null, 'check_out_hour' => null, 'min_people' => null, 'extra_person_fee' => null, 'vat_rate' => null, 'fees' => []];
         try {
             $data = $this->request('/rates/settings/properties/' . $propertyId);
         } catch (\Throwable $e) {
@@ -896,17 +896,25 @@ final class LodgifyClient
             $fees[] = [
                 'name' => (string) ($fee['fee_name'] ?? ''),
                 'charge_type' => (string) ($fee['charge_type'] ?? ''),
+                'fee_type' => (string) ($fee['fee_type'] ?? ($fee['type'] ?? '')),
                 'frequency' => (string) ($fee['frequency'] ?? ''),
                 'amount' => isset($fee['price']['amount']) ? (float) $fee['price']['amount'] : null,
             ];
         }
         $minPeople = $payload['people_from'] ?? $payload['min_people'] ?? $payload['min_occupancy'] ?? $payload['minimum_people'] ?? null;
         $extraPersonFee = $payload['extra_person_fee'] ?? $payload['extra_guest_fee'] ?? null;
+        // VAT rate: Lodgify does not consistently expose a single dedicated
+        // field for this across accounts, so try the most common direct
+        // field names first; getPropertyRateSettings() below additionally
+        // falls back to scanning the "fees" list for a percentage-type fee
+        // named "VAT"/"TVA"/"Tax(e)".
+        $vatRate = $payload['vat'] ?? $payload['vat_percentage'] ?? $payload['vat_rate'] ?? $payload['tax_percentage'] ?? null;
         return [
             'check_in_hour' => isset($payload['check_in_hour']) ? (int) $payload['check_in_hour'] : null,
             'check_out_hour' => isset($payload['check_out_hour']) ? (int) $payload['check_out_hour'] : null,
             'min_people' => $minPeople !== null ? (int) $minPeople : null,
             'extra_person_fee' => $extraPersonFee !== null && $extraPersonFee !== '' ? (float) $extraPersonFee : null,
+            'vat_rate' => $vatRate !== null && $vatRate !== '' ? (float) $vatRate : null,
             'fees' => $fees,
         ];
     }
@@ -919,16 +927,18 @@ final class LodgifyClient
      */
     public function getPropertyRateSettings(int $propertyId): array
     {
-        $default = ['min_people' => null, 'cleaning_fee' => null, 'extra_person_fee' => null];
+        $default = ['min_people' => null, 'cleaning_fee' => null, 'extra_person_fee' => null, 'vat_rate' => null];
         if ($propertyId <= 0) {
             return $default;
         }
         $settings = $this->getRateSettingsFor($propertyId);
         $cleaningFee = null;
         $extraPersonFee = $settings['extra_person_fee'] ?? null;
+        $vatRate = $settings['vat_rate'] ?? null;
         foreach ($settings['fees'] as $fee) {
             $name = mb_strtolower($fee['name']);
             $chargeType = mb_strtolower(str_replace([' ', '-', '_'], '', $fee['charge_type']));
+            $feeType = mb_strtolower(str_replace([' ', '-', '_'], '', $fee['fee_type'] ?? ''));
             // Cleaning fee: recognised by name (cleaning / nettoyage / ménage / menage)
             if ($cleaningFee === null && (
                 str_contains($name, 'clean') ||
@@ -950,6 +960,20 @@ final class LodgifyClient
             )) {
                 $extraPersonFee = $fee['amount'];
             }
+            // VAT/tax rate: recognised by name (vat / tva / tax / taxe) and a
+            // percentage-based fee_type/charge_type, since Lodgify's fees
+            // list is the only place a VAT % is configurable on accounts
+            // that don't expose a dedicated top-level VAT field.
+            if ($vatRate === null && (
+                str_contains($name, 'vat') ||
+                str_contains($name, 'tva') ||
+                str_contains($name, 'tax')
+            ) && (
+                str_contains($feeType, 'percent') ||
+                str_contains($chargeType, 'percent')
+            )) {
+                $vatRate = $fee['amount'];
+            }
         }
         // Fallback for min_people: read people_base from the room-type data
         // (GET /v2/properties/{id}/rooms), which is the authoritative source
@@ -970,6 +994,7 @@ final class LodgifyClient
             'min_people' => $minPeople,
             'cleaning_fee' => $cleaningFee,
             'extra_person_fee' => $extraPersonFee,
+            'vat_rate' => $vatRate !== null ? (float) $vatRate : null,
         ];
     }
 

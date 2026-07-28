@@ -49,7 +49,8 @@ $statusBadge = static function (?\DateTimeImmutable $updatedAt, bool $fresh): st
             <th class="manual-col" title="Colonne manuelle — non synchronisée depuis Lodgify">Min personnes (tarif de base) ✎</th>
             <th>Frais de nettoyage</th>
             <th class="manual-col" title="Colonne manuelle — non synchronisée depuis Lodgify">Frais pers. suppl. / nuit ✎</th>
-            <th class="manual-col" title="Colonne manuelle — non synchronisée depuis Lodgify">TVA (%) ✎</th>
+            <th title="Taux de TVA lu en direct chez Lodgify (donnée informative, jamais écrite dans la colonne « TVA (%) » ci-contre)">VAT (Lodgify)</th>
+            <th class="manual-col" title="Colonne manuelle — non synchronisée depuis Lodgify. Une fois enregistrée, cette valeur n'est jamais écrasée par une synchronisation : elle prévaut toujours sur la valeur « VAT (Lodgify) »">TVA (%) ✎</th>
             <th>Coordonnées GPS</th>
             <th>Statut de la fiche</th>
             <th>Statut Prix</th>
@@ -64,6 +65,7 @@ $statusBadge = static function (?\DateTimeImmutable $updatedAt, bool $fresh): st
             $minPeopleVal = $row['min_people'] !== null ? (string) (int) $row['min_people'] : '';
             $extraFeeVal = $row['extra_person_fee'] !== null ? number_format((float) $row['extra_person_fee'], 2, '.', '') : '';
             $vatRateVal = $row['vat_rate'] !== null ? number_format((float) $row['vat_rate'], 2, '.', '') : '';
+            $vatRateLodgifyVal = $row['vat_rate_lodgify'] !== null ? number_format((float) $row['vat_rate_lodgify'], 2, '.', '') . ' %' : '—';
           ?>
             <tr>
               <td><img class="lodgify-thumb" src="<?= \App\View::e($photo) ?>" alt="<?= \App\View::e((string) $row['name']) ?>"></td>
@@ -95,11 +97,12 @@ $statusBadge = static function (?\DateTimeImmutable $updatedAt, bool $fresh): st
                   value="<?= \App\View::e($extraFeeVal) ?>"
                   placeholder="—">
               </td>
+              <td><?= \App\View::e($vatRateLodgifyVal) ?></td>
               <td class="manual-col">
                 <input class="input" type="number" min="0" step="0.01"
                   name="manual[<?= $propertyId ?>][vat_rate]"
                   value="<?= \App\View::e($vatRateVal) ?>"
-                  placeholder="0">
+                  placeholder="<?= $row['vat_rate_lodgify'] !== null ? \App\View::e(number_format((float) $row['vat_rate_lodgify'], 2, '.', '')) : '0' ?>">
               </td>
               <td>
                 <?php if ($hasCoords): ?>
@@ -121,7 +124,7 @@ $statusBadge = static function (?\DateTimeImmutable $updatedAt, bool $fresh): st
       </table>
     </div>
     <div style="margin-top:1rem">
-      <p class="muted" style="margin-bottom:.5rem">Les colonnes surlignées (✎) sont saisies manuellement et ne sont pas synchronisées depuis Lodgify.</p>
+      <p class="muted" style="margin-bottom:.5rem">Les colonnes surlignées (✎) sont saisies manuellement et ne sont pas synchronisées depuis Lodgify. « VAT (Lodgify) » est le taux lu en direct chez Lodgify (à titre indicatif) ; tant que « TVA (%) » est vide, c'est cette valeur qui est utilisée pour les prix. Dès que « TVA (%) » est renseignée, elle est utilisée à la place et n'est plus jamais écrasée par une synchronisation.</p>
       <button class="btn-primary" type="submit">Sauvegarder les colonnes manuelles</button>
     </div>
     </form>

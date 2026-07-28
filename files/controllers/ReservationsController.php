@@ -350,9 +350,13 @@ final class ReservationsController extends Controller
         );
         $manualStmt->execute([$propertyId]);
         $manualRow = $manualStmt->fetch(\PDO::FETCH_ASSOC);
-        $vatRate = $manualRow && ($manualRow['vat_rate'] ?? null) !== null ? (float) $manualRow['vat_rate'] : 0.0;
+        $manualVatRate = $manualRow && ($manualRow['vat_rate'] ?? null) !== null ? (float) $manualRow['vat_rate'] : null;
+        $lodgifyClient = new LodgifyClient();
+        // A manual override always wins; when none has been saved, fall
+        // back to the VAT rate best-effort read live from Lodgify.
+        $vatRate = PageController::resolveVatRate($lodgifyClient, $propertyId, $manualVatRate);
         try {
-            $rates = PageController::publicRates(new LodgifyClient(), $propertyId, $checkin, $checkoutDate->modify('-1 day')->format('Y-m-d'), $vatRate);
+            $rates = PageController::publicRates($lodgifyClient, $propertyId, $checkin, $checkoutDate->modify('-1 day')->format('Y-m-d'), $vatRate);
         } catch (Throwable $e) {
             error_log((string) $e);
             return null;
