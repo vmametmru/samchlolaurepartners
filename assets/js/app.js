@@ -700,8 +700,7 @@ function initCalendarGuestPricing() {
         const priceEl = cell.querySelector('.calendar-price');
         if (!priceEl) return;
         const total = Math.round((baseRate + cleaningFeePerNight) * 100) / 100;
-        const currency = cell.dataset.calendarCurrency || '';
-        priceEl.textContent = `${total.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} ${currency}`.trim();
+        priceEl.textContent = total.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       });
     }
 
@@ -2548,7 +2547,7 @@ function initMultiPropertyCart() {
   }
 
   function formatEuros(amount) {
-    return amount.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    return amount.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
   const MONTHS_FR = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];

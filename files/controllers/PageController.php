@@ -2224,7 +2224,7 @@ TEXT;
         $partner = Tenant::current();
         $markup = $partner ? (float) ($partner['markup_percent'] ?? 0) : 0.0;
         return array_map(static function (array $rate) use ($markup): array {
-            $markedUp = (float) ceil(((float) $rate['price_per_night']) * (1 + $markup / 100));
+            $markedUp = round(((float) $rate['price_per_night']) * (1 + $markup / 100), 2);
             return [
                 'date_from' => $rate['date_from'],
                 'date_to' => $rate['date_to'],

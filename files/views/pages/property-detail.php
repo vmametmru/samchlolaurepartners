@@ -126,11 +126,11 @@ $globalTouristTax = $globalTouristTax ?? 0.0;
               <?php if ($priceMinPeople !== null): ?>
                 Les tarifs affichés sont pour <?= (int) $priceMinPeople ?> personne(s).
                 <?php if ($priceExtraPersonFee !== null && $priceExtraPersonFee > 0): ?>
-                  Un frais additionnel de <?= \App\View::e(number_format((float) $priceExtraPersonFee, 0, ',', ' ')) ?> Euros par nuit par personne
+                  Un frais additionnel de <?= \App\View::e(number_format((float) $priceExtraPersonFee, 2, ',', ' ')) ?> Euros par nuit par personne
                 <?php endif; ?>
                 + 2 enfants de moins de 3 ans (Gratuitement)
                 <?php if ($globalTouristTax > 0): ?>
-                  et/ou la taxe touristique de <?= \App\View::e(number_format($globalTouristTax, 0, ',', ' ')) ?> Euros par personne par nuit pour les étrangers à partir de 12ans seront rajoutés au total.
+                  et/ou la taxe touristique de <?= \App\View::e(number_format($globalTouristTax, 2, ',', ' ')) ?> Euros par personne par nuit pour les étrangers à partir de 12ans seront rajoutés au total.
                 <?php endif; ?>
               <?php endif; ?>
             </p>

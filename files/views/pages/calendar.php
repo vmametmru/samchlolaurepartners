@@ -67,6 +67,7 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
         <span class="dot dot-red"></span> Indisponible
         <span class="dot dot-yellow"></span> Bloquée
         <span class="dot dot-gray"></span> Non réservable / Non renseigné
+        <span class="calendar-legend-note">Tarif en Euros</span>
       </div>
       <button type="button" class="btn-primary calendar-view-selection-btn" data-multi-cart-view-btn hidden>Voir votre sélection</button>
     </div>
@@ -155,7 +156,7 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
               ?>
                 <td class="cal-cell cal-<?= $class ?><?= $isAvailable ? ' cal-clickable' : '' ?>" title="<?= \App\View::e($key) ?>" data-calendar-date="<?= $key ?>" data-calendar-available="<?= $isAvailable ? '1' : '0' ?>" data-calendar-minstay="<?= $minStay > 0 ? $minStay : 1 ?>" data-calendar-price="<?= $isAvailable && $rate !== null ? (float) $rate['price_per_night'] : '0' ?>">
                   <?php if ($isAvailable && $rate !== null): ?>
-                    <span class="cal-price"><?= number_format((float) $rate['price_per_night'], 0, ',', ' ') ?></span>
+                    <span class="cal-price"><?= number_format((float) $rate['price_per_night'], 2, ',', ' ') ?></span>
                   <?php endif; ?>
                 </td>
               <?php endforeach; ?>
@@ -225,7 +226,7 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
         <div class="prose">
           <p>Tarif de la nuité en Euros. Le tarif inclus les frais de nettoyage 2 fois par semaine.
             <?php if (($globalTouristTax ?? 0) > 0): ?>
-              La taxe touristique de <?= \App\View::e(number_format((float) $globalTouristTax, 0, ',', ' ')) ?> Euros par étranger (d'au moins 12 ans) et par nuit sera rajoutée au total et affichée dans le résumé.
+              La taxe touristique de <?= \App\View::e(number_format((float) $globalTouristTax, 2, ',', ' ')) ?> Euros par étranger (d'au moins 12 ans) et par nuit sera rajoutée au total et affichée dans le résumé.
             <?php endif; ?>
             Les prix affichés sont pour un maximum de :</p>
           <?php if ($priceInfoRows === []): ?>
@@ -237,7 +238,7 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
                   <strong><?= \App\View::e($info['name']) ?></strong> :
                   <?= (int) $info['min_people'] ?> personnes
                   <?php if ($info['extra_person_fee'] !== null && $info['extra_person_fee'] > 0): ?>
-                    (Frais additionnel de <?= \App\View::e(number_format((float) $info['extra_person_fee'], 0, ',', ' ')) ?> Euros par nuit par personne)
+                    (Frais additionnel de <?= \App\View::e(number_format((float) $info['extra_person_fee'], 2, ',', ' ')) ?> Euros par nuit par personne)
                   <?php endif; ?>
                   + 2 enfants de moins de 3 ans (Gratuitement)
                 </li>
