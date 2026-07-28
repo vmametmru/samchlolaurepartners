@@ -78,11 +78,17 @@ final class LodgifyController extends Controller
             // not registered for VAT leaves the price unchanged), same as
             // the public property page (PageController::publicRates()).
             $vatRate = 0.0;
-            $vatStmt = Database::connection()->prepare('SELECT vat_rate FROM lodgify_property_manual_columns WHERE property_id = ? LIMIT 1');
-            $vatStmt->execute([$id]);
-            $vatRow = $vatStmt->fetch(PDO::FETCH_ASSOC);
-            if ($vatRow && $vatRow['vat_rate'] !== null) {
-                $vatRate = (float) $vatRow['vat_rate'];
+            // vat_rate was added by migration 030; guard against installs
+            // where it hasn't applied yet (same as PageController's
+            // manualLodgifyColumnsByPropertyId()) so this endpoint never
+            // 500s with "Unknown column 'vat_rate'".
+            if (Database::columnExists('lodgify_property_manual_columns', 'vat_rate')) {
+                $vatStmt = Database::connection()->prepare('SELECT vat_rate FROM lodgify_property_manual_columns WHERE property_id = ? LIMIT 1');
+                $vatStmt->execute([$id]);
+                $vatRow = $vatStmt->fetch(PDO::FETCH_ASSOC);
+                if ($vatRow && $vatRow['vat_rate'] !== null) {
+                    $vatRate = (float) $vatRow['vat_rate'];
+                }
             }
             $rates = array_map(static function (array $rate) use ($markup, $vatRate): array {
                 $markedUp = round(((float) $rate['price_per_night']) * (1 + $markup / 100) * (1 + $vatRate / 100), 2);

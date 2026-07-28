@@ -7,6 +7,7 @@ namespace App;
 use PDO;
 use PDOException;
 use RuntimeException;
+use Throwable;
 
 final class Database
 {
@@ -71,6 +72,33 @@ final class Database
     public static function reconnect(): void
     {
         self::$instance = null;
+    }
+
+    /** @var array<string, bool> */
+    private static array $columnExistsCache = [];
+
+    /**
+     * Whether a table already has a given column, cached per request. Used
+     * to guard reads of columns added by more recent migrations: Migrator::
+     * autoRun() applies pending migrations on every request, but on shared
+     * hosting an ALTER can fail (privileges/timing) and leave the migration
+     * unapplied — referencing the column unconditionally would then turn
+     * every affected page into a "Column not found" 500 instead of simply
+     * falling back to the pre-migration behaviour.
+     */
+    public static function columnExists(string $table, string $column): bool
+    {
+        $cacheKey = $table . '.' . $column;
+        if (!array_key_exists($cacheKey, self::$columnExistsCache)) {
+            try {
+                $pdo = self::connection();
+                $stmt = $pdo->query('SHOW COLUMNS FROM ' . $table . ' LIKE ' . $pdo->quote($column));
+                self::$columnExistsCache[$cacheKey] = $stmt !== false && $stmt->fetch() !== false;
+            } catch (Throwable $e) {
+                self::$columnExistsCache[$cacheKey] = false;
+            }
+        }
+        return self::$columnExistsCache[$cacheKey];
     }
 
     public static function test(): array
