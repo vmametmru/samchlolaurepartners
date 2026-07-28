@@ -235,6 +235,7 @@ $globalTouristTax = $globalTouristTax ?? 0.0;
         <input type="hidden" name="quote_cleaning_total" value="">
         <input type="hidden" name="quote_total_without_tax" value="">
         <input type="hidden" name="quote_tourist_tax_total" value="">
+        <input type="hidden" name="quote_vat_rate" value="">
         <button class="btn-primary" type="submit">Envoyer ma demande</button>
         <p class="form-feedback" data-form-feedback></p>
       </div>

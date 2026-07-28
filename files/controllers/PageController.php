@@ -191,6 +191,14 @@ final class PageController extends Controller
         // AJAX refresh needed), rendered once with the full page.
         $calendarMonths = 12;
         [$rangeStart, $rangeEnd] = self::calendarRange($calendarMonths);
+        // Fetched up-front (rather than after rates/availability) so the
+        // property's vat_rate is available to publicRates() below: VAT is
+        // not included in Lodgify's rate and must be added on top for
+        // VAT-registered properties (vat_rate = 0/null for properties not
+        // registered for VAT leaves the price unchanged).
+        $manualOverrides = self::manualLodgifyColumnsByPropertyId([$id]);
+        $manual = $manualOverrides[$id] ?? ['sofa_bed_count' => null, 'min_people' => null, 'extra_person_fee' => null, 'vat_rate' => null];
+        $vatRate = (float) ($manual['vat_rate'] ?? 0);
         $availability = [];
         $rates = [];
         try {
@@ -200,7 +208,7 @@ final class PageController extends Controller
             // instead (see the view), so there is no need to hit Lodgify for it.
             if ($visibility !== PartnerPropertyVisibility::PARTIAL) {
                 $availability = $client->getAvailability($id, $rangeStart, $rangeEnd);
-                $rates = self::publicRates($client, $id, $rangeStart, $rangeEnd);
+                $rates = self::publicRates($client, $id, $rangeStart, $rangeEnd, $vatRate);
             }
         } catch (Throwable $e) {
             error_log('Property detail load failed for id ' . $id . ': ' . $e->getMessage());
@@ -223,15 +231,17 @@ final class PageController extends Controller
         // The price note also states the base-rate headcount ("Min personnes
         // (tarif de base)") and the extra-person fee, both set manually per
         // property in the admin "Biens Lodgify" table.
-        $manualOverrides = self::manualLodgifyColumnsByPropertyId([$id]);
-        $manual = $manualOverrides[$id] ?? ['sofa_bed_count' => null, 'min_people' => null, 'extra_person_fee' => null];
         // The stored extra_person_fee is a raw, un-marked-up rate; the note
         // shown to the guest below must reflect the actual amount charged,
         // i.e. including the current partner's markup_percent (same
-        // commission already baked into the nightly rate via publicRates()).
+        // commission already baked into the nightly rate via publicRates())
+        // and, for VAT-registered properties, the property's vat_rate (VAT
+        // is not included in Lodgify's rate and must be added on top; a
+        // property not registered for VAT simply has vat_rate = 0/null, so
+        // its price is unchanged).
         $extraPersonFeeMarkup = $partner ? (float) ($partner['markup_percent'] ?? 0) : 0.0;
         if ($manual['extra_person_fee'] !== null) {
-            $manual['extra_person_fee'] = round((float) $manual['extra_person_fee'] * (1 + $extraPersonFeeMarkup / 100), 2);
+            $manual['extra_person_fee'] = round((float) $manual['extra_person_fee'] * (1 + $extraPersonFeeMarkup / 100) * (1 + $vatRate / 100), 2);
         }
         // The price note also states the tourist tax rate applied to
         // foreigners aged 12+, so visitors know it is added to the total
@@ -489,6 +499,12 @@ final class PageController extends Controller
                 if ($id <= 0) {
                     continue;
                 }
+                $manual = $manualOverrides[$id] ?? ['sofa_bed_count' => null, 'min_people' => null, 'extra_person_fee' => null, 'vat_rate' => null];
+                // VAT is not included in Lodgify's rate and must be added on
+                // top for VAT-registered properties (vat_rate = 0/null for
+                // properties not registered for VAT leaves the price
+                // unchanged); needed here so publicRates() can apply it below.
+                $vatRate = (float) ($manual['vat_rate'] ?? 0);
                 $restricted = PartnerPropertyVisibility::visibilityFor($partner, $id) === PartnerPropertyVisibility::PARTIAL;
                 $availabilityMap = [];
                 $singleNightMap = [];
@@ -503,7 +519,7 @@ final class PageController extends Controller
                             $availabilityMap[$day['date']] = $day['available'];
                             $singleNightMap[$day['date']] = !empty($day['single_night']);
                         }
-                        foreach (self::publicRates($client, $id, $rangeStart, $rangeEnd) as $rate) {
+                        foreach (self::publicRates($client, $id, $rangeStart, $rangeEnd, $vatRate) as $rate) {
                             if ($cleaningFeePerNight > 0) {
                                 $rate['price_per_night'] = round($rate['price_per_night'] + $cleaningFeePerNight, 2);
                             }
@@ -520,15 +536,15 @@ final class PageController extends Controller
                     }
                 }
                 $maxGuests = (int) ($property['max_guests'] ?? 0);
-                $manual = $manualOverrides[$id] ?? ['sofa_bed_count' => null, 'min_people' => null, 'extra_person_fee' => null];
                 // Stored extra_person_fee is a raw, un-marked-up rate; the
                 // "Information sur les prix affichés" note must reflect the
                 // actual amount charged, i.e. including the partner's
                 // markup_percent (same commission already baked into the
-                // nightly rates via publicRates()).
+                // nightly rates via publicRates()) and the property's
+                // vat_rate.
                 if ($manual['extra_person_fee'] !== null) {
                     $markupPercent = $partner ? (float) ($partner['markup_percent'] ?? 0) : 0.0;
-                    $manual['extra_person_fee'] = round((float) $manual['extra_person_fee'] * (1 + $markupPercent / 100), 2);
+                    $manual['extra_person_fee'] = round((float) $manual['extra_person_fee'] * (1 + $markupPercent / 100) * (1 + $vatRate / 100), 2);
                 }
                 $rows[] = [
                     'property' => $property,
@@ -1687,12 +1703,13 @@ TEXT;
             $priceSnapshot = $client->getPriceStatusSnapshot($propertyId);
             $cacheStatus = $client->getCacheStatus($propertyId);
             $rateSettings = $client->getPropertyRateSettings($propertyId);
-            $manual = $manualOverrides[$propertyId] ?? ['sofa_bed_count' => null, 'min_people' => null, 'extra_person_fee' => null];
+            $manual = $manualOverrides[$propertyId] ?? ['sofa_bed_count' => null, 'min_people' => null, 'extra_person_fee' => null, 'vat_rate' => null];
             $row = $property + $priceSnapshot + $cacheStatus + ['cleaning_fee' => $rateSettings['cleaning_fee']];
             // Manual columns override Lodgify values (use explicit assignment, not +, to guarantee override)
             $row['sofa_bed_count'] = $manual['sofa_bed_count'];
             $row['min_people'] = $manual['min_people'];
             $row['extra_person_fee'] = $manual['extra_person_fee'];
+            $row['vat_rate'] = $manual['vat_rate'];
             $rows[] = $row;
         }
         View::render('pages/admin-lodgify-properties', [
@@ -1713,9 +1730,9 @@ TEXT;
         }
         $pdo = Database::connection();
         $save = $pdo->prepare(
-            'INSERT INTO lodgify_property_manual_columns (property_id, sofa_bed_count, min_people, extra_person_fee)
-             VALUES (?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE sofa_bed_count = VALUES(sofa_bed_count), min_people = VALUES(min_people), extra_person_fee = VALUES(extra_person_fee), updated_at = NOW()'
+            'INSERT INTO lodgify_property_manual_columns (property_id, sofa_bed_count, min_people, extra_person_fee, vat_rate)
+             VALUES (?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE sofa_bed_count = VALUES(sofa_bed_count), min_people = VALUES(min_people), extra_person_fee = VALUES(extra_person_fee), vat_rate = VALUES(vat_rate), updated_at = NOW()'
         );
         $delete = $pdo->prepare('DELETE FROM lodgify_property_manual_columns WHERE property_id = ?');
 
@@ -1732,18 +1749,19 @@ TEXT;
             $sofa = self::parseNullableInt($raw['sofa_bed_count'] ?? null);
             $minPeople = self::parseNullableInt($raw['min_people'] ?? null);
             $extraPersonFee = self::parseNullableFloat($raw['extra_person_fee'] ?? null);
-            if ($sofa === null && $minPeople === null && $extraPersonFee === null) {
+            $vatRate = self::parseNullableFloat($raw['vat_rate'] ?? null);
+            if ($sofa === null && $minPeople === null && $extraPersonFee === null && $vatRate === null) {
                 $delete->execute([$propertyId]);
                 continue;
             }
-            $save->execute([$propertyId, $sofa, $minPeople, $extraPersonFee]);
+            $save->execute([$propertyId, $sofa, $minPeople, $extraPersonFee, $vatRate]);
         }
         self::redirect('/admin/lodgify-properties', 'Colonnes manuelles sauvegardées.');
     }
 
     /**
      * @param array<int> $propertyIds
-     * @return array<int, array{sofa_bed_count: ?int, min_people: ?int, extra_person_fee: ?float}>
+     * @return array<int, array{sofa_bed_count: ?int, min_people: ?int, extra_person_fee: ?float, vat_rate: ?float}>
      */
     private static function manualLodgifyColumnsByPropertyId(array $propertyIds): array
     {
@@ -1753,7 +1771,7 @@ TEXT;
         }
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
         $stmt = Database::connection()->prepare(
-            'SELECT property_id, sofa_bed_count, min_people, extra_person_fee
+            'SELECT property_id, sofa_bed_count, min_people, extra_person_fee, vat_rate
              FROM lodgify_property_manual_columns
              WHERE property_id IN (' . $placeholders . ')'
         );
@@ -1769,6 +1787,7 @@ TEXT;
                 'sofa_bed_count' => isset($row['sofa_bed_count']) ? (int) $row['sofa_bed_count'] : null,
                 'min_people' => isset($row['min_people']) ? (int) $row['min_people'] : null,
                 'extra_person_fee' => isset($row['extra_person_fee']) ? (float) $row['extra_person_fee'] : null,
+                'vat_rate' => isset($row['vat_rate']) ? (float) $row['vat_rate'] : null,
             ];
         }
         return $result;
@@ -2212,7 +2231,7 @@ TEXT;
         return 'Mis à jour le ' . $date->format('d/m/Y') . ' à ' . $date->format('H:i') . ' (GMT+4)';
     }
 
-    public static function publicRates(LodgifyClient $client, int $propertyId, string $from, string $to): array
+    public static function publicRates(LodgifyClient $client, int $propertyId, string $from, string $to, float $vatRate = 0.0): array
     {
         $rawRates = $client->getRates($propertyId, $from, $to, 2);
         // The public property page must show the tenant's marked-up price, not
@@ -2223,8 +2242,12 @@ TEXT;
         // authenticated partner rates API (LodgifyController::rates).
         $partner = Tenant::current();
         $markup = $partner ? (float) ($partner['markup_percent'] ?? 0) : 0.0;
-        return array_map(static function (array $rate) use ($markup): array {
-            $markedUp = round(((float) $rate['price_per_night']) * (1 + $markup / 100), 2);
+        // Some Lodgify properties are VAT-registered but Lodgify's rate does
+        // not include VAT: it must be added on top of the marked-up rate
+        // (never included in it). Properties not registered for VAT simply
+        // have $vatRate = 0, leaving the price unchanged.
+        return array_map(static function (array $rate) use ($markup, $vatRate): array {
+            $markedUp = round(((float) $rate['price_per_night']) * (1 + $markup / 100) * (1 + $vatRate / 100), 2);
             return [
                 'date_from' => $rate['date_from'],
                 'date_to' => $rate['date_to'],
@@ -2232,6 +2255,7 @@ TEXT;
                 'price_per_night' => $markedUp,
                 'price_per_night_with_markup' => $markedUp,
                 'markup_percent' => $markup,
+                'vat_rate' => $vatRate,
                 'min_stay' => $rate['min_stay'] ?? null,
             ];
         }, $rawRates);

@@ -49,6 +49,7 @@ $statusBadge = static function (?\DateTimeImmutable $updatedAt, bool $fresh): st
             <th class="manual-col" title="Colonne manuelle — non synchronisée depuis Lodgify">Min personnes (tarif de base) ✎</th>
             <th>Frais de nettoyage</th>
             <th class="manual-col" title="Colonne manuelle — non synchronisée depuis Lodgify">Frais pers. suppl. / nuit ✎</th>
+            <th class="manual-col" title="Colonne manuelle — non synchronisée depuis Lodgify">TVA (%) ✎</th>
             <th>Coordonnées GPS</th>
             <th>Statut de la fiche</th>
             <th>Statut Prix</th>
@@ -62,6 +63,7 @@ $statusBadge = static function (?\DateTimeImmutable $updatedAt, bool $fresh): st
             $sofaBedVal = $row['sofa_bed_count'] !== null ? (string) (int) $row['sofa_bed_count'] : '';
             $minPeopleVal = $row['min_people'] !== null ? (string) (int) $row['min_people'] : '';
             $extraFeeVal = $row['extra_person_fee'] !== null ? number_format((float) $row['extra_person_fee'], 2, '.', '') : '';
+            $vatRateVal = $row['vat_rate'] !== null ? number_format((float) $row['vat_rate'], 2, '.', '') : '';
           ?>
             <tr>
               <td><img class="lodgify-thumb" src="<?= \App\View::e($photo) ?>" alt="<?= \App\View::e((string) $row['name']) ?>"></td>
@@ -92,6 +94,12 @@ $statusBadge = static function (?\DateTimeImmutable $updatedAt, bool $fresh): st
                   name="manual[<?= $propertyId ?>][extra_person_fee]"
                   value="<?= \App\View::e($extraFeeVal) ?>"
                   placeholder="—">
+              </td>
+              <td class="manual-col">
+                <input class="input" type="number" min="0" step="0.01"
+                  name="manual[<?= $propertyId ?>][vat_rate]"
+                  value="<?= \App\View::e($vatRateVal) ?>"
+                  placeholder="0">
               </td>
               <td>
                 <?php if ($hasCoords): ?>
