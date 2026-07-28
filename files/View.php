@@ -478,6 +478,9 @@ final class View
             ['key' => 'politique_reservation', 'description' => 'Texte de la politique de réservation/annulation configurée par le partenaire', 'partnerOnly' => false],
             ['key' => 'bouton_reservation', 'description' => 'Bouton "Réserver maintenant" prêt à l\'emploi. Revérifie la disponibilité en temps réel au moment du clic puis ouvre directement la page de paiement Lodgify (checkout) si les dates sont toujours disponibles, ou renvoie vers la fiche du bien avec un message d\'indisponibilité sinon. Insérable n\'importe où dans l\'email', 'partnerOnly' => false],
             ['key' => 'bouton_verifier_disponibilites', 'description' => 'Bouton "Vérifier les disponibilités" prêt à l\'emploi. Revérifie la disponibilité en temps réel au moment du clic et affiche une page de confirmation avec un bouton "Réserver" vers la page de paiement Lodgify si les dates sont disponibles. Insérable n\'importe où dans l\'email', 'partnerOnly' => false],
+            ['key' => 'tva_totale', 'description' => 'Montant de TVA effectivement facturé sur le tarif hébergement + personnes supplémentaires (jamais sur le ménage). Affiche 0,00 € si le bien n\'est pas assujetti à la TVA', 'partnerOnly' => false],
+            ['key' => 'tarif_ttc', 'description' => 'Identique à {{total_voyageur}}/{{tarif_total}} : tarif hébergement + ménage + personnes supplémentaires, TVA comprise (hors taxe touristique)', 'partnerOnly' => false],
+            ['key' => 'tarif_ht', 'description' => 'Identique à {{tarif_ttc}} mais sans la TVA (montant de {{tva_totale}} déduit)', 'partnerOnly' => false],
         ];
     }
 

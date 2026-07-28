@@ -76,7 +76,7 @@ final class ReservationsController extends Controller
     }
 
     /**
-     * @param array{room_total: float, partner_rate: float, vat_rate: float, commission_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, total_traveler: float, nights: int, currency: string} $breakdown
+     * @param array{room_total: float, partner_rate: float, vat_rate: float, commission_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, total_traveler: float, vat_total: float, nights: int, currency: string} $breakdown
      * @return array{0: array<int, string>, 1: array<int, mixed>}
      */
     private static function quoteInsertColumnsAndParams(PDO $pdo, array $breakdown): array
@@ -1530,7 +1530,7 @@ final class ReservationsController extends Controller
      */
     /**
      * @param array{room_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, nights: int, currency: string, vat_rate?: float} $quote
-     * @return array{room_total: float, partner_rate: float, vat_rate: float, commission_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, total_traveler: float, nights: int, currency: string}
+     * @return array{room_total: float, partner_rate: float, vat_rate: float, commission_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, total_traveler: float, vat_total: float, nights: int, currency: string}
      */
     private static function computeQuoteBreakdown(array $quote, float $markupPercent, float $vatRate = 0.0): array
     {
@@ -1574,6 +1574,15 @@ final class ReservationsController extends Controller
         $commissionTotal = $markupPercent > -100
             ? round($combinedBeforeVat * $markupPercent / (100 + $markupPercent), 2)
             : 0.0;
+        // Amount of VAT actually charged on the room + extra-person total
+        // (0 for properties not registered for VAT, i.e. vat_rate 0/null —
+        // see the note above): the difference between the VAT-inclusive
+        // amount ($combinedTotal) and the VAT-exclusive amount
+        // ($combinedBeforeVat) already computed above to strip VAT out of
+        // the commission base. Exposed as {{tva_totale}} so a partner can
+        // show it separately without having to reverse-engineer it from
+        // {{tarif_ht}}/{{tarif_ttc}}.
+        $vatTotal = round($combinedTotal - $combinedBeforeVat, 2);
         // {{total_voyageur}}/{{paiement_a_samchlolaure}} must NOT include the
         // tourist tax: the channel manager doesn't handle it correctly, so
         // it's excluded here (same as {{tarif_total}}/tarif_bloc's "Total"
@@ -1589,6 +1598,7 @@ final class ReservationsController extends Controller
             'cleaning_total' => $cleaningTotal,
             'tourist_tax_total' => $touristTaxTotal,
             'total_traveler' => $totalTraveler,
+            'vat_total' => $vatTotal,
             'nights' => max(0, (int) ($quote['nights'] ?? 0)),
             'currency' => trim((string) ($quote['currency'] ?? 'EUR')) ?: 'EUR',
         ];
@@ -1617,7 +1627,7 @@ final class ReservationsController extends Controller
      * persisted on the reservation_requests row), so both sources of
      * variables stay perfectly consistent.
      *
-     * @param array{room_total: float, partner_rate: float, commission_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, total_traveler: float, nights: int, currency: string} $breakdown
+     * @param array{room_total: float, partner_rate: float, commission_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, total_traveler: float, vat_total: float, nights: int, currency: string} $breakdown
      */
     private static function buildQuoteVariables(array $breakdown, int $itemCount = 1): array
     {
@@ -1700,6 +1710,20 @@ final class ReservationsController extends Controller
             // Total à payer par le client (hors taxe touristique) -
             // Commissions Partenaire.
             'paiement_a_samchlolaure' => self::formatMoneyFr($breakdown['total_traveler'] - $breakdown['commission_total'], $currency),
+            // VAT breakdown, appended last so existing templates/positions
+            // built before these variables existed are unaffected.
+            // {{tva_totale}}: amount of VAT actually charged on the room +
+            // extra-person total (0,00 EUR — never blank — for properties
+            // not registered for VAT, see computeQuoteBreakdown()).
+            'tva_totale' => self::formatMoneyFr($breakdown['vat_total'] ?? 0, $currency),
+            // {{tarif_ttc}}: identical to {{total_voyageur}}/{{tarif_total}}
+            // (VAT already included, tourist tax excluded) — provided under
+            // an explicit "TTC" name for partners used to that terminology.
+            'tarif_ttc' => self::formatMoneyFr($totalWithoutTax, $currency),
+            // {{tarif_ht}}: same total with the VAT amount above removed
+            // (cleaning/extra fees never carry VAT themselves, only the
+            // room + extra-person portion does).
+            'tarif_ht' => self::formatMoneyFr($totalWithoutTax - ($breakdown['vat_total'] ?? 0), $currency),
         ];
     }
 
@@ -1711,6 +1735,25 @@ final class ReservationsController extends Controller
     public static function formatMoneyFr(float $amount, string $currency): string
     {
         return number_format($amount, 2, ',', ' ') . ' ' . $currency;
+    }
+
+    /**
+     * Amount of VAT actually charged on a persisted reservation's room +
+     * extra-person total, for display (e.g. partner-reservation-detail.php).
+     * Same formula as the $vatTotal computed inline in
+     * computeQuoteBreakdown(), reusable here since only the raw stored
+     * quote_room_total/quote_extra_person_total/quote_vat_rate columns are
+     * available at this point (not the full breakdown array). Returns 0.0
+     * for properties not registered for VAT (vat_rate 0/null), never null.
+     */
+    public static function vatTotalFromStoredQuote(float $roomTotal, float $extraPersonTotal, float $vatRate): float
+    {
+        if ($vatRate <= -100 || $vatRate == 0.0) {
+            return 0.0;
+        }
+        $combinedTotal = $roomTotal + $extraPersonTotal;
+        $combinedBeforeVat = round($combinedTotal / (1 + $vatRate / 100), 2);
+        return round($combinedTotal - $combinedBeforeVat, 2);
     }
 
     private static function fetchPartner(int $partnerId): array
