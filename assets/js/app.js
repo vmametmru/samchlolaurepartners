@@ -686,6 +686,11 @@ function initCalendarGuestPricing() {
     if (!calendarWidget) return;
 
     const cleaningFeePerPerson = Number(calendarWidget.dataset.cleaningFeePerPerson || 0);
+    // The cleaning fee is VAT-exclusive, like the nightly rate baked into
+    // data-calendar-rate: VAT must be applied to it too, otherwise this
+    // client-side recalculation diverges from the server-rendered price and
+    // from the /calendrier board (see PageController::calendar()).
+    const vatRate = Number(calendarWidget.dataset.vatRate || 0);
     const guestInputs = Array.from(form.querySelectorAll('[data-guest-stepper] input'));
     if (!guestInputs.length) return;
 
@@ -694,7 +699,7 @@ function initCalendarGuestPricing() {
     }
 
     function updatePrices() {
-      const cleaningFeePerNight = cleaningFeePerPerson * totalGuests();
+      const cleaningFeePerNight = cleaningFeePerPerson * totalGuests() * (1 + vatRate / 100);
       calendarWidget.querySelectorAll('[data-calendar-rate]').forEach((cell) => {
         const baseRate = Number(cell.dataset.calendarRate || 0);
         const priceEl = cell.querySelector('.calendar-price');

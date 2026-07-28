@@ -256,6 +256,7 @@ final class PageController extends Controller
             'calendarMonths' => $calendarMonths,
             'calendarStart' => $rangeStart,
             'cleaningFeePerPerson' => $cleaningFeePerPerson,
+            'vatRate' => $vatRate,
             'calendarGuests' => 2,
             'ratesRestricted' => $visibility === PartnerPropertyVisibility::PARTIAL,
             'priceMinPeople' => $manual['min_people'],
@@ -521,7 +522,14 @@ final class PageController extends Controller
                         }
                         foreach (self::publicRates($client, $id, $rangeStart, $rangeEnd, $vatRate) as $rate) {
                             if ($cleaningFeePerNight > 0) {
-                                $rate['price_per_night'] = round($rate['price_per_night'] + $cleaningFeePerNight, 2);
+                                // The cleaning fee, like the nightly rate, is
+                                // VAT-exclusive: VAT must be applied to it
+                                // too (not just to the base+markup rate),
+                                // otherwise the total shown here diverges
+                                // from the manual formula
+                                // ((base*markup)+cleaning)*VAT and from the
+                                // mini calendar on the property-detail page.
+                                $rate['price_per_night'] = round($rate['price_per_night'] + $cleaningFeePerNight * (1 + $vatRate / 100), 2);
                             }
                             $rateMap[$rate['date_from']] = $rate;
                         }
