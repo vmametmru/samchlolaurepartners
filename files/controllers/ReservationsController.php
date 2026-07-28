@@ -1504,8 +1504,19 @@ final class ReservationsController extends Controller
         // than the price actually shown on the site.
         // Commission is calculated on {{tarif_client}} + {{tarif_personnes_
         // supplementaires}} (room + extra-person fees) only, never on the
-        // cleaning fee.
-        $commissionTotal = round(($roomTotal + $extraPersonTotal) * $markupPercent / 100, 2);
+        // cleaning fee. $roomTotal/$extraPersonTotal are already-marked-up
+        // amounts (base Lodgify rate + commission — see the note above), so
+        // the commission itself — "(Tarif Lodgify avant commission +
+        // personne(s) supplémentaire(s) avant commission) x taux de
+        // commission" — must be extracted back out of the marked-up total
+        // rather than applied on top of it a second time: if
+        // markedUp = base * (1 + rate/100), then
+        // commission = base * rate/100 = markedUp * rate/(100 + rate).
+        // Dividing by 100 instead of (100 + rate) overstated the commission
+        // by also taxing the commission portion of the marked-up price.
+        $commissionTotal = $markupPercent > -100
+            ? round(($roomTotal + $extraPersonTotal) * $markupPercent / (100 + $markupPercent), 2)
+            : 0.0;
         // {{total_voyageur}}/{{paiement_a_samchlolaure}} must NOT include the
         // tourist tax: the channel manager doesn't handle it correctly, so
         // it's excluded here (same as {{tarif_total}}/tarif_bloc's "Total"
