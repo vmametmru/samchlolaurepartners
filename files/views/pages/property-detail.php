@@ -122,7 +122,7 @@ $globalTouristTax = $globalTouristTax ?? 0.0;
             <p class="muted">Tarifs non disponibles pour le moment.</p>
           <?php else: ?>
             <p class="muted calendar-price-note">
-              Prix de la nuité en Euros. Le tarif inclus les frais de nettoyage 2 fois par semaine.
+              Prix de la nuité en Euros. Le tarif exclus les frais de nettoyage<?php if (($cleaningFeePerPerson ?? 0) > 0): ?> de <?= \App\View::e(number_format((float) $cleaningFeePerPerson, 2, ',', ' ')) ?> Euros par personne par nuit<?php endif; ?> (2 fois par semaine), qui sont ajoutés séparément au total.
               <?php if ($priceMinPeople !== null): ?>
                 Les tarifs affichés sont pour <?= (int) $priceMinPeople ?> personne(s).
                 <?php if ($priceExtraPersonFee !== null && $priceExtraPersonFee > 0): ?>

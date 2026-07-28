@@ -6,13 +6,8 @@ $calendarStart = isset($calendarStart) && $calendarStart !== ''
     ? (string) $calendarStart
     : (new DateTimeImmutable('first day of this month'))->format('Y-m-d');
 $propertyId = (int) ($property['id'] ?? 0);
-$cleaningFeePerPerson = isset($cleaningFeePerPerson) ? (float) $cleaningFeePerPerson : 0.0;
-// The cleaning fee is VAT-exclusive, like the nightly rate: VAT must be
-// applied to it too, so the price shown here stays consistent with the
-// /calendrier board (see PageController::calendar()).
-$vatRate = isset($vatRate) ? (float) $vatRate : 0.0;
 ?>
-<div class="calendar-widget" data-calendar-widget data-property-id="<?= $propertyId ?>" data-cleaning-fee-per-person="<?= $cleaningFeePerPerson ?>" data-vat-rate="<?= $vatRate ?>">
+<div class="calendar-widget" data-calendar-widget data-property-id="<?= $propertyId ?>">
   <div data-calendar-body>
     <?php require BASE_PATH . '/files/views/partials/calendar-body.php'; ?>
   </div>
