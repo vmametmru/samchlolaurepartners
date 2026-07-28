@@ -341,13 +341,16 @@ final class ReservationsController extends Controller
         // publicRates() below: VAT is not included in Lodgify's rate and
         // must be added on top for VAT-registered properties (vat_rate is
         // 0/null for properties not registered for VAT, leaving the price
-        // unchanged).
+        // unchanged). vat_rate was added by migration 030; guard against
+        // installs where it hasn't applied yet so this never 500s with
+        // "Unknown column 'vat_rate'".
+        $hasVatRate = Database::columnExists('lodgify_property_manual_columns', 'vat_rate');
         $manualStmt = $pdo->prepare(
-            'SELECT min_people, extra_person_fee, vat_rate FROM lodgify_property_manual_columns WHERE property_id = ? LIMIT 1'
+            'SELECT min_people, extra_person_fee' . ($hasVatRate ? ', vat_rate' : '') . ' FROM lodgify_property_manual_columns WHERE property_id = ? LIMIT 1'
         );
         $manualStmt->execute([$propertyId]);
         $manualRow = $manualStmt->fetch(\PDO::FETCH_ASSOC);
-        $vatRate = $manualRow && $manualRow['vat_rate'] !== null ? (float) $manualRow['vat_rate'] : 0.0;
+        $vatRate = $manualRow && ($manualRow['vat_rate'] ?? null) !== null ? (float) $manualRow['vat_rate'] : 0.0;
         try {
             $rates = PageController::publicRates(new LodgifyClient(), $propertyId, $checkin, $checkoutDate->modify('-1 day')->format('Y-m-d'), $vatRate);
         } catch (Throwable $e) {

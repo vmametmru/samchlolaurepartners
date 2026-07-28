@@ -1729,11 +1729,23 @@ TEXT;
             $manualInput = [];
         }
         $pdo = Database::connection();
-        $save = $pdo->prepare(
-            'INSERT INTO lodgify_property_manual_columns (property_id, sofa_bed_count, min_people, extra_person_fee, vat_rate)
-             VALUES (?, ?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE sofa_bed_count = VALUES(sofa_bed_count), min_people = VALUES(min_people), extra_person_fee = VALUES(extra_person_fee), vat_rate = VALUES(vat_rate), updated_at = NOW()'
-        );
+        // vat_rate was added by migration 030; if it hasn't applied yet on a
+        // given install, fall back to saving without it rather than failing
+        // the whole admin save with "Unknown column 'vat_rate'".
+        $hasVatRate = Database::columnExists('lodgify_property_manual_columns', 'vat_rate');
+        if ($hasVatRate) {
+            $save = $pdo->prepare(
+                'INSERT INTO lodgify_property_manual_columns (property_id, sofa_bed_count, min_people, extra_person_fee, vat_rate)
+                 VALUES (?, ?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE sofa_bed_count = VALUES(sofa_bed_count), min_people = VALUES(min_people), extra_person_fee = VALUES(extra_person_fee), vat_rate = VALUES(vat_rate), updated_at = NOW()'
+            );
+        } else {
+            $save = $pdo->prepare(
+                'INSERT INTO lodgify_property_manual_columns (property_id, sofa_bed_count, min_people, extra_person_fee)
+                 VALUES (?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE sofa_bed_count = VALUES(sofa_bed_count), min_people = VALUES(min_people), extra_person_fee = VALUES(extra_person_fee), updated_at = NOW()'
+            );
+        }
         $delete = $pdo->prepare('DELETE FROM lodgify_property_manual_columns WHERE property_id = ?');
 
         foreach ($properties as $property) {
@@ -1754,7 +1766,11 @@ TEXT;
                 $delete->execute([$propertyId]);
                 continue;
             }
-            $save->execute([$propertyId, $sofa, $minPeople, $extraPersonFee, $vatRate]);
+            $params = [$propertyId, $sofa, $minPeople, $extraPersonFee];
+            if ($hasVatRate) {
+                $params[] = $vatRate;
+            }
+            $save->execute($params);
         }
         self::redirect('/admin/lodgify-properties', 'Colonnes manuelles sauvegardées.');
     }
@@ -1770,8 +1786,13 @@ TEXT;
             return [];
         }
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        // vat_rate was added by migration 030; if it hasn't applied yet on a
+        // given install, fall back to selecting without it rather than
+        // failing the whole page with "Unknown column 'vat_rate'".
+        $hasVatRate = Database::columnExists('lodgify_property_manual_columns', 'vat_rate');
+        $columns = 'property_id, sofa_bed_count, min_people, extra_person_fee' . ($hasVatRate ? ', vat_rate' : '');
         $stmt = Database::connection()->prepare(
-            'SELECT property_id, sofa_bed_count, min_people, extra_person_fee, vat_rate
+            'SELECT ' . $columns . '
              FROM lodgify_property_manual_columns
              WHERE property_id IN (' . $placeholders . ')'
         );
