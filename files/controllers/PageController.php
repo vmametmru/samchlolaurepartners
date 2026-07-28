@@ -198,7 +198,7 @@ final class PageController extends Controller
         // registered for VAT leaves the price unchanged).
         $manualOverrides = self::manualLodgifyColumnsByPropertyId([$id]);
         $manual = $manualOverrides[$id] ?? ['sofa_bed_count' => null, 'min_people' => null, 'extra_person_fee' => null, 'vat_rate' => null];
-        $vatRate = (float) ($manual['vat_rate'] ?? 0);
+        $vatRate = self::resolveVatRate($client, $id, $manual['vat_rate']);
         $availability = [];
         $rates = [];
         try {
@@ -502,7 +502,7 @@ final class PageController extends Controller
                 // top for VAT-registered properties (vat_rate = 0/null for
                 // properties not registered for VAT leaves the price
                 // unchanged); needed here so publicRates() can apply it below.
-                $vatRate = (float) ($manual['vat_rate'] ?? 0);
+                $vatRate = self::resolveVatRate($client, $id, $manual['vat_rate']);
                 $restricted = PartnerPropertyVisibility::visibilityFor($partner, $id) === PartnerPropertyVisibility::PARTIAL;
                 $availabilityMap = [];
                 $singleNightMap = [];
@@ -1706,12 +1706,37 @@ TEXT;
             $row['min_people'] = $manual['min_people'];
             $row['extra_person_fee'] = $manual['extra_person_fee'];
             $row['vat_rate'] = $manual['vat_rate'];
+            // Best-effort VAT rate read live from Lodgify (never persisted,
+            // never written into the manual override column): shown as a
+            // reference "VAT (Lodgify)" column so the admin can see what
+            // Lodgify reports before deciding whether to override it.
+            $row['vat_rate_lodgify'] = $rateSettings['vat_rate'];
             $rows[] = $row;
         }
         View::render('pages/admin-lodgify-properties', [
             'pageTitle' => 'Biens Lodgify',
             'rows' => $rows,
         ]);
+    }
+
+    /**
+     * Resolves the effective VAT rate (%) used for pricing a property: a
+     * manual override saved in the admin "Biens Lodgify" table always wins
+     * — once an admin overwrites it, no live Lodgify sync/fetch is ever
+     * allowed to erase that choice — and only falls back to the VAT rate
+     * best-effort read live from Lodgify (getPropertyRateSettings()) when no
+     * override has been saved. Returns 0.0 when neither is available.
+     */
+    public static function resolveVatRate(LodgifyClient $client, int $propertyId, ?float $manualVatRate): float
+    {
+        if ($manualVatRate !== null) {
+            return $manualVatRate;
+        }
+        if ($propertyId <= 0) {
+            return 0.0;
+        }
+        $auto = $client->getPropertyRateSettings($propertyId)['vat_rate'] ?? null;
+        return $auto !== null ? (float) $auto : 0.0;
     }
 
     public static function adminSaveLodgifyPropertiesManual(): never
