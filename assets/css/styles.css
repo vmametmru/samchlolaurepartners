@@ -216,6 +216,7 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .calendar-price { font-size: .7rem; font-weight: 700; opacity: .85; }
 .calendar-legend-row { margin-top: 1rem; display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
 .calendar-legend { font-size: .85rem; color: var(--muted); display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+.calendar-legend-note { font-weight: 600; }
 .calendar-view-selection-btn { margin-left: auto; white-space: nowrap; }
 .calendar-view-selection-btn[hidden] { display: none; }
 .dot { width: .8rem; height: .8rem; display: inline-block; border-radius: 999px; margin-right: .25rem; }

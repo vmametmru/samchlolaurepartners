@@ -68,7 +68,7 @@ $frenchMonths = [1 => 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Ju
           <div class="calendar-cell <?= $class ?>" data-calendar-date="<?= $date ?>" data-calendar-available="<?= $isAvailable ? '1' : '0' ?>" data-calendar-minstay="<?= $minStay > 0 ? $minStay : 1 ?>"<?php if ($rate !== null && !$isPast): ?> data-calendar-rate="<?= (float) $rate['price_per_night'] ?>" data-calendar-currency="<?= \App\View::e($rate['currency']) ?>"<?php endif; ?>>
             <span class="calendar-day"><?= $dayNumber ?></span>
             <?php if ($isAvailable && $rate !== null): ?>
-              <span class="calendar-price"><?= number_format((float) $displayPrice, 0, ',', ' ') ?> <?= \App\View::e($rate['currency']) ?></span>
+              <span class="calendar-price"><?= number_format((float) $displayPrice, 2, ',', ' ') ?></span>
             <?php endif; ?>
           </div>
         <?php endfor; ?>
@@ -81,4 +81,5 @@ $frenchMonths = [1 => 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Ju
   <span class="dot dot-red"></span> Indisponible
   <span class="dot dot-yellow"></span> Réservation d'1 nuit (arrivée ou départ uniquement)
   <span class="dot dot-gray"></span> Non réservable (séjour minimum non atteint) / Non renseigné / Date passée
+  <span class="calendar-legend-note">Tarif en Euros</span>
 </div>
