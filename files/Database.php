@@ -101,6 +101,47 @@ final class Database
         return self::$columnExistsCache[$cacheKey];
     }
 
+    /** @var array<string, bool> */
+    private static array $columnNullableCache = [];
+
+    /**
+     * Ensures a column allows NULL, self-healing it with an inline ALTER
+     * TABLE when it doesn't. Used by write paths that legitimately need to
+     * insert/update a NULL value (e.g. email_schedules.partner_id NULL =
+     * "Tous les partenaires", see migration 033) but whose column may still
+     * be NOT NULL on a live database where that migration failed to apply
+     * (Migrator::autoRun() logs and swallows migration errors instead of
+     * breaking the page — see index.php) — without this, saving would fail
+     * with "SQLSTATE[23000] ... cannot be null" instead of self-healing.
+     */
+    public static function ensureColumnNullable(string $table, string $column, string $columnDefinition): bool
+    {
+        $cacheKey = $table . '.' . $column;
+        if (array_key_exists($cacheKey, self::$columnNullableCache)) {
+            return self::$columnNullableCache[$cacheKey];
+        }
+
+        $pdo = self::connection();
+        try {
+            $stmt = $pdo->query('SHOW COLUMNS FROM ' . $table . ' LIKE ' . $pdo->quote($column));
+            $row = $stmt !== false ? $stmt->fetch() : false;
+            $isNullable = $row !== false && ($row['Null'] ?? 'NO') === 'YES';
+        } catch (Throwable $e) {
+            return self::$columnNullableCache[$cacheKey] = false;
+        }
+
+        if (!$isNullable) {
+            try {
+                $pdo->exec('ALTER TABLE ' . $table . ' MODIFY COLUMN ' . $column . ' ' . $columnDefinition);
+                $isNullable = true;
+            } catch (Throwable $e) {
+                $isNullable = false;
+            }
+        }
+
+        return self::$columnNullableCache[$cacheKey] = $isNullable;
+    }
+
     public static function test(): array
     {
         try {

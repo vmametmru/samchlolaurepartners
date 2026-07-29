@@ -1821,6 +1821,14 @@ TEXT;
         $active = isset($input['active']) ? 1 : 0;
         $id = isset($input['id']) ? (int) $input['id'] : 0;
 
+        // partner_id NULL means "Tous les partenaires" (migration 033). If
+        // that migration failed to apply on this database, the column may
+        // still be NOT NULL, so self-heal it here rather than fail with
+        // "Column 'partner_id' cannot be null".
+        if ($partnerId === null && !Database::ensureColumnNullable('email_schedules', 'partner_id', 'INT NULL')) {
+            self::redirect('/admin/cron', "Impossible d'enregistrer une planification pour tous les partenaires : la base de données doit être mise à jour (colonne partner_id).", 'error');
+        }
+
         if ($id > 0) {
             Database::connection()->prepare(
                 'UPDATE email_schedules SET partner_id = ?, days_before_arrival = ?, template_type = ?, active = ?, updated_at = NOW() WHERE id = ?'
