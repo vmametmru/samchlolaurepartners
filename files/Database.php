@@ -64,7 +64,27 @@ final class Database
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES => false,
+            // Without this, an unreachable/overloaded DB host (wrong
+            // credentials, host down, network blip) makes PHP's TCP connect
+            // hang for the OS-level default (often minutes) before failing,
+            // which is exactly what produces the reverse-proxy "Request
+            // Timeout" page visitors see instead of a fast, clear error.
+            // Capping it here means every page fails fast with a catchable
+            // PDOException instead of hanging the whole request.
+            PDO::ATTR_TIMEOUT => 5,
         ]);
+        // MySQL's server-side lock waits are independent of the client-side
+        // ATTR_TIMEOUT above: ATTR_TIMEOUT only bounds the initial connect,
+        // not a query that blocks on a row/table lock (e.g. a migration's
+        // ALTER TABLE stuck behind a long-running transaction, or an ALTER
+        // itself blocking every other request that touches the table). Cap
+        // the lock wait too so a stuck migration/query fails fast instead of
+        // hanging every subsequent request for minutes.
+        try {
+            self::$instance->exec('SET SESSION innodb_lock_wait_timeout = 10');
+        } catch (Throwable $e) {
+            // Non-fatal: some managed hosts restrict SET SESSION privileges.
+        }
 
         return self::$instance;
     }
