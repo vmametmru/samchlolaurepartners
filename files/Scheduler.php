@@ -114,6 +114,23 @@ SQL;
                 $sent++;
             } catch (\Throwable $e) {
                 $errors[] = 'Reservation ' . $row['reservation_id'] . ': ' . $e->getMessage();
+                continue;
+            }
+
+            // Send the partner a copy of the same scheduled email (e.g. the
+            // REMINDER sent 5 days before arrival), so they stay aware of
+            // upcoming confirmed stays without having to check the admin
+            // dashboard. Best-effort and isolated from the client send
+            // above: a partner-copy failure (bad partner email, SMTP
+            // hiccup, ...) must never be reported as a failed/unsent
+            // schedule entry, since the client was already notified.
+            $partnerEmail = trim((string) ($row['email'] ?? ''));
+            if ($partnerEmail !== '') {
+                try {
+                    Mailer::sendTemplatedEmail($row, $template, $partnerEmail, $variables, $embeds, (string) $row['client_email']);
+                } catch (\Throwable $e) {
+                    error_log('[scheduler] failed to send partner copy of ' . $row['template_type'] . ' email for reservation ' . $row['reservation_id'] . ': ' . $e->getMessage());
+                }
             }
         }
 
