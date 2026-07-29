@@ -1708,6 +1708,127 @@ TEXT;
     }
 
     /**
+     * "Tâches planifiées (cron)" admin page. There is exactly one real
+     * server-level cron job in this application: bin/run-scheduler.php,
+     * which must be added to the hosting's crontab (this app has no way to
+     * create/modify OS-level cron entries itself on shared hosting). This
+     * page surfaces that job's last-run status (persisted by
+     * Scheduler::recordRun()) and lets an admin trigger it on demand for
+     * testing, plus manage the "email_schedules" rows (REMINDER, etc.) that
+     * job acts on for every partner. It also clarifies that the "Statut
+     * Prix" shown on /admin/lodgify-properties (refreshed every 30 minutes)
+     * is a lazy cache TTL re-checked on page load, not a second background
+     * cron — so there is nothing to configure for it.
+     */
+    public static function adminCron(): void
+    {
+        self::requireAdminUser();
+        $pdo = Database::connection();
+        $schedules = $pdo->query(
+            'SELECT es.*, p.name AS partner_name FROM email_schedules es
+             JOIN partners p ON p.id = es.partner_id
+             ORDER BY p.name, es.days_before_arrival'
+        )->fetchAll(PDO::FETCH_ASSOC);
+        $partners = $pdo->query('SELECT id, name FROM partners ORDER BY name')->fetchAll(PDO::FETCH_ASSOC);
+
+        $lastRunAt = Settings::get('CRON_SCHEDULER_LAST_RUN_AT');
+        $lastRunLabel = null;
+        if ($lastRunAt !== null && $lastRunAt !== '') {
+            try {
+                $lastRunLabel = (new \DateTimeImmutable($lastRunAt))
+                    ->setTimezone(new \DateTimeZone('Etc/GMT-4'))
+                    ->format('d/m/Y H:i') . ' (GMT+4)';
+            } catch (Throwable) {
+                $lastRunLabel = null;
+            }
+        }
+        $lastRunErrors = json_decode(Settings::get('CRON_SCHEDULER_LAST_ERRORS', '[]') ?? '[]', true);
+
+        View::render('pages/admin-cron', [
+            'pageTitle' => 'Tâches planifiées (cron)',
+            'schedulerScriptPath' => BASE_PATH . '/bin/run-scheduler.php',
+            'lastRunLabel' => $lastRunLabel,
+            'lastRunChecked' => Settings::int('CRON_SCHEDULER_LAST_CHECKED', 0),
+            'lastRunSent' => Settings::int('CRON_SCHEDULER_LAST_SENT', 0),
+            'lastRunErrors' => is_array($lastRunErrors) ? $lastRunErrors : [],
+            'schedules' => $schedules,
+            'partners' => $partners,
+            'templateTypeLabels' => [
+                'REQUEST_RECEIVED_PARTNER' => 'Demande reçue (partenaire)',
+                'REQUEST_RECEIVED_CLIENT' => 'Accusé réception (client)',
+                'RESERVATION_CONFIRMED' => 'Réservation confirmée (client)',
+                'RESERVATION_CANCELLED' => 'Réservation annulée (client)',
+                'REMINDER' => 'Rappel avant arrivée',
+            ],
+        ]);
+    }
+
+    /**
+     * "Exécuter maintenant" button on /admin/cron: runs the exact same
+     * Scheduler::runOnce() as bin/run-scheduler.php, on demand, so an admin
+     * can verify the scheduled-email job works (SMTP, templates, ...)
+     * without waiting for the next real cron tick.
+     */
+    public static function adminRunScheduler(): never
+    {
+        self::requireAdminUser();
+        @set_time_limit(0);
+        try {
+            $result = Scheduler::runOnce();
+        } catch (Throwable $e) {
+            self::redirect('/admin/cron', 'Échec de l\'exécution : ' . $e->getMessage(), 'error');
+        }
+        $message = $result['checked'] . ' réservation(s) vérifiée(s), ' . $result['sent'] . ' email(s) envoyé(s).';
+        if ($result['errors'] !== []) {
+            $message .= ' ' . count($result['errors']) . ' erreur(s) : ' . implode(' | ', array_slice($result['errors'], 0, 3));
+            self::redirect('/admin/cron', $message, 'error');
+        }
+        self::redirect('/admin/cron', $message);
+    }
+
+    /**
+     * Creates or updates (when "id" is present) an email_schedules row for
+     * any partner. Unlike EmailSchedulesController (the partner-facing
+     * /api/email-schedules API, scoped to the logged-in user's own
+     * partner_id), this is the admin-wide equivalent used by /admin/cron so
+     * a single admin can manage every partner's scheduled emails (REMINDER
+     * days before arrival, etc.) from one page.
+     */
+    public static function adminSaveEmailSchedule(): never
+    {
+        self::requireAdminUser();
+        $input = $_POST;
+        $partnerId = (int) ($input['partner_id'] ?? 0);
+        $daysBeforeArrival = (int) ($input['days_before_arrival'] ?? -1);
+        $templateType = trim((string) ($input['template_type'] ?? ''));
+        $allowedTypes = ['REQUEST_RECEIVED_PARTNER', 'REQUEST_RECEIVED_CLIENT', 'RESERVATION_CONFIRMED', 'RESERVATION_CANCELLED', 'REMINDER'];
+        if ($partnerId <= 0 || $daysBeforeArrival < 0 || !in_array($templateType, $allowedTypes, true)) {
+            self::redirect('/admin/cron', 'Partenaire, nombre de jours et type de modèle sont requis.', 'error');
+        }
+        $active = isset($input['active']) ? 1 : 0;
+        $id = isset($input['id']) ? (int) $input['id'] : 0;
+
+        if ($id > 0) {
+            Database::connection()->prepare(
+                'UPDATE email_schedules SET partner_id = ?, days_before_arrival = ?, template_type = ?, active = ?, updated_at = NOW() WHERE id = ?'
+            )->execute([$partnerId, $daysBeforeArrival, $templateType, $active, $id]);
+            self::redirect('/admin/cron', 'Planification mise à jour.');
+        }
+
+        Database::connection()->prepare(
+            'INSERT INTO email_schedules (partner_id, days_before_arrival, template_type, active) VALUES (?, ?, ?, ?)'
+        )->execute([$partnerId, $daysBeforeArrival, $templateType, $active]);
+        self::redirect('/admin/cron', 'Planification créée.');
+    }
+
+    public static function adminDeleteEmailSchedule(int $id): never
+    {
+        self::requireAdminUser();
+        Database::connection()->prepare('DELETE FROM email_schedules WHERE id = ?')->execute([$id]);
+        self::redirect('/admin/cron', 'Planification supprimée.');
+    }
+
+    /**
      * "Biens Lodgify" settings page: lists every property (photo, titre,
      * capacité max, nb de lits, coordonnées GPS) alongside two freshness
      * indicators — "Statut de la fiche" (photos/description/capacité,
