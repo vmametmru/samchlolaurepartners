@@ -56,7 +56,31 @@ if (str_starts_with($path, '/api/')) {
 
 if ($path === '/health') {
     header('Content-Type: application/json; charset=utf-8');
-    echo json_encode(['status' => 'ok', 'timestamp' => gmdate('c')], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $payload = ['status' => 'ok', 'timestamp' => gmdate('c')];
+    // Publicly reachable (no login) on purpose: when the site itself is
+    // unreachable/timing out (e.g. behind a reverse proxy "Request Timeout"
+    // page), the admin login page is unreachable too, so this is the only
+    // way to tell whether the DB connection/a stuck migration lock is the
+    // cause without shell access. Database::connection() now caps its
+    // connect attempt (PDO::ATTR_TIMEOUT) so this never itself hangs for
+    // more than a few seconds even when the DB host is down/unreachable.
+    if (($_GET['check'] ?? '') === 'db') {
+        $dbCheck = App\Database::test();
+        $payload['database'] = $dbCheck;
+        try {
+            $pdo = App\Database::connection();
+            $stmt = $pdo->query('SELECT filename, applied_at FROM db_migrations ORDER BY id DESC LIMIT 1');
+            $last = $stmt !== false ? $stmt->fetch() : false;
+            $payload['last_migration'] = $last ?: null;
+        } catch (\Throwable $e) {
+            $payload['last_migration'] = ['error' => $e->getMessage()];
+        }
+        if (!$dbCheck['ok']) {
+            $payload['status'] = 'error';
+            http_response_code(503);
+        }
+    }
+    echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
 
