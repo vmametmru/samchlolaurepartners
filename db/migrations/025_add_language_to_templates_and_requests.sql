@@ -21,7 +21,7 @@ SET @et_lang_exists = (
 SET @et_lang_sql = IF(
   @et_lang_exists = 0,
   'ALTER TABLE email_templates ADD COLUMN language VARCHAR(5) NOT NULL DEFAULT ''fr'' AFTER type',
-  'SELECT 1'
+  'DO 0'
 );
 PREPARE et_lang_stmt FROM @et_lang_sql;
 EXECUTE et_lang_stmt;
@@ -34,7 +34,7 @@ SET @new_index_exists = (
 SET @add_new_index_sql = IF(
   @new_index_exists = 0,
   'ALTER TABLE email_templates ADD UNIQUE KEY unique_partner_type_lang (partner_id, type, language)',
-  'SELECT 1'
+  'DO 0'
 );
 PREPARE add_new_index_stmt FROM @add_new_index_sql;
 EXECUTE add_new_index_stmt;
@@ -47,7 +47,7 @@ SET @old_index_exists = (
 SET @drop_old_index_sql = IF(
   @old_index_exists > 0,
   'ALTER TABLE email_templates DROP INDEX unique_partner_type',
-  'SELECT 1'
+  'DO 0'
 );
 PREPARE drop_old_index_stmt FROM @drop_old_index_sql;
 EXECUTE drop_old_index_stmt;
@@ -64,7 +64,7 @@ SET @rr_lang_exists = (
 SET @rr_lang_sql = IF(
   @rr_lang_exists = 0,
   'ALTER TABLE reservation_requests ADD COLUMN language VARCHAR(5) NOT NULL DEFAULT ''fr'' AFTER client_phone',
-  'SELECT 1'
+  'DO 0'
 );
 PREPARE rr_lang_stmt FROM @rr_lang_sql;
 EXECUTE rr_lang_stmt;

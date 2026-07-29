@@ -6,6 +6,17 @@
 -- templates pages). Every step below is idempotent (checked against
 -- information_schema first) so it is safe to run again even on installs
 -- where migration 025 already applied correctly.
+--
+-- Each no-op branch below uses 'DO 0' rather than 'SELECT 1': PREPARE/
+-- EXECUTE'ing a statement that returns a result set (like 'SELECT 1')
+-- leaves an open unbuffered PDO cursor that the very next statement
+-- (DEALLOCATE PREPARE) can't run alongside, failing with "Cannot execute
+-- queries while other unbuffered queries are active" — which aborted this
+-- migration on every install where migration 025 had already added
+-- email_templates.language/index (so the first guard here evaluates to the
+-- no-op branch), permanently blocking the reservation_requests.language
+-- ALTER below and causing the persistent "Unknown column 'rr.language'"
+-- cron error.
 SET @et_lang_exists = (
   SELECT COUNT(*) FROM information_schema.COLUMNS
   WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'email_templates' AND COLUMN_NAME = 'language'
@@ -13,7 +24,7 @@ SET @et_lang_exists = (
 SET @et_lang_sql = IF(
   @et_lang_exists = 0,
   'ALTER TABLE email_templates ADD COLUMN language VARCHAR(5) NOT NULL DEFAULT ''fr'' AFTER type',
-  'SELECT 1'
+  'DO 0'
 );
 PREPARE et_lang_stmt FROM @et_lang_sql;
 EXECUTE et_lang_stmt;
@@ -35,7 +46,7 @@ SET @new_index_exists = (
 SET @add_new_index_sql = IF(
   @new_index_exists = 0,
   'ALTER TABLE email_templates ADD UNIQUE KEY unique_partner_type_lang (partner_id, type, language)',
-  'SELECT 1'
+  'DO 0'
 );
 PREPARE add_new_index_stmt FROM @add_new_index_sql;
 EXECUTE add_new_index_stmt;
@@ -48,7 +59,7 @@ SET @old_index_exists = (
 SET @drop_old_index_sql = IF(
   @old_index_exists > 0,
   'ALTER TABLE email_templates DROP INDEX unique_partner_type',
-  'SELECT 1'
+  'DO 0'
 );
 PREPARE drop_old_index_stmt FROM @drop_old_index_sql;
 EXECUTE drop_old_index_stmt;
@@ -61,7 +72,7 @@ SET @rr_lang_exists = (
 SET @rr_lang_sql = IF(
   @rr_lang_exists = 0,
   'ALTER TABLE reservation_requests ADD COLUMN language VARCHAR(5) NOT NULL DEFAULT ''fr'' AFTER client_phone',
-  'SELECT 1'
+  'DO 0'
 );
 PREPARE rr_lang_stmt FROM @rr_lang_sql;
 EXECUTE rr_lang_stmt;
