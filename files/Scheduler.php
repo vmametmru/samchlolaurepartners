@@ -22,6 +22,12 @@ final class Scheduler
         } catch (\Throwable $e) {
             error_log('[scheduler] migration check failed: ' . $e->getMessage());
         }
+        // es.partner_id is nullable: NULL means "Tous les partenaires" — the
+        // schedule applies to every partner's confirmed reservations
+        // instead of a single one — so reservations/partners are joined via
+        // the reservation's own partner_id, only narrowed down to
+        // es.partner_id when that column is set (a partner-specific
+        // schedule).
         $sql = <<<'SQL'
 SELECT
   es.id AS schedule_id,
@@ -39,11 +45,19 @@ SELECT
   rr.property_name,
   rr.guests,
   rr.language AS request_language,
+  rr.quote_room_total,
+  rr.quote_extra_person_total,
+  rr.quote_cleaning_total,
+  rr.quote_tourist_tax_total,
+  rr.quote_nights,
+  rr.quote_currency,
+  rr.quote_partner_rate,
+  rr.quote_vat_rate,
   p.*
 FROM email_schedules es
-JOIN partners p ON p.id = es.partner_id
-JOIN reservations r ON r.partner_id = p.id
+JOIN reservations r ON (es.partner_id IS NULL OR es.partner_id = r.partner_id)
 JOIN reservation_requests rr ON rr.id = r.request_id
+JOIN partners p ON p.id = r.partner_id
 WHERE es.active = 1
   AND r.cancelled_at IS NULL
   AND DATE(rr.checkin_date) = DATE_ADD(CURDATE(), INTERVAL es.days_before_arrival DAY)
@@ -61,9 +75,23 @@ SQL;
             $requestLanguage = in_array((string) ($row['request_language'] ?? ''), I18n::SUPPORTED, true)
                 ? (string) $row['request_language']
                 : I18n::DEFAULT_LANGUAGE;
-            $template = \App\controllers\ReservationsController::findEmailTemplate($pdo, (int) $row['partner_id'], (string) $row['template_type'], $requestLanguage);
-            if (!$template) {
-                continue;
+            $isReminder = (string) $row['template_type'] === 'REMINDER';
+
+            // REMINDER is the only schedule type split into two separate
+            // templates (REMINDER_CLIENT/REMINDER_PARTNER, see migration
+            // 033): every other type keeps sending a single template to the
+            // client with an identical copy to the partner, as before.
+            if ($isReminder) {
+                $clientTemplate = \App\controllers\ReservationsController::findEmailTemplate($pdo, (int) $row['partner_id'], 'REMINDER_CLIENT', $requestLanguage);
+                $partnerTemplate = \App\controllers\ReservationsController::findEmailTemplate($pdo, (int) $row['partner_id'], 'REMINDER_PARTNER', $requestLanguage);
+                if (!$clientTemplate && !$partnerTemplate) {
+                    continue;
+                }
+            } else {
+                $template = \App\controllers\ReservationsController::findEmailTemplate($pdo, (int) $row['partner_id'], (string) $row['template_type'], $requestLanguage);
+                if (!$template) {
+                    continue;
+                }
             }
 
             $variables = [
@@ -107,27 +135,74 @@ SQL;
             $variables += $signature['variables'];
             $embeds = $signature['embed'] !== null ? [$signature['embed']] : [];
 
+            // Adds the {{tarif_*}}/{{commission_partenaire}}/
+            // {{paiement_a_samchlolaure}} variables from the quote breakdown
+            // persisted on the request at submission time (same source used
+            // by sendReservationStatusEmail()), so the REMINDER_PARTNER
+            // template can show the partner their commission/payout for
+            // this stay. Skipped when no quote was ever recorded (e.g. old
+            // requests created before quote persistence was added).
+            if (($row['quote_room_total'] ?? null) !== null) {
+                $variables += \App\controllers\ReservationsController::buildQuoteVariables(
+                    \App\controllers\ReservationsController::computeQuoteBreakdown([
+                        'room_total' => $row['quote_room_total'] ?? 0,
+                        'extra_person_total' => $row['quote_extra_person_total'] ?? 0,
+                        'cleaning_total' => $row['quote_cleaning_total'] ?? 0,
+                        'tourist_tax_total' => $row['quote_tourist_tax_total'] ?? 0,
+                        'nights' => $row['quote_nights'] ?? 0,
+                        'currency' => $row['quote_currency'] ?? 'EUR',
+                    ], (float) ($row['quote_partner_rate'] ?? ($row['markup_percent'] ?? 0)), (float) ($row['quote_vat_rate'] ?? 0))
+                );
+            }
+
+            $partnerEmail = trim((string) ($row['email'] ?? ''));
+
             try {
-                Mailer::sendTemplatedEmail($row, $template, (string) $row['client_email'], $variables, $embeds, (string) ($row['email'] ?? ''));
+                if ($isReminder) {
+                    // Sent simultaneously (same loop iteration, before the
+                    // "already sent" guard is recorded below): the client
+                    // never sees partner-only variables (commission,
+                    // amount owed), the partner copy keeps them.
+                    if ($clientTemplate) {
+                        Mailer::sendTemplatedEmail(
+                            $row,
+                            $clientTemplate,
+                            (string) $row['client_email'],
+                            \App\controllers\ReservationsController::redactPartnerOnlyVariables($variables),
+                            $embeds,
+                            (string) ($row['email'] ?? '')
+                        );
+                        $sent++;
+                    }
+                } else {
+                    Mailer::sendTemplatedEmail($row, $template, (string) $row['client_email'], $variables, $embeds, (string) ($row['email'] ?? ''));
+                    $sent++;
+                }
                 $markStmt = $pdo->prepare('INSERT IGNORE INTO sent_schedule_emails (schedule_id, reservation_id) VALUES (?, ?)');
                 $markStmt->execute([(int) $row['schedule_id'], (int) $row['reservation_id']]);
-                $sent++;
             } catch (\Throwable $e) {
                 $errors[] = 'Reservation ' . $row['reservation_id'] . ': ' . $e->getMessage();
                 continue;
             }
 
-            // Send the partner a copy of the same scheduled email (e.g. the
-            // REMINDER sent 5 days before arrival), so they stay aware of
-            // upcoming confirmed stays without having to check the admin
+            // Send the partner their own copy — either the dedicated
+            // REMINDER_PARTNER template (with commission/payout variables),
+            // or, for every other schedule type, the same client template as
+            // a courtesy copy (e.g. RESERVATION_CONFIRMED) — so they stay
+            // aware of upcoming/confirmed stays without checking the admin
             // dashboard. Best-effort and isolated from the client send
             // above: a partner-copy failure (bad partner email, SMTP
             // hiccup, ...) must never be reported as a failed/unsent
             // schedule entry, since the client was already notified.
-            $partnerEmail = trim((string) ($row['email'] ?? ''));
             if ($partnerEmail !== '') {
                 try {
-                    Mailer::sendTemplatedEmail($row, $template, $partnerEmail, $variables, $embeds, (string) $row['client_email']);
+                    if ($isReminder) {
+                        if ($partnerTemplate) {
+                            Mailer::sendTemplatedEmail($row, $partnerTemplate, $partnerEmail, $variables, $embeds, (string) $row['client_email']);
+                        }
+                    } else {
+                        Mailer::sendTemplatedEmail($row, $template, $partnerEmail, $variables, $embeds, (string) $row['client_email']);
+                    }
                 } catch (\Throwable $e) {
                     error_log('[scheduler] failed to send partner copy of ' . $row['template_type'] . ' email for reservation ' . $row['reservation_id'] . ': ' . $e->getMessage());
                 }

@@ -38,7 +38,7 @@ $selectedLanguage = $selectedLanguage ?? 'fr';
       <div class="card card-body stack-sm">
         <h2 class="section-title">Nouveau template par défaut</h2>
         <?php if (($creatableTemplates ?? []) === []): ?>
-          <p class="empty-state">Les 5 templates existent déjà pour cette langue.</p>
+          <p class="empty-state">Les 6 templates existent déjà pour cette langue.</p>
         <?php else: ?>
           <form method="post" action="<?= $baseUrl ?>/create" class="stack-md">
             <input type="hidden" name="language" value="<?= \App\View::e($selectedLanguage) ?>">

@@ -1255,7 +1255,7 @@ final class ReservationsController extends Controller
      * (they are documented but not meant to be used there), the actual
      * commission/payout figures must never leak to the client.
      */
-    private static function redactPartnerOnlyVariables(array $variables): array
+    public static function redactPartnerOnlyVariables(array $variables): array
     {
         foreach (View::emailTemplateVariableCatalog() as $definition) {
             if (!empty($definition['partnerOnly']) && array_key_exists($definition['key'], $variables)) {
@@ -1318,7 +1318,9 @@ final class ReservationsController extends Controller
                     'REQUEST_RECEIVED_CLIENT',
                     'RESERVATION_CONFIRMED',
                     'RESERVATION_CANCELLED',
-                    'REMINDER'
+                    'REMINDER',
+                    'REMINDER_CLIENT',
+                    'REMINDER_PARTNER'
                   ) NOT NULL,
                   language VARCHAR(5) NOT NULL DEFAULT 'fr',
                   subject VARCHAR(500) NOT NULL,
@@ -1536,7 +1538,7 @@ final class ReservationsController extends Controller
      * @param array{room_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, nights: int, currency: string, vat_rate?: float} $quote
      * @return array{room_total: float, partner_rate: float, vat_rate: float, commission_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, total_traveler: float, vat_total: float, nights: int, currency: string}
      */
-    private static function computeQuoteBreakdown(array $quote, float $markupPercent, float $vatRate = 0.0): array
+    public static function computeQuoteBreakdown(array $quote, float $markupPercent, float $vatRate = 0.0): array
     {
         $roomTotal = self::toMoneyValue($quote['room_total'] ?? 0);
         $extraPersonTotal = self::toMoneyValue($quote['extra_person_total'] ?? 0);
@@ -1639,7 +1641,7 @@ final class ReservationsController extends Controller
      *
      * @param array{room_total: float, partner_rate: float, commission_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, total_traveler: float, vat_total: float, nights: int, currency: string} $breakdown
      */
-    private static function buildQuoteVariables(array $breakdown, int $itemCount = 1): array
+    public static function buildQuoteVariables(array $breakdown, int $itemCount = 1): array
     {
         $currency = $breakdown['currency'];
         $roomTotal = $breakdown['room_total'];

@@ -67,8 +67,12 @@
             <tr>
               <td>
                 <input type="hidden" form="<?= $editFormId ?>" name="id" value="<?= (int) $schedule['id'] ?>">
-                <input type="hidden" form="<?= $editFormId ?>" name="partner_id" value="<?= (int) $schedule['partner_id'] ?>">
-                <?= \App\View::e((string) $schedule['partner_name']) ?>
+                <select class="input" form="<?= $editFormId ?>" name="partner_id">
+                  <option value="" <?= $schedule['partner_id'] === null ? 'selected' : '' ?>>Tous les partenaires</option>
+                  <?php foreach (($partners ?? []) as $partner): ?>
+                    <option value="<?= (int) $partner['id'] ?>" <?= (int) ($schedule['partner_id'] ?? 0) === (int) $partner['id'] ? 'selected' : '' ?>><?= \App\View::e((string) $partner['name']) ?></option>
+                  <?php endforeach; ?>
+                </select>
               </td>
               <td><input class="input" form="<?= $editFormId ?>" type="number" min="0" name="days_before_arrival" value="<?= (int) $schedule['days_before_arrival'] ?>" style="width:5rem"></td>
               <td>
@@ -94,8 +98,8 @@
     <h3 class="section-title">Ajouter une planification</h3>
     <form method="post" action="/admin/cron/schedules" class="row" style="gap:.75rem;flex-wrap:wrap;align-items:flex-end">
       <label><span>Partenaire</span>
-        <select class="input" name="partner_id" required>
-          <option value="">—</option>
+        <select class="input" name="partner_id">
+          <option value="">Tous les partenaires</option>
           <?php foreach (($partners ?? []) as $partner): ?>
             <option value="<?= (int) $partner['id'] ?>"><?= \App\View::e((string) $partner['name']) ?></option>
           <?php endforeach; ?>
