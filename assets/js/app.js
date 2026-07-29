@@ -507,6 +507,16 @@ function initBookingCalendarSelection() {
     let checkin = null;
     let checkout = null;
 
+    // Labels below are read from data-i18n-* attributes rendered server-side
+    // by property-detail.php (App\I18n::t()) so this summary follows the
+    // active site language instead of always showing French text.
+    const i18nCheckin = form.dataset.i18nCheckin || 'Arrivée';
+    const i18nCheckout = form.dataset.i18nCheckout || 'Départ';
+    const i18nNights = form.dataset.i18nNights || 'Nuits';
+    const i18nClickOtherDate = form.dataset.i18nClickOtherDate || 'Cliquez sur une autre date du calendrier pour le départ';
+    const i18nMinStayHint = form.dataset.i18nMinStayHint || 'séjour minimum : %d nuits';
+    const i18nSelectDates = form.dataset.i18nSelectDates || 'Sélectionnez vos dates dans le calendrier (Tarifs &amp; Disponibilités) : 1er clic = arrivée, 2e clic = départ.';
+
     function formatFr(dateStr) {
       const [y, m, d] = dateStr.split('-');
       return `${d}/${m}/${y}`;
@@ -584,13 +594,13 @@ function initBookingCalendarSelection() {
       checkoutInput.value = checkout || '';
       if (summary) {
         if (checkin && checkout) {
-          summary.innerHTML = `<p>Arrivée : ${formatFr(checkin)}</p><p>Départ : ${formatFr(checkout)}</p><p>Nuits : ${nightsBetween(checkin, checkout)}</p>`;
+          summary.innerHTML = `<p>${i18nCheckin} : ${formatFr(checkin)}</p><p>${i18nCheckout} : ${formatFr(checkout)}</p><p>${i18nNights} : ${nightsBetween(checkin, checkout)}</p>`;
         } else if (checkin) {
           const minStay = minStayFor(checkin);
-          const minHint = minStay > 1 ? ` (séjour minimum : ${minStay} nuits)` : '';
-          summary.innerHTML = `<p>Arrivée : ${formatFr(checkin)}</p><p class="muted">Cliquez sur une autre date du calendrier pour le départ${minHint}.</p>`;
+          const minHint = minStay > 1 ? ` (${i18nMinStayHint.replace('%d', String(minStay))})` : '';
+          summary.innerHTML = `<p>${i18nCheckin} : ${formatFr(checkin)}</p><p class="muted">${i18nClickOtherDate}${minHint}.</p>`;
         } else {
-          summary.innerHTML = '<p class="muted">Sélectionnez vos dates dans le calendrier (Tarifs &amp; Disponibilités) : 1er clic = arrivée, 2e clic = départ.</p>';
+          summary.innerHTML = `<p class="muted">${i18nSelectDates}</p>`;
         }
       }
       calendarWidget.querySelectorAll('[data-calendar-date]').forEach((cell) => {
