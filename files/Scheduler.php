@@ -134,7 +134,31 @@ SQL;
             }
         }
 
-        return ['checked' => count($rows), 'sent' => $sent, 'errors' => $errors];
+        $result = ['checked' => count($rows), 'sent' => $sent, 'errors' => $errors];
+        self::recordRun($result);
+
+        return $result;
+    }
+
+    /**
+     * Persists the outcome of the last run() (whether triggered by the real
+     * cron job, bin/run-scheduler.php, or the "Exécuter maintenant" button
+     * on /admin/cron) into the "settings" table, so the admin cron page can
+     * display a "last run" status without needing a dedicated log table.
+     *
+     * @param array{checked:int, sent:int, errors:array<int,string>} $result
+     */
+    private static function recordRun(array $result): void
+    {
+        try {
+            Settings::set('CRON_SCHEDULER_LAST_RUN_AT', (new \DateTimeImmutable('now'))->format('c'));
+            Settings::set('CRON_SCHEDULER_LAST_CHECKED', (string) $result['checked']);
+            Settings::set('CRON_SCHEDULER_LAST_SENT', (string) $result['sent']);
+            Settings::set('CRON_SCHEDULER_LAST_ERRORS', json_encode(array_slice($result['errors'], 0, 20), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '[]');
+            Settings::reload();
+        } catch (\Throwable $e) {
+            error_log('[scheduler] failed to record run status: ' . $e->getMessage());
+        }
     }
 
     /**

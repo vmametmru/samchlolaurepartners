@@ -355,6 +355,15 @@ try {
         case route($method, $path, 'GET', '#^/admin/diagnostic$#'):
             PageController::adminDiagnostic();
             break;
+        case route($method, $path, 'GET', '#^/admin/cron$#'):
+            PageController::adminCron();
+            break;
+        case route($method, $path, 'POST', '#^/admin/cron/run$#'):
+            PageController::adminRunScheduler();
+        case route($method, $path, 'POST', '#^/admin/cron/schedules$#'):
+            PageController::adminSaveEmailSchedule();
+        case route($method, $path, 'POST', '#^/admin/cron/schedules/(\d+)/delete$#', $matches):
+            PageController::adminDeleteEmailSchedule((int) $matches[1]);
         default:
             PageController::notFound();
     }
