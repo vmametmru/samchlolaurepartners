@@ -1147,6 +1147,9 @@ final class ReservationsController extends Controller
         $checkin = (string) ($input['checkin_date'] ?? '');
         $checkout = (string) ($input['checkout_date'] ?? '');
         $childBreakdown = self::childBreakdownValues($input);
+        $guestLanguage = in_array((string) ($input['language'] ?? ''), I18n::SUPPORTED, true)
+            ? (string) $input['language']
+            : I18n::DEFAULT_LANGUAGE;
         $variables = [
             'nom_client' => (string) ($input['client_name'] ?? ''),
             'email_client' => (string) ($input['client_email'] ?? ''),
@@ -1185,6 +1188,7 @@ final class ReservationsController extends Controller
                 (int) ($input['adults'] ?? 0),
                 $childBreakdown['from3to12']
             ),
+            'useful_info' => self::usefulInfoButtonHtml($partner, $guestLanguage),
         ];
         $variables += self::stayVariables($checkin, $checkout, $childBreakdown['under3'], $childBreakdown['from3to12'], (int) ($input['adults'] ?? 0));
         $variables += self::requestQuoteVariables($input, $itemCount, (float) ($partner['markup_percent'] ?? 0));
@@ -1196,9 +1200,6 @@ final class ReservationsController extends Controller
         }
 
         $pdo = Database::connection();
-        $guestLanguage = in_array((string) ($input['language'] ?? ''), I18n::SUPPORTED, true)
-            ? (string) $input['language']
-            : I18n::DEFAULT_LANGUAGE;
 
         // Each recipient is sent in its own try/catch: previously a failure
         // sending to the partner (bad SMTP credentials, unreachable host,
@@ -1207,15 +1208,20 @@ final class ReservationsController extends Controller
         // partner-side failure can never prevent the client from being
         // notified (and vice versa).
         // The partner/host-facing copy always stays in French: the visitor's
-        // site language reflects the *guest's* language, not the partner's.
+        // site language reflects the *guest's* language, not the partner's,
+        // so {{useful_info}} is rebuilt in French for this copy too.
         $partnerTemplate = self::findEmailTemplate($pdo, (int) $partner['id'], 'REQUEST_RECEIVED_PARTNER', I18n::DEFAULT_LANGUAGE);
+        $partnerVariables = $variables;
+        if ($guestLanguage !== I18n::DEFAULT_LANGUAGE) {
+            $partnerVariables['useful_info'] = self::usefulInfoButtonHtml($partner, I18n::DEFAULT_LANGUAGE);
+        }
         // Reply-To the client's own address on the partner-facing copy, so a
         // partner hitting "Reply" in their mailbox writes straight back to
         // the guest instead of to the shared sending mailbox.
         $clientReplyTo = (string) ($input['client_email'] ?? '');
         try {
             if ($partnerTemplate) {
-                Mailer::sendTemplatedEmail($partner, $partnerTemplate, (string) $partner['email'], $variables, $embeds, $clientReplyTo);
+                Mailer::sendTemplatedEmail($partner, $partnerTemplate, (string) $partner['email'], $partnerVariables, $embeds, $clientReplyTo);
             } else {
                 Mailer::sendRawEmail($partner, (string) $partner['email'], 'Nouvelle demande de réservation - ' . $variables['nom_client'], '<p>Nouvelle demande de ' . htmlspecialchars($variables['nom_client']) . ' (' . htmlspecialchars($variables['email_client']) . ') pour ' . htmlspecialchars($variables['hebergement'] !== '' ? $variables['hebergement'] : 'hébergement non spécifié') . ' du ' . htmlspecialchars($variables['date_arrivee']) . ' au ' . htmlspecialchars($variables['date_depart']) . '.</p>' . $variables['tarif_bloc'], [], $clientReplyTo);
             }
@@ -1390,6 +1396,7 @@ final class ReservationsController extends Controller
                 (int) $request['adults'],
                 $childBreakdown['from3to12']
             ),
+            'useful_info' => self::usefulInfoButtonHtml($partner, $guestLanguage),
         ];
         $variables += self::stayVariables(
             (string) $request['checkin_date'],
@@ -2019,6 +2026,35 @@ final class ReservationsController extends Controller
             . '<a href="' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '" target="_blank" rel="noopener" '
             . 'style="display:inline-block;background:#3b82f6;color:#ffffff;text-decoration:none;'
             . 'font-weight:bold;font-size:14px;padding:12px 28px;border-radius:6px;">Réserver maintenant</a>'
+            . '</div>';
+    }
+
+    /**
+     * Builds the {{useful_info}} email button: links to the partner's own
+     * check-in info URL (checkin_info_url_fr/checkin_info_url_en on the
+     * "partners" table, configured on the admin/partner-settings partner
+     * form), picking the URL matching the email's own language — English
+     * when $language is "en", French otherwise — so an English-language
+     * email always links to the English page even if only the French page
+     * is filled in for a French guest, and vice versa. Falls back to the
+     * other language's URL when the one for $language is empty, and
+     * returns '' (button omitted entirely) when neither is configured.
+     */
+    public static function usefulInfoButtonHtml(array $partner, string $language): string
+    {
+        $urlFr = trim((string) ($partner['checkin_info_url_fr'] ?? ''));
+        $urlEn = trim((string) ($partner['checkin_info_url_en'] ?? ''));
+        $isEnglish = $language === 'en';
+        $url = $isEnglish ? ($urlEn !== '' ? $urlEn : $urlFr) : ($urlFr !== '' ? $urlFr : $urlEn);
+        if ($url === '') {
+            return '';
+        }
+        $label = $isEnglish ? 'Useful check-in informations' : 'Renseignements utiles à l\'enregistrement';
+
+        return '<div style="text-align:center;margin:20px 0;">'
+            . '<a href="' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '" target="_blank" rel="noopener" '
+            . 'style="display:inline-block;background:#ffffff;color:#3b82f6;text-decoration:none;'
+            . 'font-weight:bold;font-size:14px;padding:11px 27px;border-radius:6px;border:2px solid #3b82f6;">' . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . '</a>'
             . '</div>';
     }
 
