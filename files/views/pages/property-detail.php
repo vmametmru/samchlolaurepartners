@@ -28,15 +28,15 @@ $globalTouristTax = $globalTouristTax ?? 0.0;
   <div class="property-detail-header">
     <div>
       <h1><?= \App\View::e($propertyName) ?></h1>
-      <p><?= (int) $property['bedrooms'] ?> chambre(s) · <?= (int) $property['max_guests'] ?> personnes max</p>
+      <p><?= \App\View::e(sprintf(\App\I18n::t('property.rooms_max_guests'), (int) $property['bedrooms'], (int) $property['max_guests'])) ?></p>
     </div>
-    <button type="button" class="btn-primary" data-reserve-btn data-reserve-tab="rates-availability">Vérifier les disponibilités</button>
+    <button type="button" class="btn-primary" data-reserve-btn data-reserve-tab="rates-availability"><?= \App\View::e(\App\I18n::t('property.check_availability')) ?></button>
   </div>
   <div class="gallery-main">
     <img src="<?= \App\View::e($mainImage) ?>" alt="<?= \App\View::e($propertyName) ?>" data-gallery-main loading="eager" decoding="async" fetchpriority="high">
     <div class="gallery-share">
-      <span class="gallery-share-toast" data-share-toast>Lien copié</span>
-      <button type="button" class="gallery-share-btn" data-share-btn data-partner-code="<?= \App\View::e((string) ($partnerCode ?? '')) ?>" aria-label="Partager" title="Partager">
+      <span class="gallery-share-toast" data-share-toast><?= \App\View::e(\App\I18n::t('property.link_copied')) ?></span>
+      <button type="button" class="gallery-share-btn" data-share-btn data-partner-code="<?= \App\View::e((string) ($partnerCode ?? '')) ?>" aria-label="<?= \App\View::e(\App\I18n::t('property.share')) ?>" title="<?= \App\View::e(\App\I18n::t('property.share')) ?>">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="18" cy="5" r="3"></circle>
           <circle cx="6" cy="12" r="3"></circle>
@@ -59,27 +59,27 @@ $globalTouristTax = $globalTouristTax ?? 0.0;
   <?php endif; ?>
 
   <nav class="detail-tabs" data-tabs>
-    <button type="button" class="tab-btn active" data-tab-btn="description">Description</button>
-    <button type="button" class="tab-btn" data-tab-btn="amenities">Équipements</button>
-    <button type="button" class="tab-btn" data-tab-btn="location">Emplacement</button>
-    <button type="button" class="tab-btn" data-tab-btn="rates-availability">Tarifs &amp; Disponibilités</button>
+    <button type="button" class="tab-btn active" data-tab-btn="description"><?= \App\View::e(\App\I18n::t('property.tab_description')) ?></button>
+    <button type="button" class="tab-btn" data-tab-btn="amenities"><?= \App\View::e(\App\I18n::t('property.tab_amenities')) ?></button>
+    <button type="button" class="tab-btn" data-tab-btn="location"><?= \App\View::e(\App\I18n::t('property.tab_location')) ?></button>
+    <button type="button" class="tab-btn" data-tab-btn="rates-availability"><?= \App\View::e(\App\I18n::t('property.tab_rates_availability')) ?></button>
   </nav>
 
   <div>
     <div class="stack-lg" data-tab-panels>
       <div data-tab-panel="description">
-        <h2 class="section-title">Description</h2>
+        <h2 class="section-title"><?= \App\View::e(\App\I18n::t('property.tab_description')) ?></h2>
         <div class="prose"><?= \App\View::safeHtml($propertyDescription) ?></div>
         <?php if ($checkinLabel !== null || $checkoutLabel !== null): ?>
           <div class="form-grid cols-2">
-            <?php if ($checkinLabel !== null): ?><div><strong>Arrivée</strong><br><?= \App\View::e($checkinLabel) ?></div><?php endif; ?>
-            <?php if ($checkoutLabel !== null): ?><div><strong>Départ</strong><br><?= \App\View::e($checkoutLabel) ?></div><?php endif; ?>
+            <?php if ($checkinLabel !== null): ?><div><strong><?= \App\View::e(\App\I18n::t('property.checkin')) ?></strong><br><?= \App\View::e($checkinLabel) ?></div><?php endif; ?>
+            <?php if ($checkoutLabel !== null): ?><div><strong><?= \App\View::e(\App\I18n::t('property.checkout')) ?></strong><br><?= \App\View::e($checkoutLabel) ?></div><?php endif; ?>
           </div>
         <?php endif; ?>
       </div>
 
       <div data-tab-panel="amenities" hidden>
-        <h2 class="section-title">Équipements</h2>
+        <h2 class="section-title"><?= \App\View::e(\App\I18n::t('property.tab_amenities')) ?></h2>
         <?php if (!empty($amenitiesByCategory)): ?>
           <div class="amenities-categories">
             <?php foreach ($amenitiesByCategory as $category => $names): ?>
@@ -96,50 +96,53 @@ $globalTouristTax = $globalTouristTax ?? 0.0;
             <?php foreach ($property['amenities'] as $amenity): ?><div class="amenities-item">✓ <?= \App\View::e($amenity['name']) ?></div><?php endforeach; ?>
           </div>
         <?php else: ?>
-          <p class="muted">Aucun équipement listé.</p>
+          <p class="muted"><?= \App\View::e(\App\I18n::t('property.no_amenities')) ?></p>
         <?php endif; ?>
       </div>
 
       <div data-tab-panel="location" hidden>
-        <h2 class="section-title">Emplacement</h2>
+        <h2 class="section-title"><?= \App\View::e(\App\I18n::t('property.tab_location')) ?></h2>
         <?php if ($property['latitude'] !== null && $property['longitude'] !== null): ?>
           <p>Latitude <?= \App\View::e((string) $property['latitude']) ?> · Longitude <?= \App\View::e((string) $property['longitude']) ?></p>
-          <p><a class="text-link" target="_blank" rel="noreferrer" href="https://www.openstreetmap.org/?mlat=<?= \App\View::e((string) $property['latitude']) ?>&mlon=<?= \App\View::e((string) $property['longitude']) ?>#map=14/<?= \App\View::e((string) $property['latitude']) ?>/<?= \App\View::e((string) $property['longitude']) ?>">Voir sur OpenStreetMap</a></p>
+          <p><a class="text-link" target="_blank" rel="noreferrer" href="https://www.openstreetmap.org/?mlat=<?= \App\View::e((string) $property['latitude']) ?>&mlon=<?= \App\View::e((string) $property['longitude']) ?>#map=14/<?= \App\View::e((string) $property['latitude']) ?>/<?= \App\View::e((string) $property['longitude']) ?>"><?= \App\View::e(\App\I18n::t('property.view_on_osm')) ?></a></p>
         <?php else: ?>
-          <p class="muted">Emplacement non disponible.</p>
+          <p class="muted"><?= \App\View::e(\App\I18n::t('property.no_location')) ?></p>
         <?php endif; ?>
       </div>
 
       <div data-tab-panel="rates-availability" hidden>
         <div class="rates-tab-header">
-          <h2 class="section-title">Tarifs &amp; Disponibilités</h2>
-          <button type="button" class="rates-clear-dates-btn" data-clear-dates-btn hidden>Effacer les dates sélectionnées</button>
+          <h2 class="section-title"><?= \App\View::e(\App\I18n::t('property.tab_rates_availability')) ?></h2>
+          <button type="button" class="rates-clear-dates-btn" data-clear-dates-btn hidden><?= \App\View::e(\App\I18n::t('property.clear_dates')) ?></button>
         </div>
         <?php if (!empty($ratesRestricted)): ?>
-          <p class="muted">Merci de contacter votre agence pour ce bien.</p>
+          <p class="muted"><?= \App\View::e(\App\I18n::t('property.contact_agency')) ?></p>
         <?php else: ?>
           <?php if ($minRate === null): ?>
-            <p class="muted">Tarifs non disponibles pour le moment.</p>
+            <p class="muted"><?= \App\View::e(\App\I18n::t('property.rates_unavailable')) ?></p>
           <?php else: ?>
             <p class="muted calendar-price-note">
-              Prix de la nuité en Euros. Le tarif exclus les frais de nettoyage<?php if (($cleaningFeePerPerson ?? 0) > 0): ?> de <?= \App\View::e(number_format((float) $cleaningFeePerPerson, 2, ',', ' ')) ?> Euros par personne par nuit<?php endif; ?> (2 fois par semaine), qui sont ajoutés séparément au total.
+              <?= \App\View::e(sprintf(
+                \App\I18n::t('calendar.price_note'),
+                ($cleaningFeePerPerson ?? 0) > 0 ? sprintf(\App\I18n::t('calendar.price_note_cleaning_fee'), number_format((float) $cleaningFeePerPerson, 2, ',', ' ')) : ''
+              )) ?>
               <?php if ($priceMinPeople !== null): ?>
-                Les tarifs affichés sont pour <?= (int) $priceMinPeople ?> personne(s).
+                <?= \App\View::e(sprintf(\App\I18n::t('property.price_min_people'), (int) $priceMinPeople)) ?>
                 <?php if ($priceExtraPersonFee !== null && $priceExtraPersonFee > 0): ?>
-                  Un frais additionnel de <?= \App\View::e(number_format((float) $priceExtraPersonFee, 2, ',', ' ')) ?> Euros par nuit par personne
+                  <?= \App\View::e(sprintf(\App\I18n::t('property.price_extra_person_fee'), number_format((float) $priceExtraPersonFee, 2, ',', ' '))) ?>
                 <?php endif; ?>
-                + 2 enfants de moins de 3 ans (Gratuitement)
+                <?= \App\View::e(\App\I18n::t('property.price_babies_and_tax')) ?>
                 <?php if ($globalTouristTax > 0): ?>
-                  et/ou la taxe touristique de <?= \App\View::e(number_format($globalTouristTax, 2, ',', ' ')) ?> Euros par personne par nuit pour les étrangers à partir de 12ans seront rajoutés au total.
+                  <?= \App\View::e(sprintf(\App\I18n::t('property.tourist_tax_note'), number_format($globalTouristTax, 2, ',', ' '))) ?>
                 <?php endif; ?>
               <?php endif; ?>
             </p>
           <?php endif; ?>
-          <p class="muted">Cliquez sur une date disponible du calendrier pour renseigner votre date d'arrivée, puis cliquez sur une seconde date pour la date de départ.</p>
+          <p class="muted"><?= \App\View::e(\App\I18n::t('property.select_dates_hint')) ?></p>
           <?php require BASE_PATH . '/files/views/partials/calendar.php'; ?>
           <div class="booking-policy-block">
-            <h3 class="section-title">Politique de réservation</h3>
-            <div class="prose"><?= \App\controllers\PageController::formatBookingPolicyHtml(\App\controllers\PageController::bookingPolicyText()) ?></div>
+            <h3 class="section-title"><?= \App\View::e(\App\I18n::t('property.booking_policy_title')) ?></h3>
+            <div class="prose"><?= \App\controllers\PageController::formatBookingPolicyHtml(\App\controllers\PageController::bookingPolicyText(\App\I18n::current())) ?></div>
           </div>
         <?php endif; ?>
       </div>
@@ -148,17 +151,17 @@ $globalTouristTax = $globalTouristTax ?? 0.0;
 
   <div class="booking-modal-overlay" data-booking-modal-overlay style="display:none">
   <div class="booking-modal-panel" data-booking-modal-panel>
-    <button type="button" class="booking-modal-hide-btn" data-booking-modal-hide>Masquer</button>
-    <form class="booking-modal-form" data-api-form data-booking-form data-property-id="<?= (int) $property['id'] ?>" data-currency="<?= \App\View::e($currency) ?>" data-max-guests="<?= (int) $property['max_guests'] ?>" data-success-message="Demande envoyée ! Vous recevrez un email de confirmation." data-feedback-popup-id="booking-status-popup-<?= (int) $property['id'] ?>" method="post" action="/api/reservations/request">
+    <button type="button" class="booking-modal-hide-btn" data-booking-modal-hide><?= \App\View::e(\App\I18n::t('property.hide')) ?></button>
+    <form class="booking-modal-form" data-api-form data-booking-form data-property-id="<?= (int) $property['id'] ?>" data-currency="<?= \App\View::e($currency) ?>" data-max-guests="<?= (int) $property['max_guests'] ?>" data-success-message="<?= \App\View::e(\App\I18n::t('property.request_sent')) ?>" data-feedback-popup-id="booking-status-popup-<?= (int) $property['id'] ?>" method="post" action="/api/reservations/request">
       <input type="hidden" name="property_id" value="<?= (int) $property['id'] ?>">
       <input type="hidden" name="property_name" value="<?= \App\View::e($propertyName) ?>">
 
       <div class="booking-modal-top-row">
         <div class="booking-section" data-booking-dates>
-          <span class="booking-section-title">Dates du séjour *</span>
+          <span class="booking-section-title"><?= \App\View::e(\App\I18n::t('property.stay_dates')) ?></span>
           <div class="booking-block-body">
             <div class="booking-dates-summary" data-booking-dates-summary>
-              <p class="muted">Sélectionnez vos dates dans le calendrier (Tarifs &amp; Disponibilités) : 1er clic = arrivée, 2e clic = départ.</p>
+              <p class="muted"><?= \App\I18n::t('property.select_dates_in_calendar') ?></p>
             </div>
             <input type="hidden" name="checkin_date" data-booking-checkin>
             <input type="hidden" name="checkout_date" data-booking-checkout>
@@ -166,34 +169,34 @@ $globalTouristTax = $globalTouristTax ?? 0.0;
         </div>
 
         <div class="booking-section" data-booking-block="guests">
-          <span class="booking-section-title">Nombre de Voyageur(s)</span>
+          <span class="booking-section-title"><?= \App\View::e(\App\I18n::t('property.number_of_travelers')) ?></span>
           <div class="booking-block-body" data-block-body>
             <?php if ((int) $property['max_guests'] > 0): ?>
-              <p class="muted">Capacité maximum : <?= (int) $property['max_guests'] ?> personne(s).</p>
+              <p class="muted"><?= \App\View::e(sprintf(\App\I18n::t('property.max_capacity'), (int) $property['max_guests'])) ?></p>
             <?php endif; ?>
             <div class="guest-count-list">
               <div class="guest-count-row" data-guest-stepper>
-                <span class="guest-count-label">Adulte(s)</span>
+                <span class="guest-count-label"><?= \App\View::e(\App\I18n::t('property.adults')) ?></span>
                 <div class="guest-count-controls">
-                  <button type="button" class="stepper-btn" data-step="-1" aria-label="Diminuer le nombre d'adultes">−</button>
-                  <input class="input guest-stepper-input" type="number" name="adults" min="1" max="20" value="2" aria-label="Adultes" title="Adultes">
-                  <button type="button" class="stepper-btn" data-step="1" aria-label="Augmenter le nombre d'adultes">+</button>
+                  <button type="button" class="stepper-btn" data-step="-1" aria-label="<?= \App\View::e(\App\I18n::t('property.decrease_adults')) ?>">−</button>
+                  <input class="input guest-stepper-input" type="number" name="adults" min="1" max="20" value="2" aria-label="<?= \App\View::e(\App\I18n::t('calendar.adults')) ?>" title="<?= \App\View::e(\App\I18n::t('calendar.adults')) ?>">
+                  <button type="button" class="stepper-btn" data-step="1" aria-label="<?= \App\View::e(\App\I18n::t('property.increase_adults')) ?>">+</button>
                 </div>
               </div>
               <div class="guest-count-row" data-guest-stepper>
-                <span class="guest-count-label">Enfant(s) -3 ans</span>
+                <span class="guest-count-label"><?= \App\View::e(\App\I18n::t('property.children_under3')) ?></span>
                 <div class="guest-count-controls">
-                  <button type="button" class="stepper-btn" data-step="-1" aria-label="Diminuer le nombre d'enfants de moins de 3 ans">−</button>
-                  <input class="input guest-stepper-input" type="number" name="children_under3" min="0" max="2" value="0" aria-label="Enfants (moins de 3 ans)" title="Enfants (moins de 3 ans)">
-                  <button type="button" class="stepper-btn" data-step="1" aria-label="Augmenter le nombre d'enfants de moins de 3 ans">+</button>
+                  <button type="button" class="stepper-btn" data-step="-1" aria-label="<?= \App\View::e(\App\I18n::t('property.decrease_children_under3')) ?>">−</button>
+                  <input class="input guest-stepper-input" type="number" name="children_under3" min="0" max="2" value="0" aria-label="<?= \App\View::e(\App\I18n::t('property.children_under3_label')) ?>" title="<?= \App\View::e(\App\I18n::t('property.children_under3_label')) ?>">
+                  <button type="button" class="stepper-btn" data-step="1" aria-label="<?= \App\View::e(\App\I18n::t('property.increase_children_under3')) ?>">+</button>
                 </div>
               </div>
               <div class="guest-count-row" data-guest-stepper>
-                <span class="guest-count-label">Enfant(s) 3-12 ans</span>
+                <span class="guest-count-label"><?= \App\View::e(\App\I18n::t('property.children_3to12')) ?></span>
                 <div class="guest-count-controls">
-                  <button type="button" class="stepper-btn" data-step="-1" aria-label="Diminuer le nombre d'enfants de 3 à 12 ans">−</button>
-                  <input class="input guest-stepper-input" type="number" name="children_3to12" min="0" max="20" value="0" aria-label="Enfants (3 à 12 ans)" title="Enfants (3 à 12 ans)">
-                  <button type="button" class="stepper-btn" data-step="1" aria-label="Augmenter le nombre d'enfants de 3 à 12 ans">+</button>
+                  <button type="button" class="stepper-btn" data-step="-1" aria-label="<?= \App\View::e(\App\I18n::t('property.decrease_children_3to12')) ?>">−</button>
+                  <input class="input guest-stepper-input" type="number" name="children_3to12" min="0" max="20" value="0" aria-label="<?= \App\View::e(\App\I18n::t('property.children_3to12_label')) ?>" title="<?= \App\View::e(\App\I18n::t('property.children_3to12_label')) ?>">
+                  <button type="button" class="stepper-btn" data-step="1" aria-label="<?= \App\View::e(\App\I18n::t('property.increase_children_3to12')) ?>">+</button>
                 </div>
               </div>
             </div>
@@ -206,24 +209,24 @@ $globalTouristTax = $globalTouristTax ?? 0.0;
       <div class="booking-block" data-booking-block="summary" hidden>
         <div class="quote-box" data-quote-box hidden>
           <div data-quote-result hidden>
-          <div class="quote-line"><span>Tarif (<span data-quote-nights></span> nuit(s))</span><span data-quote-room></span></div>
-          <div class="quote-line" data-quote-extra-line hidden><span>Personne(s) supplémentaire(s)</span><span data-quote-extra></span></div>
-          <div class="quote-line"><span>Nettoyage</span><span data-quote-cleaning></span></div>
-          <div class="quote-line" data-quote-tax-line hidden><span>Taxe touristique</span><span data-quote-tax-amount></span></div>
+          <div class="quote-line"><span><?= sprintf(\App\View::e(\App\I18n::t('property.rate_nights')), '<span data-quote-nights></span>') ?></span><span data-quote-room></span></div>
+          <div class="quote-line" data-quote-extra-line hidden><span><?= \App\View::e(\App\I18n::t('property.extra_guests')) ?></span><span data-quote-extra></span></div>
+          <div class="quote-line"><span><?= \App\View::e(\App\I18n::t('property.cleaning')) ?></span><span data-quote-cleaning></span></div>
+          <div class="quote-line" data-quote-tax-line hidden><span><?= \App\View::e(\App\I18n::t('property.tourist_tax')) ?></span><span data-quote-tax-amount></span></div>
           <p class="quote-recap muted" data-quote-recap></p>
-          <div class="quote-line quote-total"><span>Total</span><span data-quote-total></span></div>
+          <div class="quote-line quote-total"><span><?= \App\View::e(\App\I18n::t('property.total')) ?></span><span data-quote-total></span></div>
         </div>
       </div>
       </div>
 
       <div class="booking-section" data-booking-block="traveler">
-        <span class="booking-section-title">Détails des Voyageurs</span>
+        <span class="booking-section-title"><?= \App\View::e(\App\I18n::t('property.traveler_details')) ?></span>
         <div class="booking-block-body stack-md" data-block-body>
-          <label><span>Nom et prénom complet *</span><input class="input" type="text" name="client_name" required></label>
-          <label><span>Email *</span><input class="input" type="email" name="client_email" required></label>
+          <label><span><?= \App\View::e(\App\I18n::t('property.full_name')) ?></span><input class="input" type="text" name="client_name" required></label>
+          <label><span><?= \App\View::e(\App\I18n::t('property.email')) ?></span><input class="input" type="email" name="client_email" required></label>
           <?php require BASE_PATH . '/files/views/partials/phone-input.php'; ?>
           <?php require BASE_PATH . '/files/views/partials/nationalities.php'; ?>
-          <label><span>Message (optionnel)</span><textarea class="input" rows="3" name="message"></textarea></label>
+          <label><span><?= \App\View::e(\App\I18n::t('property.message_optional')) ?></span><textarea class="input" rows="3" name="message"></textarea></label>
         </div>
       </div>
 
@@ -236,7 +239,7 @@ $globalTouristTax = $globalTouristTax ?? 0.0;
         <input type="hidden" name="quote_total_without_tax" value="">
         <input type="hidden" name="quote_tourist_tax_total" value="">
         <input type="hidden" name="quote_vat_rate" value="">
-        <button class="btn-primary" type="submit">Envoyer ma demande</button>
+        <button class="btn-primary" type="submit"><?= \App\View::e(\App\I18n::t('property.send_request')) ?></button>
         <p class="form-feedback" data-form-feedback></p>
       </div>
     </form>
@@ -245,8 +248,8 @@ $globalTouristTax = $globalTouristTax ?? 0.0;
 <div class="booking-status-popup" id="booking-status-popup-<?= (int) $property['id'] ?>" data-form-status-popup hidden aria-live="polite" aria-atomic="true">
   <div class="booking-status-popup-box" data-form-status-popup-box>
     <p class="booking-status-popup-message" data-form-status-popup-message></p>
-    <p class="booking-status-popup-note" data-form-status-popup-spam-note hidden>Vérifiez vos courriers indésirables, il arrive que les emails soient catégorisés comme indésirables.</p>
-    <button type="button" class="booking-status-popup-close" data-form-status-popup-close>Fermer</button>
+    <p class="booking-status-popup-note" data-form-status-popup-spam-note hidden><?= \App\View::e(\App\I18n::t('property.spam_note')) ?></p>
+    <button type="button" class="booking-status-popup-close" data-form-status-popup-close><?= \App\View::e(\App\I18n::t('property.close')) ?></button>
   </div>
 </div>
 </section>

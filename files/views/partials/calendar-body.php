@@ -25,7 +25,7 @@ foreach (($rates ?? []) as $rate) {
     $rateMap[$rate['date_from']] = $rate;
 }
 
-$frenchMonths = [1 => 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+$frenchMonths = \App\I18n::monthNames();
 ?>
 <div class="calendar-months">
   <?php for ($offset = 0; $offset < $calendarMonths; $offset++):
@@ -37,7 +37,7 @@ $frenchMonths = [1 => 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Ju
   ?>
     <div class="card card-body calendar-card">
       <h3><?= \App\View::e($frenchMonths[$monthIndex]) ?> <?= $year ?></h3>
-      <div class="calendar-grid header"><?php foreach (['D', 'L', 'M', 'M', 'J', 'V', 'S'] as $label): ?><div><?= $label ?></div><?php endforeach; ?></div>
+      <div class="calendar-grid header"><?php foreach (\App\I18n::weekdayLettersSundayFirst() as $label): ?><div><?= \App\View::e($label) ?></div><?php endforeach; ?></div>
       <div class="calendar-grid">
         <?php for ($i = 0; $i < $firstDay; $i++): ?><div></div><?php endfor; ?>
         <?php for ($dayNumber = 1; $dayNumber <= $daysInMonth; $dayNumber++):
@@ -71,9 +71,9 @@ $frenchMonths = [1 => 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Ju
   <?php endfor; ?>
 </div>
 <div class="calendar-legend">
-  <span class="dot dot-green"></span> Disponible
-  <span class="dot dot-red"></span> Indisponible
-  <span class="dot dot-yellow"></span> Réservation d'1 nuit (arrivée ou départ uniquement)
-  <span class="dot dot-gray"></span> Non réservable (séjour minimum non atteint) / Non renseigné / Date passée
-  <span class="calendar-legend-note">Tarif en Euros</span>
+  <span class="dot dot-green"></span> <?= \App\View::e(\App\I18n::t('calendar.legend_available')) ?>
+  <span class="dot dot-red"></span> <?= \App\View::e(\App\I18n::t('calendar.legend_unavailable')) ?>
+  <span class="dot dot-yellow"></span> <?= \App\View::e(\App\I18n::t('calendar.legend_single_night')) ?>
+  <span class="dot dot-gray"></span> <?= \App\View::e(\App\I18n::t('calendar.legend_not_bookable_full')) ?>
+  <span class="calendar-legend-note"><?= \App\View::e(\App\I18n::t('calendar.legend_price_currency')) ?></span>
 </div>

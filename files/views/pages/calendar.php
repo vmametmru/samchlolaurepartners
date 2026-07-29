@@ -20,75 +20,75 @@ $children3to12 = $children3to12 ?? 0;
 $totalGuests = $totalGuests ?? 0;
 $countedGuests = $countedGuests ?? ($adults + $children3to12);
 $today = isset($today) && $today !== '' ? (string) $today : date('Y-m-d');
-$frenchDays = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
-$frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'];
+$frenchDays = \App\I18n::weekdaysShortSundayFirst();
+$frenchMonthsShort = \App\I18n::monthNamesShort();
 ?>
 <section class="container section-lg">
   <div class="section-header">
-    <h1>Calendrier</h1>
-    <button type="button" class="btn-secondary calendar-help-btn" data-help-trigger="calendar-help">Aide</button>
+    <h1><?= \App\View::e(\App\I18n::t('calendar.title')) ?></h1>
+    <button type="button" class="btn-secondary calendar-help-btn" data-help-trigger="calendar-help"><?= \App\View::e(\App\I18n::t('calendar.help')) ?></button>
   </div>
   <dialog class="help-dialog" data-help-dialog="calendar-help">
     <form method="dialog">
-      <button type="submit" class="help-dialog-close" aria-label="Fermer">×</button>
+      <button type="submit" class="help-dialog-close" aria-label="<?= \App\View::e(\App\I18n::t('calendar.help_close')) ?>">×</button>
     </form>
-    <p class="muted">Vue d'ensemble des disponibilités et tarifs de tous les biens. Approchez la souris du bord gauche ou droit du tableau pour faire défiler les dates.</p>
-    <p class="muted">Réservez plusieurs biens en quelques clics : cliquez une date d'arrivée puis une date de départ sur un bien, puis recommencez sur un autre bien (mêmes dates ou dates différentes) pour l'ajouter à votre sélection.</p>
+    <p class="muted"><?= \App\View::e(\App\I18n::t('calendar.help_intro')) ?></p>
+    <p class="muted"><?= \App\View::e(\App\I18n::t('calendar.help_multi')) ?></p>
   </dialog>
 
-  <p class="muted">Période de recherche.</p>
+  <p class="muted"><?= \App\View::e(\App\I18n::t('calendar.search_period')) ?></p>
   <form class="search-card calendar-filter" method="get" action="/calendrier" data-calendar-filter-form>
     <div class="form-grid search-grid" data-date-range>
-      <label><span>Du</span><input class="input" type="date" name="date_from" value="<?= \App\View::e($dateFrom) ?>"></label>
-      <label><span>Au</span><input class="input" type="date" name="date_to" value="<?= \App\View::e($dateTo) ?>"></label>
-      <label><span>Adultes</span><input class="input" type="number" min="1" max="20" name="adults" value="<?= $adults > 0 ? (int) $adults : 2 ?>" data-calendar-guest-input></label>
-      <label><span>Enfants (&lt;3ans)</span><input class="input" type="number" min="0" max="20" name="children_under3" value="<?= (int) $childrenUnder3 ?>" data-calendar-guest-input></label>
-      <label><span>Enfants (3-11ans)</span><input class="input" type="number" min="0" max="20" name="children_3to12" value="<?= (int) $children3to12 ?>" data-calendar-guest-input></label>
-      <button type="submit" class="btn-primary search-button calendar-filter-submit" data-calendar-filter-submit>Afficher les disponibilités</button>
+      <label><span><?= \App\View::e(\App\I18n::t('calendar.from')) ?></span><input class="input" type="date" name="date_from" value="<?= \App\View::e($dateFrom) ?>"></label>
+      <label><span><?= \App\View::e(\App\I18n::t('calendar.to')) ?></span><input class="input" type="date" name="date_to" value="<?= \App\View::e($dateTo) ?>"></label>
+      <label><span><?= \App\View::e(\App\I18n::t('calendar.adults')) ?></span><input class="input" type="number" min="1" max="20" name="adults" value="<?= $adults > 0 ? (int) $adults : 2 ?>" data-calendar-guest-input></label>
+      <label><span><?= \App\View::e(\App\I18n::t('calendar.children_under3')) ?></span><input class="input" type="number" min="0" max="20" name="children_under3" value="<?= (int) $childrenUnder3 ?>" data-calendar-guest-input></label>
+      <label><span><?= \App\View::e(\App\I18n::t('calendar.children_3to12')) ?></span><input class="input" type="number" min="0" max="20" name="children_3to12" value="<?= (int) $children3to12 ?>" data-calendar-guest-input></label>
+      <button type="submit" class="btn-primary search-button calendar-filter-submit" data-calendar-filter-submit><?= \App\View::e(\App\I18n::t('calendar.show_availability')) ?></button>
     </div>
   </form>
 
-  <p class="calendar-loading-message" data-calendar-loading hidden><span class="spinner" aria-hidden="true"></span> Chargement des disponibilités…</p>
+  <p class="calendar-loading-message" data-calendar-loading hidden><span class="spinner" aria-hidden="true"></span> <?= \App\View::e(\App\I18n::t('calendar.loading')) ?></p>
 
   <?php if ($totalGuests < 1): ?>
-    <p class="muted calendar-guest-required-hint">Veuillez renseigner le nombre de personnes ci-dessus puis cliquer sur « Afficher les disponibilités » pour voir les biens et leurs dates disponibles.</p>
+    <p class="muted calendar-guest-required-hint"><?= \App\View::e(\App\I18n::t('calendar.guest_required_hint')) ?></p>
   <?php elseif ($rows === []): ?>
-    <p class="muted">Aucun hébergement à afficher.</p>
+    <p class="muted"><?= \App\View::e(\App\I18n::t('calendar.no_properties')) ?></p>
   <?php else: ?>
-    <p class="muted calendar-price-note">Cliquez sur les dates que vous souhaitez afin de renseigner votre demande.</p>
+    <p class="muted calendar-price-note"><?= \App\View::e(\App\I18n::t('calendar.click_dates_hint')) ?></p>
     <label class="calendar-name-toggle">
       <input type="checkbox" data-calendar-name-toggle>
-      Afficher le nom du bien
+      <?= \App\View::e(\App\I18n::t('calendar.show_property_name')) ?>
     </label>
 
     <div class="calendar-legend-row">
       <div class="calendar-legend">
-        <span class="dot dot-green"></span> Disponible
-        <span class="dot dot-red"></span> Indisponible
-        <span class="dot dot-yellow"></span> Bloquée
-        <span class="dot dot-gray"></span> Non réservable / Non renseigné
-        <span class="calendar-legend-note">Tarif en Euros</span>
+        <span class="dot dot-green"></span> <?= \App\View::e(\App\I18n::t('calendar.legend_available')) ?>
+        <span class="dot dot-red"></span> <?= \App\View::e(\App\I18n::t('calendar.legend_unavailable')) ?>
+        <span class="dot dot-yellow"></span> <?= \App\View::e(\App\I18n::t('calendar.legend_blocked')) ?>
+        <span class="dot dot-gray"></span> <?= \App\View::e(\App\I18n::t('calendar.legend_not_bookable')) ?>
+        <span class="calendar-legend-note"><?= \App\View::e(\App\I18n::t('calendar.legend_price_currency')) ?></span>
       </div>
-      <button type="button" class="btn-primary calendar-view-selection-btn" data-multi-cart-view-btn hidden>Voir votre sélection</button>
+      <button type="button" class="btn-primary calendar-view-selection-btn" data-multi-cart-view-btn hidden><?= \App\View::e(\App\I18n::t('calendar.view_selection')) ?></button>
     </div>
 
     <div class="calendar-board cal-name-hidden" data-calendar-board data-multi-calendar-board data-total-guests="<?= (int) $countedGuests ?>" data-babies="<?= (int) $childrenUnder3 ?>" style="--cal-visible-days: <?= (int) $visibleDays ?>;">
       <table class="calendar-board-table">
         <thead>
           <tr>
-            <th class="cal-fixed cal-col-photo">Photo</th>
-            <th class="cal-fixed cal-col-name">Bien</th>
-            <th class="cal-fixed cal-col-num cal-col-capacity" title="Pers. max">
+            <th class="cal-fixed cal-col-photo"><?= \App\View::e(\App\I18n::t('calendar.col_photo')) ?></th>
+            <th class="cal-fixed cal-col-name"><?= \App\View::e(\App\I18n::t('calendar.col_property')) ?></th>
+            <th class="cal-fixed cal-col-num cal-col-capacity" title="<?= \App\View::e(\App\I18n::t('calendar.col_max_guests')) ?>">
               <span class="cal-icon" aria-hidden="true">👤</span>
-              <span class="sr-only">Pers. max</span>
+              <span class="sr-only"><?= \App\View::e(\App\I18n::t('calendar.col_max_guests')) ?></span>
             </th>
-            <th class="cal-fixed cal-col-num cal-col-rooms" title="Chambres">
+            <th class="cal-fixed cal-col-num cal-col-rooms" title="<?= \App\View::e(\App\I18n::t('calendar.col_bedrooms')) ?>">
               <span class="cal-icon" aria-hidden="true">🛏️</span>
-              <span class="sr-only">Chambres</span>
+              <span class="sr-only"><?= \App\View::e(\App\I18n::t('calendar.col_bedrooms')) ?></span>
             </th>
-            <th class="cal-fixed cal-col-num cal-col-sofa" title="Canapé-lit(s)">
+            <th class="cal-fixed cal-col-num cal-col-sofa" title="<?= \App\View::e(\App\I18n::t('calendar.col_sofa_beds')) ?>">
               <span class="cal-icon" aria-hidden="true">🛋️</span>
-              <span class="sr-only">Canapé-lit(s)</span>
+              <span class="sr-only"><?= \App\View::e(\App\I18n::t('calendar.col_sofa_beds')) ?></span>
             </th>
             <?php foreach ($dates as $date):
               $dow = (int) $date->format('w');
@@ -121,7 +121,7 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
               <td class="cal-fixed cal-col-name">
                 <a class="text-link" href="/properties/<?= $propertyId ?>"><?= \App\View::e($propertyName) ?></a>
                 <?php if (!empty($row['load_failed'])): ?>
-                  <p class="muted cal-capacity-note"><span class="cal-warning-icon" aria-hidden="true">⚠️</span>Disponibilités temporairement indisponibles — réessayez dans quelques instants.</p>
+                  <p class="muted cal-capacity-note"><span class="cal-warning-icon" aria-hidden="true">⚠️</span><?= \App\View::e(\App\I18n::t('calendar.load_failed')) ?></p>
                 <?php endif; ?>
               </td>
               <td class="cal-fixed cal-col-num cal-col-capacity"><?= (int) ($property['max_guests'] ?? 0) ?></td>
@@ -129,7 +129,7 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
               <td class="cal-fixed cal-col-num cal-col-sofa"><?= $row['sofa_bed_count'] !== null ? (int) $row['sofa_bed_count'] : '—' ?></td>
               <?php if (!empty($row['restricted'])): ?>
                 <td class="cal-cell cal-restricted" colspan="<?= count($dates) ?>">
-                  <p class="muted cal-restricted-note">Merci de contacter votre agence pour ce bien.</p>
+                  <p class="muted cal-restricted-note"><?= \App\View::e(\App\I18n::t('calendar.restricted_note')) ?></p>
                 </td>
               <?php else: ?>
               <?php foreach ($dates as $date):
@@ -169,8 +169,8 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
 
     <div class="multi-booking-cart" id="multi-cart-selection" data-multi-cart hidden>
       <div class="multi-cart-header">
-        <h2 class="section-title">Votre sélection</h2>
-        <button type="button" class="btn-secondary" data-multi-cart-clear>Effacer les sélections</button>
+        <h2 class="section-title"><?= \App\View::e(\App\I18n::t('calendar.your_selection')) ?></h2>
+        <button type="button" class="btn-secondary" data-multi-cart-clear><?= \App\View::e(\App\I18n::t('calendar.clear_selection')) ?></button>
       </div>
       <ul class="multi-cart-list" data-multi-cart-list></ul>
       <p class="form-feedback" data-multi-cart-gap-hint></p>
@@ -179,68 +179,71 @@ $frenchMonthsShort = [1 => 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', '
         <div class="multi-cart-summary-body">
           <div class="multi-cart-summary-dates">
             <p data-multi-cart-summary-line>0 bien(s) sélectionné(s) x 0 nuit(s) sélectionnée(s) = 0 nuit(s) sélectionnée(s)</p>
-            <p data-multi-cart-summary-capacity-row>Capacité cumulée du/des bien(s) sélectionné(s) :</p>
+            <p data-multi-cart-summary-capacity-row><?= \App\View::e(\App\I18n::t('calendar.capacity_summary')) ?></p>
             <ul class="multi-cart-capacity-table" data-multi-cart-capacity-table></ul>
             <p class="form-feedback" data-multi-cart-capacity-hint></p>
           </div>
           <div class="multi-cart-summary-total">
-            <p>Montant Total : <span data-multi-cart-summary-total>0</span> Euros</p>
-            <p class="quote-tax-note muted" data-multi-cart-tax-line hidden>Dont taxe touristique : <span data-multi-cart-tax-amount></span> Euros (incluse dans le total)</p>
+            <p><?= \App\View::e(\App\I18n::t('calendar.total_amount')) ?> <span data-multi-cart-summary-total>0</span> <?= \App\View::e(\App\I18n::t('calendar.euros')) ?></p>
+            <p class="quote-tax-note muted" data-multi-cart-tax-line hidden><?= \App\View::e(\App\I18n::t('calendar.tourist_tax_included')) ?> <span data-multi-cart-tax-amount></span> <?= \App\View::e(\App\I18n::t('calendar.tourist_tax_included_suffix')) ?></p>
           </div>
         </div>
       </div>
       <p class="form-feedback" data-multi-cart-feedback></p>
-      <form class="stack-md multi-cart-checkout" data-multi-cart-form data-api-form data-success-message="Vos demandes de réservation ont été envoyées ! Vous recevrez un email de confirmation." data-feedback-popup-id="multi-cart-status-popup" method="post" action="/api/reservations/request-multiple" hidden>
+      <form class="stack-md multi-cart-checkout" data-multi-cart-form data-api-form data-success-message="<?= \App\View::e(\App\I18n::t('calendar.request_sent')) ?>" data-feedback-popup-id="multi-cart-status-popup" method="post" action="/api/reservations/request-multiple" hidden>
         <input type="hidden" name="adults" value="<?= (int) $adults ?>">
         <input type="hidden" name="children" value="<?= (int) ($childrenUnder3 + $children3to12) ?>">
         <input type="hidden" name="children_under3" value="<?= (int) $childrenUnder3 ?>">
         <input type="hidden" name="children_3to12" value="<?= (int) $children3to12 ?>">
         <input type="hidden" name="items" data-multi-cart-items>
         <div class="form-grid cols-2">
-          <label><span>Nom et prénom complet *</span><input class="input" type="text" name="client_name" required></label>
-          <label><span>Email *</span><input class="input" type="email" name="client_email" required></label>
+          <label><span><?= \App\View::e(\App\I18n::t('calendar.full_name')) ?></span><input class="input" type="text" name="client_name" required></label>
+          <label><span><?= \App\View::e(\App\I18n::t('calendar.email')) ?></span><input class="input" type="email" name="client_email" required></label>
         </div>
         <?php require BASE_PATH . '/files/views/partials/phone-input.php'; ?>
         <?php require BASE_PATH . '/files/views/partials/nationalities.php'; ?>
-        <label><span>Message (optionnel)</span><textarea class="input" rows="3" name="message"></textarea></label>
-        <button class="btn-primary" type="submit">Envoyer mes demandes de réservation</button>
+        <label><span><?= \App\View::e(\App\I18n::t('calendar.message_optional')) ?></span><textarea class="input" rows="3" name="message"></textarea></label>
+        <button class="btn-primary" type="submit"><?= \App\View::e(\App\I18n::t('calendar.send_requests')) ?></button>
         <p class="form-feedback" data-form-feedback></p>
       </form>
     </div>
     <div class="booking-status-popup" id="multi-cart-status-popup" data-form-status-popup hidden aria-live="polite" aria-atomic="true">
       <div class="booking-status-popup-box" data-form-status-popup-box>
         <p class="booking-status-popup-message" data-form-status-popup-message></p>
-        <p class="booking-status-popup-note" data-form-status-popup-spam-note hidden>Vérifiez vos courriers indésirables, il arrive que les emails soient catégorisés comme indésirables.</p>
-        <button type="button" class="booking-status-popup-close" data-form-status-popup-close>Fermer</button>
+        <p class="booking-status-popup-note" data-form-status-popup-spam-note hidden><?= \App\View::e(\App\I18n::t('calendar.spam_note')) ?></p>
+        <button type="button" class="booking-status-popup-close" data-form-status-popup-close><?= \App\View::e(\App\I18n::t('calendar.close')) ?></button>
       </div>
     </div>
 
     <div class="form-grid cols-2 calendar-info-blocks">
       <div class="booking-policy-block">
-        <h3 class="section-title">Politique de réservation</h3>
-        <div class="prose"><?= \App\controllers\PageController::formatBookingPolicyHtml(\App\controllers\PageController::bookingPolicyText()) ?></div>
+        <h3 class="section-title"><?= \App\View::e(\App\I18n::t('property.booking_policy_title')) ?></h3>
+        <div class="prose"><?= \App\controllers\PageController::formatBookingPolicyHtml(\App\controllers\PageController::bookingPolicyText(\App\I18n::current())) ?></div>
       </div>
 
       <div class="booking-policy-block price-info-block">
-        <h3 class="section-title">Information sur les prix affichés</h3>
+        <h3 class="section-title"><?= \App\View::e(\App\I18n::t('calendar.price_info_title')) ?></h3>
         <div class="prose">
-          <p>Tarif de la nuité en Euros. Le tarif exclus les frais de nettoyage<?php if (($cleaningFeePerPerson ?? 0) > 0): ?> de <?= \App\View::e(number_format((float) $cleaningFeePerPerson, 2, ',', ' ')) ?> Euros par personne par nuit<?php endif; ?> (2 fois par semaine), qui sont ajoutés séparément au total.
+          <p><?= \App\View::e(sprintf(
+            \App\I18n::t('calendar.price_note'),
+            ($cleaningFeePerPerson ?? 0) > 0 ? sprintf(\App\I18n::t('calendar.price_note_cleaning_fee'), number_format((float) $cleaningFeePerPerson, 2, ',', ' ')) : ''
+          )) ?>
             <?php if (($globalTouristTax ?? 0) > 0): ?>
-              La taxe touristique de <?= \App\View::e(number_format((float) $globalTouristTax, 2, ',', ' ')) ?> Euros par étranger (d'au moins 12 ans) et par nuit sera rajoutée au total et affichée dans le résumé.
+              <?= \App\View::e(sprintf(\App\I18n::t('calendar.tourist_tax_note'), number_format((float) $globalTouristTax, 2, ',', ' '))) ?>
             <?php endif; ?>
-            Les prix affichés sont pour un maximum de :</p>
+            <?= \App\View::e(\App\I18n::t('calendar.price_info_max')) ?></p>
           <?php if ($priceInfoRows === []): ?>
-            <p class="muted">Aucune information tarifaire disponible pour le moment.</p>
+            <p class="muted"><?= \App\View::e(\App\I18n::t('calendar.price_info_empty')) ?></p>
           <?php else: ?>
             <ul class="price-info-list">
               <?php foreach ($priceInfoRows as $info): ?>
                 <li>
                   <strong><?= \App\View::e($info['name']) ?></strong> :
-                  <?= (int) $info['min_people'] ?> personnes
+                  <?= (int) $info['min_people'] ?> <?= \App\View::e(\App\I18n::t('calendar.price_info_people')) ?>
                   <?php if ($info['extra_person_fee'] !== null && $info['extra_person_fee'] > 0): ?>
-                    (Frais additionnel de <?= \App\View::e(number_format((float) $info['extra_person_fee'], 2, ',', ' ')) ?> Euros par nuit par personne)
+                    (<?= \App\View::e(sprintf(\App\I18n::t('calendar.price_info_extra_fee'), number_format((float) $info['extra_person_fee'], 2, ',', ' '))) ?>)
                   <?php endif; ?>
-                  + 2 enfants de moins de 3 ans (Gratuitement)
+                  <?= \App\View::e(\App\I18n::t('calendar.price_info_babies')) ?>
                 </li>
               <?php endforeach; ?>
             </ul>

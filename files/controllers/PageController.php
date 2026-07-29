@@ -1142,6 +1142,22 @@ Montant résiduel dû 5 jour(s) avant l'arrivée.
 TEXT;
 
     /**
+     * English fallback for DEFAULT_BOOKING_POLICY, shown when the site
+     * language is English and no admin-provided English override has been
+     * saved (BOOKING_POLICY_TEXT_EN setting).
+     */
+    public const DEFAULT_BOOKING_POLICY_EN = <<<'TEXT'
+Booking policy
+100% of pre-paid payments are refundable if cancelled 90 day(s) before arrival or earlier.
+75% of pre-paid payments are refundable if cancelled 60 day(s) before arrival or earlier.
+50% of pre-paid payments are refundable if cancelled 30 day(s) before arrival or earlier.
+25% of pre-paid payments are refundable if cancelled 15 day(s) before arrival or earlier.
+0% refundable if cancelled after.
+50% due at the time of booking.
+Remaining balance due 5 day(s) before arrival.
+TEXT;
+
+    /**
      * Reads the current "Politique de réservation" text (admin-configurable
      * on /admin/politique-reservation), falling back to
      * DEFAULT_BOOKING_POLICY when nothing has been saved yet. Shared by the
@@ -1149,9 +1165,20 @@ TEXT;
      * under the calendar) and ReservationsController (the
      * {{politique_reservation}} email variable), so all three always show
      * the exact same text.
+     *
+     * $lang defaults to 'fr' (used by emails, which are always sent in
+     * French) — pages that must follow the visitor's site language pass
+     * App\I18n::current() explicitly. When $lang is 'en', the
+     * admin-provided BOOKING_POLICY_TEXT_EN override is used if set,
+     * otherwise DEFAULT_BOOKING_POLICY_EN; the French text/setting is never
+     * used as an English fallback so the page never silently reverts to
+     * French text under an English heading.
      */
-    public static function bookingPolicyText(): string
+    public static function bookingPolicyText(string $lang = 'fr'): string
     {
+        if ($lang === 'en') {
+            return Settings::get('BOOKING_POLICY_TEXT_EN', self::DEFAULT_BOOKING_POLICY_EN) ?? self::DEFAULT_BOOKING_POLICY_EN;
+        }
         return Settings::get('BOOKING_POLICY_TEXT', self::DEFAULT_BOOKING_POLICY) ?? self::DEFAULT_BOOKING_POLICY;
     }
 
@@ -1211,7 +1238,8 @@ TEXT;
         self::requireAdminUser();
         View::render('pages/admin-booking-policy', [
             'pageTitle' => 'Politique de réservation',
-            'policyText' => self::bookingPolicyText(),
+            'policyText' => self::bookingPolicyText('fr'),
+            'policyTextEn' => self::bookingPolicyText('en'),
         ]);
     }
 
@@ -1220,6 +1248,8 @@ TEXT;
         self::requireAdminUser();
         $text = trim((string) ($_POST['policy_text'] ?? ''));
         Settings::set('BOOKING_POLICY_TEXT', $text !== '' ? $text : self::DEFAULT_BOOKING_POLICY);
+        $textEn = trim((string) ($_POST['policy_text_en'] ?? ''));
+        Settings::set('BOOKING_POLICY_TEXT_EN', $textEn !== '' ? $textEn : self::DEFAULT_BOOKING_POLICY_EN);
         Settings::reload();
         self::redirect('/admin/politique-reservation', 'Politique de réservation sauvegardée.');
     }
