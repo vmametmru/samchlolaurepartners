@@ -19,19 +19,15 @@ PREPARE et_lang_stmt FROM @et_lang_sql;
 EXECUTE et_lang_stmt;
 DEALLOCATE PREPARE et_lang_stmt;
 
-SET @old_index_exists = (
-  SELECT COUNT(*) FROM information_schema.STATISTICS
-  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'email_templates' AND INDEX_NAME = 'unique_partner_type'
-);
-SET @drop_old_index_sql = IF(
-  @old_index_exists > 0,
-  'ALTER TABLE email_templates DROP INDEX unique_partner_type',
-  'SELECT 1'
-);
-PREPARE drop_old_index_stmt FROM @drop_old_index_sql;
-EXECUTE drop_old_index_stmt;
-DEALLOCATE PREPARE drop_old_index_stmt;
-
+-- The new index MUST be added before the old one is dropped:
+-- unique_partner_type is the index InnoDB uses internally to support the
+-- email_templates_ibfk_1 foreign key (partner_id -> partners.id), so
+-- dropping it first (before a replacement index covering partner_id
+-- exists) fails with "Cannot drop index 'unique_partner_type': needed in
+-- a foreign key constraint" (MySQL error 1553). That error used to abort
+-- this migration before it ever reached the reservation_requests.language
+-- column below, permanently blocking every migration after it and causing
+-- the persistent "Unknown column 'rr.language'" cron error.
 SET @new_index_exists = (
   SELECT COUNT(*) FROM information_schema.STATISTICS
   WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'email_templates' AND INDEX_NAME = 'unique_partner_type_lang'
@@ -44,6 +40,19 @@ SET @add_new_index_sql = IF(
 PREPARE add_new_index_stmt FROM @add_new_index_sql;
 EXECUTE add_new_index_stmt;
 DEALLOCATE PREPARE add_new_index_stmt;
+
+SET @old_index_exists = (
+  SELECT COUNT(*) FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'email_templates' AND INDEX_NAME = 'unique_partner_type'
+);
+SET @drop_old_index_sql = IF(
+  @old_index_exists > 0,
+  'ALTER TABLE email_templates DROP INDEX unique_partner_type',
+  'SELECT 1'
+);
+PREPARE drop_old_index_stmt FROM @drop_old_index_sql;
+EXECUTE drop_old_index_stmt;
+DEALLOCATE PREPARE drop_old_index_stmt;
 
 SET @rr_lang_exists = (
   SELECT COUNT(*) FROM information_schema.COLUMNS
