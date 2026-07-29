@@ -1724,10 +1724,14 @@ TEXT;
     {
         self::requireAdminUser();
         $pdo = Database::connection();
+        // LEFT JOIN: es.partner_id may be NULL ("Tous les partenaires" — the
+        // schedule applies to every partner at once, see migration 033), in
+        // which case partner_name is left NULL and the view displays
+        // "Tous les partenaires" instead.
         $schedules = $pdo->query(
             'SELECT es.*, p.name AS partner_name FROM email_schedules es
-             JOIN partners p ON p.id = es.partner_id
-             ORDER BY p.name, es.days_before_arrival'
+             LEFT JOIN partners p ON p.id = es.partner_id
+             ORDER BY p.name IS NULL DESC, p.name, es.days_before_arrival'
         )->fetchAll(PDO::FETCH_ASSOC);
         $partners = $pdo->query('SELECT id, name FROM partners ORDER BY name')->fetchAll(PDO::FETCH_ASSOC);
 
@@ -1758,7 +1762,7 @@ TEXT;
                 'REQUEST_RECEIVED_CLIENT' => 'Accusé réception (client)',
                 'RESERVATION_CONFIRMED' => 'Réservation confirmée (client)',
                 'RESERVATION_CANCELLED' => 'Réservation annulée (client)',
-                'REMINDER' => 'Rappel avant arrivée',
+                'REMINDER' => 'Rappel avant arrivée (client + partenaire)',
             ],
         ]);
     }
@@ -1798,12 +1802,20 @@ TEXT;
     {
         self::requireAdminUser();
         $input = $_POST;
-        $partnerId = (int) ($input['partner_id'] ?? 0);
+        // An empty/"0" partner_id means "Tous les partenaires" (stored as
+        // NULL, see migration 033): the schedule then applies to every
+        // partner's confirmed reservations instead of a single one, e.g.
+        // the REMINDER schedule no longer requires picking a partner.
+        $partnerIdRaw = trim((string) ($input['partner_id'] ?? ''));
+        $partnerId = $partnerIdRaw === '' ? null : (int) $partnerIdRaw;
+        if ($partnerId !== null && $partnerId <= 0) {
+            $partnerId = null;
+        }
         $daysBeforeArrival = (int) ($input['days_before_arrival'] ?? -1);
         $templateType = trim((string) ($input['template_type'] ?? ''));
         $allowedTypes = ['REQUEST_RECEIVED_PARTNER', 'REQUEST_RECEIVED_CLIENT', 'RESERVATION_CONFIRMED', 'RESERVATION_CANCELLED', 'REMINDER'];
-        if ($partnerId <= 0 || $daysBeforeArrival < 0 || !in_array($templateType, $allowedTypes, true)) {
-            self::redirect('/admin/cron', 'Partenaire, nombre de jours et type de modèle sont requis.', 'error');
+        if ($daysBeforeArrival < 0 || !in_array($templateType, $allowedTypes, true)) {
+            self::redirect('/admin/cron', 'Nombre de jours et type de modèle sont requis.', 'error');
         }
         $active = isset($input['active']) ? 1 : 0;
         $id = isset($input['id']) ? (int) $input['id'] : 0;
@@ -2669,7 +2681,9 @@ TEXT;
                 'REQUEST_RECEIVED_CLIENT',
                 'RESERVATION_CONFIRMED',
                 'RESERVATION_CANCELLED',
-                'REMINDER'
+                'REMINDER',
+                'REMINDER_CLIENT',
+                'REMINDER_PARTNER'
               ) NOT NULL,
               language VARCHAR(5) NOT NULL DEFAULT 'fr',
               subject VARCHAR(500) NOT NULL,
@@ -3314,8 +3328,8 @@ HTML,
 <p>Cordialement,<br><strong>{{partenaire}}</strong></p>
 HTML,
             ],
-            'REMINDER' => [
-                'label' => 'Rappel avant arrivée',
+            'REMINDER_CLIENT' => [
+                'label' => 'Rappel avant arrivée (client)',
                 'subject' => 'Rappel : votre séjour approche ! 🌴',
                 'body_html' => <<<'HTML'
 <h2>Votre séjour approche !</h2>
@@ -3328,6 +3342,24 @@ HTML,
 </ul>
 <p>N'hésitez pas à nous contacter si vous avez des questions.</p>
 <p>À bientôt,<br><strong>{{partenaire}}</strong></p>
+HTML,
+            ],
+            'REMINDER_PARTNER' => [
+                'label' => 'Rappel avant arrivée (partenaire)',
+                'subject' => 'Rappel : arrivée de {{nom_client}} bientôt ! 🌴',
+                'body_html' => <<<'HTML'
+<h2>Une arrivée approche !</h2>
+<p>Bonjour,</p>
+<div style="margin:18px 0;"><img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;"></div>
+<p>Le séjour de <strong>{{nom_client}}</strong> à <strong>{{hebergement}}</strong> approche :</p>
+<ul>
+  <li><strong>Arrivée :</strong> {{date_arrivee}}</li>
+  <li><strong>Départ :</strong> {{date_depart}}</li>
+  <li><strong>Voyageurs :</strong> {{adultes}} adulte(s), {{enfants}} enfant(s)</li>
+  <li><strong>Téléphone client :</strong> {{telephone_client}}</li>
+</ul>
+{{tarif_bloc}}
+<p>À bientôt !</p>
 HTML,
             ],
         ];
@@ -3427,8 +3459,8 @@ HTML,
 <p>Best regards,<br><strong>{{partenaire}}</strong></p>
 HTML,
             ],
-            'REMINDER' => [
-                'label' => 'Pre-arrival reminder',
+            'REMINDER_CLIENT' => [
+                'label' => 'Pre-arrival reminder (client)',
                 'subject' => 'Reminder: your stay is coming up! 🌴',
                 'body_html' => <<<'HTML'
 <h2>Your stay is coming up!</h2>
@@ -3441,6 +3473,24 @@ HTML,
 </ul>
 <p>Please contact us if you have any questions.</p>
 <p>See you soon,<br><strong>{{partenaire}}</strong></p>
+HTML,
+            ],
+            'REMINDER_PARTNER' => [
+                'label' => 'Pre-arrival reminder (partner)',
+                'subject' => 'Reminder: {{nom_client}} arriving soon! 🌴',
+                'body_html' => <<<'HTML'
+<h2>An arrival is coming up!</h2>
+<p>Hello,</p>
+<div style="margin:18px 0;"><img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;"></div>
+<p><strong>{{nom_client}}</strong>'s stay at <strong>{{hebergement}}</strong> is coming up:</p>
+<ul>
+  <li><strong>Arrival:</strong> {{date_arrivee}}</li>
+  <li><strong>Departure:</strong> {{date_depart}}</li>
+  <li><strong>Guests:</strong> {{adultes}} adult(s), {{enfants}} child(ren)</li>
+  <li><strong>Client phone:</strong> {{telephone_client}}</li>
+</ul>
+{{tarif_bloc}}
+<p>See you soon!</p>
 HTML,
             ],
         ];

@@ -4,7 +4,8 @@ $labels = [
   'REQUEST_RECEIVED_CLIENT' => 'Accusé réception (client)',
   'RESERVATION_CONFIRMED' => 'Réservation confirmée (client)',
   'RESERVATION_CANCELLED' => 'Réservation annulée (client)',
-  'REMINDER' => 'Rappel avant arrivée',
+  'REMINDER_CLIENT' => 'Rappel avant arrivée (client)',
+  'REMINDER_PARTNER' => 'Rappel avant arrivée (partenaire)',
 ];
 $plainVariables = \App\View::emailTemplateVariableCatalog();
 $resizableVariables = \App\View::emailTemplateImageVariableCatalog();

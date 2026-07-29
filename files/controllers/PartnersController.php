@@ -74,13 +74,12 @@ final class PartnersController extends Controller
             ]);
             $partnerId = (int) Database::connection()->lastInsertId();
 
-            // Every partner should have a REMINDER email sent to their
-            // confirmed-reservation clients 5 days before arrival (with a
-            // copy to the partner, see Scheduler::runOnce()) without having
-            // to configure it manually via the /api/email-schedules API.
-            Database::connection()
-                ->prepare('INSERT INTO email_schedules (partner_id, days_before_arrival, template_type, active) VALUES (?, 5, ?, 1)')
-                ->execute([$partnerId, 'REMINDER']);
+            // The REMINDER schedule (client + partner reminder emails sent
+            // 5 days before arrival, see Scheduler::runOnce()) is a single
+            // global row covering every partner (email_schedules.partner_id
+            // IS NULL — "Tous les partenaires", see migration 033), so a
+            // newly created partner is automatically covered by it and no
+            // longer needs its own per-partner schedule row created here.
 
             self::json(['data' => ['id' => $partnerId], 'message' => 'Partner created'], 201);
         } catch (PDOException $e) {

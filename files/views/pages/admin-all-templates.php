@@ -55,7 +55,7 @@ $selectedLanguage = $selectedLanguage ?? 'fr';
           <div class="card card-body stack-md">
             <h2 class="section-title">Nouveaux templates</h2>
             <?php if (($creatableTemplates ?? []) === []): ?>
-              <p class="empty-state">Les 5 templates existent déjà pour ce partenaire.</p>
+              <p class="empty-state">Les 6 templates existent déjà pour ce partenaire.</p>
             <?php else: ?>
               <form method="post" action="<?= $baseUrl ?>/create" class="stack-md">
                 <input type="hidden" name="partner_id" value="<?= (int) $selectedPartnerId ?>">
