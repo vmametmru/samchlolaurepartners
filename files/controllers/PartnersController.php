@@ -72,7 +72,17 @@ final class PartnersController extends Controller
                 self::nullableString($input['smtp_user'] ?? null),
                 self::nullableString($input['smtp_pass'] ?? null),
             ]);
-            self::json(['data' => ['id' => (int) Database::connection()->lastInsertId()], 'message' => 'Partner created'], 201);
+            $partnerId = (int) Database::connection()->lastInsertId();
+
+            // Every partner should have a REMINDER email sent to their
+            // confirmed-reservation clients 5 days before arrival (with a
+            // copy to the partner, see Scheduler::runOnce()) without having
+            // to configure it manually via the /api/email-schedules API.
+            Database::connection()
+                ->prepare('INSERT INTO email_schedules (partner_id, days_before_arrival, template_type, active) VALUES (?, 5, ?, 1)')
+                ->execute([$partnerId, 'REMINDER']);
+
+            self::json(['data' => ['id' => $partnerId], 'message' => 'Partner created'], 201);
         } catch (PDOException $e) {
             self::json(['error' => 'Internal Server Error', 'message' => 'Failed to create partner'], 500);
         }
