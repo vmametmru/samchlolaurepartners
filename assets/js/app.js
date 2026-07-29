@@ -2422,10 +2422,56 @@ function initBookingQuote() {
  * capacity is checked, cumulatively, both client-side and server-side), so
  * several under-capacity properties can be combined to reach the party size.
  */
+// Client-side strings for initMultiPropertyCart() below: this board's cart
+// summary (gap warnings, capacity hints, day-by-day breakdown) is built as
+// plain text in JS rather than server-rendered, so it needs its own small
+// FR/EN dictionary keyed off <html lang="..."> (set from App\I18n::current()
+// in files/View.php) instead of always defaulting to French regardless of
+// the active site language.
+const MULTI_CART_I18N = {
+  fr: {
+    months: ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'],
+    gapNight: (night, propA, propB) => `la nuit du ${night} n'est pas réservée entre « ${propA.name} » (départ le ${propA.date}) et « ${propB.name} » (arrivée le ${propB.date})`,
+    gapWarning: (gaps) => `Attention : ${gaps}. Vérifiez vos dates pour éviter un trou dans votre séjour.`,
+    remove: (name) => `Retirer ${name}`,
+    summaryLineSingle: (properties, nights, totalNights) => `${properties} bien(s) sélectionné(s) x ${nights} nuit(s) sélectionnée(s) = ${totalNights} nuit(s) sélectionnée(s)`,
+    summaryLineMultiple: (properties, totalNights) => `${properties} bien(s) sélectionné(s) — ${totalNights} nuit(s) sélectionnée(s) au total`,
+    capacityHintWithBabies: (guests, babies) => `Capacité insuffisante pour ${guests} Personnes >3ans + ${babies} bébé${babies > 1 ? 's' : ''} sur une ou plusieurs dates : sélectionnez un ou plusieurs biens supplémentaires.`,
+    capacityHintNoBabies: (guests) => `Capacité insuffisante pour ${guests} Personnes >3ans sur une ou plusieurs dates : sélectionnez un ou plusieurs biens supplémentaires.`,
+    adultsStatus: (guests) => `Personnes >3ans : ${guests}`,
+    babyStatus: (babies, capacity) => `Bébé(s) : ${babies}/${capacity}`,
+    ok: 'Vert',
+    notOk: 'Rouge',
+    solution: 'Solution : ',
+    solutionAddSeveral: 'Rajouter un ou plusieurs biens',
+    solutionAddOne: 'Rajouter un bien',
+  },
+  en: {
+    months: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
+    gapNight: (night, propA, propB) => `the night of ${night} is not booked between "${propA.name}" (departure on ${propA.date}) and "${propB.name}" (arrival on ${propB.date})`,
+    gapWarning: (gaps) => `Warning: ${gaps}. Check your dates to avoid a gap in your stay.`,
+    remove: (name) => `Remove ${name}`,
+    summaryLineSingle: (properties, nights, totalNights) => `${properties} propertie(s) selected x ${nights} night(s) selected = ${totalNights} night(s) selected`,
+    summaryLineMultiple: (properties, totalNights) => `${properties} propertie(s) selected — ${totalNights} night(s) selected in total`,
+    capacityHintWithBabies: (guests, babies) => `Not enough capacity for ${guests} people over 3 + ${babies} bab${babies > 1 ? 'ies' : 'y'} on one or more dates: select one or more additional properties.`,
+    capacityHintNoBabies: (guests) => `Not enough capacity for ${guests} people over 3 on one or more dates: select one or more additional properties.`,
+    adultsStatus: (guests) => `People >3yo: ${guests}`,
+    babyStatus: (babies, capacity) => `Bab(y/ies): ${babies}/${capacity}`,
+    ok: 'Green',
+    notOk: 'Red',
+    solution: 'Solution: ',
+    solutionAddSeveral: 'Add one or more properties',
+    solutionAddOne: 'Add a property',
+  },
+};
+
 function initMultiPropertyCart() {
   const board = document.querySelector('[data-multi-calendar-board]');
   const cartRoot = document.querySelector('[data-multi-cart]');
   if (!board || !cartRoot) return;
+
+  const siteLang = document.documentElement.lang === 'en' ? 'en' : 'fr';
+  const T = MULTI_CART_I18N[siteLang];
 
   const listEl = cartRoot.querySelector('[data-multi-cart-list]');
   const gapHintEl = cartRoot.querySelector('[data-multi-cart-gap-hint]');
@@ -2509,10 +2555,9 @@ function initMultiPropertyCart() {
     return amount.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
-  const MONTHS_FR = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
   function formatFrLong(dateStr) {
     const [y, m, d] = dateStr.split('-').map(Number);
-    return `${d} ${MONTHS_FR[m - 1]} ${y}`;
+    return `${d} ${T.months[m - 1]} ${y}`;
   }
 
   // If the visitor switches property mid-cart (e.g. clicks a departure date
@@ -2529,11 +2574,15 @@ function initMultiPropertyCart() {
       const current = sorted[i];
       const next = sorted[i + 1];
       if (next.checkin > current.checkout) {
-        gaps.push(`la nuit du ${formatFr(current.checkout)} n'est pas réservée entre « ${current.propertyName} » (départ le ${formatFr(current.checkout)}) et « ${next.propertyName} » (arrivée le ${formatFr(next.checkin)})`);
+        gaps.push(T.gapNight(
+          formatFr(current.checkout),
+          { name: current.propertyName, date: formatFr(current.checkout) },
+          { name: next.propertyName, date: formatFr(next.checkin) }
+        ));
       }
     }
     if (!gaps.length) return '';
-    return `Attention : ${gaps.join(' ; ')}. Vérifiez vos dates pour éviter un trou dans votre séjour.`;
+    return T.gapWarning(gaps.join(' ; '));
   }
 
   // Builds a night-by-night capacity breakdown across the whole selection
@@ -2718,7 +2767,7 @@ function initMultiPropertyCart() {
       const removeBtn = document.createElement('button');
       removeBtn.type = 'button';
       removeBtn.className = 'multi-cart-remove';
-      removeBtn.setAttribute('aria-label', `Retirer ${item.propertyName}`);
+      removeBtn.setAttribute('aria-label', T.remove(item.propertyName));
       removeBtn.textContent = '×';
       removeBtn.addEventListener('click', () => {
         cart.splice(index, 1);
@@ -2737,18 +2786,18 @@ function initMultiPropertyCart() {
     if (summaryLineEl) {
       if (nightsPerItem.size <= 1) {
         const nightsPerSelection = nightsPerItem.size === 1 ? [...nightsPerItem][0] : 0;
-        summaryLineEl.textContent = `${propertyCount} bien(s) sélectionné(s) x ${nightsPerSelection} nuit(s) sélectionnée(s) = ${totalNights} nuit(s) sélectionnée(s)`;
+        summaryLineEl.textContent = T.summaryLineSingle(propertyCount, nightsPerSelection, totalNights);
       } else {
-        summaryLineEl.textContent = `${propertyCount} bien(s) sélectionné(s) — ${totalNights} nuit(s) sélectionnée(s) au total`;
+        summaryLineEl.textContent = T.summaryLineMultiple(propertyCount, totalNights);
       }
     }
     if (summaryTotalEl) summaryTotalEl.textContent = formatEuros(totalAmount);
     if (capacityHintEl) {
       if (!overallOk) {
         if (babies > 0) {
-          capacityHintEl.textContent = `Capacité insuffisante pour ${requestedGuests} Personnes >3ans + ${babies} bébé${babies > 1 ? 's' : ''} sur une ou plusieurs dates : sélectionnez un ou plusieurs biens supplémentaires.`;
+          capacityHintEl.textContent = T.capacityHintWithBabies(requestedGuests, babies);
         } else {
-          capacityHintEl.textContent = `Capacité insuffisante pour ${requestedGuests} Personnes >3ans sur une ou plusieurs dates : sélectionnez un ou plusieurs biens supplémentaires.`;
+          capacityHintEl.textContent = T.capacityHintNoBabies(requestedGuests);
         }
       } else {
         capacityHintEl.textContent = '';
@@ -2776,14 +2825,14 @@ function initMultiPropertyCart() {
 
         const adultsStatus = document.createElement('span');
         adultsStatus.className = `multi-cart-capacity-status ${day.adultOk ? 'cap-ok' : 'cap-warn'}`;
-        adultsStatus.textContent = `Personnes >3ans : ${requestedGuests} (${day.adultOk ? 'Vert' : 'Rouge'})`;
+        adultsStatus.textContent = `${T.adultsStatus(requestedGuests)} (${day.adultOk ? T.ok : T.notOk})`;
         text.appendChild(adultsStatus);
 
         if (babies > 0) {
           text.appendChild(document.createTextNode(' | '));
           const babyStatus = document.createElement('span');
           babyStatus.className = `multi-cart-capacity-status ${day.babyOk ? 'cap-ok' : 'cap-warn'}`;
-          babyStatus.textContent = `Bébé(s) : ${babies}/${day.babyCapacityOnDay} (${day.babyOk ? 'Vert' : 'Rouge'})`;
+          babyStatus.textContent = `${T.babyStatus(babies, day.babyCapacityOnDay)} (${day.babyOk ? T.ok : T.notOk})`;
           text.appendChild(babyStatus);
         }
 
@@ -2791,7 +2840,7 @@ function initMultiPropertyCart() {
           text.appendChild(document.createTextNode(' | '));
           const solution = document.createElement('span');
           solution.className = 'multi-cart-capacity-status cap-warn';
-          solution.textContent = `Solution : ${!day.adultOk ? 'Rajouter un ou plusieurs biens' : 'Rajouter un bien'}`;
+          solution.textContent = `${T.solution}${!day.adultOk ? T.solutionAddSeveral : T.solutionAddOne}`;
           text.appendChild(solution);
         }
         li.appendChild(text);
