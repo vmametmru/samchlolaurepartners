@@ -1762,7 +1762,8 @@ TEXT;
                 'REQUEST_RECEIVED_CLIENT' => 'Accusé réception (client)',
                 'RESERVATION_CONFIRMED' => 'Réservation confirmée (client)',
                 'RESERVATION_CANCELLED' => 'Réservation annulée (client)',
-                'REMINDER' => 'Rappel avant arrivée (client + partenaire)',
+                'REMINDER_CLIENT' => 'Rappel avant arrivée (client)',
+                'REMINDER_PARTNER' => 'Rappel avant arrivée (partenaire)',
             ],
         ]);
     }
@@ -1813,7 +1814,7 @@ TEXT;
         }
         $daysBeforeArrival = (int) ($input['days_before_arrival'] ?? -1);
         $templateType = trim((string) ($input['template_type'] ?? ''));
-        $allowedTypes = ['REQUEST_RECEIVED_PARTNER', 'REQUEST_RECEIVED_CLIENT', 'RESERVATION_CONFIRMED', 'RESERVATION_CANCELLED', 'REMINDER'];
+        $allowedTypes = ['REQUEST_RECEIVED_PARTNER', 'REQUEST_RECEIVED_CLIENT', 'RESERVATION_CONFIRMED', 'RESERVATION_CANCELLED', 'REMINDER_CLIENT', 'REMINDER_PARTNER'];
         if ($daysBeforeArrival < 0 || !in_array($templateType, $allowedTypes, true)) {
             self::redirect('/admin/cron', 'Nombre de jours et type de modèle sont requis.', 'error');
         }

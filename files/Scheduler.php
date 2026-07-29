@@ -75,23 +75,18 @@ SQL;
             $requestLanguage = in_array((string) ($row['request_language'] ?? ''), I18n::SUPPORTED, true)
                 ? (string) $row['request_language']
                 : I18n::DEFAULT_LANGUAGE;
-            $isReminder = (string) $row['template_type'] === 'REMINDER';
-
-            // REMINDER is the only schedule type split into two separate
-            // templates (REMINDER_CLIENT/REMINDER_PARTNER, see migration
-            // 033): every other type keeps sending a single template to the
-            // client with an identical copy to the partner, as before.
-            if ($isReminder) {
-                $clientTemplate = \App\controllers\ReservationsController::findEmailTemplate($pdo, (int) $row['partner_id'], 'REMINDER_CLIENT', $requestLanguage);
-                $partnerTemplate = \App\controllers\ReservationsController::findEmailTemplate($pdo, (int) $row['partner_id'], 'REMINDER_PARTNER', $requestLanguage);
-                if (!$clientTemplate && !$partnerTemplate) {
-                    continue;
-                }
-            } else {
-                $template = \App\controllers\ReservationsController::findEmailTemplate($pdo, (int) $row['partner_id'], (string) $row['template_type'], $requestLanguage);
-                if (!$template) {
-                    continue;
-                }
+            $templateType = (string) $row['template_type'];
+            // REMINDER_CLIENT and REMINDER_PARTNER are two fully independent
+            // schedule entries (see migration 034 / /admin/cron): each one
+            // only ever sends to a single recipient (the guest, resp. the
+            // partner) using its own dedicated template — unlike every
+            // other schedule type below, which sends the client template to
+            // the client with an identical courtesy copy to the partner.
+            $isReminderClient = $templateType === 'REMINDER_CLIENT';
+            $isReminderPartner = $templateType === 'REMINDER_PARTNER';
+            $template = \App\controllers\ReservationsController::findEmailTemplate($pdo, (int) $row['partner_id'], $templateType, $requestLanguage);
+            if (!$template) {
+                continue;
             }
 
             $variables = [
@@ -158,26 +153,24 @@ SQL;
             $partnerEmail = trim((string) ($row['email'] ?? ''));
 
             try {
-                if ($isReminder) {
-                    // Sent simultaneously (same loop iteration, before the
-                    // "already sent" guard is recorded below): the client
-                    // never sees partner-only variables (commission,
-                    // amount owed), the partner copy keeps them.
-                    if ($clientTemplate) {
-                        Mailer::sendTemplatedEmail(
-                            $row,
-                            $clientTemplate,
-                            (string) $row['client_email'],
-                            \App\controllers\ReservationsController::redactPartnerOnlyVariables($variables),
-                            $embeds,
-                            (string) ($row['email'] ?? '')
-                        );
-                        $sent++;
+                if ($isReminderPartner) {
+                    // Partner-only entry: skip entirely (no client email,
+                    // nothing to mark as sent) if the partner has no email
+                    // configured.
+                    if ($partnerEmail === '') {
+                        continue;
                     }
+                    Mailer::sendTemplatedEmail($row, $template, $partnerEmail, $variables, $embeds, (string) $row['client_email']);
                 } else {
-                    Mailer::sendTemplatedEmail($row, $template, (string) $row['client_email'], $variables, $embeds, (string) ($row['email'] ?? ''));
-                    $sent++;
+                    // REMINDER_CLIENT never leaks partner-only variables
+                    // (commission, amount owed) even if a partner mistakenly
+                    // references one in their client-facing template.
+                    $clientVariables = $isReminderClient
+                        ? \App\controllers\ReservationsController::redactPartnerOnlyVariables($variables)
+                        : $variables;
+                    Mailer::sendTemplatedEmail($row, $template, (string) $row['client_email'], $clientVariables, $embeds, (string) ($row['email'] ?? ''));
                 }
+                $sent++;
                 $markStmt = $pdo->prepare('INSERT IGNORE INTO sent_schedule_emails (schedule_id, reservation_id) VALUES (?, ?)');
                 $markStmt->execute([(int) $row['schedule_id'], (int) $row['reservation_id']]);
             } catch (\Throwable $e) {
@@ -185,24 +178,18 @@ SQL;
                 continue;
             }
 
-            // Send the partner their own copy — either the dedicated
-            // REMINDER_PARTNER template (with commission/payout variables),
-            // or, for every other schedule type, the same client template as
-            // a courtesy copy (e.g. RESERVATION_CONFIRMED) — so they stay
-            // aware of upcoming/confirmed stays without checking the admin
-            // dashboard. Best-effort and isolated from the client send
-            // above: a partner-copy failure (bad partner email, SMTP
-            // hiccup, ...) must never be reported as a failed/unsent
-            // schedule entry, since the client was already notified.
-            if ($partnerEmail !== '') {
+            // Send the partner their own courtesy copy of the client
+            // template (e.g. RESERVATION_CONFIRMED), so they stay aware of
+            // upcoming/confirmed stays without checking the admin
+            // dashboard. Not applicable to REMINDER_CLIENT/REMINDER_PARTNER,
+            // which are already independent, single-recipient entries (see
+            // above). Best-effort and isolated from the client send above:
+            // a partner-copy failure (bad partner email, SMTP hiccup, ...)
+            // must never be reported as a failed/unsent schedule entry,
+            // since the client was already notified.
+            if (!$isReminderClient && !$isReminderPartner && $partnerEmail !== '') {
                 try {
-                    if ($isReminder) {
-                        if ($partnerTemplate) {
-                            Mailer::sendTemplatedEmail($row, $partnerTemplate, $partnerEmail, $variables, $embeds, (string) $row['client_email']);
-                        }
-                    } else {
-                        Mailer::sendTemplatedEmail($row, $template, $partnerEmail, $variables, $embeds, (string) $row['client_email']);
-                    }
+                    Mailer::sendTemplatedEmail($row, $template, $partnerEmail, $variables, $embeds, (string) $row['client_email']);
                 } catch (\Throwable $e) {
                     error_log('[scheduler] failed to send partner copy of ' . $row['template_type'] . ' email for reservation ' . $row['reservation_id'] . ': ' . $e->getMessage());
                 }

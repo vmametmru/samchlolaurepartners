@@ -109,7 +109,7 @@
       <label><span>Modèle</span>
         <select class="input" name="template_type" required>
           <?php foreach ($templateTypeLabels as $type => $label): ?>
-            <option value="<?= \App\View::e($type) ?>" <?= $type === 'REMINDER' ? 'selected' : '' ?>><?= \App\View::e($label) ?></option>
+            <option value="<?= \App\View::e($type) ?>" <?= $type === 'REMINDER_CLIENT' ? 'selected' : '' ?>><?= \App\View::e($label) ?></option>
           <?php endforeach; ?>
         </select>
       </label>
