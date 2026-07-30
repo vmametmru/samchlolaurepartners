@@ -21,6 +21,17 @@ try {
     }
 
     try {
+        $warm = App\Scheduler::warmLodgifyCache();
+        echo '[scheduler] Lodgify cache warmed for ' . $warm['warmed'] . ' property/range pairs ('
+            . $warm['properties'] . ' properties)' . PHP_EOL;
+        foreach ($warm['errors'] as $warmError) {
+            fwrite(STDERR, '[scheduler] warm-up: ' . $warmError . PHP_EOL);
+        }
+    } catch (Throwable $e) {
+        fwrite(STDERR, '[scheduler] Cache warm-up failed: ' . $e->getMessage() . PHP_EOL);
+    }
+
+    try {
         $purged = (new App\LodgifyClient())->purgeExpiredCache();
         echo '[scheduler] Expired Lodgify cache rows purged: ' . $purged . PHP_EOL;
     } catch (Throwable $e) {

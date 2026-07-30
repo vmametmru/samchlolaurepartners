@@ -281,4 +281,61 @@ SQL;
             return ['synced' => 0, 'error' => $e->getMessage(), 'photo_errors' => []];
         }
     }
+
+    /**
+     * Pre-warms the availability/rates/rate-settings caches for the date
+     * ranges the public pages actually request (the 12-month calendar window
+     * used by the property detail pages, and the default 30-day window of
+     * /calendrier), so visitors are served from the cache instead of paying
+     * for the live Lodgify calls themselves. Run from the cron
+     * (bin/run-scheduler.php): each entry is only refetched once its 1-hour
+     * TTL has expired, so calling this every few minutes is cheap.
+     *
+     * Bounded by $maxSeconds so the cron never turns into a long-running job.
+     *
+     * @return array{properties:int,warmed:int,errors:list<string>}
+     */
+    public static function warmLodgifyCache(int $maxSeconds = 45): array
+    {
+        $result = ['properties' => 0, 'warmed' => 0, 'errors' => []];
+        $deadline = time() + max(5, $maxSeconds);
+        try {
+            $client = new LodgifyClient();
+            $properties = $client->getProperties();
+        } catch (\Throwable $e) {
+            $result['errors'][] = 'properties: ' . $e->getMessage();
+            return $result;
+        }
+
+        $monthStart = new \DateTimeImmutable('first day of this month');
+        $today = new \DateTimeImmutable('today');
+        $ranges = [
+            // Property detail / calendar partial: current month -> +12 months.
+            [$monthStart->format('Y-m-d'), $monthStart->modify('+12 months')->modify('-1 day')->format('Y-m-d')],
+            // /calendrier default view: today -> today + 30 days.
+            [$today->format('Y-m-d'), $today->modify('+30 days')->format('Y-m-d')],
+        ];
+
+        foreach ($properties as $property) {
+            $propertyId = (int) ($property['id'] ?? 0);
+            if ($propertyId <= 0) {
+                continue;
+            }
+            $result['properties']++;
+            foreach ($ranges as [$from, $to]) {
+                if (time() >= $deadline) {
+                    return $result;
+                }
+                try {
+                    $client->getAvailability($propertyId, $from, $to);
+                    $client->getRates($propertyId, $from, $to, 2);
+                    $client->getPropertyRateSettings($propertyId);
+                    $result['warmed']++;
+                } catch (\Throwable $e) {
+                    $result['errors'][] = 'property ' . $propertyId . ': ' . $e->getMessage();
+                }
+            }
+        }
+        return $result;
+    }
 }

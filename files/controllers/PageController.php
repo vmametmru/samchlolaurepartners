@@ -2253,10 +2253,13 @@ TEXT;
     {
         try {
             $client = new LodgifyClient();
-            // This test claims to query Lodgify "in real time" — clear any cached
-            // properties/rooms/rates first so it never silently shows stale numbers
-            // (e.g. capacity/min-stay cached before a mapping fix was deployed).
-            $client->invalidate('lodgify:');
+            // This test claims to query Lodgify "in real time", so availability
+            // and rates below are fetched with the force-refresh flag (live
+            // call, cache re-primed for 30 min). It deliberately no longer
+            // wipes the whole "lodgify:" cache: doing so invalidated every
+            // property's fiche/availability/rates for every visitor at once,
+            // and the resulting stampede of live Lodgify calls was enough to
+            // make the public site unresponsive for several minutes.
             $guests = $adults + $children;
             $properties = $client->getProperties();
             $rows = [];
@@ -2285,7 +2288,7 @@ TEXT;
                     }
                 }
                 try {
-                    $row['available'] = $client->isAvailableForRange($propertyId, $checkin, $checkout);
+                    $row['available'] = $client->isAvailableForRange($propertyId, $checkin, $checkout, true);
                 } catch (Throwable $e) {
                     $row['error'] = $row['error'] !== null ? $row['error'] . ' / ' . $e->getMessage() : $e->getMessage();
                 }
@@ -2293,7 +2296,7 @@ TEXT;
                     // Minimum-stay restrictions are only exposed by the Rates
                     // calendar (CalendarPrice.min_stay), never by the Availability
                     // endpoint, which is why this used to always read back 1.
-                    $rates = $client->getRates($propertyId, $checkin, $checkout, $guests);
+                    $rates = $client->getRates($propertyId, $checkin, $checkout, $guests, true);
                     if ($rates !== []) {
                         $row['price_per_night'] = (float) $rates[0]['price_per_night'];
                         $row['currency'] = (string) $rates[0]['currency'];
