@@ -8,7 +8,16 @@ use PDO;
 
 final class Scheduler
 {
-    public static function runOnce(): array
+    /**
+     * @param int|null $onlyReservationId When set, restricts processing to a
+     *                                    single reservation (used to send a
+     *                                    reminder immediately upon
+     *                                    confirmation — see
+     *                                    ReservationsController::confirmForPartner())
+     *                                    instead of waiting for the next
+     *                                    cron run.
+     */
+    public static function runOnce(?int $onlyReservationId = null): array
     {
         $pdo = Database::connection();
         // This cron entry point (bin/run-scheduler.php) only requires
@@ -60,12 +69,24 @@ JOIN reservation_requests rr ON rr.id = r.request_id
 JOIN partners p ON p.id = r.partner_id
 WHERE es.active = 1
   AND r.cancelled_at IS NULL
-  AND DATE(rr.checkin_date) = DATE_ADD(CURDATE(), INTERVAL es.days_before_arrival DAY)
+  AND DATE(rr.checkin_date) >= CURDATE()
+  AND DATE(rr.checkin_date) <= DATE_ADD(CURDATE(), INTERVAL es.days_before_arrival DAY)
   AND NOT EXISTS (
     SELECT 1 FROM sent_schedule_emails sse
     WHERE sse.schedule_id = es.id AND sse.reservation_id = r.id
   )
 SQL;
+        // The check-in window uses "<=" (not "=") so a reservation confirmed
+        // when the stay is already less than es.days_before_arrival days out
+        // (e.g. confirmed 2 days before arrival with a 5-day reminder) still
+        // gets its reminder — either right away, when $onlyReservationId
+        // scopes this call to the reservation that was just confirmed (see
+        // ReservationsController::confirmForPartner()), or on the next cron
+        // run otherwise. sent_schedule_emails still guards against ever
+        // sending the same schedule/reservation pair twice.
+        if ($onlyReservationId !== null) {
+            $sql .= ' AND r.id = ' . (int) $onlyReservationId;
+        }
 
         $rows = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
         $sent = 0;
@@ -119,7 +140,7 @@ SQL;
                     (int) $row['adults'],
                     (int) ($row['children'] ?? 0)
                 ),
-                'useful_info' => \App\controllers\ReservationsController::usefulInfoButtonHtml($row, $requestLanguage),
+                'useful_info' => \App\controllers\ReservationsController::usefulInfoButtonHtml((int) ($row['property_id'] ?? 0), $requestLanguage),
             ];
             $variables += \App\controllers\ReservationsController::stayVariables(
                 (string) $row['checkin_date'],
@@ -166,7 +187,7 @@ SQL;
                     // {{useful_info}} is rebuilt in French here too.
                     $partnerVariables = $variables;
                     if ($requestLanguage !== \App\I18n::DEFAULT_LANGUAGE) {
-                        $partnerVariables['useful_info'] = \App\controllers\ReservationsController::usefulInfoButtonHtml($row, \App\I18n::DEFAULT_LANGUAGE);
+                        $partnerVariables['useful_info'] = \App\controllers\ReservationsController::usefulInfoButtonHtml((int) ($row['property_id'] ?? 0), \App\I18n::DEFAULT_LANGUAGE);
                     }
                     Mailer::sendTemplatedEmail($row, $template, $partnerEmail, $partnerVariables, $embeds, (string) $row['client_email']);
                 } else {

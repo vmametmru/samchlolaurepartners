@@ -1,7 +1,7 @@
 <?php declare(strict_types=1); $action = $editing ? '/admin/partners/' . (int) $partnerData['id'] : '/admin/partners'; ?>
 <section class="container section-lg narrow">
   <h1><?= $editing ? 'Modifier le partenaire' : 'Nouveau partenaire' ?></h1>
-  <form class="card card-body stack-md" method="post" action="<?= \App\View::e($action) ?>" enctype="multipart/form-data">
+  <form class="card card-body stack-md" method="post" action="<?= \App\View::e($action) ?>" enctype="multipart/form-data" data-catalog-form>
     <label><span>Nom *</span><input class="input" type="text" name="name" required value="<?= \App\View::e($partnerData['name'] ?? '') ?>"></label>
     <label><span>Code Partenaire *</span><input class="input" type="text" name="subdomain" <?= $editing ? 'disabled' : '' ?> required value="<?= \App\View::e($partnerData['subdomain'] ?? '') ?>"></label>
     <label><span>Email de contact *</span><input class="input" type="email" name="email" required value="<?= \App\View::e($partnerData['email'] ?? '') ?>"></label>
@@ -9,8 +9,6 @@
     <label><span>Page Facebook</span><input class="input" type="url" name="facebook_url" value="<?= \App\View::e($partnerData['facebook_url'] ?? '') ?>"></label>
     <label><span>Page TikTok</span><input class="input" type="url" name="tiktok_url" value="<?= \App\View::e($partnerData['tiktok_url'] ?? '') ?>"></label>
     <label><span>Page Instagram</span><input class="input" type="url" name="instagram_url" value="<?= \App\View::e($partnerData['instagram_url'] ?? '') ?>"></label>
-    <label><span>URL Renseignements utiles à l'enregistrement (FR)</span><input class="input" type="url" name="checkin_info_url_fr" value="<?= \App\View::e($partnerData['checkin_info_url_fr'] ?? '') ?>"></label>
-    <label><span>URL Useful check-in informations (EN)</span><input class="input" type="url" name="checkin_info_url_en" value="<?= \App\View::e($partnerData['checkin_info_url_en'] ?? '') ?>"></label>
     <label><span>Marge % *</span><input class="input" type="number" name="markup_percent" min="0" max="100" step="0.5" value="<?= \App\View::e((string) ($partnerData['markup_percent'] ?? 0)) ?>"></label>
     <label><span>Nettoyage (coût par nuit et par personne) *</span><input class="input" type="number" name="cleaning_fee_per_person_per_night" min="0" step="0.01" value="<?= \App\View::e((string) ($partnerData['cleaning_fee_per_person_per_night'] ?? 0)) ?>"></label>
     <div class="logo-upload-card">
@@ -25,6 +23,25 @@
           </label>
         </div>
       <?php endif; ?>
+    </div>
+    <div class="logo-upload-card">
+      <label><span>Catalogue PDF (20 Mo max)</span><input class="input" type="file" name="catalog_pdf" accept="application/pdf" data-catalog-input></label>
+      <?php if (!empty($partnerData['catalog_pdf_url'])): ?>
+        <div class="logo-preview-wrap">
+          <a href="<?= \App\View::e($partnerData['catalog_pdf_url']) ?>" target="_blank" rel="noopener">📄 Voir le catalogue actuel</a>
+          <label class="logo-remove-chip" title="Supprimer le catalogue">
+            <input type="checkbox" name="remove_catalog_pdf" value="1">
+            <span aria-hidden="true">🗑️</span>
+            <span>Effacer</span>
+          </label>
+        </div>
+      <?php endif; ?>
+      <div class="update-progress" data-catalog-progress hidden
+           data-label-uploading="Envoi du catalogue…"
+           data-label-done="Terminé">
+        <div class="update-progress-track"><span class="update-progress-bar" data-catalog-progress-bar style="width:0%"></span></div>
+        <p class="update-progress-label"><span data-catalog-progress-text>Envoi du catalogue…</span> <span data-catalog-progress-pct>0%</span></p>
+      </div>
     </div>
     <label><span>Couleur principale</span><div class="color-row"><input type="color" name="primary_color" value="<?= \App\View::e($partnerData['primary_color'] ?? '#E61E4D') ?>"><input class="input" type="text" value="<?= \App\View::e($partnerData['primary_color'] ?? '#E61E4D') ?>" data-sync-color></div></label>
     <h2 class="section-title">SMTP</h2>

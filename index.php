@@ -403,7 +403,6 @@ try {
             exit;
         }
         http_response_code($e->statusCode);
-        App\Flash::set($e->getMessage(), 'error');
         if ($e->statusCode === 404) {
             PageController::notFound();
         } else {

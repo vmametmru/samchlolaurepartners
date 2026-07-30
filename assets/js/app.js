@@ -49,6 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initHeroSearchCollapse,
     initConfirmSubmit,
     initUpdateProgress,
+    initCatalogUploadProgress,
     initTranslationSuggestions,
   ].forEach(runInit);
 });
@@ -3267,6 +3268,71 @@ function initUpdateProgress() {
     };
 
     xhr.send(new FormData(form));
+  });
+}
+
+// Admin "Nouveau/Modifier partenaire" and partner "Paramètres" forms upload
+// a catalogue PDF (up to 20 Mo) alongside their other fields, with no
+// feedback while the file is in transit — same "looks frozen" issue as the
+// update ZIP upload above. Only intercepts the submit (via XHR, to get real
+// upload.progress events) when a catalogue file was actually picked;
+// otherwise the form submits normally so unrelated saves stay instant.
+function initCatalogUploadProgress() {
+  document.querySelectorAll('[data-catalog-form]').forEach((form) => {
+    const fileInput = form.querySelector('[data-catalog-input]');
+    const wrap = form.querySelector('[data-catalog-progress]');
+    const bar = form.querySelector('[data-catalog-progress-bar]');
+    const text = form.querySelector('[data-catalog-progress-text]');
+    const pct = form.querySelector('[data-catalog-progress-pct]');
+    if (!fileInput || !wrap || !bar || !text || !pct) return;
+
+    const labelUploading = wrap.dataset.labelUploading || '';
+    const labelDone = wrap.dataset.labelDone || '';
+    const submitBtn = form.querySelector('button[type="submit"]');
+
+    const setProgress = (value, label) => {
+      bar.style.width = Math.max(0, Math.min(100, value)) + '%';
+      pct.textContent = Math.round(value) + '%';
+      if (label) text.textContent = label;
+    };
+
+    form.addEventListener('submit', (event) => {
+      if (!fileInput.files || fileInput.files.length === 0) return;
+      event.preventDefault();
+
+      if (submitBtn) submitBtn.disabled = true;
+      wrap.hidden = false;
+      bar.classList.remove('is-indeterminate');
+      setProgress(0, labelUploading);
+
+      const xhr = new XMLHttpRequest();
+      xhr.open(form.method || 'POST', form.action, true);
+
+      xhr.upload.addEventListener('progress', (progressEvent) => {
+        if (!progressEvent.lengthComputable) return;
+        setProgress((progressEvent.loaded / progressEvent.total) * 100, labelUploading);
+      });
+
+      xhr.onloadend = () => {
+        if (submitBtn) submitBtn.disabled = false;
+        setProgress(100, labelDone);
+        // A successful save redirects (e.g. back to /admin/partners), which
+        // XHR follows transparently, so responseURL is a real GET page we
+        // can navigate to. A validation error (e.g. "20 Mo max") instead
+        // renders the error page directly for the original POST-only URL
+        // with no redirect — navigating there again would 404/405, so that
+        // response body is swapped in in place instead.
+        if (xhr.status >= 200 && xhr.status < 400 && xhr.responseURL) {
+          window.location.href = xhr.responseURL;
+        } else {
+          document.open();
+          document.write(xhr.responseText);
+          document.close();
+        }
+      };
+
+      xhr.send(new FormData(form));
+    });
   });
 }
 

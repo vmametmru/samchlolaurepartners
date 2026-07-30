@@ -1,7 +1,7 @@
 <?php declare(strict_types=1); ?>
 <section class="container section-lg narrow">
   <h1>Paramètres du compte</h1>
-  <form class="card card-body stack-md" method="post" action="/partner/settings" enctype="multipart/form-data">
+  <form class="card card-body stack-md" method="post" action="/partner/settings" enctype="multipart/form-data" data-catalog-form>
     <label><span>Code partenaire</span><input class="input" type="text" value="<?= \App\View::e($partnerData['subdomain'] ?? '') ?>" disabled></label>
     <label><span>Nom du partenaire</span><input class="input" type="text" name="name" value="<?= \App\View::e($partnerData['name'] ?? '') ?>"></label>
     <label><span>Email de contact</span><input class="input" type="email" name="email" value="<?= \App\View::e($partnerData['email'] ?? '') ?>"></label>
@@ -9,8 +9,6 @@
     <label><span>Page Facebook</span><input class="input" type="url" name="facebook_url" placeholder="https://facebook.com/..." value="<?= \App\View::e($partnerData['facebook_url'] ?? '') ?>"></label>
     <label><span>Page TikTok</span><input class="input" type="url" name="tiktok_url" placeholder="https://tiktok.com/@..." value="<?= \App\View::e($partnerData['tiktok_url'] ?? '') ?>"></label>
     <label><span>Page Instagram</span><input class="input" type="url" name="instagram_url" placeholder="https://instagram.com/..." value="<?= \App\View::e($partnerData['instagram_url'] ?? '') ?>"></label>
-    <label><span>URL Renseignements utiles à l'enregistrement (FR)</span><input class="input" type="url" name="checkin_info_url_fr" value="<?= \App\View::e($partnerData['checkin_info_url_fr'] ?? '') ?>"></label>
-    <label><span>URL Useful check-in informations (EN)</span><input class="input" type="url" name="checkin_info_url_en" value="<?= \App\View::e($partnerData['checkin_info_url_en'] ?? '') ?>"></label>
     <div class="logo-upload-card">
       <label><span>Logo</span><input class="input" type="file" name="logo" accept="image/png,image/jpeg,image/gif,image/webp"></label>
       <?php if (!empty($partnerData['logo_url'])): ?>
@@ -23,6 +21,26 @@
           </label>
         </div>
       <?php endif; ?>
+    </div>
+    <div class="logo-upload-card">
+      <label><span>Catalogue PDF (20 Mo max)</span><input class="input" type="file" name="catalog_pdf" accept="application/pdf" data-catalog-input></label>
+      <p class="muted">Ce catalogue sera téléchargeable depuis votre tableau de bord pour l'envoyer à vos clients.</p>
+      <?php if (!empty($partnerData['catalog_pdf_url'])): ?>
+        <div class="logo-preview-wrap">
+          <a href="<?= \App\View::e($partnerData['catalog_pdf_url']) ?>" target="_blank" rel="noopener">📄 Voir le catalogue actuel</a>
+          <label class="logo-remove-chip" title="Supprimer le catalogue">
+            <input type="checkbox" name="remove_catalog_pdf" value="1">
+            <span aria-hidden="true">🗑️</span>
+            <span>Effacer</span>
+          </label>
+        </div>
+      <?php endif; ?>
+      <div class="update-progress" data-catalog-progress hidden
+           data-label-uploading="Envoi du catalogue…"
+           data-label-done="Terminé">
+        <div class="update-progress-track"><span class="update-progress-bar" data-catalog-progress-bar style="width:0%"></span></div>
+        <p class="update-progress-label"><span data-catalog-progress-text>Envoi du catalogue…</span> <span data-catalog-progress-pct>0%</span></p>
+      </div>
     </div>
     <label><span>Couleur principale</span><div class="color-row"><input type="color" name="primary_color" value="<?= \App\View::e($partnerData['primary_color'] ?? '#E61E4D') ?>"><input class="input" type="text" name="primary_color_text" value="<?= \App\View::e($partnerData['primary_color'] ?? '#E61E4D') ?>" data-sync-color></div></label>
     <h2 class="section-title">Configuration SMTP</h2>

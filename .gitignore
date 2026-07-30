@@ -4,9 +4,11 @@ db/config.php
 images/logo/*
 images/listings/*
 images/others/*
+images/catalog/*
 !images/logo/.gitkeep
 !images/listings/.gitkeep
 !images/others/.gitkeep
+!images/catalog/.gitkeep
 files/storage/logs/
 files/storage/cache/
 deployment-package.zip

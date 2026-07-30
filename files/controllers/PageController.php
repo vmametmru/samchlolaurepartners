@@ -23,6 +23,7 @@ use Throwable;
 final class PageController extends Controller
 {
     private const ALLOWED_LOGO_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+    private const ALLOWED_CATALOG_EXTENSIONS = ['pdf'];
     private const ALLOWED_TEMPLATE_ASSET_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
 
     /**
@@ -652,7 +653,12 @@ final class PageController extends Controller
     {
         $user = self::requirePartnerUser();
         $requests = ReservationsController::listForPartner((int) $user['partner_id']);
-        View::render('pages/partner-dashboard', ['pageTitle' => 'Tableau de Bord partenaire', 'requests' => $requests]);
+        $partner = PartnersController::formData((int) $user['partner_id']);
+        View::render('pages/partner-dashboard', [
+            'pageTitle' => 'Tableau de Bord partenaire',
+            'requests' => $requests,
+            'catalogPdfUrl' => (string) ($partner['catalog_pdf_url'] ?? ''),
+        ]);
     }
 
     public static function partnerReservations(): void
@@ -791,16 +797,25 @@ final class PageController extends Controller
             $logoUrl = self::storePartnerLogo($partnerId) ?? '';
         }
 
-        Database::connection()->prepare('UPDATE partners SET name = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, checkin_info_url_fr = ?, checkin_info_url_en = ?, logo_url = ?, primary_color = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, updated_at = NOW() WHERE id = ?')->execute([
+        $catalogPdfUrl = (string) ($existing['catalog_pdf_url'] ?? '');
+        if (isset($_POST['remove_catalog_pdf']) && $_POST['remove_catalog_pdf'] === '1') {
+            self::deleteLocalAsset($catalogPdfUrl, '/images/catalog/');
+            $catalogPdfUrl = '';
+        }
+        if (!empty($_FILES['catalog_pdf']['name'])) {
+            self::deleteLocalAsset($catalogPdfUrl, '/images/catalog/');
+            $catalogPdfUrl = self::storePartnerCatalogPdf($partnerId) ?? '';
+        }
+
+        Database::connection()->prepare('UPDATE partners SET name = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, logo_url = ?, catalog_pdf_url = ?, primary_color = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, updated_at = NOW() WHERE id = ?')->execute([
             trim((string) ($_POST['name'] ?? '')),
             trim((string) ($_POST['email'] ?? '')),
             trim((string) ($_POST['phone'] ?? '')) ?: null,
             trim((string) ($_POST['facebook_url'] ?? '')) ?: null,
             trim((string) ($_POST['tiktok_url'] ?? '')) ?: null,
             trim((string) ($_POST['instagram_url'] ?? '')) ?: null,
-            trim((string) ($_POST['checkin_info_url_fr'] ?? '')) ?: null,
-            trim((string) ($_POST['checkin_info_url_en'] ?? '')) ?: null,
             $logoUrl !== '' ? $logoUrl : null,
+            $catalogPdfUrl !== '' ? $catalogPdfUrl : null,
             trim((string) ($_POST['primary_color'] ?? '#E61E4D')),
             trim((string) ($_POST['smtp_host'] ?? '')) ?: null,
             ($_POST['smtp_port'] ?? '') !== '' ? (int) $_POST['smtp_port'] : null,
@@ -979,8 +994,6 @@ final class PageController extends Controller
             'facebook_url' => '',
             'tiktok_url' => '',
             'instagram_url' => '',
-            'checkin_info_url_fr' => '',
-            'checkin_info_url_en' => '',
         ];
         View::render('pages/admin-partner-form', ['pageTitle' => $id ? 'Modifier partenaire' : 'Nouveau partenaire', 'partnerData' => $partner, 'editing' => $id !== null]);
     }
@@ -1002,19 +1015,31 @@ final class PageController extends Controller
             $logoUrl = self::storePartnerLogo($uploadedId) ?? '';
         }
 
+        // Resolve catalogue PDF: upload new file, remove existing, or keep as-is.
+        $existingCatalogPdfUrl = $id !== null ? (string) (PartnersController::formData($id)['catalog_pdf_url'] ?? '') : '';
+        $catalogPdfUrl = $existingCatalogPdfUrl;
+        if (isset($_POST['remove_catalog_pdf']) && $_POST['remove_catalog_pdf'] === '1') {
+            self::deleteLocalAsset($catalogPdfUrl, '/images/catalog/');
+            $catalogPdfUrl = '';
+        }
+        if (!empty($_FILES['catalog_pdf']['name'])) {
+            self::deleteLocalAsset($catalogPdfUrl, '/images/catalog/');
+            $uploadedId = $id ?? 0;
+            $catalogPdfUrl = self::storePartnerCatalogPdf($uploadedId) ?? '';
+        }
+
         if ($id === null) {
-            Database::connection()->prepare('INSERT INTO partners (subdomain, name, logo_url, primary_color, email, phone, facebook_url, tiktok_url, instagram_url, checkin_info_url_fr, checkin_info_url_en, markup_percent, cleaning_fee_per_person_per_night, smtp_host, smtp_port, smtp_user, smtp_pass, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([
+            Database::connection()->prepare('INSERT INTO partners (subdomain, name, logo_url, catalog_pdf_url, primary_color, email, phone, facebook_url, tiktok_url, instagram_url, markup_percent, cleaning_fee_per_person_per_night, smtp_host, smtp_port, smtp_user, smtp_pass, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([
                 trim((string) ($_POST['subdomain'] ?? '')),
                 trim((string) ($_POST['name'] ?? '')),
                 $logoUrl !== '' ? $logoUrl : null,
+                $catalogPdfUrl !== '' ? $catalogPdfUrl : null,
                 trim((string) ($_POST['primary_color'] ?? '#E61E4D')),
                 trim((string) ($_POST['email'] ?? '')),
                 trim((string) ($_POST['phone'] ?? '')) ?: null,
                 trim((string) ($_POST['facebook_url'] ?? '')) ?: null,
                 trim((string) ($_POST['tiktok_url'] ?? '')) ?: null,
                 trim((string) ($_POST['instagram_url'] ?? '')) ?: null,
-                trim((string) ($_POST['checkin_info_url_fr'] ?? '')) ?: null,
-                trim((string) ($_POST['checkin_info_url_en'] ?? '')) ?: null,
                 (float) ($_POST['markup_percent'] ?? 0),
                 (float) ($_POST['cleaning_fee_per_person_per_night'] ?? 0),
                 trim((string) ($_POST['smtp_host'] ?? '')) ?: null,
@@ -1024,17 +1049,16 @@ final class PageController extends Controller
                 isset($_POST['active']) ? 1 : 0,
             ]);
         } else {
-            Database::connection()->prepare('UPDATE partners SET name = ?, logo_url = ?, primary_color = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, checkin_info_url_fr = ?, checkin_info_url_en = ?, markup_percent = ?, cleaning_fee_per_person_per_night = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?')->execute([
+            Database::connection()->prepare('UPDATE partners SET name = ?, logo_url = ?, catalog_pdf_url = ?, primary_color = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, markup_percent = ?, cleaning_fee_per_person_per_night = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?')->execute([
                 trim((string) ($_POST['name'] ?? '')),
                 $logoUrl !== '' ? $logoUrl : null,
+                $catalogPdfUrl !== '' ? $catalogPdfUrl : null,
                 trim((string) ($_POST['primary_color'] ?? '#E61E4D')),
                 trim((string) ($_POST['email'] ?? '')),
                 trim((string) ($_POST['phone'] ?? '')) ?: null,
                 trim((string) ($_POST['facebook_url'] ?? '')) ?: null,
                 trim((string) ($_POST['tiktok_url'] ?? '')) ?: null,
                 trim((string) ($_POST['instagram_url'] ?? '')) ?: null,
-                trim((string) ($_POST['checkin_info_url_fr'] ?? '')) ?: null,
-                trim((string) ($_POST['checkin_info_url_en'] ?? '')) ?: null,
                 (float) ($_POST['markup_percent'] ?? 0),
                 (float) ($_POST['cleaning_fee_per_person_per_night'] ?? 0),
                 trim((string) ($_POST['smtp_host'] ?? '')) ?: null,
@@ -1879,13 +1903,15 @@ TEXT;
             $priceSnapshot = $client->getPriceStatusSnapshot($propertyId);
             $cacheStatus = $client->getCacheStatus($propertyId);
             $rateSettings = $client->getPropertyRateSettings($propertyId);
-            $manual = $manualOverrides[$propertyId] ?? ['sofa_bed_count' => null, 'min_people' => null, 'extra_person_fee' => null, 'vat_rate' => null];
+            $manual = $manualOverrides[$propertyId] ?? ['sofa_bed_count' => null, 'min_people' => null, 'extra_person_fee' => null, 'vat_rate' => null, 'checkin_info_url_fr' => null, 'checkin_info_url_en' => null];
             $row = $property + $priceSnapshot + $cacheStatus + ['cleaning_fee' => $rateSettings['cleaning_fee']];
             // Manual columns override Lodgify values (use explicit assignment, not +, to guarantee override)
             $row['sofa_bed_count'] = $manual['sofa_bed_count'];
             $row['min_people'] = $manual['min_people'];
             $row['extra_person_fee'] = $manual['extra_person_fee'];
             $row['vat_rate'] = $manual['vat_rate'];
+            $row['checkin_info_url_fr'] = $manual['checkin_info_url_fr'];
+            $row['checkin_info_url_en'] = $manual['checkin_info_url_en'];
             // Best-effort VAT rate read live from Lodgify (never persisted,
             // never written into the manual override column): shown as a
             // reference "VAT (Lodgify)" column so the admin can see what
@@ -1930,23 +1956,30 @@ TEXT;
             $manualInput = [];
         }
         $pdo = Database::connection();
-        // vat_rate was added by migration 030; if it hasn't applied yet on a
-        // given install, fall back to saving without it rather than failing
-        // the whole admin save with "Unknown column 'vat_rate'".
+        // vat_rate was added by migration 030 and checkin_info_url_fr/en by
+        // migration 036; if either hasn't applied yet on a given install,
+        // fall back to saving without it rather than failing the whole
+        // admin save with "Unknown column ...".
         $hasVatRate = Database::columnExists('lodgify_property_manual_columns', 'vat_rate');
+        $hasCheckinUrls = Database::columnExists('lodgify_property_manual_columns', 'checkin_info_url_fr');
+        $columns = ['property_id', 'sofa_bed_count', 'min_people', 'extra_person_fee'];
         if ($hasVatRate) {
-            $save = $pdo->prepare(
-                'INSERT INTO lodgify_property_manual_columns (property_id, sofa_bed_count, min_people, extra_person_fee, vat_rate)
-                 VALUES (?, ?, ?, ?, ?)
-                 ON DUPLICATE KEY UPDATE sofa_bed_count = VALUES(sofa_bed_count), min_people = VALUES(min_people), extra_person_fee = VALUES(extra_person_fee), vat_rate = VALUES(vat_rate), updated_at = NOW()'
-            );
-        } else {
-            $save = $pdo->prepare(
-                'INSERT INTO lodgify_property_manual_columns (property_id, sofa_bed_count, min_people, extra_person_fee)
-                 VALUES (?, ?, ?, ?)
-                 ON DUPLICATE KEY UPDATE sofa_bed_count = VALUES(sofa_bed_count), min_people = VALUES(min_people), extra_person_fee = VALUES(extra_person_fee), updated_at = NOW()'
-            );
+            $columns[] = 'vat_rate';
         }
+        if ($hasCheckinUrls) {
+            $columns[] = 'checkin_info_url_fr';
+            $columns[] = 'checkin_info_url_en';
+        }
+        $placeholders = implode(', ', array_fill(0, count($columns), '?'));
+        $updates = implode(', ', array_map(
+            static fn(string $column): string => $column . ' = VALUES(' . $column . ')',
+            array_slice($columns, 1)
+        ));
+        $save = $pdo->prepare(
+            'INSERT INTO lodgify_property_manual_columns (' . implode(', ', $columns) . ')
+             VALUES (' . $placeholders . ')
+             ON DUPLICATE KEY UPDATE ' . $updates . ', updated_at = NOW()'
+        );
         $delete = $pdo->prepare('DELETE FROM lodgify_property_manual_columns WHERE property_id = ?');
 
         foreach ($properties as $property) {
@@ -1963,13 +1996,19 @@ TEXT;
             $minPeople = self::parseNullableInt($raw['min_people'] ?? null);
             $extraPersonFee = self::parseNullableFloat($raw['extra_person_fee'] ?? null);
             $vatRate = self::parseNullableFloat($raw['vat_rate'] ?? null);
-            if ($sofa === null && $minPeople === null && $extraPersonFee === null && $vatRate === null) {
+            $checkinUrlFr = trim((string) ($raw['checkin_info_url_fr'] ?? '')) ?: null;
+            $checkinUrlEn = trim((string) ($raw['checkin_info_url_en'] ?? '')) ?: null;
+            if ($sofa === null && $minPeople === null && $extraPersonFee === null && $vatRate === null && $checkinUrlFr === null && $checkinUrlEn === null) {
                 $delete->execute([$propertyId]);
                 continue;
             }
             $params = [$propertyId, $sofa, $minPeople, $extraPersonFee];
             if ($hasVatRate) {
                 $params[] = $vatRate;
+            }
+            if ($hasCheckinUrls) {
+                $params[] = $checkinUrlFr;
+                $params[] = $checkinUrlEn;
             }
             $save->execute($params);
         }
@@ -1978,20 +2017,24 @@ TEXT;
 
     /**
      * @param array<int> $propertyIds
-     * @return array<int, array{sofa_bed_count: ?int, min_people: ?int, extra_person_fee: ?float, vat_rate: ?float}>
+     * @return array<int, array{sofa_bed_count: ?int, min_people: ?int, extra_person_fee: ?float, vat_rate: ?float, checkin_info_url_fr: ?string, checkin_info_url_en: ?string}>
      */
-    private static function manualLodgifyColumnsByPropertyId(array $propertyIds): array
+    public static function manualLodgifyColumnsByPropertyId(array $propertyIds): array
     {
         $ids = array_values(array_filter(array_map('intval', $propertyIds), static fn(int $id): bool => $id > 0));
         if ($ids === []) {
             return [];
         }
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
-        // vat_rate was added by migration 030; if it hasn't applied yet on a
-        // given install, fall back to selecting without it rather than
-        // failing the whole page with "Unknown column 'vat_rate'".
+        // vat_rate was added by migration 030 and checkin_info_url_fr/en by
+        // migration 036; if either hasn't applied yet on a given install,
+        // fall back to selecting without it rather than failing the whole
+        // page with "Unknown column ...".
         $hasVatRate = Database::columnExists('lodgify_property_manual_columns', 'vat_rate');
-        $columns = 'property_id, sofa_bed_count, min_people, extra_person_fee' . ($hasVatRate ? ', vat_rate' : '');
+        $hasCheckinUrls = Database::columnExists('lodgify_property_manual_columns', 'checkin_info_url_fr');
+        $columns = 'property_id, sofa_bed_count, min_people, extra_person_fee'
+            . ($hasVatRate ? ', vat_rate' : '')
+            . ($hasCheckinUrls ? ', checkin_info_url_fr, checkin_info_url_en' : '');
         $stmt = Database::connection()->prepare(
             'SELECT ' . $columns . '
              FROM lodgify_property_manual_columns
@@ -2010,6 +2053,8 @@ TEXT;
                 'min_people' => isset($row['min_people']) ? (int) $row['min_people'] : null,
                 'extra_person_fee' => isset($row['extra_person_fee']) ? (float) $row['extra_person_fee'] : null,
                 'vat_rate' => isset($row['vat_rate']) ? (float) $row['vat_rate'] : null,
+                'checkin_info_url_fr' => isset($row['checkin_info_url_fr']) && $row['checkin_info_url_fr'] !== '' ? (string) $row['checkin_info_url_fr'] : null,
+                'checkin_info_url_en' => isset($row['checkin_info_url_en']) && $row['checkin_info_url_en'] !== '' ? (string) $row['checkin_info_url_en'] : null,
             ];
         }
         return $result;
@@ -2295,6 +2340,49 @@ TEXT;
         return '/images/logo/' . $filename;
     }
 
+    /**
+     * Stores the partner's uploaded PDF catalogue (their full property
+     * listing, meant to be forwarded to their own clients), same pattern as
+     * storePartnerLogo() above. Used by both /admin/partners (admin form)
+     * and /partner/settings (partner self-service).
+     */
+    private static function storePartnerCatalogPdf(int $partnerId): ?string
+    {
+        $file = $_FILES['catalog_pdf'] ?? null;
+        if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            return null;
+        }
+        if (!is_uploaded_file((string) $file['tmp_name'])) {
+            return null;
+        }
+
+        $originalName = (string) ($file['name'] ?? '');
+        $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+        if (!in_array($extension, self::ALLOWED_CATALOG_EXTENSIONS, true)) {
+            throw new HttpException(400, 'Bad Request', 'Format de catalogue non supporté (PDF uniquement).');
+        }
+        if ((int) ($file['size'] ?? 0) > 20 * 1024 * 1024) {
+            throw new HttpException(400, 'Bad Request', 'Le catalogue ne doit pas dépasser 20 Mo.');
+        }
+        $mimeType = @mime_content_type((string) $file['tmp_name']) ?: '';
+        if ($mimeType !== 'application/pdf') {
+            throw new HttpException(400, 'Bad Request', 'Le fichier doit être un PDF valide.');
+        }
+
+        $dir = BASE_PATH . '/images/catalog';
+        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+            throw new HttpException(500, 'Internal Server Error', 'Impossible de créer le dossier de stockage des catalogues.');
+        }
+
+        $filename = 'partner-' . $partnerId . '-' . bin2hex(random_bytes(8)) . '.pdf';
+        $destination = $dir . '/' . $filename;
+        if (!move_uploaded_file((string) $file['tmp_name'], $destination)) {
+            throw new HttpException(500, 'Internal Server Error', 'Impossible d\'enregistrer le catalogue.');
+        }
+
+        return '/images/catalog/' . $filename;
+    }
+
     private static function storePartnerTemplateAsset(int $partnerId): ?string
     {
         $file = $_FILES['asset'] ?? null;
@@ -2404,7 +2492,12 @@ TEXT;
     public static function errorPage(int $statusCode, string $message): void
     {
         http_response_code($statusCode);
-        View::render('pages/error', ['pageTitle' => 'Erreur', 'message' => $message]);
+        // 4xx errors are client-side validation issues (e.g. a file too
+        // large or a bad format), not a server outage — showing "Service
+        // temporairement indisponible" for those is misleading, so only
+        // real server-side failures (5xx) get that title.
+        $title = ($statusCode >= 400 && $statusCode < 500) ? 'Requête invalide' : 'Service temporairement indisponible';
+        View::render('pages/error', ['pageTitle' => 'Erreur', 'message' => $message, 'title' => $title]);
     }
 
     /**
