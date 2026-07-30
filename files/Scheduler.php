@@ -119,7 +119,7 @@ SQL;
                     (int) $row['adults'],
                     (int) ($row['children'] ?? 0)
                 ),
-                'useful_info' => \App\controllers\ReservationsController::usefulInfoButtonHtml($row, $requestLanguage),
+                'useful_info' => \App\controllers\ReservationsController::usefulInfoButtonHtml((int) ($row['property_id'] ?? 0), $requestLanguage),
             ];
             $variables += \App\controllers\ReservationsController::stayVariables(
                 (string) $row['checkin_date'],
@@ -166,7 +166,7 @@ SQL;
                     // {{useful_info}} is rebuilt in French here too.
                     $partnerVariables = $variables;
                     if ($requestLanguage !== \App\I18n::DEFAULT_LANGUAGE) {
-                        $partnerVariables['useful_info'] = \App\controllers\ReservationsController::usefulInfoButtonHtml($row, \App\I18n::DEFAULT_LANGUAGE);
+                        $partnerVariables['useful_info'] = \App\controllers\ReservationsController::usefulInfoButtonHtml((int) ($row['property_id'] ?? 0), \App\I18n::DEFAULT_LANGUAGE);
                     }
                     Mailer::sendTemplatedEmail($row, $template, $partnerEmail, $partnerVariables, $embeds, (string) $row['client_email']);
                 } else {

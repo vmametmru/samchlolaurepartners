@@ -1188,7 +1188,7 @@ final class ReservationsController extends Controller
                 (int) ($input['adults'] ?? 0),
                 $childBreakdown['from3to12']
             ),
-            'useful_info' => self::usefulInfoButtonHtml($partner, $guestLanguage),
+            'useful_info' => self::usefulInfoButtonHtml((int) ($input['property_id'] ?? 0), $guestLanguage),
         ];
         $variables += self::stayVariables($checkin, $checkout, $childBreakdown['under3'], $childBreakdown['from3to12'], (int) ($input['adults'] ?? 0));
         $variables += self::requestQuoteVariables($input, $itemCount, (float) ($partner['markup_percent'] ?? 0));
@@ -1213,7 +1213,7 @@ final class ReservationsController extends Controller
         $partnerTemplate = self::findEmailTemplate($pdo, (int) $partner['id'], 'REQUEST_RECEIVED_PARTNER', I18n::DEFAULT_LANGUAGE);
         $partnerVariables = $variables;
         if ($guestLanguage !== I18n::DEFAULT_LANGUAGE) {
-            $partnerVariables['useful_info'] = self::usefulInfoButtonHtml($partner, I18n::DEFAULT_LANGUAGE);
+            $partnerVariables['useful_info'] = self::usefulInfoButtonHtml((int) ($input['property_id'] ?? 0), I18n::DEFAULT_LANGUAGE);
         }
         // Reply-To the client's own address on the partner-facing copy, so a
         // partner hitting "Reply" in their mailbox writes straight back to
@@ -1396,7 +1396,7 @@ final class ReservationsController extends Controller
                 (int) $request['adults'],
                 $childBreakdown['from3to12']
             ),
-            'useful_info' => self::usefulInfoButtonHtml($partner, $guestLanguage),
+            'useful_info' => self::usefulInfoButtonHtml((int) ($request['property_id'] ?? 0), $guestLanguage),
         ];
         $variables += self::stayVariables(
             (string) $request['checkin_date'],
@@ -2030,20 +2030,22 @@ final class ReservationsController extends Controller
     }
 
     /**
-     * Builds the {{useful_info}} email button: links to the partner's own
-     * check-in info URL (checkin_info_url_fr/checkin_info_url_en on the
-     * "partners" table, configured on the admin/partner-settings partner
-     * form), picking the URL matching the email's own language — English
-     * when $language is "en", French otherwise — so an English-language
-     * email always links to the English page even if only the French page
-     * is filled in for a French guest, and vice versa. Falls back to the
-     * other language's URL when the one for $language is empty, and
-     * returns '' (button omitted entirely) when neither is configured.
+     * Builds the {{useful_info}} email button: links to the property's own
+     * check-in info URL (checkin_info_url_fr/checkin_info_url_en manual
+     * columns on "lodgify_property_manual_columns", configured per-property
+     * in the admin "Biens Lodgify" table), picking the URL matching the
+     * email's own language — English when $language is "en", French
+     * otherwise — so an English-language email always links to the English
+     * page even if only the French page is filled in for a French guest,
+     * and vice versa. Falls back to the other language's URL when the one
+     * for $language is empty, and returns '' (button omitted entirely) when
+     * neither is configured for this property.
      */
-    public static function usefulInfoButtonHtml(array $partner, string $language): string
+    public static function usefulInfoButtonHtml(int $propertyId, string $language): string
     {
-        $urlFr = trim((string) ($partner['checkin_info_url_fr'] ?? ''));
-        $urlEn = trim((string) ($partner['checkin_info_url_en'] ?? ''));
+        $manual = PageController::manualLodgifyColumnsByPropertyId([$propertyId])[$propertyId] ?? null;
+        $urlFr = trim((string) ($manual['checkin_info_url_fr'] ?? ''));
+        $urlEn = trim((string) ($manual['checkin_info_url_en'] ?? ''));
         $isEnglish = $language === 'en';
         $url = $isEnglish ? ($urlEn !== '' ? $urlEn : $urlFr) : ($urlFr !== '' ? $urlFr : $urlEn);
         if ($url === '') {

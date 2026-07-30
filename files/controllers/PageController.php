@@ -791,15 +791,13 @@ final class PageController extends Controller
             $logoUrl = self::storePartnerLogo($partnerId) ?? '';
         }
 
-        Database::connection()->prepare('UPDATE partners SET name = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, checkin_info_url_fr = ?, checkin_info_url_en = ?, logo_url = ?, primary_color = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, updated_at = NOW() WHERE id = ?')->execute([
+        Database::connection()->prepare('UPDATE partners SET name = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, logo_url = ?, primary_color = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, updated_at = NOW() WHERE id = ?')->execute([
             trim((string) ($_POST['name'] ?? '')),
             trim((string) ($_POST['email'] ?? '')),
             trim((string) ($_POST['phone'] ?? '')) ?: null,
             trim((string) ($_POST['facebook_url'] ?? '')) ?: null,
             trim((string) ($_POST['tiktok_url'] ?? '')) ?: null,
             trim((string) ($_POST['instagram_url'] ?? '')) ?: null,
-            trim((string) ($_POST['checkin_info_url_fr'] ?? '')) ?: null,
-            trim((string) ($_POST['checkin_info_url_en'] ?? '')) ?: null,
             $logoUrl !== '' ? $logoUrl : null,
             trim((string) ($_POST['primary_color'] ?? '#E61E4D')),
             trim((string) ($_POST['smtp_host'] ?? '')) ?: null,
@@ -979,8 +977,6 @@ final class PageController extends Controller
             'facebook_url' => '',
             'tiktok_url' => '',
             'instagram_url' => '',
-            'checkin_info_url_fr' => '',
-            'checkin_info_url_en' => '',
         ];
         View::render('pages/admin-partner-form', ['pageTitle' => $id ? 'Modifier partenaire' : 'Nouveau partenaire', 'partnerData' => $partner, 'editing' => $id !== null]);
     }
@@ -1003,7 +999,7 @@ final class PageController extends Controller
         }
 
         if ($id === null) {
-            Database::connection()->prepare('INSERT INTO partners (subdomain, name, logo_url, primary_color, email, phone, facebook_url, tiktok_url, instagram_url, checkin_info_url_fr, checkin_info_url_en, markup_percent, cleaning_fee_per_person_per_night, smtp_host, smtp_port, smtp_user, smtp_pass, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([
+            Database::connection()->prepare('INSERT INTO partners (subdomain, name, logo_url, primary_color, email, phone, facebook_url, tiktok_url, instagram_url, markup_percent, cleaning_fee_per_person_per_night, smtp_host, smtp_port, smtp_user, smtp_pass, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([
                 trim((string) ($_POST['subdomain'] ?? '')),
                 trim((string) ($_POST['name'] ?? '')),
                 $logoUrl !== '' ? $logoUrl : null,
@@ -1013,8 +1009,6 @@ final class PageController extends Controller
                 trim((string) ($_POST['facebook_url'] ?? '')) ?: null,
                 trim((string) ($_POST['tiktok_url'] ?? '')) ?: null,
                 trim((string) ($_POST['instagram_url'] ?? '')) ?: null,
-                trim((string) ($_POST['checkin_info_url_fr'] ?? '')) ?: null,
-                trim((string) ($_POST['checkin_info_url_en'] ?? '')) ?: null,
                 (float) ($_POST['markup_percent'] ?? 0),
                 (float) ($_POST['cleaning_fee_per_person_per_night'] ?? 0),
                 trim((string) ($_POST['smtp_host'] ?? '')) ?: null,
@@ -1024,7 +1018,7 @@ final class PageController extends Controller
                 isset($_POST['active']) ? 1 : 0,
             ]);
         } else {
-            Database::connection()->prepare('UPDATE partners SET name = ?, logo_url = ?, primary_color = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, checkin_info_url_fr = ?, checkin_info_url_en = ?, markup_percent = ?, cleaning_fee_per_person_per_night = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?')->execute([
+            Database::connection()->prepare('UPDATE partners SET name = ?, logo_url = ?, primary_color = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, markup_percent = ?, cleaning_fee_per_person_per_night = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?')->execute([
                 trim((string) ($_POST['name'] ?? '')),
                 $logoUrl !== '' ? $logoUrl : null,
                 trim((string) ($_POST['primary_color'] ?? '#E61E4D')),
@@ -1033,8 +1027,6 @@ final class PageController extends Controller
                 trim((string) ($_POST['facebook_url'] ?? '')) ?: null,
                 trim((string) ($_POST['tiktok_url'] ?? '')) ?: null,
                 trim((string) ($_POST['instagram_url'] ?? '')) ?: null,
-                trim((string) ($_POST['checkin_info_url_fr'] ?? '')) ?: null,
-                trim((string) ($_POST['checkin_info_url_en'] ?? '')) ?: null,
                 (float) ($_POST['markup_percent'] ?? 0),
                 (float) ($_POST['cleaning_fee_per_person_per_night'] ?? 0),
                 trim((string) ($_POST['smtp_host'] ?? '')) ?: null,
@@ -1879,13 +1871,15 @@ TEXT;
             $priceSnapshot = $client->getPriceStatusSnapshot($propertyId);
             $cacheStatus = $client->getCacheStatus($propertyId);
             $rateSettings = $client->getPropertyRateSettings($propertyId);
-            $manual = $manualOverrides[$propertyId] ?? ['sofa_bed_count' => null, 'min_people' => null, 'extra_person_fee' => null, 'vat_rate' => null];
+            $manual = $manualOverrides[$propertyId] ?? ['sofa_bed_count' => null, 'min_people' => null, 'extra_person_fee' => null, 'vat_rate' => null, 'checkin_info_url_fr' => null, 'checkin_info_url_en' => null];
             $row = $property + $priceSnapshot + $cacheStatus + ['cleaning_fee' => $rateSettings['cleaning_fee']];
             // Manual columns override Lodgify values (use explicit assignment, not +, to guarantee override)
             $row['sofa_bed_count'] = $manual['sofa_bed_count'];
             $row['min_people'] = $manual['min_people'];
             $row['extra_person_fee'] = $manual['extra_person_fee'];
             $row['vat_rate'] = $manual['vat_rate'];
+            $row['checkin_info_url_fr'] = $manual['checkin_info_url_fr'];
+            $row['checkin_info_url_en'] = $manual['checkin_info_url_en'];
             // Best-effort VAT rate read live from Lodgify (never persisted,
             // never written into the manual override column): shown as a
             // reference "VAT (Lodgify)" column so the admin can see what
@@ -1930,23 +1924,30 @@ TEXT;
             $manualInput = [];
         }
         $pdo = Database::connection();
-        // vat_rate was added by migration 030; if it hasn't applied yet on a
-        // given install, fall back to saving without it rather than failing
-        // the whole admin save with "Unknown column 'vat_rate'".
+        // vat_rate was added by migration 030 and checkin_info_url_fr/en by
+        // migration 036; if either hasn't applied yet on a given install,
+        // fall back to saving without it rather than failing the whole
+        // admin save with "Unknown column ...".
         $hasVatRate = Database::columnExists('lodgify_property_manual_columns', 'vat_rate');
+        $hasCheckinUrls = Database::columnExists('lodgify_property_manual_columns', 'checkin_info_url_fr');
+        $columns = ['property_id', 'sofa_bed_count', 'min_people', 'extra_person_fee'];
         if ($hasVatRate) {
-            $save = $pdo->prepare(
-                'INSERT INTO lodgify_property_manual_columns (property_id, sofa_bed_count, min_people, extra_person_fee, vat_rate)
-                 VALUES (?, ?, ?, ?, ?)
-                 ON DUPLICATE KEY UPDATE sofa_bed_count = VALUES(sofa_bed_count), min_people = VALUES(min_people), extra_person_fee = VALUES(extra_person_fee), vat_rate = VALUES(vat_rate), updated_at = NOW()'
-            );
-        } else {
-            $save = $pdo->prepare(
-                'INSERT INTO lodgify_property_manual_columns (property_id, sofa_bed_count, min_people, extra_person_fee)
-                 VALUES (?, ?, ?, ?)
-                 ON DUPLICATE KEY UPDATE sofa_bed_count = VALUES(sofa_bed_count), min_people = VALUES(min_people), extra_person_fee = VALUES(extra_person_fee), updated_at = NOW()'
-            );
+            $columns[] = 'vat_rate';
         }
+        if ($hasCheckinUrls) {
+            $columns[] = 'checkin_info_url_fr';
+            $columns[] = 'checkin_info_url_en';
+        }
+        $placeholders = implode(', ', array_fill(0, count($columns), '?'));
+        $updates = implode(', ', array_map(
+            static fn(string $column): string => $column . ' = VALUES(' . $column . ')',
+            array_slice($columns, 1)
+        ));
+        $save = $pdo->prepare(
+            'INSERT INTO lodgify_property_manual_columns (' . implode(', ', $columns) . ')
+             VALUES (' . $placeholders . ')
+             ON DUPLICATE KEY UPDATE ' . $updates . ', updated_at = NOW()'
+        );
         $delete = $pdo->prepare('DELETE FROM lodgify_property_manual_columns WHERE property_id = ?');
 
         foreach ($properties as $property) {
@@ -1963,13 +1964,19 @@ TEXT;
             $minPeople = self::parseNullableInt($raw['min_people'] ?? null);
             $extraPersonFee = self::parseNullableFloat($raw['extra_person_fee'] ?? null);
             $vatRate = self::parseNullableFloat($raw['vat_rate'] ?? null);
-            if ($sofa === null && $minPeople === null && $extraPersonFee === null && $vatRate === null) {
+            $checkinUrlFr = trim((string) ($raw['checkin_info_url_fr'] ?? '')) ?: null;
+            $checkinUrlEn = trim((string) ($raw['checkin_info_url_en'] ?? '')) ?: null;
+            if ($sofa === null && $minPeople === null && $extraPersonFee === null && $vatRate === null && $checkinUrlFr === null && $checkinUrlEn === null) {
                 $delete->execute([$propertyId]);
                 continue;
             }
             $params = [$propertyId, $sofa, $minPeople, $extraPersonFee];
             if ($hasVatRate) {
                 $params[] = $vatRate;
+            }
+            if ($hasCheckinUrls) {
+                $params[] = $checkinUrlFr;
+                $params[] = $checkinUrlEn;
             }
             $save->execute($params);
         }
@@ -1978,20 +1985,24 @@ TEXT;
 
     /**
      * @param array<int> $propertyIds
-     * @return array<int, array{sofa_bed_count: ?int, min_people: ?int, extra_person_fee: ?float, vat_rate: ?float}>
+     * @return array<int, array{sofa_bed_count: ?int, min_people: ?int, extra_person_fee: ?float, vat_rate: ?float, checkin_info_url_fr: ?string, checkin_info_url_en: ?string}>
      */
-    private static function manualLodgifyColumnsByPropertyId(array $propertyIds): array
+    public static function manualLodgifyColumnsByPropertyId(array $propertyIds): array
     {
         $ids = array_values(array_filter(array_map('intval', $propertyIds), static fn(int $id): bool => $id > 0));
         if ($ids === []) {
             return [];
         }
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
-        // vat_rate was added by migration 030; if it hasn't applied yet on a
-        // given install, fall back to selecting without it rather than
-        // failing the whole page with "Unknown column 'vat_rate'".
+        // vat_rate was added by migration 030 and checkin_info_url_fr/en by
+        // migration 036; if either hasn't applied yet on a given install,
+        // fall back to selecting without it rather than failing the whole
+        // page with "Unknown column ...".
         $hasVatRate = Database::columnExists('lodgify_property_manual_columns', 'vat_rate');
-        $columns = 'property_id, sofa_bed_count, min_people, extra_person_fee' . ($hasVatRate ? ', vat_rate' : '');
+        $hasCheckinUrls = Database::columnExists('lodgify_property_manual_columns', 'checkin_info_url_fr');
+        $columns = 'property_id, sofa_bed_count, min_people, extra_person_fee'
+            . ($hasVatRate ? ', vat_rate' : '')
+            . ($hasCheckinUrls ? ', checkin_info_url_fr, checkin_info_url_en' : '');
         $stmt = Database::connection()->prepare(
             'SELECT ' . $columns . '
              FROM lodgify_property_manual_columns
@@ -2010,6 +2021,8 @@ TEXT;
                 'min_people' => isset($row['min_people']) ? (int) $row['min_people'] : null,
                 'extra_person_fee' => isset($row['extra_person_fee']) ? (float) $row['extra_person_fee'] : null,
                 'vat_rate' => isset($row['vat_rate']) ? (float) $row['vat_rate'] : null,
+                'checkin_info_url_fr' => isset($row['checkin_info_url_fr']) && $row['checkin_info_url_fr'] !== '' ? (string) $row['checkin_info_url_fr'] : null,
+                'checkin_info_url_en' => isset($row['checkin_info_url_en']) && $row['checkin_info_url_en'] !== '' ? (string) $row['checkin_info_url_en'] : null,
             ];
         }
         return $result;

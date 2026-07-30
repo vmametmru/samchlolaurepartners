@@ -9,8 +9,6 @@
     <label><span>Page Facebook</span><input class="input" type="url" name="facebook_url" placeholder="https://facebook.com/..." value="<?= \App\View::e($partnerData['facebook_url'] ?? '') ?>"></label>
     <label><span>Page TikTok</span><input class="input" type="url" name="tiktok_url" placeholder="https://tiktok.com/@..." value="<?= \App\View::e($partnerData['tiktok_url'] ?? '') ?>"></label>
     <label><span>Page Instagram</span><input class="input" type="url" name="instagram_url" placeholder="https://instagram.com/..." value="<?= \App\View::e($partnerData['instagram_url'] ?? '') ?>"></label>
-    <label><span>URL Renseignements utiles à l'enregistrement (FR)</span><input class="input" type="url" name="checkin_info_url_fr" value="<?= \App\View::e($partnerData['checkin_info_url_fr'] ?? '') ?>"></label>
-    <label><span>URL Useful check-in informations (EN)</span><input class="input" type="url" name="checkin_info_url_en" value="<?= \App\View::e($partnerData['checkin_info_url_en'] ?? '') ?>"></label>
     <div class="logo-upload-card">
       <label><span>Logo</span><input class="input" type="file" name="logo" accept="image/png,image/jpeg,image/gif,image/webp"></label>
       <?php if (!empty($partnerData['logo_url'])): ?>
