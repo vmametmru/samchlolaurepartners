@@ -13,10 +13,14 @@
           $fieldLabel = $fieldName === 'name' ? 'Nom' : ($fieldName === 'amenities' ? 'Équipements' : 'Description');
           $sourceId = 'translation-source-' . $row['id'] . '-' . $fieldName;
           $targetId = 'translation-fr-' . $row['id'] . '-' . $fieldName;
+          $targetEnId = 'translation-en-' . $row['id'] . '-' . $fieldName;
           $hasLodgifyFr = trim($field['lodgify_fr']) !== '';
           $placeholder = $fieldName === 'amenities'
             ? 'Laissez vide pour utiliser les équipements Lodgify (un par ligne : "Catégorie: équipement 1, équipement 2")'
             : ($hasLodgifyFr ? 'Laissez vide pour utiliser la traduction Lodgify' : 'Laissez vide pour utiliser le texte anglais');
+          $placeholderEn = $fieldName === 'amenities'
+            ? 'Laissez vide pour utiliser les équipements Lodgify (un par ligne : "Catégorie: équipement 1, équipement 2")'
+            : 'Laissez vide pour utiliser le texte anglais Lodgify';
         ?>
         <div class="stack-sm">
           <h3><?= \App\View::e($fieldLabel) ?><?php if ($hasLodgifyFr): ?> <span class="badge badge-fresh">Traduit dans Lodgify</span><?php else: ?> <span class="badge badge-stale">Absent de Lodgify</span><?php endif; ?></h3>
@@ -27,9 +31,20 @@
           <form method="post" action="/admin/translations/save" class="stack-sm">
             <input type="hidden" name="property_id" value="<?= (int) $row['id'] ?>">
             <input type="hidden" name="field" value="<?= \App\View::e($fieldName) ?>">
-            <label><span>Français (traduction manuelle)</span><textarea class="input" id="<?= \App\View::e($targetId) ?>" name="text" rows="6" placeholder="<?= \App\View::e($placeholder) ?>"><?= \App\View::e($field['manual_fr']) ?></textarea></label>
+            <input type="hidden" name="language" value="fr">
+            <label><span>Français (overwrite)</span><textarea class="input" id="<?= \App\View::e($targetId) ?>" name="text" rows="6" placeholder="<?= \App\View::e($placeholder) ?>"><?= \App\View::e($field['manual_fr']) ?></textarea></label>
             <div class="button-row">
               <button class="btn-secondary" type="button" data-suggest-translation="#<?= \App\View::e($targetId) ?>" data-suggest-source="#<?= \App\View::e($sourceId) ?>">Suggérer</button>
+              <button class="btn-primary" type="submit">Sauvegarder</button>
+            </div>
+          </form>
+          <form method="post" action="/admin/translations/save" class="stack-sm">
+            <input type="hidden" name="property_id" value="<?= (int) $row['id'] ?>">
+            <input type="hidden" name="field" value="<?= \App\View::e($fieldName) ?>">
+            <input type="hidden" name="language" value="en">
+            <label><span>Anglais (overwrite)</span><textarea class="input" id="<?= \App\View::e($targetEnId) ?>" name="text" rows="6" placeholder="<?= \App\View::e($placeholderEn) ?>"><?= \App\View::e($field['manual_en']) ?></textarea></label>
+            <div class="button-row">
+              <button class="btn-secondary" type="button" data-suggest-translation="#<?= \App\View::e($targetEnId) ?>" data-suggest-source="#<?= \App\View::e($sourceId) ?>">Suggérer</button>
               <button class="btn-primary" type="submit">Sauvegarder</button>
             </div>
           </form>
