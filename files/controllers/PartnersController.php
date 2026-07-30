@@ -16,7 +16,7 @@ final class PartnersController extends Controller
     public static function index(): never
     {
         Auth::requireUser(true);
-        $rows = Database::connection()->query('SELECT id, subdomain, name, logo_url, primary_color, email, phone, facebook_url, tiktok_url, instagram_url, markup_percent, cleaning_fee_per_person_per_night, tourist_tax_per_person_per_night, active, created_at, updated_at FROM partners ORDER BY name')->fetchAll(PDO::FETCH_ASSOC);
+        $rows = Database::connection()->query('SELECT id, subdomain, name, logo_url, primary_color, email, phone, facebook_url, tiktok_url, instagram_url, checkin_info_url_fr, checkin_info_url_en, markup_percent, cleaning_fee_per_person_per_night, tourist_tax_per_person_per_night, active, created_at, updated_at FROM partners ORDER BY name')->fetchAll(PDO::FETCH_ASSOC);
         self::json(['data' => $rows]);
     }
 
@@ -51,8 +51,8 @@ final class PartnersController extends Controller
 
         try {
             $stmt = Database::connection()->prepare(
-                'INSERT INTO partners (subdomain, name, logo_url, primary_color, email, phone, facebook_url, tiktok_url, instagram_url, markup_percent, cleaning_fee_per_person_per_night, tourist_tax_per_person_per_night, smtp_host, smtp_port, smtp_user, smtp_pass)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO partners (subdomain, name, logo_url, primary_color, email, phone, facebook_url, tiktok_url, instagram_url, checkin_info_url_fr, checkin_info_url_en, markup_percent, cleaning_fee_per_person_per_night, tourist_tax_per_person_per_night, smtp_host, smtp_port, smtp_user, smtp_pass)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
             $stmt->execute([
                 (string) $input['subdomain'],
@@ -64,6 +64,8 @@ final class PartnersController extends Controller
                 self::nullableString($input['facebook_url'] ?? null),
                 self::nullableString($input['tiktok_url'] ?? null),
                 self::nullableString($input['instagram_url'] ?? null),
+                self::nullableString($input['checkin_info_url_fr'] ?? null),
+                self::nullableString($input['checkin_info_url_en'] ?? null),
                 self::decimal($input['markup_percent'] ?? 0),
                 self::decimal($input['cleaning_fee_per_person_per_night'] ?? 0),
                 self::decimal($input['tourist_tax_per_person_per_night'] ?? 0),
@@ -93,7 +95,7 @@ final class PartnersController extends Controller
         $input = self::input();
         try {
             $stmt = Database::connection()->prepare(
-                'UPDATE partners SET name = ?, logo_url = ?, primary_color = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, markup_percent = ?, cleaning_fee_per_person_per_night = ?, tourist_tax_per_person_per_night = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?'
+                'UPDATE partners SET name = ?, logo_url = ?, primary_color = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, checkin_info_url_fr = ?, checkin_info_url_en = ?, markup_percent = ?, cleaning_fee_per_person_per_night = ?, tourist_tax_per_person_per_night = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?'
             );
             $stmt->execute([
                 self::nullableString($input['name'] ?? null),
@@ -104,6 +106,8 @@ final class PartnersController extends Controller
                 self::nullableString($input['facebook_url'] ?? null),
                 self::nullableString($input['tiktok_url'] ?? null),
                 self::nullableString($input['instagram_url'] ?? null),
+                self::nullableString($input['checkin_info_url_fr'] ?? null),
+                self::nullableString($input['checkin_info_url_en'] ?? null),
                 self::decimal($input['markup_percent'] ?? 0),
                 self::decimal($input['cleaning_fee_per_person_per_night'] ?? 0),
                 self::decimal($input['tourist_tax_per_person_per_night'] ?? 0),

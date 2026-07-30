@@ -9,6 +9,8 @@
     <label><span>Page Facebook</span><input class="input" type="url" name="facebook_url" value="<?= \App\View::e($partnerData['facebook_url'] ?? '') ?>"></label>
     <label><span>Page TikTok</span><input class="input" type="url" name="tiktok_url" value="<?= \App\View::e($partnerData['tiktok_url'] ?? '') ?>"></label>
     <label><span>Page Instagram</span><input class="input" type="url" name="instagram_url" value="<?= \App\View::e($partnerData['instagram_url'] ?? '') ?>"></label>
+    <label><span>URL Renseignements utiles à l'enregistrement (FR)</span><input class="input" type="url" name="checkin_info_url_fr" value="<?= \App\View::e($partnerData['checkin_info_url_fr'] ?? '') ?>"></label>
+    <label><span>URL Useful check-in informations (EN)</span><input class="input" type="url" name="checkin_info_url_en" value="<?= \App\View::e($partnerData['checkin_info_url_en'] ?? '') ?>"></label>
     <label><span>Marge % *</span><input class="input" type="number" name="markup_percent" min="0" max="100" step="0.5" value="<?= \App\View::e((string) ($partnerData['markup_percent'] ?? 0)) ?>"></label>
     <label><span>Nettoyage (coût par nuit et par personne) *</span><input class="input" type="number" name="cleaning_fee_per_person_per_night" min="0" step="0.01" value="<?= \App\View::e((string) ($partnerData['cleaning_fee_per_person_per_night'] ?? 0)) ?>"></label>
     <div class="logo-upload-card">

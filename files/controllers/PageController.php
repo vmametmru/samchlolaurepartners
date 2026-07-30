@@ -791,13 +791,15 @@ final class PageController extends Controller
             $logoUrl = self::storePartnerLogo($partnerId) ?? '';
         }
 
-        Database::connection()->prepare('UPDATE partners SET name = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, logo_url = ?, primary_color = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, updated_at = NOW() WHERE id = ?')->execute([
+        Database::connection()->prepare('UPDATE partners SET name = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, checkin_info_url_fr = ?, checkin_info_url_en = ?, logo_url = ?, primary_color = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, updated_at = NOW() WHERE id = ?')->execute([
             trim((string) ($_POST['name'] ?? '')),
             trim((string) ($_POST['email'] ?? '')),
             trim((string) ($_POST['phone'] ?? '')) ?: null,
             trim((string) ($_POST['facebook_url'] ?? '')) ?: null,
             trim((string) ($_POST['tiktok_url'] ?? '')) ?: null,
             trim((string) ($_POST['instagram_url'] ?? '')) ?: null,
+            trim((string) ($_POST['checkin_info_url_fr'] ?? '')) ?: null,
+            trim((string) ($_POST['checkin_info_url_en'] ?? '')) ?: null,
             $logoUrl !== '' ? $logoUrl : null,
             trim((string) ($_POST['primary_color'] ?? '#E61E4D')),
             trim((string) ($_POST['smtp_host'] ?? '')) ?: null,
@@ -977,6 +979,8 @@ final class PageController extends Controller
             'facebook_url' => '',
             'tiktok_url' => '',
             'instagram_url' => '',
+            'checkin_info_url_fr' => '',
+            'checkin_info_url_en' => '',
         ];
         View::render('pages/admin-partner-form', ['pageTitle' => $id ? 'Modifier partenaire' : 'Nouveau partenaire', 'partnerData' => $partner, 'editing' => $id !== null]);
     }
@@ -999,7 +1003,7 @@ final class PageController extends Controller
         }
 
         if ($id === null) {
-            Database::connection()->prepare('INSERT INTO partners (subdomain, name, logo_url, primary_color, email, phone, facebook_url, tiktok_url, instagram_url, markup_percent, cleaning_fee_per_person_per_night, smtp_host, smtp_port, smtp_user, smtp_pass, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([
+            Database::connection()->prepare('INSERT INTO partners (subdomain, name, logo_url, primary_color, email, phone, facebook_url, tiktok_url, instagram_url, checkin_info_url_fr, checkin_info_url_en, markup_percent, cleaning_fee_per_person_per_night, smtp_host, smtp_port, smtp_user, smtp_pass, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([
                 trim((string) ($_POST['subdomain'] ?? '')),
                 trim((string) ($_POST['name'] ?? '')),
                 $logoUrl !== '' ? $logoUrl : null,
@@ -1009,6 +1013,8 @@ final class PageController extends Controller
                 trim((string) ($_POST['facebook_url'] ?? '')) ?: null,
                 trim((string) ($_POST['tiktok_url'] ?? '')) ?: null,
                 trim((string) ($_POST['instagram_url'] ?? '')) ?: null,
+                trim((string) ($_POST['checkin_info_url_fr'] ?? '')) ?: null,
+                trim((string) ($_POST['checkin_info_url_en'] ?? '')) ?: null,
                 (float) ($_POST['markup_percent'] ?? 0),
                 (float) ($_POST['cleaning_fee_per_person_per_night'] ?? 0),
                 trim((string) ($_POST['smtp_host'] ?? '')) ?: null,
@@ -1018,7 +1024,7 @@ final class PageController extends Controller
                 isset($_POST['active']) ? 1 : 0,
             ]);
         } else {
-            Database::connection()->prepare('UPDATE partners SET name = ?, logo_url = ?, primary_color = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, markup_percent = ?, cleaning_fee_per_person_per_night = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?')->execute([
+            Database::connection()->prepare('UPDATE partners SET name = ?, logo_url = ?, primary_color = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, checkin_info_url_fr = ?, checkin_info_url_en = ?, markup_percent = ?, cleaning_fee_per_person_per_night = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?')->execute([
                 trim((string) ($_POST['name'] ?? '')),
                 $logoUrl !== '' ? $logoUrl : null,
                 trim((string) ($_POST['primary_color'] ?? '#E61E4D')),
@@ -1027,6 +1033,8 @@ final class PageController extends Controller
                 trim((string) ($_POST['facebook_url'] ?? '')) ?: null,
                 trim((string) ($_POST['tiktok_url'] ?? '')) ?: null,
                 trim((string) ($_POST['instagram_url'] ?? '')) ?: null,
+                trim((string) ($_POST['checkin_info_url_fr'] ?? '')) ?: null,
+                trim((string) ($_POST['checkin_info_url_en'] ?? '')) ?: null,
                 (float) ($_POST['markup_percent'] ?? 0),
                 (float) ($_POST['cleaning_fee_per_person_per_night'] ?? 0),
                 trim((string) ($_POST['smtp_host'] ?? '')) ?: null,

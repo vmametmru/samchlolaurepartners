@@ -119,6 +119,7 @@ SQL;
                     (int) $row['adults'],
                     (int) ($row['children'] ?? 0)
                 ),
+                'useful_info' => \App\controllers\ReservationsController::usefulInfoButtonHtml($row, $requestLanguage),
             ];
             $variables += \App\controllers\ReservationsController::stayVariables(
                 (string) $row['checkin_date'],
@@ -160,7 +161,14 @@ SQL;
                     if ($partnerEmail === '') {
                         continue;
                     }
-                    Mailer::sendTemplatedEmail($row, $template, $partnerEmail, $variables, $embeds, (string) $row['client_email']);
+                    // Partner-facing copies always stay in French (see
+                    // ReservationsController::sendRequestEmails()), so
+                    // {{useful_info}} is rebuilt in French here too.
+                    $partnerVariables = $variables;
+                    if ($requestLanguage !== \App\I18n::DEFAULT_LANGUAGE) {
+                        $partnerVariables['useful_info'] = \App\controllers\ReservationsController::usefulInfoButtonHtml($row, \App\I18n::DEFAULT_LANGUAGE);
+                    }
+                    Mailer::sendTemplatedEmail($row, $template, $partnerEmail, $partnerVariables, $embeds, (string) $row['client_email']);
                 } else {
                     // REMINDER_CLIENT never leaks partner-only variables
                     // (commission, amount owed) even if a partner mistakenly
