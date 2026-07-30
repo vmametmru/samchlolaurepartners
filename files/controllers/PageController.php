@@ -384,10 +384,17 @@ final class PageController extends Controller
         return $checkout > $checkin;
     }
 
+    /**
+     * Live (cache-bypassing) availability check used by the email buttons:
+     * an email can sit unopened for days, so the answer given here must
+     * always come from Lodgify itself, never from the hourly cache. The
+     * fresh result then re-primes the cache for 30 minutes for everyone
+     * else (see LodgifyClient::LIVE_RECHECK_TTL).
+     */
     private static function isPropertyAvailableNow(int $id, string $arrival, string $departure): bool
     {
         try {
-            return (new LodgifyClient())->isAvailableForRange($id, $arrival, $departure);
+            return (new LodgifyClient())->isAvailableForRange($id, $arrival, $departure, true);
         } catch (Throwable $e) {
             error_log('Live availability check failed for property ' . $id . ': ' . $e->getMessage());
             return false;

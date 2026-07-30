@@ -21,11 +21,30 @@ final class LodgifyClient
      * ever refreshed by the manual "Synchroniser maintenant" admin action
      * (PageController::adminSync() -> Scheduler::syncLodgify()), which
      * explicitly invalidates these cache keys before refetching. Prices and
-     * availability are unaffected: they are always fetched live at search
-     * time (see getAvailability()/getRates(), never cached) or refreshed on
-     * their own short TTL (getPriceStatusSnapshot(), 30 min).
+     * availability have their own short TTLs (see AVAILABILITY_TTL /
+     * LIVE_RECHECK_TTL below and getPriceStatusSnapshot(), 30 min).
      */
     private const FICHE_TTL = 315360000;
+
+    /**
+     * TTL (1 hour) for availability and nightly rates. These used to be
+     * fetched live on every single page view: a search or the /calendrier
+     * board issues one Lodgify call per property (times two: availability +
+     * rates), which saturated the API/server and made the whole site answer
+     * "Service temporairement indisponible" under load. They are now cached
+     * per property + date range and refreshed at most once an hour.
+     */
+    private const AVAILABILITY_TTL = 3600;
+
+    /**
+     * TTL (30 minutes) applied when availability/rates are re-checked live,
+     * bypassing the hourly cache — i.e. when a guest clicks the
+     * "vérifier les disponibilités"/"réserver" button in an email
+     * (PageController::availabilityCheck()/bookingRedirect()). Such a check
+     * must never trust a stale cache, so it always re-queries Lodgify, and
+     * the fresh answer it gets then serves everybody else for 30 minutes.
+     */
+    private const LIVE_RECHECK_TTL = 1800;
 
     /**
      * Collects "/properties/{id}/rooms" fetch failures recorded by
@@ -922,8 +941,11 @@ final class LodgifyClient
     /**
      * Returns a subset of the rate settings for a property — minimum persons
      * for the base rate, cleaning fee, and extra-person-per-night fee.
-     * Tariffs are read on each request so the admin table does not stay
-     * stuck with stale/empty values from an old long-lived cache entry.
+     * Cached for one hour (AVAILABILITY_TTL) like availability/rates: this
+     * lookup costs up to three Lodgify calls per property and used to run on
+     * every page render (once per property listed on /calendrier or the home
+     * search), which is one of the main reasons the API was being saturated.
+     * A manual sync clears the entry (see invalidateProperty()).
      */
     public function getPropertyRateSettings(int $propertyId): array
     {
@@ -931,6 +953,13 @@ final class LodgifyClient
         if ($propertyId <= 0) {
             return $default;
         }
+        return $this->remember('lodgify:v2:ratesettings:' . $propertyId, self::AVAILABILITY_TTL, function () use ($propertyId): array {
+            return $this->fetchPropertyRateSettings($propertyId);
+        });
+    }
+
+    private function fetchPropertyRateSettings(int $propertyId): array
+    {
         $settings = $this->getRateSettingsFor($propertyId);
         $cleaningFee = null;
         $extraPersonFee = $settings['extra_person_fee'] ?? null;
@@ -1058,7 +1087,27 @@ final class LodgifyClient
         return null;
     }
 
-    public function getAvailability(int $propertyId, string $from, string $to): array
+    /**
+     * Per-day availability for [$from, $to), cached for one hour per
+     * property + range (AVAILABILITY_TTL). Pass $forceRefresh = true to skip
+     * the cache, query Lodgify live and re-prime the cache for 30 minutes
+     * (LIVE_RECHECK_TTL) — used by the email buttons, which must always
+     * re-check the real availability at click time.
+     */
+    public function getAvailability(int $propertyId, string $from, string $to, bool $forceRefresh = false): array
+    {
+        $key = 'lodgify:v2:availability:' . $propertyId . ':' . $from . ':' . $to;
+        if ($forceRefresh) {
+            $value = $this->fetchAvailability($propertyId, $from, $to);
+            $this->cacheSet($key, $value, self::LIVE_RECHECK_TTL);
+            return $value;
+        }
+        return $this->remember($key, self::AVAILABILITY_TTL, function () use ($propertyId, $from, $to): array {
+            return $this->fetchAvailability($propertyId, $from, $to);
+        });
+    }
+
+    private function fetchAvailability(int $propertyId, string $from, string $to): array
     {
         // Lodgify's real v2 endpoint expects "start"/"end" query params (not
         // "startDate"/"endDate") and returns an array of per-room-type calendars,
@@ -1335,10 +1384,10 @@ final class LodgifyClient
      * bookable for the requested dates, instead of returning every property
      * regardless of availability.
      */
-    public function isAvailableForRange(int $propertyId, string $from, string $to): bool
+    public function isAvailableForRange(int $propertyId, string $from, string $to, bool $forceRefresh = false): bool
     {
         try {
-            $days = $this->getAvailability($propertyId, $from, $to);
+            $days = $this->getAvailability($propertyId, $from, $to, $forceRefresh);
         } catch (\Throwable $e) {
             return false;
         }
@@ -1360,7 +1409,27 @@ final class LodgifyClient
         return $nights !== [] && !in_array(false, $nights, true);
     }
 
-    public function getRates(int $propertyId, string $from, string $to, int $guests): array
+    /**
+     * Nightly rates for [$from, $to), cached for one hour per property +
+     * range (AVAILABILITY_TTL). Lodgify's rates calendar does not depend on
+     * the guest count (extra-person fees are applied on our side), so
+     * $guests is not part of the cache key. Pass $forceRefresh = true to skip
+     * the cache and re-prime it for 30 minutes (LIVE_RECHECK_TTL).
+     */
+    public function getRates(int $propertyId, string $from, string $to, int $guests, bool $forceRefresh = false): array
+    {
+        $key = 'lodgify:v2:rates:' . $propertyId . ':' . $from . ':' . $to;
+        if ($forceRefresh) {
+            $value = $this->fetchRates($propertyId, $from, $to);
+            $this->cacheSet($key, $value, self::LIVE_RECHECK_TTL);
+            return $value;
+        }
+        return $this->remember($key, self::AVAILABILITY_TTL, function () use ($propertyId, $from, $to): array {
+            return $this->fetchRates($propertyId, $from, $to);
+        });
+    }
+
+    private function fetchRates(int $propertyId, string $from, string $to): array
     {
         // Lodgify's real endpoint for nightly rates is /v2/rates/calendar, keyed by
         // houseId + roomTypeId (not /v2/rates/{propertyId} with numberOfGuests,
@@ -1559,6 +1628,26 @@ final class LodgifyClient
             'lodgify:v1:sofabeds:' . $propertyId,
             'lodgify:v2:ratesettings:' . $propertyId,
         ]);
+        // Availability/rates entries are keyed per date range, so they can
+        // only be cleared by prefix.
+        $prefixStmt = Database::connection()->prepare('DELETE FROM lodgify_cache WHERE cache_key LIKE ? OR cache_key LIKE ?');
+        $prefixStmt->execute([
+            'lodgify:v2:availability:' . $propertyId . ':%',
+            'lodgify:v2:rates:' . $propertyId . ':%',
+        ]);
+    }
+
+    /**
+     * Deletes expired cache rows. Availability/rates entries are keyed per
+     * visitor-chosen date range, so the table would otherwise keep growing
+     * with short-lived keys nobody reads again; called by the cron
+     * (bin/run-scheduler.php).
+     */
+    public function purgeExpiredCache(): int
+    {
+        $stmt = Database::connection()->prepare('DELETE FROM lodgify_cache WHERE expires_at <= NOW()');
+        $stmt->execute();
+        return $stmt->rowCount();
     }
 
     /**
