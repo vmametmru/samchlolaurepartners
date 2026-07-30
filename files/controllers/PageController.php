@@ -1345,6 +1345,7 @@ TEXT;
                         'default' => $default,
                         'lodgify_fr' => '',
                         'manual_fr' => $overrides[$propertyId][$field]['fr'] ?? '',
+                        'manual_en' => $overrides[$propertyId][$field]['en'] ?? '',
                     ];
                     continue;
                 }
@@ -1360,6 +1361,7 @@ TEXT;
                     'default' => $default,
                     'lodgify_fr' => $lodgifyFr,
                     'manual_fr' => $overrides[$propertyId][$field]['fr'] ?? '',
+                    'manual_en' => $overrides[$propertyId][$field]['en'] ?? '',
                 ];
             }
             $name = (string) ($detail['name'] ?? '');
@@ -1422,20 +1424,20 @@ TEXT;
     }
 
     /**
-     * Saves (or, if the submitted text is blank, removes) the manual French
-     * translation for one property/field, entered on the admin
+     * Saves (or, if the submitted text is blank, removes) the manual
+     * translation for one property/field/language, entered on the admin
      * "Traductions" page. Removing an override falls back to Lodgify's own
-     * French translation if it has one, otherwise the default (English)
-     * text, exactly like before an override existed.
+     * translation if it has one (French only), otherwise the default
+     * (English) text, exactly like before an override existed.
      */
     public static function adminSaveTranslation(): never
     {
         self::requireAdminUser();
         $propertyId = (int) ($_POST['property_id'] ?? 0);
         $field = (string) ($_POST['field'] ?? '');
-        $language = 'fr';
+        $language = (string) ($_POST['language'] ?? 'fr');
         $text = trim((string) ($_POST['text'] ?? ''));
-        if ($propertyId <= 0 || !in_array($field, self::TRANSLATABLE_FIELDS, true)) {
+        if ($propertyId <= 0 || !in_array($field, self::TRANSLATABLE_FIELDS, true) || !in_array($language, ['fr', 'en'], true)) {
             self::redirect('/admin/translations', 'Requête de traduction invalide.', 'error');
         }
         self::ensurePropertyTranslationsTable();
