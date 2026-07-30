@@ -2492,7 +2492,12 @@ TEXT;
     public static function errorPage(int $statusCode, string $message): void
     {
         http_response_code($statusCode);
-        View::render('pages/error', ['pageTitle' => 'Erreur', 'message' => $message]);
+        // 4xx errors are client-side validation issues (e.g. a file too
+        // large or a bad format), not a server outage — showing "Service
+        // temporairement indisponible" for those is misleading, so only
+        // real server-side failures (5xx) get that title.
+        $title = ($statusCode >= 400 && $statusCode < 500) ? 'Requête invalide' : 'Service temporairement indisponible';
+        View::render('pages/error', ['pageTitle' => 'Erreur', 'message' => $message, 'title' => $title]);
     }
 
     /**

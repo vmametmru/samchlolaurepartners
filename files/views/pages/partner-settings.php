@@ -1,7 +1,7 @@
 <?php declare(strict_types=1); ?>
 <section class="container section-lg narrow">
   <h1>Paramètres du compte</h1>
-  <form class="card card-body stack-md" method="post" action="/partner/settings" enctype="multipart/form-data">
+  <form class="card card-body stack-md" method="post" action="/partner/settings" enctype="multipart/form-data" data-catalog-form>
     <label><span>Code partenaire</span><input class="input" type="text" value="<?= \App\View::e($partnerData['subdomain'] ?? '') ?>" disabled></label>
     <label><span>Nom du partenaire</span><input class="input" type="text" name="name" value="<?= \App\View::e($partnerData['name'] ?? '') ?>"></label>
     <label><span>Email de contact</span><input class="input" type="email" name="email" value="<?= \App\View::e($partnerData['email'] ?? '') ?>"></label>
@@ -23,7 +23,7 @@
       <?php endif; ?>
     </div>
     <div class="logo-upload-card">
-      <label><span>Catalogue PDF</span><input class="input" type="file" name="catalog_pdf" accept="application/pdf"></label>
+      <label><span>Catalogue PDF (20 Mo max)</span><input class="input" type="file" name="catalog_pdf" accept="application/pdf" data-catalog-input></label>
       <p class="muted">Ce catalogue sera téléchargeable depuis votre tableau de bord pour l'envoyer à vos clients.</p>
       <?php if (!empty($partnerData['catalog_pdf_url'])): ?>
         <div class="logo-preview-wrap">
@@ -35,6 +35,12 @@
           </label>
         </div>
       <?php endif; ?>
+      <div class="update-progress" data-catalog-progress hidden
+           data-label-uploading="Envoi du catalogue…"
+           data-label-done="Terminé">
+        <div class="update-progress-track"><span class="update-progress-bar" data-catalog-progress-bar style="width:0%"></span></div>
+        <p class="update-progress-label"><span data-catalog-progress-text>Envoi du catalogue…</span> <span data-catalog-progress-pct>0%</span></p>
+      </div>
     </div>
     <label><span>Couleur principale</span><div class="color-row"><input type="color" name="primary_color" value="<?= \App\View::e($partnerData['primary_color'] ?? '#E61E4D') ?>"><input class="input" type="text" name="primary_color_text" value="<?= \App\View::e($partnerData['primary_color'] ?? '#E61E4D') ?>" data-sync-color></div></label>
     <h2 class="section-title">Configuration SMTP</h2>
