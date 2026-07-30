@@ -9,14 +9,33 @@ require dirname(__DIR__) . '/files/bootstrap.php';
 // refreshed automatically by this cron job: it is synced manually only, via
 // the "Synchroniser maintenant" button on /admin/sync (see
 // PageController::adminSync() -> Scheduler::syncLodgify()). Prices and
-// availability are always fetched live at search time (LodgifyClient::
-// getAvailability()/getRates() are never cached), so this cron only needs to
-// handle scheduled reservation emails.
+// availability are cached for one hour per property/date range
+// (LodgifyClient::getAvailability()/getRates()) and refreshed lazily on the
+// next visit, so this cron only handles scheduled reservation emails plus a
+// cleanup of expired cache rows.
 try {
     $result = App\Scheduler::runOnce();
     echo '[scheduler] Checked: ' . $result['checked'] . ', sent: ' . $result['sent'] . PHP_EOL;
     foreach ($result['errors'] as $error) {
         fwrite(STDERR, '[scheduler] ' . $error . PHP_EOL);
+    }
+
+    try {
+        $warm = App\Scheduler::warmLodgifyCache();
+        echo '[scheduler] Lodgify cache warmed for ' . $warm['warmed'] . ' property/range pairs ('
+            . $warm['properties'] . ' properties)' . PHP_EOL;
+        foreach ($warm['errors'] as $warmError) {
+            fwrite(STDERR, '[scheduler] warm-up: ' . $warmError . PHP_EOL);
+        }
+    } catch (Throwable $e) {
+        fwrite(STDERR, '[scheduler] Cache warm-up failed: ' . $e->getMessage() . PHP_EOL);
+    }
+
+    try {
+        $purged = (new App\LodgifyClient())->purgeExpiredCache();
+        echo '[scheduler] Expired Lodgify cache rows purged: ' . $purged . PHP_EOL;
+    } catch (Throwable $e) {
+        fwrite(STDERR, '[scheduler] Cache purge failed: ' . $e->getMessage() . PHP_EOL);
     }
 
     exit($result['errors'] === [] ? 0 : 1);

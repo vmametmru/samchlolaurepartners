@@ -21,11 +21,60 @@ final class LodgifyClient
      * ever refreshed by the manual "Synchroniser maintenant" admin action
      * (PageController::adminSync() -> Scheduler::syncLodgify()), which
      * explicitly invalidates these cache keys before refetching. Prices and
-     * availability are unaffected: they are always fetched live at search
-     * time (see getAvailability()/getRates(), never cached) or refreshed on
-     * their own short TTL (getPriceStatusSnapshot(), 30 min).
+     * availability have their own short TTLs (see AVAILABILITY_TTL /
+     * LIVE_RECHECK_TTL below and getPriceStatusSnapshot(), 30 min).
      */
     private const FICHE_TTL = 315360000;
+
+    /**
+     * TTL (1 hour) for availability and nightly rates. These used to be
+     * fetched live on every single page view: a search or the /calendrier
+     * board issues one Lodgify call per property (times two: availability +
+     * rates), which saturated the API/server and made the whole site answer
+     * "Service temporairement indisponible" under load. They are now cached
+     * per property + date range and refreshed at most once an hour.
+     */
+    private const AVAILABILITY_TTL = 3600;
+
+    /**
+     * TTL (30 minutes) applied when availability/rates are re-checked live,
+     * bypassing the hourly cache — i.e. when a guest clicks the
+     * "vérifier les disponibilités"/"réserver" button in an email
+     * (PageController::availabilityCheck()/bookingRedirect()). Such a check
+     * must never trust a stale cache, so it always re-queries Lodgify, and
+     * the fresh answer it gets then serves everybody else for 30 minutes.
+     */
+    private const LIVE_RECHECK_TTL = 1800;
+
+    /**
+     * How long a stale value keeps being served after a failed refresh
+     * (timeout, 5xx, 429, local throttle). Long enough to stop hammering a
+     * struggling Lodgify from every page view, short enough to recover
+     * quickly once it answers again.
+     */
+    private const STALE_GRACE_TTL = 300;
+
+    /**
+     * Maximum time a request waits for another worker that is populating the
+     * very same cache key for the first time (see remember()).
+     */
+    private const LOCK_WAIT_SECONDS = 5;
+
+    /**
+     * Default ceiling of outgoing Lodgify calls per minute, shared by all
+     * PHP workers (override with the LODGIFY_MAX_CALLS_PER_MINUTE setting).
+     * Lodgify does not publish a hard figure and answers HTTP 429 above its
+     * own threshold; staying well below any plausible limit costs nothing
+     * now that availability/rates/settings are cached hourly, and guarantees
+     * we never get the whole API key throttled because of one busy minute.
+     */
+    private const DEFAULT_MAX_CALLS_PER_MINUTE = 120;
+
+    /** Shared cache key holding the "do not call Lodgify until" cooldown. */
+    private const COOLDOWN_KEY = 'lodgify:cooldown';
+
+    /** @var array<string, string> advisory locks held by this instance, by cache key */
+    private array $heldLocks = [];
 
     /**
      * Collects "/properties/{id}/rooms" fetch failures recorded by
@@ -922,8 +971,11 @@ final class LodgifyClient
     /**
      * Returns a subset of the rate settings for a property — minimum persons
      * for the base rate, cleaning fee, and extra-person-per-night fee.
-     * Tariffs are read on each request so the admin table does not stay
-     * stuck with stale/empty values from an old long-lived cache entry.
+     * Cached for one hour (AVAILABILITY_TTL) like availability/rates: this
+     * lookup costs up to three Lodgify calls per property and used to run on
+     * every page render (once per property listed on /calendrier or the home
+     * search), which is one of the main reasons the API was being saturated.
+     * A manual sync clears the entry (see invalidateProperty()).
      */
     public function getPropertyRateSettings(int $propertyId): array
     {
@@ -931,6 +983,13 @@ final class LodgifyClient
         if ($propertyId <= 0) {
             return $default;
         }
+        return $this->remember('lodgify:v2:ratesettings:' . $propertyId, self::AVAILABILITY_TTL, function () use ($propertyId): array {
+            return $this->fetchPropertyRateSettings($propertyId);
+        });
+    }
+
+    private function fetchPropertyRateSettings(int $propertyId): array
+    {
         $settings = $this->getRateSettingsFor($propertyId);
         $cleaningFee = null;
         $extraPersonFee = $settings['extra_person_fee'] ?? null;
@@ -1058,7 +1117,27 @@ final class LodgifyClient
         return null;
     }
 
-    public function getAvailability(int $propertyId, string $from, string $to): array
+    /**
+     * Per-day availability for [$from, $to), cached for one hour per
+     * property + range (AVAILABILITY_TTL). Pass $forceRefresh = true to skip
+     * the cache, query Lodgify live and re-prime the cache for 30 minutes
+     * (LIVE_RECHECK_TTL) — used by the email buttons, which must always
+     * re-check the real availability at click time.
+     */
+    public function getAvailability(int $propertyId, string $from, string $to, bool $forceRefresh = false): array
+    {
+        $key = 'lodgify:v2:availability:' . $propertyId . ':' . $from . ':' . $to;
+        if ($forceRefresh) {
+            return $this->refreshNow($key, function () use ($propertyId, $from, $to): array {
+                return $this->fetchAvailability($propertyId, $from, $to);
+            });
+        }
+        return $this->remember($key, self::AVAILABILITY_TTL, function () use ($propertyId, $from, $to): array {
+            return $this->fetchAvailability($propertyId, $from, $to);
+        });
+    }
+
+    private function fetchAvailability(int $propertyId, string $from, string $to): array
     {
         // Lodgify's real v2 endpoint expects "start"/"end" query params (not
         // "startDate"/"endDate") and returns an array of per-room-type calendars,
@@ -1335,10 +1414,10 @@ final class LodgifyClient
      * bookable for the requested dates, instead of returning every property
      * regardless of availability.
      */
-    public function isAvailableForRange(int $propertyId, string $from, string $to): bool
+    public function isAvailableForRange(int $propertyId, string $from, string $to, bool $forceRefresh = false): bool
     {
         try {
-            $days = $this->getAvailability($propertyId, $from, $to);
+            $days = $this->getAvailability($propertyId, $from, $to, $forceRefresh);
         } catch (\Throwable $e) {
             return false;
         }
@@ -1360,7 +1439,27 @@ final class LodgifyClient
         return $nights !== [] && !in_array(false, $nights, true);
     }
 
-    public function getRates(int $propertyId, string $from, string $to, int $guests): array
+    /**
+     * Nightly rates for [$from, $to), cached for one hour per property +
+     * range (AVAILABILITY_TTL). Lodgify's rates calendar does not depend on
+     * the guest count (extra-person fees are applied on our side), so
+     * $guests is not part of the cache key. Pass $forceRefresh = true to skip
+     * the cache and re-prime it for 30 minutes (LIVE_RECHECK_TTL).
+     */
+    public function getRates(int $propertyId, string $from, string $to, int $guests, bool $forceRefresh = false): array
+    {
+        $key = 'lodgify:v2:rates:' . $propertyId . ':' . $from . ':' . $to;
+        if ($forceRefresh) {
+            return $this->refreshNow($key, function () use ($propertyId, $from, $to): array {
+                return $this->fetchRates($propertyId, $from, $to);
+            });
+        }
+        return $this->remember($key, self::AVAILABILITY_TTL, function () use ($propertyId, $from, $to): array {
+            return $this->fetchRates($propertyId, $from, $to);
+        });
+    }
+
+    private function fetchRates(int $propertyId, string $from, string $to): array
     {
         // Lodgify's real endpoint for nightly rates is /v2/rates/calendar, keyed by
         // houseId + roomTypeId (not /v2/rates/{propertyId} with numberOfGuests,
@@ -1559,6 +1658,35 @@ final class LodgifyClient
             'lodgify:v1:sofabeds:' . $propertyId,
             'lodgify:v2:ratesettings:' . $propertyId,
         ]);
+        // Availability/rates entries are keyed per date range, so they can
+        // only be cleared by prefix.
+        $prefixStmt = Database::connection()->prepare('DELETE FROM lodgify_cache WHERE cache_key LIKE ? OR cache_key LIKE ?');
+        $prefixStmt->execute([
+            'lodgify:v2:availability:' . $propertyId . ':%',
+            'lodgify:v2:rates:' . $propertyId . ':%',
+        ]);
+    }
+
+    /**
+     * Deletes long-expired cache rows. Availability/rates entries are keyed
+     * per visitor-chosen date range, so the table would otherwise keep
+     * growing with short-lived keys nobody reads again. Rows are only removed
+     * once they have been expired for a full day: recently expired entries
+     * are still valuable as the "stale fallback" remember() serves when
+     * Lodgify is slow or throttling. Old per-minute API call counters are
+     * cleaned up here too. Called by the cron (bin/run-scheduler.php).
+     */
+    public function purgeExpiredCache(): int
+    {
+        $stmt = Database::connection()->prepare('DELETE FROM lodgify_cache WHERE expires_at <= DATE_SUB(NOW(), INTERVAL 1 DAY)');
+        $stmt->execute();
+        $deleted = $stmt->rowCount();
+        try {
+            Database::connection()->exec("DELETE FROM lodgify_api_usage WHERE minute_slot < DATE_FORMAT(UTC_TIMESTAMP() - INTERVAL 1 DAY, '%Y%m%d%H%i')");
+        } catch (\Throwable $e) {
+            error_log('Lodgify: API usage cleanup failed: ' . $e->getMessage());
+        }
+        return $deleted;
     }
 
     /**
@@ -1824,22 +1952,44 @@ final class LodgifyClient
             $url .= '?' . http_build_query($params);
         }
 
+        // Refuse the call locally when Lodgify is in cooldown (it answered a
+        // previous call with HTTP 429) or when this minute's call budget is
+        // already spent, so a traffic burst can never turn into a flood of
+        // rejected requests that keeps every PHP worker busy.
+        $this->assertCallAllowed();
+
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 20,
+            // Bounded aggressively on purpose: each PHP worker is blocked for
+            // the whole duration of the call, and shared hosting only allows a
+            // handful of concurrent workers. A 20s timeout meant a single slow
+            // Lodgify endpoint could pin every worker and make the entire site
+            // unreachable for other visitors.
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_HEADER => true,
             CURLOPT_HTTPHEADER => array_merge([
                 'X-ApiKey: ' . $this->apiKey,
                 'Accept: application/json',
             ], $headers),
         ]);
-        $body = curl_exec($ch);
+        $response = curl_exec($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        $headerSize = (int) curl_getinfo($ch, CURLINFO_HEADER_SIZE);
         $error = curl_error($ch);
         curl_close($ch);
 
-        if ($body === false || $error !== '') {
+        if ($response === false || $error !== '') {
             throw new RuntimeException('Lodgify request failed: ' . $error);
+        }
+        $rawHeaders = substr((string) $response, 0, $headerSize);
+        $body = substr((string) $response, $headerSize);
+        if ($status === 429) {
+            // Lodgify is throttling us: stop calling it entirely until the
+            // Retry-After delay has elapsed (defaults to 60s when absent).
+            $this->startCooldown(self::retryAfterSeconds($rawHeaders));
+            throw new LodgifyThrottleException('Lodgify API rate limit reached (HTTP 429)');
         }
         $decoded = json_decode($body, true);
         if ($status >= 400) {
@@ -1848,20 +1998,212 @@ final class LodgifyClient
         return is_array($decoded) ? $decoded : [];
     }
 
-    private function remember(string $key, int $ttl, callable $callback): array
+    /**
+     * Parses the "Retry-After" response header (seconds), clamped to a sane
+     * 10s..600s window; falls back to 60s when the header is missing or
+     * expressed as an HTTP date we cannot parse.
+     */
+    private static function retryAfterSeconds(string $rawHeaders): int
     {
-        $cached = $this->cacheGet($key);
-        if ($cached !== null) {
-            return $cached;
+        $seconds = 60;
+        if (preg_match('/^retry-after:\s*(.+)$/mi', $rawHeaders, $matches) === 1) {
+            $value = trim($matches[1]);
+            if (ctype_digit($value)) {
+                $seconds = (int) $value;
+            } else {
+                $timestamp = strtotime($value);
+                if ($timestamp !== false) {
+                    $seconds = $timestamp - time();
+                }
+            }
         }
-        $value = $callback();
-        $this->cacheSet($key, $value, $ttl);
+        return max(10, min(600, $seconds));
+    }
+
+    /**
+     * Throws (without issuing any HTTP call) when Lodgify must not be called
+     * right now: either we are inside a 429 cooldown window, or the current
+     * minute's call budget is exhausted.
+     */
+    private function assertCallAllowed(): void
+    {
+        if ($this->cacheGet(self::COOLDOWN_KEY) !== null) {
+            throw new LodgifyThrottleException('Lodgify API cooldown active after a rate-limit response');
+        }
+        $limit = max(1, Settings::int('LODGIFY_MAX_CALLS_PER_MINUTE', self::DEFAULT_MAX_CALLS_PER_MINUTE));
+        $used = $this->registerCall();
+        if ($used > $limit) {
+            throw new LodgifyThrottleException(
+                'Local Lodgify call budget exhausted (' . $used . '/' . $limit . ' calls this minute)'
+            );
+        }
+    }
+
+    /**
+     * Atomically increments and returns the number of Lodgify calls made
+     * during the current minute, across all concurrent PHP workers.
+     */
+    private function registerCall(): int
+    {
+        $slot = gmdate('YmdHi');
+        try {
+            $pdo = Database::connection();
+            $stmt = $pdo->prepare(
+                'INSERT INTO lodgify_api_usage (minute_slot, calls) VALUES (?, 1)
+                 ON DUPLICATE KEY UPDATE calls = LAST_INSERT_ID(calls + 1)'
+            );
+            $stmt->execute([$slot]);
+            $used = (int) $pdo->lastInsertId();
+            return $used > 0 ? $used : 1;
+        } catch (\Throwable $e) {
+            // Never let the accounting table (e.g. a migration not applied
+            // yet) block real traffic: fall back to "budget available".
+            error_log('Lodgify: call accounting failed: ' . $e->getMessage());
+            return 1;
+        }
+    }
+
+    /**
+     * Blocks every outgoing Lodgify call for $seconds. Stored in the shared
+     * cache table so all PHP workers observe the same cooldown.
+     */
+    private function startCooldown(int $seconds): void
+    {
+        error_log('Lodgify: rate limited (429), pausing all calls for ' . $seconds . 's');
+        $this->cacheSet(self::COOLDOWN_KEY, ['until' => time() + $seconds], $seconds);
+    }
+
+    /**
+     * Cache-bypassing refresh: always queries Lodgify, then re-primes the
+     * cache for 30 minutes (LIVE_RECHECK_TTL) so the fresh answer also
+     * serves everybody else. Used by the email buttons. If Lodgify cannot be
+     * reached (or we are locally throttled), the last known value is
+     * returned rather than an error, so the guest still gets an answer.
+     */
+    private function refreshNow(string $key, callable $callback): array
+    {
+        try {
+            $value = $callback();
+        } catch (\Throwable $e) {
+            $stale = $this->cacheGet($key, true);
+            if ($stale === null) {
+                throw $e;
+            }
+            error_log('Lodgify: live re-check failed for ' . $key . ', serving last known value: ' . $e->getMessage());
+            return $stale;
+        }
+        $this->cacheSet($key, $value, self::LIVE_RECHECK_TTL);
         return $value;
     }
 
-    private function cacheGet(string $key): ?array
+    /**
+     * Cache-aside read with two protections that matter as soon as several
+     * visitors browse at the same time:
+     *
+     *  - single flight: when an entry has expired, only ONE request actually
+     *    refreshes it (guarded by a MySQL advisory lock); the others keep
+     *    serving the previous value instead of all calling Lodgify at once
+     *    (cache stampede), which is what used to make the site collapse the
+     *    moment a few people browsed simultaneously;
+     *  - stale fallback: if the refresh fails (timeout, 5xx, 429, local
+     *    throttle), the last known value is served — and kept for a short
+     *    grace period so Lodgify isn't hammered while it is unhappy —
+     *    instead of turning every page into "Service temporairement
+     *    indisponible".
+     */
+    private function remember(string $key, int $ttl, callable $callback): array
     {
-        $stmt = Database::connection()->prepare('SELECT data FROM lodgify_cache WHERE cache_key = ? AND expires_at > NOW() LIMIT 1');
+        $fresh = $this->cacheGet($key);
+        if ($fresh !== null) {
+            return $fresh;
+        }
+
+        $stale = $this->cacheGet($key, true);
+        if ($stale !== null && !$this->tryLock($key)) {
+            return $stale;
+        }
+        if ($stale === null && !$this->tryLock($key, self::LOCK_WAIT_SECONDS)) {
+            // Someone else is populating this key for the first time; use
+            // whatever they stored if they finished in the meantime.
+            $justStored = $this->cacheGet($key);
+            if ($justStored !== null) {
+                return $justStored;
+            }
+        }
+
+        try {
+            // Another worker may have refreshed the entry while we waited for
+            // the lock: don't call Lodgify twice for the same thing.
+            $refreshed = $this->cacheGet($key);
+            if ($refreshed !== null) {
+                return $refreshed;
+            }
+            $value = $callback();
+            $this->cacheSet($key, $value, $ttl);
+            return $value;
+        } catch (\Throwable $e) {
+            if ($stale === null) {
+                throw $e;
+            }
+            error_log('Lodgify: serving stale cache for ' . $key . ' after: ' . $e->getMessage());
+            $this->cacheSet($key, $stale, self::STALE_GRACE_TTL);
+            return $stale;
+        } finally {
+            $this->releaseLock($key);
+        }
+    }
+
+    /**
+     * Non-blocking (or briefly blocking) advisory lock shared by all PHP
+     * workers, used to let a single request refresh a given cache key.
+     * Failures are treated as "lock acquired" so a MySQL without GET_LOCK
+     * support degrades to the previous behaviour instead of breaking.
+     */
+    private function tryLock(string $key, int $waitSeconds = 0): bool
+    {
+        $name = 'lodgify_' . md5($key);
+        try {
+            $stmt = Database::connection()->prepare('SELECT GET_LOCK(?, ?)');
+            $stmt->execute([$name, $waitSeconds]);
+            $acquired = (int) $stmt->fetchColumn() === 1;
+            if ($acquired) {
+                $this->heldLocks[$key] = $name;
+            }
+            return $acquired;
+        } catch (\Throwable $e) {
+            error_log('Lodgify: advisory lock failed for ' . $key . ': ' . $e->getMessage());
+            return true;
+        }
+    }
+
+    private function releaseLock(string $key): void
+    {
+        if (!isset($this->heldLocks[$key])) {
+            return;
+        }
+        $name = $this->heldLocks[$key];
+        unset($this->heldLocks[$key]);
+        try {
+            $stmt = Database::connection()->prepare('SELECT RELEASE_LOCK(?)');
+            $stmt->execute([$name]);
+            $stmt->fetchColumn();
+        } catch (\Throwable $e) {
+            error_log('Lodgify: advisory unlock failed for ' . $key . ': ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Reads a cache entry. By default only non-expired entries are returned;
+     * with $allowExpired = true the last known value is returned even when it
+     * has expired, which is what makes the stale fallback in remember()
+     * possible.
+     */
+    private function cacheGet(string $key, bool $allowExpired = false): ?array
+    {
+        $sql = $allowExpired
+            ? 'SELECT data FROM lodgify_cache WHERE cache_key = ? LIMIT 1'
+            : 'SELECT data FROM lodgify_cache WHERE cache_key = ? AND expires_at > NOW() LIMIT 1';
+        $stmt = Database::connection()->prepare($sql);
         $stmt->execute([$key]);
         $row = $stmt->fetch();
         if (!$row) {
