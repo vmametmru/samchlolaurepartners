@@ -24,6 +24,19 @@
         </div>
       <?php endif; ?>
     </div>
+    <div class="logo-upload-card">
+      <label><span>Catalogue PDF</span><input class="input" type="file" name="catalog_pdf" accept="application/pdf"></label>
+      <?php if (!empty($partnerData['catalog_pdf_url'])): ?>
+        <div class="logo-preview-wrap">
+          <a href="<?= \App\View::e($partnerData['catalog_pdf_url']) ?>" target="_blank" rel="noopener">📄 Voir le catalogue actuel</a>
+          <label class="logo-remove-chip" title="Supprimer le catalogue">
+            <input type="checkbox" name="remove_catalog_pdf" value="1">
+            <span aria-hidden="true">🗑️</span>
+            <span>Effacer</span>
+          </label>
+        </div>
+      <?php endif; ?>
+    </div>
     <label><span>Couleur principale</span><div class="color-row"><input type="color" name="primary_color" value="<?= \App\View::e($partnerData['primary_color'] ?? '#E61E4D') ?>"><input class="input" type="text" value="<?= \App\View::e($partnerData['primary_color'] ?? '#E61E4D') ?>" data-sync-color></div></label>
     <h2 class="section-title">SMTP</h2>
     <div class="form-grid cols-2">

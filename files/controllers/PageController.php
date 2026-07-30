@@ -23,6 +23,7 @@ use Throwable;
 final class PageController extends Controller
 {
     private const ALLOWED_LOGO_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+    private const ALLOWED_CATALOG_EXTENSIONS = ['pdf'];
     private const ALLOWED_TEMPLATE_ASSET_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
 
     /**
@@ -652,7 +653,12 @@ final class PageController extends Controller
     {
         $user = self::requirePartnerUser();
         $requests = ReservationsController::listForPartner((int) $user['partner_id']);
-        View::render('pages/partner-dashboard', ['pageTitle' => 'Tableau de Bord partenaire', 'requests' => $requests]);
+        $partner = PartnersController::formData((int) $user['partner_id']);
+        View::render('pages/partner-dashboard', [
+            'pageTitle' => 'Tableau de Bord partenaire',
+            'requests' => $requests,
+            'catalogPdfUrl' => (string) ($partner['catalog_pdf_url'] ?? ''),
+        ]);
     }
 
     public static function partnerReservations(): void
@@ -791,7 +797,17 @@ final class PageController extends Controller
             $logoUrl = self::storePartnerLogo($partnerId) ?? '';
         }
 
-        Database::connection()->prepare('UPDATE partners SET name = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, logo_url = ?, primary_color = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, updated_at = NOW() WHERE id = ?')->execute([
+        $catalogPdfUrl = (string) ($existing['catalog_pdf_url'] ?? '');
+        if (isset($_POST['remove_catalog_pdf']) && $_POST['remove_catalog_pdf'] === '1') {
+            self::deleteLocalAsset($catalogPdfUrl, '/images/catalog/');
+            $catalogPdfUrl = '';
+        }
+        if (!empty($_FILES['catalog_pdf']['name'])) {
+            self::deleteLocalAsset($catalogPdfUrl, '/images/catalog/');
+            $catalogPdfUrl = self::storePartnerCatalogPdf($partnerId) ?? '';
+        }
+
+        Database::connection()->prepare('UPDATE partners SET name = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, logo_url = ?, catalog_pdf_url = ?, primary_color = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, updated_at = NOW() WHERE id = ?')->execute([
             trim((string) ($_POST['name'] ?? '')),
             trim((string) ($_POST['email'] ?? '')),
             trim((string) ($_POST['phone'] ?? '')) ?: null,
@@ -799,6 +815,7 @@ final class PageController extends Controller
             trim((string) ($_POST['tiktok_url'] ?? '')) ?: null,
             trim((string) ($_POST['instagram_url'] ?? '')) ?: null,
             $logoUrl !== '' ? $logoUrl : null,
+            $catalogPdfUrl !== '' ? $catalogPdfUrl : null,
             trim((string) ($_POST['primary_color'] ?? '#E61E4D')),
             trim((string) ($_POST['smtp_host'] ?? '')) ?: null,
             ($_POST['smtp_port'] ?? '') !== '' ? (int) $_POST['smtp_port'] : null,
@@ -998,11 +1015,25 @@ final class PageController extends Controller
             $logoUrl = self::storePartnerLogo($uploadedId) ?? '';
         }
 
+        // Resolve catalogue PDF: upload new file, remove existing, or keep as-is.
+        $existingCatalogPdfUrl = $id !== null ? (string) (PartnersController::formData($id)['catalog_pdf_url'] ?? '') : '';
+        $catalogPdfUrl = $existingCatalogPdfUrl;
+        if (isset($_POST['remove_catalog_pdf']) && $_POST['remove_catalog_pdf'] === '1') {
+            self::deleteLocalAsset($catalogPdfUrl, '/images/catalog/');
+            $catalogPdfUrl = '';
+        }
+        if (!empty($_FILES['catalog_pdf']['name'])) {
+            self::deleteLocalAsset($catalogPdfUrl, '/images/catalog/');
+            $uploadedId = $id ?? 0;
+            $catalogPdfUrl = self::storePartnerCatalogPdf($uploadedId) ?? '';
+        }
+
         if ($id === null) {
-            Database::connection()->prepare('INSERT INTO partners (subdomain, name, logo_url, primary_color, email, phone, facebook_url, tiktok_url, instagram_url, markup_percent, cleaning_fee_per_person_per_night, smtp_host, smtp_port, smtp_user, smtp_pass, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([
+            Database::connection()->prepare('INSERT INTO partners (subdomain, name, logo_url, catalog_pdf_url, primary_color, email, phone, facebook_url, tiktok_url, instagram_url, markup_percent, cleaning_fee_per_person_per_night, smtp_host, smtp_port, smtp_user, smtp_pass, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([
                 trim((string) ($_POST['subdomain'] ?? '')),
                 trim((string) ($_POST['name'] ?? '')),
                 $logoUrl !== '' ? $logoUrl : null,
+                $catalogPdfUrl !== '' ? $catalogPdfUrl : null,
                 trim((string) ($_POST['primary_color'] ?? '#E61E4D')),
                 trim((string) ($_POST['email'] ?? '')),
                 trim((string) ($_POST['phone'] ?? '')) ?: null,
@@ -1018,9 +1049,10 @@ final class PageController extends Controller
                 isset($_POST['active']) ? 1 : 0,
             ]);
         } else {
-            Database::connection()->prepare('UPDATE partners SET name = ?, logo_url = ?, primary_color = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, markup_percent = ?, cleaning_fee_per_person_per_night = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?')->execute([
+            Database::connection()->prepare('UPDATE partners SET name = ?, logo_url = ?, catalog_pdf_url = ?, primary_color = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, markup_percent = ?, cleaning_fee_per_person_per_night = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?')->execute([
                 trim((string) ($_POST['name'] ?? '')),
                 $logoUrl !== '' ? $logoUrl : null,
+                $catalogPdfUrl !== '' ? $catalogPdfUrl : null,
                 trim((string) ($_POST['primary_color'] ?? '#E61E4D')),
                 trim((string) ($_POST['email'] ?? '')),
                 trim((string) ($_POST['phone'] ?? '')) ?: null,
@@ -2306,6 +2338,49 @@ TEXT;
         }
 
         return '/images/logo/' . $filename;
+    }
+
+    /**
+     * Stores the partner's uploaded PDF catalogue (their full property
+     * listing, meant to be forwarded to their own clients), same pattern as
+     * storePartnerLogo() above. Used by both /admin/partners (admin form)
+     * and /partner/settings (partner self-service).
+     */
+    private static function storePartnerCatalogPdf(int $partnerId): ?string
+    {
+        $file = $_FILES['catalog_pdf'] ?? null;
+        if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            return null;
+        }
+        if (!is_uploaded_file((string) $file['tmp_name'])) {
+            return null;
+        }
+
+        $originalName = (string) ($file['name'] ?? '');
+        $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+        if (!in_array($extension, self::ALLOWED_CATALOG_EXTENSIONS, true)) {
+            throw new HttpException(400, 'Bad Request', 'Format de catalogue non supporté (PDF uniquement).');
+        }
+        if ((int) ($file['size'] ?? 0) > 20 * 1024 * 1024) {
+            throw new HttpException(400, 'Bad Request', 'Le catalogue ne doit pas dépasser 20 Mo.');
+        }
+        $mimeType = @mime_content_type((string) $file['tmp_name']) ?: '';
+        if ($mimeType !== 'application/pdf') {
+            throw new HttpException(400, 'Bad Request', 'Le fichier doit être un PDF valide.');
+        }
+
+        $dir = BASE_PATH . '/images/catalog';
+        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+            throw new HttpException(500, 'Internal Server Error', 'Impossible de créer le dossier de stockage des catalogues.');
+        }
+
+        $filename = 'partner-' . $partnerId . '-' . bin2hex(random_bytes(8)) . '.pdf';
+        $destination = $dir . '/' . $filename;
+        if (!move_uploaded_file((string) $file['tmp_name'], $destination)) {
+            throw new HttpException(500, 'Internal Server Error', 'Impossible d\'enregistrer le catalogue.');
+        }
+
+        return '/images/catalog/' . $filename;
     }
 
     private static function storePartnerTemplateAsset(int $partnerId): ?string

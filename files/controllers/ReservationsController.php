@@ -1026,6 +1026,24 @@ final class ReservationsController extends Controller
             error_log('Failed to send reservation confirmation email: ' . $e);
         }
 
+        // If the stay's check-in is already less than a schedule's
+        // days_before_arrival away (e.g. confirmed only 2 days before
+        // arrival with a 5-day reminder), Scheduler::runOnce()'s daily cron
+        // pass would never have caught the reminder's original date and
+        // would otherwise only send it on its next run. Triggering it here,
+        // scoped to this reservation, sends any due reminder immediately
+        // instead of making the client/partner wait for the next cron tick.
+        try {
+            $reservationStmt = $pdo->prepare('SELECT id FROM reservations WHERE request_id = ? LIMIT 1');
+            $reservationStmt->execute([$id]);
+            $reservationId = (int) ($reservationStmt->fetchColumn() ?: 0);
+            if ($reservationId > 0) {
+                \App\Scheduler::runOnce($reservationId);
+            }
+        } catch (Throwable $e) {
+            error_log('Failed to send immediate reminder check for reservation request ' . $id . ': ' . $e);
+        }
+
         return $request;
     }
 

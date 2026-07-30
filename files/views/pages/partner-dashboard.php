@@ -14,6 +14,9 @@ $confirmed = count(array_filter($requests, static fn(array $row): bool => $row['
     <a class="card card-body center" href="/partner/templates">✉️<span>Templates email</span></a>
     <a class="card card-body center" href="/partner/settings">⚙️<span>Paramètres</span></a>
     <a class="card card-body center" href="/properties">🏠<span>Hébergements</span></a>
+    <?php if (!empty($catalogPdfUrl)): ?>
+      <a class="card card-body center" href="<?= \App\View::e($catalogPdfUrl) ?>" target="_blank" rel="noopener" download>📄<span>Télécharger le catalogue</span></a>
+    <?php endif; ?>
   </div>
   <div class="card overflow-hidden">
     <div class="card-header">Demandes récentes</div>

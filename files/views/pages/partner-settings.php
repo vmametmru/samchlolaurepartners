@@ -22,6 +22,20 @@
         </div>
       <?php endif; ?>
     </div>
+    <div class="logo-upload-card">
+      <label><span>Catalogue PDF</span><input class="input" type="file" name="catalog_pdf" accept="application/pdf"></label>
+      <p class="muted">Ce catalogue sera téléchargeable depuis votre tableau de bord pour l'envoyer à vos clients.</p>
+      <?php if (!empty($partnerData['catalog_pdf_url'])): ?>
+        <div class="logo-preview-wrap">
+          <a href="<?= \App\View::e($partnerData['catalog_pdf_url']) ?>" target="_blank" rel="noopener">📄 Voir le catalogue actuel</a>
+          <label class="logo-remove-chip" title="Supprimer le catalogue">
+            <input type="checkbox" name="remove_catalog_pdf" value="1">
+            <span aria-hidden="true">🗑️</span>
+            <span>Effacer</span>
+          </label>
+        </div>
+      <?php endif; ?>
+    </div>
     <label><span>Couleur principale</span><div class="color-row"><input type="color" name="primary_color" value="<?= \App\View::e($partnerData['primary_color'] ?? '#E61E4D') ?>"><input class="input" type="text" name="primary_color_text" value="<?= \App\View::e($partnerData['primary_color'] ?? '#E61E4D') ?>" data-sync-color></div></label>
     <h2 class="section-title">Configuration SMTP</h2>
     <p class="muted">Sécurité: SSL/TLS (obligatoire). Si vous laissez vide, les paramètres admin seront utilisés.</p>
