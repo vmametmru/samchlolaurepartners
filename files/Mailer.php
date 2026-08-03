@@ -212,19 +212,34 @@ final class Mailer
      */
     private static function embedHotlinkedImages(string $html, array $embeds, array &$tempFiles): array
     {
-        $baseUrl = Auth::currentBaseUrl();
+        // Compared by host only (see normalizeHostForComparison()), not by a
+        // literal string prefix on the full base URL: an <img src> can end
+        // up pointing at our own site under a scheme/host that differs
+        // slightly from what Auth::currentBaseUrl() resolves to for *this*
+        // send (e.g. "http://" vs "https://", or "www." vs no "www.") —
+        // most commonly because reminder/scheduled sends run from cron,
+        // with no request host to go by, so they fall back to the fixed
+        // APP_URL setting, which doesn't necessarily match every hostname
+        // the site is actually reachable under, or whatever host an image
+        // URL was authored/imported with. Treating that as "external"
+        // would force a live HTTP fetch back to our own server just to
+        // re-download a file that's already sitting right here on disk — a
+        // self-referencing ("hairpin") request many hosts block or that
+        // simply fails — leaving the image hotlinked instead of embedded
+        // even though embedding it locally would have worked fine.
+        $baseHost = self::normalizeHostForComparison((string) parse_url(Auth::currentBaseUrl(), PHP_URL_HOST));
         $rootPath = realpath(defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__));
 
         $html = (string) preg_replace_callback(
             '/(<img\b[^>]*\ssrc=)(["\'])(https?:\/\/[^"\'>]+)\2([^>]*)>/i',
-            static function (array $matches) use (&$embeds, &$tempFiles, $baseUrl, $rootPath): string {
+            static function (array $matches) use (&$embeds, &$tempFiles, $baseHost, $rootPath): string {
                 $url = $matches[3];
                 $data = null;
                 $mime = null;
 
-                if ($baseUrl !== '' && str_starts_with($url, $baseUrl . '/')) {
-                    $relative = substr($url, strlen($baseUrl));
-                    $path = ($rootPath !== false ? $rootPath : '') . parse_url($relative, PHP_URL_PATH);
+                $urlHost = self::normalizeHostForComparison((string) parse_url($url, PHP_URL_HOST));
+                if ($baseHost !== '' && $urlHost === $baseHost) {
+                    $path = ($rootPath !== false ? $rootPath : '') . (string) parse_url($url, PHP_URL_PATH);
                     $realPath = $rootPath !== false ? realpath($path) : false;
                     if ($realPath !== false && str_starts_with($realPath, $rootPath) && is_file($realPath)) {
                         $fileData = @file_get_contents($realPath);
@@ -273,6 +288,22 @@ final class Mailer
         ) ?? $html;
 
         return ['html' => $html, 'embeds' => $embeds];
+    }
+
+    /**
+     * Lowercases a host and strips a leading "www." so e.g. "Example.com"
+     * and "www.example.com" compare equal — see embedHotlinkedImages() for
+     * why treating those as the same site matters. Returns '' for an
+     * empty/absent host so callers never treat "no host" (a malformed URL)
+     * as matching another empty/absent host.
+     */
+    private static function normalizeHostForComparison(string $host): string
+    {
+        $host = strtolower(trim($host));
+        if ($host === '') {
+            return '';
+        }
+        return str_starts_with($host, 'www.') ? substr($host, 4) : $host;
     }
 
     /**
