@@ -1115,6 +1115,9 @@ final class PageController extends Controller
                 'SMTP_PASS' => Settings::get('SMTP_PASS', ''),
                 'SMTP_FROM_EMAIL' => Settings::get('SMTP_FROM_EMAIL', 'infos@grand-baie-maurice.com'),
                 'SMTP_FROM_NAME' => Settings::get('SMTP_FROM_NAME', 'Grand Baie Maurice'),
+                'DKIM_DOMAIN' => Settings::get('DKIM_DOMAIN', ''),
+                'DKIM_SELECTOR' => Settings::get('DKIM_SELECTOR', ''),
+                'DKIM_PRIVATE_KEY' => Settings::get('DKIM_PRIVATE_KEY', ''),
             ],
         ]);
     }
@@ -1129,6 +1132,12 @@ final class PageController extends Controller
         Settings::set('SMTP_FROM_EMAIL', trim((string) ($_POST['smtp_from_email'] ?? '')) ?: 'infos@grand-baie-maurice.com');
         Settings::set('SMTP_FROM_NAME', trim((string) ($_POST['smtp_from_name'] ?? '')) ?: 'Grand Baie Maurice');
         Settings::set('SMTP_SECURITY', 'ssl');
+        // DKIM signing (see Mailer::dkimSignatureHeader()): all three must be
+        // set for the app to sign outgoing mail itself, rather than relying
+        // on the host's mail server to do it opportunistically.
+        Settings::set('DKIM_DOMAIN', trim((string) ($_POST['dkim_domain'] ?? '')));
+        Settings::set('DKIM_SELECTOR', trim((string) ($_POST['dkim_selector'] ?? '')));
+        Settings::set('DKIM_PRIVATE_KEY', (string) ($_POST['dkim_private_key'] ?? ''));
         Settings::reload();
         self::redirect('/admin/smtp-settings', 'SMTP par défaut sauvegardé.');
     }
