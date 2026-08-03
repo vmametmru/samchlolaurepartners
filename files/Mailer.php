@@ -11,6 +11,28 @@ final class Mailer
     /** Hard cap on a single externally-fetched (non-local) embedded image, to bound memory/bandwidth use. */
     private const MAX_EXTERNAL_IMAGE_BYTES = 5 * 1024 * 1024;
 
+    /**
+     * Hosts an outgoing email must never point at, nor fetch from, under any
+     * circumstance: Lodgify's API/CDN image hosts. Every property photo shown
+     * in an email is served from our own hosting (the locally-synced copies
+     * under images/listings/, see ImageCache::cache()), so a Lodgify URL can
+     * only ever appear in an email because a sync fell back to the remote URL
+     * or because someone pasted one into a template by hand. Hotlinking those
+     * makes each recipient's mail client hit Lodgify (slow to open, and extra
+     * load on Lodgify's API), so such <img> tags are dropped from the message
+     * entirely instead — see embedHotlinkedImages().
+     */
+    private const BLOCKED_IMAGE_HOST_SUFFIXES = ['lodgify.com', 'icdbcdn.com', 'lodgify.net'];
+
+    /**
+     * Width (px) every embedded image is capped to when the <img> tag itself
+     * declares no pixel width (neither a width attribute nor an inline CSS
+     * pixel width) — e.g. a fluid "width:100%" image. Roughly the widest a
+     * message body is ever rendered at, so recipients see no difference,
+     * while a 1920px synced photo is never embedded at full resolution.
+     */
+    private const MAX_EMAIL_IMAGE_WIDTH = 800;
+
     public static function renderTemplate(string $template, array $variables): string
     {
         // Support "{{var1}}+{{var2}}(+{{var3}}...)" expressions in the
@@ -230,23 +252,41 @@ final class Mailer
         $baseHost = self::normalizeHostForComparison((string) parse_url(Auth::currentBaseUrl(), PHP_URL_HOST));
         $rootPath = realpath(defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__));
 
+        // Same image URL displayed at the same size twice in a template (a
+        // logo repeated in header and footer, the same photo in two blocks,
+        // ...) must be embedded once and referenced by the same cid, not
+        // attached once per occurrence — duplicated base64 payloads are the
+        // main reason a message becomes needlessly heavy and slow to open.
+        $embedCache = [];
+
         $html = (string) preg_replace_callback(
             '/(<img\b[^>]*\ssrc=)(["\'])(https?:\/\/[^"\'>]+)\2([^>]*)>/i',
-            static function (array $matches) use (&$embeds, &$tempFiles, $baseHost, $rootPath): string {
+            static function (array $matches) use (&$embeds, &$tempFiles, &$embedCache, $baseHost, $rootPath): string {
                 $url = $matches[3];
+
+                // Never let an email point at (or make the server fetch from)
+                // Lodgify: drop the tag entirely rather than hotlinking it.
+                if (self::isBlockedImageHost($url)) {
+                    error_log('Mailer: dropped Lodgify-hosted image from outgoing email (' . $url . '); only locally-synced photos may be used.');
+                    return '';
+                }
+
+                $targetWidth = self::extractImgWidth($matches[0]);
+                $targetHeight = self::extractImgHeight($matches[0]);
+                $cacheKey = $url . '|' . ($targetWidth ?? 0) . 'x' . ($targetHeight ?? 0);
+                if (isset($embedCache[$cacheKey])) {
+                    return $matches[1] . $matches[2] . 'cid:' . $embedCache[$cacheKey] . $matches[2] . $matches[4] . '>';
+                }
+
                 $data = null;
                 $mime = null;
 
-                $urlHost = self::normalizeHostForComparison((string) parse_url($url, PHP_URL_HOST));
-                if ($baseHost !== '' && $urlHost === $baseHost) {
-                    $path = ($rootPath !== false ? $rootPath : '') . (string) parse_url($url, PHP_URL_PATH);
-                    $realPath = $rootPath !== false ? realpath($path) : false;
-                    if ($realPath !== false && str_starts_with($realPath, $rootPath) && is_file($realPath)) {
-                        $fileData = @file_get_contents($realPath);
-                        if ($fileData !== false && $fileData !== '') {
-                            $data = $fileData;
-                            $mime = self::detectImageMime($data, pathinfo($realPath, PATHINFO_EXTENSION));
-                        }
+                $realPath = self::localFileForUrl($url, $baseHost, $rootPath);
+                if ($realPath !== null) {
+                    $fileData = @file_get_contents($realPath);
+                    if ($fileData !== false && $fileData !== '') {
+                        $data = $fileData;
+                        $mime = self::detectImageMime($data, pathinfo($realPath, PATHINFO_EXTENSION));
                     }
                 }
 
@@ -266,8 +306,6 @@ final class Mailer
                     return $matches[0];
                 }
 
-                $targetWidth = self::extractImgWidth($matches[0]);
-                $targetHeight = self::extractImgHeight($matches[0]);
                 if ($targetWidth !== null && $targetHeight !== null) {
                     // Both dimensions are fixed (e.g. the photo1/photo2/photo3
                     // slots, always inserted as a fixed WxH box): crop the
@@ -278,16 +316,88 @@ final class Mailer
                     $data = self::cropForEmail($data, $targetWidth, $targetHeight, $tempFiles);
                 } elseif ($targetWidth !== null) {
                     $data = self::resizeForEmail($data, $targetWidth, $tempFiles);
+                } else {
+                    // No displayed pixel width could be determined (e.g. a
+                    // fluid "width:100%" image): fall back to a generic cap
+                    // so a full-resolution photo (up to 1920px wide once
+                    // synced) is never embedded as-is, which is what made
+                    // messages heavy and slow to open.
+                    $data = self::resizeForEmail($data, self::MAX_EMAIL_IMAGE_WIDTH, $tempFiles);
                 }
 
                 $cid = 'inline-' . bin2hex(random_bytes(6)) . '@local';
                 $embeds[] = ['cid' => $cid, 'data' => $data, 'mime' => $mime ?: 'image/jpeg'];
+                $embedCache[$cacheKey] = $cid;
                 return $matches[1] . $matches[2] . 'cid:' . $cid . $matches[2] . $matches[4] . '>';
             },
             $html
         ) ?? $html;
 
         return ['html' => $html, 'embeds' => $embeds];
+    }
+
+    /**
+     * True when $url points at Lodgify (API or CDN). Emails must never
+     * hotlink such a URL, nor make the server fetch it: every property photo
+     * used in an email is the locally-synced copy under images/listings/
+     * (ImageCache::cache()), so a Lodgify URL in an outgoing message would
+     * only add latency for the recipient and needless load on Lodgify.
+     */
+    private static function isBlockedImageHost(string $url): bool
+    {
+        $host = self::normalizeHostForComparison((string) parse_url($url, PHP_URL_HOST));
+        if ($host === '') {
+            return false;
+        }
+        foreach (self::BLOCKED_IMAGE_HOST_SUFFIXES as $suffix) {
+            if ($host === $suffix || str_ends_with($host, '.' . $suffix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Maps an absolute image URL back to the file it refers to on this
+     * server, or null when it isn't one of ours. The host is compared with
+     * Auth::currentBaseUrl()'s (see normalizeHostForComparison()) but, as a
+     * failsafe, a URL under one of the site's own public asset directories
+     * (/images/, /assets/, /install/) whose file genuinely exists on disk is
+     * also served from disk whatever host it was authored with: scheduled/
+     * cron sends have no request host to go by and fall back to APP_URL,
+     * which doesn't necessarily match every hostname the site is reachable
+     * under. Without this, embedding would fall back to a live HTTP request
+     * back to our own server ("hairpin"), which many hosts block — leaving
+     * the image hotlinked (slow, and often blocked by the mail client) even
+     * though the exact bytes were sitting right here on disk.
+     *
+     * @param string|false $rootPath realpath(BASE_PATH), or false when unresolvable
+     */
+    private static function localFileForUrl(string $url, string $baseHost, $rootPath): ?string
+    {
+        if ($rootPath === false) {
+            return null;
+        }
+
+        $urlPath = (string) parse_url($url, PHP_URL_PATH);
+        if ($urlPath === '') {
+            return null;
+        }
+        $urlPath = rawurldecode($urlPath);
+
+        $urlHost = self::normalizeHostForComparison((string) parse_url($url, PHP_URL_HOST));
+        $sameHost = $baseHost !== '' && $urlHost === $baseHost;
+        $isPublicAssetPath = (bool) preg_match('#^/(images|assets|install)/#', $urlPath);
+        if (!$sameHost && !$isPublicAssetPath) {
+            return null;
+        }
+
+        $realPath = realpath($rootPath . $urlPath);
+        if ($realPath === false || !str_starts_with($realPath, $rootPath . DIRECTORY_SEPARATOR) || !is_file($realPath)) {
+            return null;
+        }
+
+        return $realPath;
     }
 
     /**
@@ -307,19 +417,25 @@ final class Mailer
     }
 
     /**
-     * Reads the numeric "width" HTML attribute (e.g. width="320") off the
-     * full <img> tag, ignoring any CSS width set via "style" (which is
-     * often a percentage, not a pixel target). Returns null when
-     * absent/non-numeric, so the caller leaves the image at its original
-     * resolution rather than guessing a target width.
+     * Reads the pixel width the template actually displays the image at:
+     * the numeric "width" HTML attribute (e.g. width="320") when present,
+     * otherwise a pixel width declared in the tag's inline CSS
+     * (style="width:320px" / "max-width:320px"), which is how images
+     * inserted from the WYSIWYG editor or imported from a Canva export are
+     * usually sized. Percentage CSS widths are ignored (no pixel target can
+     * be derived from them). Returns null when no pixel width can be
+     * determined, so the caller falls back to the generic email width cap
+     * instead of guessing.
      */
     private static function extractImgWidth(string $imgTag): ?int
     {
         if (preg_match('/\swidth\s*=\s*(["\']?)(\d+)\1/i', $imgTag, $match) === 1) {
             $width = (int) $match[2];
-            return $width > 0 ? $width : null;
+            if ($width > 0) {
+                return $width;
+            }
         }
-        return null;
+        return self::extractCssPixelLength($imgTag, 'width');
     }
 
     /**
@@ -332,8 +448,36 @@ final class Mailer
     {
         if (preg_match('/\sheight\s*=\s*(["\']?)(\d+)\1/i', $imgTag, $match) === 1) {
             $height = (int) $match[2];
-            return $height > 0 ? $height : null;
+            if ($height > 0) {
+                return $height;
+            }
         }
+        return self::extractCssPixelLength($imgTag, 'height');
+    }
+
+    /**
+     * Reads a pixel length ("320px") for a CSS property declared in the
+     * tag's inline style attribute, trying the property itself first
+     * ("width:320px") then its "max-" variant ("max-width:320px").
+     * Percentages, "auto" and any other unit yield null, since no reliable
+     * pixel target can be derived from them.
+     */
+    private static function extractCssPixelLength(string $imgTag, string $property): ?int
+    {
+        if (preg_match('/\sstyle\s*=\s*(["\'])(.*?)\1/is', $imgTag, $styleMatch) !== 1) {
+            return null;
+        }
+        $style = $styleMatch[2];
+
+        foreach ([$property, 'max-' . $property] as $name) {
+            if (preg_match('/(?:^|;)\s*' . preg_quote($name, '/') . '\s*:\s*(\d+(?:\.\d+)?)\s*px\s*(?:;|$)/i', $style, $match) === 1) {
+                $value = (int) round((float) $match[1]);
+                if ($value > 0) {
+                    return $value;
+                }
+            }
+        }
+
         return null;
     }
 
@@ -524,7 +668,10 @@ final class Mailer
 
     public static function sendContactEmail(array $partner, string $to, string $subject, string $html, ?string $replyTo = null): void
     {
-        self::deliver($partner, $to, $subject, $html, $replyTo);
+        // Goes through the same pipeline as every other send: any image in a
+        // contact email is inlined (and Lodgify URLs dropped) instead of
+        // being hotlinked.
+        self::sendWithEmbeds($partner, $to, $subject, $html, [], $replyTo);
     }
 
     /**
