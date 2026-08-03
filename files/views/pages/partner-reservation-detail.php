@@ -102,14 +102,38 @@
       <?php if (!empty($reservation['notes'])): ?><div><span class="muted">Notes internes :</span><p class="message-box"><?= nl2br(\App\View::e($reservation['notes'])) ?></p></div><?php endif; ?>
     </div>
   <?php endif; ?>
-  <?php if ($reservation['status'] === 'pending'): ?>
-    <div class="card card-body stack-md">
-      <h2 class="section-title">Action</h2>
+  <div class="card card-body stack-md">
+    <h2 class="section-title">Action</h2>
+    <?php $rid = (int) $reservation['id']; $status = (string) $reservation['status']; ?>
+    <?php if ($status === 'pending'): ?>
       <p class="muted">Veuillez d'abord réserver manuellement sur mauritius-booking.com, puis confirmer ici pour notifier le client.</p>
-      <form method="post" action="/partner/reservations/<?= (int) $reservation['id'] ?>/confirm" class="stack-md">
+      <form method="post" action="/partner/reservations/<?= $rid ?>/confirm" class="stack-md">
         <label><span>Notes internes (optionnel)</span><textarea class="input" name="notes" rows="3"><?= \App\View::e($reservation['notes'] ?? '') ?></textarea></label>
-        <div class="button-row"><button class="btn-primary" type="submit">✓ Confirmer la réservation</button></form>
-        <form method="post" action="/partner/reservations/<?= (int) $reservation['id'] ?>/cancel" onsubmit="return confirm('Annuler cette réservation ?');"><button class="btn-secondary danger" type="submit">✕ Annuler</button></form></div>
-    </div>
-  <?php endif; ?>
+        <div class="button-row">
+          <button class="btn-primary" type="submit">▶️ Confirmer la réservation</button>
+        </div>
+      </form>
+      <form method="post" action="/partner/reservations/<?= $rid ?>/cancel" onsubmit="return confirm('Annuler cette réservation ?');">
+        <div class="button-row"><button class="btn-secondary danger" type="submit">❌ Annuler</button></div>
+      </form>
+    <?php elseif ($status === 'confirmed'): ?>
+      <div class="button-row">
+        <form method="post" action="/partner/reservations/<?= $rid ?>/reopen">
+          <button class="btn-secondary" type="submit">⏸️ Repasser en attente</button>
+        </form>
+        <form method="post" action="/partner/reservations/<?= $rid ?>/cancel" onsubmit="return confirm('Annuler cette réservation ?');">
+          <button class="btn-secondary danger" type="submit">❌ Annuler</button>
+        </form>
+      </div>
+    <?php else: ?>
+      <div class="button-row">
+        <form method="post" action="/partner/reservations/<?= $rid ?>/confirm">
+          <button class="btn-primary" type="submit">▶️ Confirmer la réservation</button>
+        </form>
+        <form method="post" action="/partner/reservations/<?= $rid ?>/reopen">
+          <button class="btn-secondary" type="submit">⏸️ Repasser en attente</button>
+        </form>
+      </div>
+    <?php endif; ?>
+  </div>
 </section>

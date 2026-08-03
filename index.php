@@ -250,13 +250,9 @@ try {
         case route($method, $path, 'POST', '#^/partner/reservations/(\d+)/cancel$#', $matches):
             PageController::partnerCancelReservation((int) $matches[1]);
             break;
-        case route($method, $path, 'GET', '#^/partner/templates$#'):
-            PageController::partnerTemplates();
+        case route($method, $path, 'POST', '#^/partner/reservations/(\d+)/reopen$#', $matches):
+            PageController::partnerReopenReservation((int) $matches[1]);
             break;
-        case route($method, $path, 'POST', '#^/partner/templates/(\d+)$#', $matches):
-            PageController::partnerSaveTemplate((int) $matches[1]);
-        case route($method, $path, 'POST', '#^/partner/templates/(\d+)/delete$#', $matches):
-            PageController::partnerDeleteTemplate((int) $matches[1]);
         case route($method, $path, 'GET', '#^/partner/settings$#'):
             PageController::partnerSettings();
             break;

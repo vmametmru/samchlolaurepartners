@@ -37,6 +37,13 @@ final class Scheduler
         // the reservation's own partner_id, only narrowed down to
         // es.partner_id when that column is set (a partner-specific
         // schedule).
+        //
+        // r.confirmed_at IS NOT NULL / rr.status = 'confirmed' are both
+        // required (not just r.cancelled_at IS NULL): reopenForPartner()
+        // resets a reservation back to "pending" by nulling out both
+        // confirmed_at and cancelled_at, so cancelled_at IS NULL alone would
+        // still match a reopened/pending (or never-confirmed) reservation
+        // and wrongly send reminders for it.
         $sql = <<<'SQL'
 SELECT
   es.id AS schedule_id,
@@ -69,6 +76,8 @@ JOIN reservation_requests rr ON rr.id = r.request_id
 JOIN partners p ON p.id = r.partner_id
 WHERE es.active = 1
   AND r.cancelled_at IS NULL
+  AND r.confirmed_at IS NOT NULL
+  AND rr.status = 'confirmed'
   AND DATE(rr.checkin_date) >= CURDATE()
   AND DATE(rr.checkin_date) <= DATE_ADD(CURDATE(), INTERVAL es.days_before_arrival DAY)
   AND NOT EXISTS (
@@ -189,7 +198,12 @@ SQL;
                     if ($requestLanguage !== \App\I18n::DEFAULT_LANGUAGE) {
                         $partnerVariables['useful_info'] = \App\controllers\ReservationsController::usefulInfoButtonHtml((int) ($row['property_id'] ?? 0), \App\I18n::DEFAULT_LANGUAGE);
                     }
-                    Mailer::sendTemplatedEmail($row, $template, $partnerEmail, $partnerVariables, $embeds, (string) $row['client_email']);
+                    // No Reply-To here: this reminder is sent by the site
+                    // itself (agency-facing copy) to notify the partner of
+                    // an upcoming arrival, not a message from the client, so
+                    // replies should go back to the sending mailbox, not to
+                    // the guest.
+                    Mailer::sendTemplatedEmail($row, $template, $partnerEmail, $partnerVariables, $embeds, null);
                 } else {
                     // REMINDER_CLIENT never leaks partner-only variables
                     // (commission, amount owed) even if a partner mistakenly
