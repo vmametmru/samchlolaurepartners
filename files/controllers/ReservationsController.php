@@ -1126,6 +1126,89 @@ final class ReservationsController extends Controller
         return $request;
     }
 
+    /**
+     * Resolves the owning partner_id for a reservation request, regardless
+     * of partner, so admin-only actions (confirm/cancel/reopen/delete) can
+     * reuse the same partner-scoped logic (confirmForPartner()/cancelForPartner()/
+     * reopenForPartner()) without duplicating it. Returns null if the
+     * request doesn't exist.
+     */
+    private static function partnerIdForRequest(int $id): ?int
+    {
+        $stmt = Database::connection()->prepare('SELECT partner_id FROM reservation_requests WHERE id = ? LIMIT 1');
+        $stmt->execute([$id]);
+        $partnerId = $stmt->fetchColumn();
+        return $partnerId !== false ? (int) $partnerId : null;
+    }
+
+    /**
+     * Admin-only equivalent of confirmForPartner() that isn't restricted to
+     * a single partner: it looks up the request's own partner_id first, then
+     * delegates so the client still receives the same confirmation email.
+     *
+     * @return array<string, mixed>|null The reservation_requests row, or null if not found.
+     */
+    public static function confirmForAdmin(int $id, ?string $notes): ?array
+    {
+        $partnerId = self::partnerIdForRequest($id);
+        return $partnerId !== null ? self::confirmForPartner($partnerId, $id, $notes) : null;
+    }
+
+    /**
+     * Admin-only equivalent of cancelForPartner() (see confirmForAdmin()).
+     *
+     * @return array<string, mixed>|null The reservation_requests row, or null if not found.
+     */
+    public static function cancelForAdmin(int $id): ?array
+    {
+        $partnerId = self::partnerIdForRequest($id);
+        return $partnerId !== null ? self::cancelForPartner($partnerId, $id) : null;
+    }
+
+    /**
+     * Admin-only equivalent of reopenForPartner() (see confirmForAdmin()).
+     *
+     * @return array<string, mixed>|null The reservation_requests row, or null if not found.
+     */
+    public static function reopenForAdmin(int $id): ?array
+    {
+        $partnerId = self::partnerIdForRequest($id);
+        return $partnerId !== null ? self::reopenForPartner($partnerId, $id) : null;
+    }
+
+    /**
+     * Admin-only: permanently deletes a reservation request (and its
+     * confirmed reservation row, cascaded via reservations.request_id's
+     * ON DELETE CASCADE FK) instead of merely cancelling it. Used by the
+     * "Effacer" action on /admin/reservations, distinct from cancellation
+     * which keeps the record but marks it as cancelled.
+     */
+    public static function deleteRequest(int $id): bool
+    {
+        $stmt = Database::connection()->prepare('DELETE FROM reservation_requests WHERE id = ?');
+        $stmt->execute([$id]);
+        return $stmt->rowCount() > 0;
+    }
+
+    /**
+     * Admin-only batch variant of deleteRequest(), used by the "Effacer la
+     * sélection" bulk action on /admin/reservations.
+     *
+     * @param int[] $ids
+     * @return int Number of rows actually deleted.
+     */
+    public static function deleteRequests(array $ids): int
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn (int $id) => $id > 0)));
+        if ($ids === []) {
+            return 0;
+        }
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = Database::connection()->prepare("DELETE FROM reservation_requests WHERE id IN ({$placeholders})");
+        $stmt->execute($ids);
+        return $stmt->rowCount();
+    }
+
     public static function listForPartner(int $partnerId): array
     {
         $stmt = Database::connection()->prepare(

@@ -289,6 +289,16 @@ try {
         case route($method, $path, 'GET', '#^/admin/reservations$#'):
             PageController::adminReservations();
             break;
+        case route($method, $path, 'POST', '#^/admin/reservations/delete-batch$#'):
+            PageController::adminDeleteReservationsBatch();
+        case route($method, $path, 'POST', '#^/admin/reservations/(\d+)/confirm$#', $matches):
+            PageController::adminConfirmReservation((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/admin/reservations/(\d+)/cancel$#', $matches):
+            PageController::adminCancelReservation((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/admin/reservations/(\d+)/reopen$#', $matches):
+            PageController::adminReopenReservation((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/admin/reservations/(\d+)/delete$#', $matches):
+            PageController::adminDeleteReservation((int) $matches[1]);
         case route($method, $path, 'GET', '#^/admin/fees$#'):
             PageController::adminFees();
             break;
