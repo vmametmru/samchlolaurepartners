@@ -738,6 +738,90 @@ final class PageController extends Controller
         ]);
     }
 
+    /**
+     * Builds the redirect target after an admin reservation action, keeping
+     * the admin back on /admin/reservations with whatever filters were
+     * posted along (mirroring partnerReservationsRedirectUrl()).
+     */
+    private static function adminReservationsRedirectUrl(): string
+    {
+        $redirect = trim((string) ($_POST['redirect_to'] ?? ''));
+        if ($redirect !== '' && str_starts_with($redirect, '/admin/reservations') && !str_contains($redirect, '://')) {
+            return $redirect;
+        }
+        return '/admin/reservations';
+    }
+
+    /**
+     * Admin-only: confirms any partner's reservation request (see
+     * ReservationsController::confirmForAdmin()), giving the admin the same
+     * status-change capability as partners instead of read-only visibility.
+     */
+    public static function adminConfirmReservation(int $id): never
+    {
+        self::requireAdminUser();
+        $notes = trim((string) ($_POST['notes'] ?? ''));
+        if (!ReservationsController::confirmForAdmin($id, $notes !== '' ? $notes : null)) {
+            throw new HttpException(404, 'Not Found', 'Réservation introuvable');
+        }
+        self::redirect(self::adminReservationsRedirectUrl(), 'Réservation confirmée.');
+    }
+
+    /**
+     * Admin-only: cancels any partner's reservation request (see
+     * ReservationsController::cancelForAdmin()).
+     */
+    public static function adminCancelReservation(int $id): never
+    {
+        self::requireAdminUser();
+        if (!ReservationsController::cancelForAdmin($id)) {
+            throw new HttpException(404, 'Not Found', 'Réservation introuvable');
+        }
+        self::redirect(self::adminReservationsRedirectUrl(), 'Réservation annulée.', 'info');
+    }
+
+    /**
+     * Admin-only: reopens any partner's reservation request back to
+     * "pending" (see ReservationsController::reopenForAdmin()).
+     */
+    public static function adminReopenReservation(int $id): never
+    {
+        self::requireAdminUser();
+        if (!ReservationsController::reopenForAdmin($id)) {
+            throw new HttpException(404, 'Not Found', 'Réservation introuvable');
+        }
+        self::redirect(self::adminReservationsRedirectUrl(), 'Réservation repassée en attente.', 'info');
+    }
+
+    /**
+     * Admin-only: permanently deletes a single reservation request, unlike
+     * cancellation which keeps the record. Used by the "Effacer" action on
+     * /admin/reservations.
+     */
+    public static function adminDeleteReservation(int $id): never
+    {
+        self::requireAdminUser();
+        if (!ReservationsController::deleteRequest($id)) {
+            throw new HttpException(404, 'Not Found', 'Réservation introuvable');
+        }
+        self::redirect(self::adminReservationsRedirectUrl(), 'Réservation supprimée.', 'info');
+    }
+
+    /**
+     * Admin-only: permanently deletes several reservation requests selected
+     * via checkboxes on /admin/reservations in one action.
+     */
+    public static function adminDeleteReservationsBatch(): never
+    {
+        self::requireAdminUser();
+        $ids = array_map('intval', (array) ($_POST['ids'] ?? []));
+        $deleted = ReservationsController::deleteRequests($ids);
+        $message = $deleted > 0
+            ? ($deleted > 1 ? $deleted . ' réservations supprimées.' : '1 réservation supprimée.')
+            : 'Aucune réservation sélectionnée.';
+        self::redirect(self::adminReservationsRedirectUrl(), $message, $deleted > 0 ? 'info' : 'error');
+    }
+
     public static function partnerReservationDetail(int $id): void
     {
         $user = self::requirePartnerUser();
