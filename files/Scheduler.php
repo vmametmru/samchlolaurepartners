@@ -114,7 +114,16 @@ SQL;
             // the client with an identical courtesy copy to the partner.
             $isReminderClient = $templateType === 'REMINDER_CLIENT';
             $isReminderPartner = $templateType === 'REMINDER_PARTNER';
-            $template = \App\controllers\ReservationsController::findEmailTemplate($pdo, (int) $row['partner_id'], $templateType, $requestLanguage);
+            // $row['partner_id'] does not exist: the query above never
+            // selects a "partner_id" column (only "p.*", i.e. the joined
+            // partners row, which contributes an "id" key — the same one
+            // used a few lines below for signatureVariables()). Reading the
+            // undefined 'partner_id' key silently resolved to 0 here, so
+            // findEmailTemplate() could never match this partner's own
+            // email_templates row and always fell back to the site-wide
+            // default template (or no template at all, silently skipping
+            // the reminder, when no default existed for this type either).
+            $template = \App\controllers\ReservationsController::findEmailTemplate($pdo, (int) $row['id'], $templateType, $requestLanguage);
             if (!$template) {
                 continue;
             }

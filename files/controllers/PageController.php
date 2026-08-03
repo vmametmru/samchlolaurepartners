@@ -3516,6 +3516,7 @@ HTML,
   <li><strong>Voyageurs :</strong> {{adultes}} adulte(s), {{enfants}} enfant(s)</li>
   <li><strong>Téléphone client :</strong> {{telephone_client}}</li>
 </ul>
+{{useful_info}}
 {{tarif_bloc}}
 <p>À bientôt !</p>
 HTML,
@@ -3662,6 +3663,7 @@ HTML,
   <li><strong>Guests:</strong> {{adultes}} adult(s), {{enfants}} child(ren)</li>
   <li><strong>Client phone:</strong> {{telephone_client}}</li>
 </ul>
+{{useful_info}}
 {{tarif_bloc}}
 <p>See you soon!</p>
 HTML,
