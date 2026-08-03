@@ -572,6 +572,12 @@ final class Mailer
                 $headers[] = $mime['contentType'];
                 $body = $mime['body'];
 
+                $dkimHeader = self::dkimSignatureHeader($headers, $body, (string) $config['from_email']);
+                if ($dkimHeader !== null) {
+                    array_unshift($headers, $dkimHeader);
+                    $trace[] = 'DKIM-Signature added';
+                }
+
                 $trace[] = 'mail(' . $to . ', ' . $subject . ', ' . strlen($body) . ' bytes body, ' . count($headers) . ' headers)';
                 if (!@mail($to, $subject, $body, implode("\r\n", $headers))) {
                     $trace[] = 'mail() returned false';
@@ -737,6 +743,12 @@ final class Mailer
         $mime = self::buildMimeMessage($html, $embeds);
         $headers[] = $mime['contentType'];
         $body = $mime['body'];
+
+        $dkimHeader = self::dkimSignatureHeader($headers, $body, $fromEmail);
+        if ($dkimHeader !== null) {
+            array_unshift($headers, $dkimHeader);
+            $trace[] = 'DKIM-Signature added';
+        }
 
         $trace[] = 'DATA payload: ' . count($embeds) . ' embed(s), ' . strlen($body) . ' bytes body';
         $message = implode("\r\n", $headers) . "\r\n\r\n" . self::dotStuff($body) . "\r\n.";
@@ -909,5 +921,108 @@ final class Mailer
             }
         }
         return '';
+    }
+
+    /**
+     * Builds a "DKIM-Signature:" header for the given message (RFC 6376,
+     * rsa-sha256, relaxed/relaxed canonicalization) using the private key
+     * configured in Settings (DKIM_DOMAIN/DKIM_SELECTOR/DKIM_PRIVATE_KEY).
+     *
+     * This exists because the outgoing mail server (A2Hosting/cPanel/Exim)
+     * cannot be relied on to opportunistically sign every message submitted
+     * over authenticated SMTP from a script — leading to messages that pass
+     * SPF (envelope sender is authenticated) but have no valid DKIM
+     * signature at all. Signing here removes that dependency entirely.
+     *
+     * Returns null (no signature added) when DKIM isn't configured, the
+     * private key is invalid, or the From address's domain doesn't match
+     * the configured DKIM domain (signing a mismatched domain would only
+     * ever produce an invalid signature).
+     *
+     * @param list<string> $headers "Name: value" lines, in the order they'll be sent (no trailing CRLF, no DKIM-Signature line).
+     */
+    private static function dkimSignatureHeader(array $headers, string $body, string $fromEmail): ?string
+    {
+        $domain = trim((string) Settings::get('DKIM_DOMAIN', ''));
+        $selector = trim((string) Settings::get('DKIM_SELECTOR', ''));
+        $privateKeyPem = (string) Settings::get('DKIM_PRIVATE_KEY', '');
+        if ($domain === '' || $selector === '' || trim($privateKeyPem) === '') {
+            return null;
+        }
+
+        $atPos = strrpos($fromEmail, '@');
+        $fromDomain = $atPos !== false ? substr($fromEmail, $atPos + 1) : '';
+        if (strcasecmp($fromDomain, $domain) !== 0) {
+            return null;
+        }
+
+        $privateKey = openssl_pkey_get_private($privateKeyPem);
+        if ($privateKey === false) {
+            return null;
+        }
+
+        // Only sign the headers that matter for spoofing/alignment and are
+        // always present on every message this class sends; skipping
+        // headers that vary per transport (e.g. only present in one of the
+        // two send paths) keeps this list identical for both.
+        $signableNames = ['from', 'to', 'subject', 'date', 'message-id', 'mime-version', 'content-type'];
+        $parsed = [];
+        foreach ($headers as $header) {
+            $colon = strpos($header, ':');
+            if ($colon === false) {
+                continue;
+            }
+            $name = trim(substr($header, 0, $colon));
+            if (in_array(strtolower($name), $signableNames, true)) {
+                $parsed[] = ['name' => $name, 'value' => substr($header, $colon + 1)];
+            }
+        }
+        if ($parsed === []) {
+            return null;
+        }
+
+        $bodyHash = base64_encode(hash('sha256', self::canonicalizeBodyRelaxed($body), true));
+        $hList = implode(':', array_map(static fn (array $h): string => strtolower($h['name']), $parsed));
+
+        $signatureTemplate = 'v=1; a=rsa-sha256; c=relaxed/relaxed; d=' . $domain . '; s=' . $selector
+            . '; h=' . $hList . '; bh=' . $bodyHash . '; b=';
+
+        $signedData = '';
+        foreach ($parsed as $header) {
+            $signedData .= self::canonicalizeHeaderRelaxed($header['name'], $header['value']) . "\r\n";
+        }
+        $signedData .= self::canonicalizeHeaderRelaxed('DKIM-Signature', ' ' . $signatureTemplate);
+
+        $signature = '';
+        $signed = openssl_sign($signedData, $signature, $privateKey, OPENSSL_ALGO_SHA256);
+        if (!$signed) {
+            return null;
+        }
+
+        return 'DKIM-Signature: ' . $signatureTemplate . base64_encode($signature);
+    }
+
+    private static function canonicalizeHeaderRelaxed(string $name, string $value): string
+    {
+        $value = str_replace(["\r\n", "\n"], '', $value);
+        $value = preg_replace('/[ \t]+/', ' ', $value) ?? $value;
+        return strtolower($name) . ':' . trim($value);
+    }
+
+    private static function canonicalizeBodyRelaxed(string $body): string
+    {
+        // Every body built by this class already uses "\r\n" line endings
+        // consistently (see buildMimeMessage()/buildRelatedBody()).
+        $lines = explode("\r\n", $body);
+        $lines = array_map(static function (string $line): string {
+            $line = preg_replace('/[ \t]+/', ' ', $line) ?? $line;
+            return rtrim($line, " \t");
+        }, $lines);
+
+        while ($lines !== [] && end($lines) === '') {
+            array_pop($lines);
+        }
+
+        return $lines === [] ? '' : implode("\r\n", $lines) . "\r\n";
     }
 }
