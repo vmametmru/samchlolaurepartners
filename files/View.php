@@ -481,7 +481,7 @@ final class View
             ['key' => 'tva_totale', 'description' => 'Montant de TVA effectivement facturé sur le tarif hébergement + personnes supplémentaires (jamais sur le ménage). Affiche 0,00 € si le bien n\'est pas assujetti à la TVA', 'partnerOnly' => false],
             ['key' => 'tarif_ttc', 'description' => 'Identique à {{total_voyageur}}/{{tarif_total}} : tarif hébergement + ménage + personnes supplémentaires, TVA comprise (hors taxe touristique)', 'partnerOnly' => false],
             ['key' => 'tarif_ht', 'description' => 'Identique à {{tarif_ttc}} mais sans la TVA (montant de {{tva_totale}} déduit)', 'partnerOnly' => false],
-            ['key' => 'useful_info', 'description' => 'Lien "Renseignements utiles à l\'enregistrement" (ou "Useful check-in informations" en anglais) prêt à l\'emploi, pointant vers l\'URL FR/EN configurée pour ce bien dans l\'admin "Biens Lodgify" selon la langue de l\'email. Absent de l\'email si aucune URL n\'est configurée pour ce bien', 'partnerOnly' => false],
+            ['key' => 'useful_info', 'description' => 'Bouton "Renseignements utiles à l\'enregistrement" (ou "Useful check-in informations" en anglais) prêt à l\'emploi, pointant vers l\'URL FR/EN configurée pour ce bien dans l\'admin "Biens Lodgify" selon la langue de l\'email. Absent de l\'email si aucune URL n\'est configurée pour ce bien', 'partnerOnly' => false],
         ];
     }
 
