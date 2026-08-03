@@ -2088,16 +2088,16 @@ final class ReservationsController extends Controller
     }
 
     /**
-     * Builds the {{useful_info}} email link: a plain text hyperlink (no
-     * button styling) to the property's own check-in info URL
-     * (checkin_info_url_fr/checkin_info_url_en manual columns on
+     * Builds the {{useful_info}} email button: a styled button (same look
+     * as {{bouton_reservation}}) linking to the property's own check-in
+     * info URL (checkin_info_url_fr/checkin_info_url_en manual columns on
      * "lodgify_property_manual_columns", configured per-property in the
      * admin "Biens Lodgify" table), picking the URL matching the email's
      * own language — English when $language is "en", French otherwise —
      * so an English-language email always links to the English page even
      * if only the French page is filled in for a French guest, and vice
      * versa. Falls back to the other language's URL when the one for
-     * $language is empty, and returns '' (link omitted entirely) when
+     * $language is empty, and returns '' (button omitted entirely) when
      * neither is configured for this property.
      */
     public static function usefulInfoButtonHtml(int $propertyId, string $language): string
@@ -2113,9 +2113,11 @@ final class ReservationsController extends Controller
         $label = $isEnglish ? 'Useful check-in informations' : 'Renseignements utiles à l\'enregistrement';
         $safeUrl = htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
 
-        return '<p style="margin:20px 0;text-align:center;">'
-            . '<a href="' . $safeUrl . '" target="_blank" rel="noopener" style="color:#3b82f6;">' . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . ' : ' . $safeUrl . '</a>'
-            . '</p>';
+        return '<div style="text-align:center;margin:20px 0;">'
+            . '<a href="' . $safeUrl . '" target="_blank" rel="noopener" '
+            . 'style="display:inline-block;background:#3b82f6;color:#ffffff;text-decoration:none;'
+            . 'font-weight:bold;font-size:14px;padding:12px 28px;border-radius:6px;">' . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . '</a>'
+            . '</div>';
     }
 
     /**

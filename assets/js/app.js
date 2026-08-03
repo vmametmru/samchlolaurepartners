@@ -1217,16 +1217,16 @@ function initTemplateEditor() {
       + '</div>';
   }
 
-  // {{useful_info}} is a plain text hyperlink generated server-side (see
-  // ReservationsController::usefulInfoButtonHtml()) — no button styling.
-  // The preview must mirror that exact markup, and it must never be shown
-  // as a plain-text chip (previously fell back to the generic
-  // "« useful_info »" placeholder), which made partners think the variable
-  // itself was broken.
+  // {{useful_info}} is a styled button generated server-side (see
+  // ReservationsController::usefulInfoButtonHtml()), same look as
+  // {{bouton_reservation}}. The preview must mirror that exact markup, and
+  // it must never be shown as a plain-text chip (previously fell back to
+  // the generic "« useful_info »" placeholder), which made partners think
+  // the variable itself was broken.
   function buildSampleUsefulInfoHtml() {
-    return '<p data-template-var="useful_info" contenteditable="false" style="margin:20px 0;text-align:center;" title="Lien généré automatiquement (aperçu avec données temporaires) — pointe vers l’URL Renseignements utiles configurée pour ce bien">'
-      + '<a href="#" style="color:#3b82f6;">Renseignements utiles à l\'enregistrement : https://exemple.com/renseignements-utiles</a>'
-      + '</p>';
+    return '<div data-template-var="useful_info" contenteditable="false" style="text-align:center;margin:20px 0;" title="Bouton généré automatiquement (aperçu avec données temporaires) — pointe vers l’URL Renseignements utiles configurée pour ce bien">'
+      + '<a href="#" style="display:inline-block;background:#3b82f6;color:#ffffff;text-decoration:none;font-weight:bold;font-size:14px;padding:12px 28px;border-radius:6px;">Renseignements utiles à l\'enregistrement</a>'
+      + '</div>';
   }
 
   function buildSampleTarifBlocHtml() {
