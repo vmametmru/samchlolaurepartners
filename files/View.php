@@ -419,7 +419,7 @@ final class View
      */
     public static function clientFacingTemplateTypes(): array
     {
-        return ['REQUEST_RECEIVED_CLIENT', 'RESERVATION_CONFIRMED', 'RESERVATION_CANCELLED', 'REMINDER_CLIENT'];
+        return ['REQUEST_RECEIVED_CLIENT', 'RESERVATION_CONFIRMED', 'RESERVATION_CANCELLED', 'RESERVATION_REOPENED', 'REMINDER_CLIENT'];
     }
 
     public static function isClientFacingTemplateType(string $type): bool

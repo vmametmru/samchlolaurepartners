@@ -1086,6 +1086,46 @@ final class ReservationsController extends Controller
         return $request;
     }
 
+    /**
+     * Persists reopening a confirmed/cancelled reservation back to "pending"
+     * ("Ouverte") — e.g. the partner made a mistake or the booking needs to
+     * be re-discussed with the client — and sends the RESERVATION_REOPENED
+     * notification email. Shared by the JSON API and the partner web form
+     * (PageController::partnerReopenReservation()), mirroring confirmForPartner()/
+     * cancelForPartner().
+     *
+     * @return array<string, mixed>|null The reservation_requests row, or null if not found for this partner.
+     */
+    public static function reopenForPartner(int $partnerId, int $id): ?array
+    {
+        $pdo = Database::connection();
+        $stmt = $pdo->prepare('SELECT * FROM reservation_requests WHERE id = ? AND partner_id = ? LIMIT 1');
+        $stmt->execute([$id, $partnerId]);
+        $request = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$request) {
+            return null;
+        }
+
+        try {
+            $pdo->prepare('UPDATE reservations SET confirmed_at = NULL, cancelled_at = NULL WHERE request_id = ?')->execute([$id]);
+            $pdo->prepare("UPDATE reservation_requests SET status = 'pending', updated_at = NOW() WHERE id = ? AND partner_id = ?")->execute([$id, $partnerId]);
+        } catch (Throwable $e) {
+            error_log((string) $e);
+            self::json(['error' => 'Internal Server Error', 'message' => 'Failed to reopen reservation'], 500);
+        }
+
+        // The status change is already persisted: a notification-email
+        // failure must not turn an otherwise-successful reopening into a 500.
+        try {
+            $partner = self::fetchPartner($partnerId);
+            self::sendReservationStatusEmail($partner, $request, 'RESERVATION_REOPENED', null);
+        } catch (Throwable $e) {
+            error_log('Failed to send reservation reopened email: ' . $e);
+        }
+
+        return $request;
+    }
+
     public static function listForPartner(int $partnerId): array
     {
         $stmt = Database::connection()->prepare(

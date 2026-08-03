@@ -671,12 +671,44 @@ final class PageController extends Controller
     public static function partnerReservations(): void
     {
         $user = self::requirePartnerUser();
-        $filter = (string) ($_GET['filter'] ?? 'all');
-        $reservations = ReservationsController::listForPartner((int) $user['partner_id']);
-        if ($filter !== 'all') {
-            $reservations = array_values(array_filter($reservations, static fn(array $row): bool => $row['status'] === $filter));
+        // Multiple statuses can be selected at once (checkboxes), e.g.
+        // "Ouverte" (pending) + "Confirmée" together, which is also the
+        // default the agency lands on — cancelled reservations are hidden
+        // unless explicitly selected.
+        $selectedStatuses = isset($_GET['status']) && is_array($_GET['status'])
+            ? array_values(array_intersect($_GET['status'], ['pending', 'confirmed', 'cancelled']))
+            : ['pending', 'confirmed'];
+        if ($selectedStatuses === []) {
+            $selectedStatuses = ['pending', 'confirmed'];
         }
-        View::render('pages/partner-reservations', ['pageTitle' => 'Réservations', 'reservations' => $reservations, 'filter' => $filter]);
+        $reservations = ReservationsController::listForPartner((int) $user['partner_id']);
+        $reservations = array_values(array_filter(
+            $reservations,
+            static fn(array $row): bool => in_array((string) $row['status'], $selectedStatuses, true)
+        ));
+        View::render('pages/partner-reservations', [
+            'pageTitle' => 'Réservations',
+            'reservations' => $reservations,
+            'selectedStatuses' => $selectedStatuses,
+        ]);
+    }
+
+    /**
+     * Builds the redirect target after a status-change action: the
+     * "redirect_to" hidden field (only present on the list page's inline
+     * status buttons) sends the agency back to the exact filtered list view
+     * it came from; otherwise (e.g. the detail page's own Confirmer/Annuler
+     * form) falls back to the reservation's own detail page, as before.
+     */
+    private static function partnerReservationsRedirectUrl(int $fallbackReservationId = 0): string
+    {
+        $redirect = trim((string) ($_POST['redirect_to'] ?? ''));
+        // Only ever redirect back within /partner/reservations itself, never
+        // to an arbitrary attacker-supplied URL.
+        if ($redirect !== '' && str_starts_with($redirect, '/partner/reservations') && !str_contains($redirect, '://')) {
+            return $redirect;
+        }
+        return $fallbackReservationId > 0 ? '/partner/reservations/' . $fallbackReservationId : '/partner/reservations';
     }
 
     /**
@@ -728,7 +760,7 @@ final class PageController extends Controller
         if (!ReservationsController::confirmForPartner($partnerId, $id, $notes !== '' ? $notes : null)) {
             throw new HttpException(404, 'Not Found', 'Réservation introuvable');
         }
-        self::redirect('/partner/reservations/' . $id, 'Réservation confirmée.');
+        self::redirect(self::partnerReservationsRedirectUrl($id), 'Réservation confirmée.');
     }
 
     public static function partnerCancelReservation(int $id): never
@@ -740,34 +772,22 @@ final class PageController extends Controller
         if (!ReservationsController::cancelForPartner($partnerId, $id)) {
             throw new HttpException(404, 'Not Found', 'Réservation introuvable');
         }
-        self::redirect('/partner/reservations/' . $id, 'Réservation annulée.', 'info');
+        self::redirect(self::partnerReservationsRedirectUrl($id), 'Réservation annulée.', 'info');
     }
 
-    public static function partnerTemplates(): void
+    /**
+     * Reopens a confirmed/cancelled reservation back to "Ouverte" (pending),
+     * used by the "En Attente" / pause-icon button on /partner/reservations
+     * (see ReservationsController::reopenForPartner()).
+     */
+    public static function partnerReopenReservation(int $id): never
     {
         $user = self::requirePartnerUser();
-        $templates = EmailTemplatesController::listForPartner((int) $user['partner_id']);
-        $selectedId = (int) ($_GET['id'] ?? ($templates[0]['id'] ?? 0));
-        $selected = null;
-        foreach ($templates as $template) {
-            if ((int) $template['id'] === $selectedId) {
-                $selected = $template;
-                break;
-            }
+        $partnerId = (int) $user['partner_id'];
+        if (!ReservationsController::reopenForPartner($partnerId, $id)) {
+            throw new HttpException(404, 'Not Found', 'Réservation introuvable');
         }
-        View::render('pages/partner-templates', ['pageTitle' => 'Templates email', 'templates' => $templates, 'selected' => $selected]);
-    }
-
-    public static function partnerSaveTemplate(int $id): never
-    {
-        $user = self::requirePartnerUser();
-        Database::connection()->prepare('UPDATE email_templates SET subject = ?, body_html = ?, updated_at = NOW() WHERE id = ? AND partner_id = ?')->execute([
-            (string) ($_POST['subject'] ?? ''),
-            (string) ($_POST['body_html'] ?? ''),
-            $id,
-            $user['partner_id'],
-        ]);
-        self::redirect('/partner/templates?id=' . $id, 'Template sauvegardé.');
+        self::redirect(self::partnerReservationsRedirectUrl($id), 'Réservation repassée en attente.', 'info');
     }
 
     public static function partnerSettings(): void
@@ -967,16 +987,6 @@ final class PageController extends Controller
             $partnerId,
         ]);
         self::redirect('/admin/partners/' . $partnerId . '/templates?id=' . $id, 'Template sauvegardé.');
-    }
-
-    public static function partnerDeleteTemplate(int $id): never
-    {
-        $user = self::requirePartnerUser();
-        Database::connection()->prepare('DELETE FROM email_templates WHERE id = ? AND partner_id = ?')->execute([
-            $id,
-            $user['partner_id'],
-        ]);
-        self::redirect('/partner/templates', 'Template supprimé.');
     }
 
     public static function adminDeletePartnerTemplate(int $partnerId, int $id): never
@@ -3463,6 +3473,18 @@ HTML,
 <p>Cordialement,<br><strong>{{partenaire}}</strong></p>
 HTML,
             ],
+            'RESERVATION_REOPENED' => [
+                'label' => 'Changement de statut : repassée en attente (client)',
+                'subject' => 'Votre réservation repasse en attente',
+                'body_html' => <<<'HTML'
+<h2>Votre réservation est repassée en attente</h2>
+<p>Bonjour {{nom_client}},</p>
+<p>Nous vous informons que votre réservation pour <strong>{{hebergement}}</strong> ({{dates}}) est provisoirement repassée en attente de confirmation.</p>
+<img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;">
+<p>Nous revenons vers vous très prochainement.</p>
+<p>Cordialement,<br><strong>{{partenaire}}</strong></p>
+HTML,
+            ],
             'REMINDER_CLIENT' => [
                 'label' => 'Rappel avant arrivée (client)',
                 'subject' => 'Rappel : votre séjour approche ! 🌴',
@@ -3594,6 +3616,18 @@ HTML,
 <p>We regret to inform you that your reservation for <strong>{{hebergement}}</strong> ({{dates}}) had to be cancelled.</p>
 <img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;">
 <p>Please feel free to contact us to explore other options.</p>
+<p>Best regards,<br><strong>{{partenaire}}</strong></p>
+HTML,
+            ],
+            'RESERVATION_REOPENED' => [
+                'label' => 'Status change: back to pending (client)',
+                'subject' => 'Your reservation is back to pending',
+                'body_html' => <<<'HTML'
+<h2>Your reservation is back to pending</h2>
+<p>Hello {{nom_client}},</p>
+<p>We are letting you know that your reservation for <strong>{{hebergement}}</strong> ({{dates}}) has been temporarily put back to pending confirmation.</p>
+<img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;">
+<p>We will get back to you shortly.</p>
 <p>Best regards,<br><strong>{{partenaire}}</strong></p>
 HTML,
             ],
