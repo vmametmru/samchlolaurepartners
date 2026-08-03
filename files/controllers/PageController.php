@@ -1812,6 +1812,7 @@ TEXT;
                 'REQUEST_RECEIVED_CLIENT' => 'Accusé réception (client)',
                 'RESERVATION_CONFIRMED' => 'Réservation confirmée (client)',
                 'RESERVATION_CANCELLED' => 'Réservation annulée (client)',
+                'RESERVATION_REOPENED' => 'Changement de statut : repassée en attente (client)',
                 'REMINDER_CLIENT' => 'Rappel avant arrivée (client)',
                 'REMINDER_PARTNER' => 'Rappel avant arrivée (partenaire)',
             ],
@@ -1864,7 +1865,7 @@ TEXT;
         }
         $daysBeforeArrival = (int) ($input['days_before_arrival'] ?? -1);
         $templateType = trim((string) ($input['template_type'] ?? ''));
-        $allowedTypes = ['REQUEST_RECEIVED_PARTNER', 'REQUEST_RECEIVED_CLIENT', 'RESERVATION_CONFIRMED', 'RESERVATION_CANCELLED', 'REMINDER_CLIENT', 'REMINDER_PARTNER'];
+        $allowedTypes = ['REQUEST_RECEIVED_PARTNER', 'REQUEST_RECEIVED_CLIENT', 'RESERVATION_CONFIRMED', 'RESERVATION_CANCELLED', 'RESERVATION_REOPENED', 'REMINDER_CLIENT', 'REMINDER_PARTNER'];
         if ($daysBeforeArrival < 0 || !in_array($templateType, $allowedTypes, true)) {
             self::redirect('/admin/cron', 'Nombre de jours et type de modèle sont requis.', 'error');
         }
@@ -2812,6 +2813,7 @@ TEXT;
                 'REQUEST_RECEIVED_CLIENT',
                 'RESERVATION_CONFIRMED',
                 'RESERVATION_CANCELLED',
+                'RESERVATION_REOPENED',
                 'REMINDER',
                 'REMINDER_CLIENT',
                 'REMINDER_PARTNER'
@@ -3443,8 +3445,10 @@ HTML,
   <li><strong>Voyageurs :</strong> {{adultes}} adulte(s), {{enfants}} enfant(s)</li>
 </ul>
 {{notes}}
+{{useful_info}}
 <p>À très bientôt à l'île Maurice !</p>
 <p>Cordialement,<br><strong>{{partenaire}}</strong></p>
+<p style="font-size:12px;color:#6b7280;">{{politique_reservation}}</p>
 HTML,
             ],
             'RESERVATION_CANCELLED' => [
@@ -3471,6 +3475,7 @@ HTML,
   <li><strong>Arrivée :</strong> {{date_arrivee}}</li>
   <li><strong>Départ :</strong> {{date_depart}}</li>
 </ul>
+{{useful_info}}
 <p>N'hésitez pas à nous contacter si vous avez des questions.</p>
 <p>À bientôt,<br><strong>{{partenaire}}</strong></p>
 HTML,
@@ -3574,8 +3579,10 @@ HTML,
   <li><strong>Guests:</strong> {{adultes}} adult(s), {{enfants}} child(ren)</li>
 </ul>
 {{notes}}
+{{useful_info}}
 <p>See you soon in Mauritius!</p>
 <p>Best regards,<br><strong>{{partenaire}}</strong></p>
+<p style="font-size:12px;color:#6b7280;">{{politique_reservation}}</p>
 HTML,
             ],
             'RESERVATION_CANCELLED' => [
@@ -3602,6 +3609,7 @@ HTML,
   <li><strong>Arrival:</strong> {{date_arrivee}}</li>
   <li><strong>Departure:</strong> {{date_depart}}</li>
 </ul>
+{{useful_info}}
 <p>Please contact us if you have any questions.</p>
 <p>See you soon,<br><strong>{{partenaire}}</strong></p>
 HTML,
@@ -3722,7 +3730,30 @@ HTML,
         }
 
         self::cleanupTmpDir($tmpDir);
-        self::redirect('/admin/mise-a-jour', 'Mise à jour appliquée avec succès.');
+
+        // Runs every pending db/migrations/*.sql file (e.g. new columns/enum
+        // values/seed data shipped alongside this update) immediately, right
+        // here at deploy time, instead of relying on Migrator::autoRun()'s
+        // per-request check on the *next* hit to index.php — which is
+        // throttled up to 60s and would otherwise leave the freshly deployed
+        // code running against a stale schema for a short window right after
+        // "Mise à jour".
+        $migrationMessage = '';
+        try {
+            $migrationResult = \App\Migrator::run();
+            if ($migrationResult['applied'] !== []) {
+                $migrationMessage = ' ' . count($migrationResult['applied']) . ' migration(s) de base de données appliquée(s).';
+            }
+        } catch (\Throwable $e) {
+            error_log('Mise à jour: migration failed after update: ' . $e->getMessage());
+            self::redirect(
+                '/admin/mise-a-jour',
+                'Mise à jour des fichiers appliquée, mais l\'application des migrations de base de données a échoué : ' . $e->getMessage() . '. Vérifiez /admin/cron ou contactez le support.',
+                'error'
+            );
+        }
+
+        self::redirect('/admin/mise-a-jour', 'Mise à jour appliquée avec succès.' . $migrationMessage);
     }
 
     public static function adminRollbackUpdate(): never

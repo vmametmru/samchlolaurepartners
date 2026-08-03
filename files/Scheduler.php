@@ -189,7 +189,12 @@ SQL;
                     if ($requestLanguage !== \App\I18n::DEFAULT_LANGUAGE) {
                         $partnerVariables['useful_info'] = \App\controllers\ReservationsController::usefulInfoButtonHtml((int) ($row['property_id'] ?? 0), \App\I18n::DEFAULT_LANGUAGE);
                     }
-                    Mailer::sendTemplatedEmail($row, $template, $partnerEmail, $partnerVariables, $embeds, (string) $row['client_email']);
+                    // No Reply-To here: this reminder is sent by the site
+                    // itself (agency-facing copy) to notify the partner of
+                    // an upcoming arrival, not a message from the client, so
+                    // replies should go back to the sending mailbox, not to
+                    // the guest.
+                    Mailer::sendTemplatedEmail($row, $template, $partnerEmail, $partnerVariables, $embeds, null);
                 } else {
                     // REMINDER_CLIENT never leaks partner-only variables
                     // (commission, amount owed) even if a partner mistakenly

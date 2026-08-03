@@ -1208,12 +1208,23 @@ function initTemplateEditor() {
   // for tarif_bloc) earlier in decoratePreviewHtml/substituteVariablesInPreview,
   // so the generic text-variable substitution must ignore them.
   const nonTextVariableNames = new Set([
-    'photo1', 'photo2', 'photo3', 'logo_partenaire', 'signature_photo', 'photo_bien', 'tarif_bloc', 'bouton_reservation'
+    'photo1', 'photo2', 'photo3', 'logo_partenaire', 'signature_photo', 'photo_bien', 'tarif_bloc', 'bouton_reservation', 'useful_info'
   ]);
 
   function buildSampleBoutonReservationHtml() {
     return '<div data-template-var="bouton_reservation" contenteditable="false" style="text-align:center;margin:20px 0;" title="Bouton généré automatiquement (aperçu avec données temporaires)">'
       + '<a href="#" style="display:inline-block;background:#3b82f6;color:#ffffff;text-decoration:none;font-weight:bold;font-size:14px;padding:12px 28px;border-radius:6px;">Réserver maintenant</a>'
+      + '</div>';
+  }
+
+  // {{useful_info}} is a link button generated server-side (see
+  // ReservationsController::usefulInfoButtonHtml()), just like
+  // bouton_reservation — it must never be shown as a plain-text chip
+  // (previously fell back to the generic "« useful_info »" placeholder),
+  // which made partners think the variable itself was broken.
+  function buildSampleUsefulInfoHtml() {
+    return '<div data-template-var="useful_info" contenteditable="false" style="text-align:center;margin:20px 0;" title="Bouton généré automatiquement (aperçu avec données temporaires) — pointe vers l’URL Renseignements utiles configurée pour ce bien">'
+      + '<a href="#" style="display:inline-block;background:#ffffff;color:#3b82f6;text-decoration:none;font-weight:bold;font-size:14px;padding:11px 27px;border-radius:6px;border:2px solid #3b82f6;">Renseignements utiles à l\'enregistrement</a>'
       + '</div>';
   }
 
@@ -1513,7 +1524,7 @@ function initTemplateEditor() {
         const name = match[1].trim();
         // Image tokens are already converted to real <img> elements earlier
         // (in decoratePreviewHtml); leave any leftover occurrence untouched.
-        if (nonTextVariableNames.has(name) && name !== 'tarif_bloc' && name !== 'bouton_reservation') continue;
+        if (nonTextVariableNames.has(name) && name !== 'tarif_bloc' && name !== 'bouton_reservation' && name !== 'useful_info') continue;
         matched = true;
         if (match.index > lastIndex) {
           fragment.appendChild(doc.createTextNode(text.slice(lastIndex, match.index)));
@@ -1526,6 +1537,10 @@ function initTemplateEditor() {
         } else if (name === 'bouton_reservation') {
           const wrapper = doc.createElement('div');
           wrapper.innerHTML = buildSampleBoutonReservationHtml();
+          fragment.appendChild(wrapper.firstElementChild);
+        } else if (name === 'useful_info') {
+          const wrapper = doc.createElement('div');
+          wrapper.innerHTML = buildSampleUsefulInfoHtml();
           fragment.appendChild(wrapper.firstElementChild);
         } else {
           const wrapper = doc.createElement('span');
@@ -1988,6 +2003,16 @@ function initTemplateEditor() {
       return overlay;
     }
 
+  // Shared by every insertion path (dropdown click, "{}" shortcut modal):
+    // {{bouton_reservation}}/{{tarif_bloc}}/{{useful_info}} are computed HTML
+    // blocks server-side and must never be inserted as a plain-text chip.
+    function blockOrChipVariableHtml(name) {
+      if (name === 'bouton_reservation') return buildSampleBoutonReservationHtml();
+      if (name === 'tarif_bloc') return buildSampleTarifBlocHtml();
+      if (name === 'useful_info') return buildSampleUsefulInfoHtml();
+      return variableChipHtml(name);
+    }
+
     function chooseVariableFromModal(rawToken, resizable, defaultSize) {
       const range = pendingVariableRange;
       closeVariableModal();
@@ -2004,7 +2029,7 @@ function initTemplateEditor() {
       const nameMatch = (rawToken || '').match(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/);
       if (!nameMatch) return;
       lastKnownRange = range;
-      insertAtCursor(variableChipHtml(nameMatch[1]));
+      insertAtCursor(blockOrChipVariableHtml(nameMatch[1]));
     }
 
     function openVariableModalForInsertion(range) {
@@ -2169,7 +2194,7 @@ function initTemplateEditor() {
         if (activeEditableEl) {
           const nameMatch = rawToken.match(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/);
           if (nameMatch) {
-            insertAtCursor(variableChipHtml(nameMatch[1]));
+            insertAtCursor(blockOrChipVariableHtml(nameMatch[1]));
             return;
           }
         }
