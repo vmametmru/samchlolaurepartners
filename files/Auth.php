@@ -75,6 +75,21 @@ final class Auth
     }
 
     /**
+     * Whether the current visitor is a logged-in partner or admin user
+     * (i.e. NOT an anonymous client browsing the public site). Used to gate
+     * agency/admin-only booking-form features — e.g. the "Forcer le prix de
+     * la nuit" manual price override (PageController::propertyDetail()'s
+     * canForcePrice view flag and ReservationsController's matching
+     * server-side re-check) — so they only ever apply for staff, never for
+     * a visitor who happens to submit the underlying field name directly.
+     */
+    public static function isPartnerOrAdmin(): bool
+    {
+        $user = self::user();
+        return $user !== null && in_array((string) ($user['role'] ?? ''), ['admin', 'partner'], true);
+    }
+
+    /**
      * Non-sensitive session diagnostic: tells whether an auth cookie is present and,
      * if so, why it failed to resolve to a user (missing/invalid/expired), without
      * requiring the caller to already be authenticated. Used to surface silent

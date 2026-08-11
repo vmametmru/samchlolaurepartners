@@ -29,6 +29,38 @@ final class ReservationsController extends Controller
      */
     private const MAX_BABIES_PER_PROPERTY = 2;
 
+    /**
+     * Whether the current visitor is allowed to manually force the nightly
+     * price ("Forcer le prix de la nuit"): partner staff or admin users
+     * only, logged in via Auth. An anonymous client browsing the public
+     * site (no auth_token cookie) must never be able to influence the
+     * price, so this is re-checked server-side on every quote/request
+     * submission regardless of what the booking form actually rendered.
+     */
+    private static function canForcePrice(): bool
+    {
+        return Auth::isPartnerOrAdmin();
+    }
+
+    /**
+     * Reads and sanitizes the "forced_nightly_price" field from the given
+     * input, only honoring it when the current user is allowed to force the
+     * price (see canForcePrice()). Anonymous submissions therefore always
+     * get null here, even if the field was somehow present in the payload.
+     */
+    private static function forcedNightlyPriceFromInput(array $input): ?float
+    {
+        if (!self::canForcePrice()) {
+            return null;
+        }
+        $raw = $input['forced_nightly_price'] ?? null;
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+        $value = (float) $raw;
+        return $value > 0 ? $value : null;
+    }
+
     /** @var array{under3: string, from3to12: string}|null */
     private static ?array $childrenBreakdownColumns = null;
     private static bool $childrenBreakdownColumnsResolved = false;
@@ -77,9 +109,10 @@ final class ReservationsController extends Controller
 
     /**
      * @param array{room_total: float, partner_rate: float, vat_rate: float, commission_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, total_traveler: float, vat_total: float, nights: int, currency: string} $breakdown
+     * @param array{room_base_before_commission?: float, is_price_forced?: bool} $quoteInput
      * @return array{0: array<int, string>, 1: array<int, mixed>}
      */
-    private static function quoteInsertColumnsAndParams(PDO $pdo, array $breakdown): array
+    private static function quoteInsertColumnsAndParams(PDO $pdo, array $breakdown, array $quoteInput = []): array
     {
         if (!self::hasQuoteColumns($pdo)) {
             return [[], []];
@@ -103,6 +136,12 @@ final class ReservationsController extends Controller
         if (self::hasVatRateColumn($pdo)) {
             $columns[] = 'quote_vat_rate';
             $params[] = $breakdown['vat_rate'];
+        }
+        if (self::hasForcedPriceColumns($pdo)) {
+            $columns[] = 'quote_room_base_before_commission';
+            $columns[] = 'quote_price_forced';
+            $params[] = $quoteInput['room_base_before_commission'] ?? null;
+            $params[] = !empty($quoteInput['is_price_forced']) ? 1 : 0;
         }
         return [$columns, $params];
     }
@@ -168,6 +207,28 @@ final class ReservationsController extends Controller
             }
         }
         return self::$vatRateColumnExists;
+    }
+
+    private static ?bool $forcedPriceColumnsExist = null;
+
+    /**
+     * Whether reservation_requests already has the quote_room_base_before_
+     * commission/quote_price_forced columns added by migration 042. Guarded
+     * the same way as hasVatRateColumn() so submissions never 500 if that
+     * migration hasn't applied yet on a given install (the "Forcer le prix
+     * de la nuit" override itself still works and is still floored — only
+     * the persisted "was this forced" audit trail is skipped).
+     */
+    private static function hasForcedPriceColumns(PDO $pdo): bool
+    {
+        if (self::$forcedPriceColumnsExist === null) {
+            try {
+                self::$forcedPriceColumnsExist = self::reservationRequestColumnExists($pdo, 'quote_price_forced');
+            } catch (Throwable $e) {
+                self::$forcedPriceColumnsExist = false;
+            }
+        }
+        return self::$forcedPriceColumnsExist;
     }
 
 
@@ -300,10 +361,25 @@ final class ReservationsController extends Controller
             ], 400);
         }
 
-        $quoteData = self::computeItemQuote($propertyId, $property, $checkin, $checkoutDate, $adults, $totalGuests, $countedGuests, $guests);
+        $quoteData = self::computeItemQuote(
+            $propertyId,
+            $property,
+            $checkin,
+            $checkoutDate,
+            $adults,
+            $totalGuests,
+            $countedGuests,
+            $guests,
+            self::forcedNightlyPriceFromInput($input)
+        );
         if ($quoteData === null) {
             self::json(['error' => 'Service Unavailable', 'message' => 'Tarifs indisponibles pour le moment'], 503);
         }
+        // Whether the current visitor is even allowed to see/use the
+        // "Forcer le prix de la nuit" field, so the booking form can hide it
+        // for anonymous clients even if it was rendered stale from a cached
+        // page (defense in depth alongside the server-side view check).
+        $quoteData['can_force_price'] = self::canForcePrice();
 
         self::json(['data' => $quoteData + [
             'grand_total' => round($quoteData['total_without_tax'] + $quoteData['tourist_tax_total'], 2),
@@ -323,7 +399,16 @@ final class ReservationsController extends Controller
      * multi-property submission).
      *
      * @param array<int, array{type?: string, nationality?: string}> $guests
-     * @return array{nights: int, currency: string, room_total: float, extra_person_total: float, extra_person_fee_rate: float, extra_persons_count: int, cleaning_total: float, tourist_tax_total: float, tourist_tax_rate: float, total_without_tax: float, vat_rate: float}|null
+     * @param float|null $forcedNightlyPrice Manually entered nightly price
+     * ("Forcer le prix de la nuit"), only ever honored for a logged-in
+     * partner/admin user (see canForcePrice()/forcedNightlyPriceFromInput()
+     * — callers must already have applied that check before passing a
+     * non-null value here). When set, it replaces the computed room_total,
+     * but is always clamped up to room_base_before_commission (the raw
+     * Lodgify rate, VAT included, commission excluded) so the price shown
+     * to the client can never be lower than what the property costs before
+     * the agency's commission.
+     * @return array{nights: int, currency: string, room_total: float, room_base_before_commission: float, is_price_forced: bool, forced_nightly_price: float|null, extra_person_total: float, extra_person_fee_rate: float, extra_persons_count: int, cleaning_total: float, tourist_tax_total: float, tourist_tax_rate: float, total_without_tax: float, vat_rate: float}|null
      */
     private static function computeItemQuote(
         int $propertyId,
@@ -333,7 +418,8 @@ final class ReservationsController extends Controller
         int $adults,
         int $totalGuests,
         int $countedGuests,
-        array $guests
+        array $guests,
+        ?float $forcedNightlyPrice = null
     ): ?array {
         $nights = (int) (new \DateTimeImmutable($checkin))->diff($checkoutDate)->days;
         $pdo = Database::connection();
@@ -363,8 +449,31 @@ final class ReservationsController extends Controller
         }
         $currency = $rates[0]['currency'] ?? 'EUR';
         $roomTotal = 0.0;
+        $roomTotalRaw = 0.0;
         foreach ($rates as $rate) {
             $roomTotal += (float) $rate['price_per_night'];
+            $roomTotalRaw += (float) ($rate['price_per_night_raw'] ?? 0);
+        }
+        // Floor for the "Forcer le prix de la nuit" override: the raw
+        // Lodgify rate (before the partner's markup/commission) with VAT
+        // added on top for VAT-registered properties (VAT is a tax, not
+        // part of the agency's commission, so it must still be included in
+        // what the price can never fall below).
+        $roomBaseBeforeCommission = round($roomTotalRaw * (1 + $vatRate / 100), 2);
+        $isPriceForced = false;
+        $appliedForcedNightly = null;
+        if ($forcedNightlyPrice !== null && $forcedNightlyPrice > 0) {
+            $forcedRoomTotal = round($forcedNightlyPrice * $nights, 2);
+            // The manually entered price can never be lower than the room's
+            // cost before the agency's commission — clamp it up rather than
+            // rejecting the request, guaranteeing the invariant regardless
+            // of what the client sent.
+            if ($forcedRoomTotal < $roomBaseBeforeCommission) {
+                $forcedRoomTotal = $roomBaseBeforeCommission;
+            }
+            $roomTotal = $forcedRoomTotal;
+            $isPriceForced = true;
+            $appliedForcedNightly = $nights > 0 ? round($roomTotal / $nights, 2) : $forcedNightlyPrice;
         }
 
         // Lodgify exposes the real per-guest/per-night cleaning fee (shown on
@@ -458,6 +567,9 @@ final class ReservationsController extends Controller
             'nights' => $nights,
             'currency' => $currency,
             'room_total' => round($roomTotal, 2),
+            'room_base_before_commission' => $roomBaseBeforeCommission,
+            'is_price_forced' => $isPriceForced,
+            'forced_nightly_price' => $appliedForcedNightly,
             'extra_person_total' => $extraPersonTotal,
             'extra_person_fee_rate' => $extraPersonFeeRate,
             'extra_persons_count' => $extraPersonsCount,
@@ -577,7 +689,17 @@ final class ReservationsController extends Controller
         if ($propertyId > 0 && $checkin !== '' && $checkout !== '') {
             try {
                 $checkoutDate = new \DateTimeImmutable($checkout);
-                $serverQuote = self::computeItemQuote($propertyId, $property, $checkin, $checkoutDate, $adults, $totalGuests, $countedGuests, $guests);
+                $serverQuote = self::computeItemQuote(
+                    $propertyId,
+                    $property,
+                    $checkin,
+                    $checkoutDate,
+                    $adults,
+                    $totalGuests,
+                    $countedGuests,
+                    $guests,
+                    self::forcedNightlyPriceFromInput($input)
+                );
                 if ($serverQuote !== null) {
                     $quoteInput = $serverQuote;
                 }
@@ -585,8 +707,13 @@ final class ReservationsController extends Controller
                 error_log('Failed to recompute server-side quote for property ' . $propertyId . ': ' . $e->getMessage());
             }
         }
-        $quoteBreakdown = self::computeQuoteBreakdown($quoteInput, (float) ($partner['markup_percent'] ?? 0), (float) ($quoteInput['vat_rate'] ?? 0));
-        [$quoteColumns, $quoteParams] = self::quoteInsertColumnsAndParams($pdo, $quoteBreakdown);
+        $quoteBreakdown = self::computeQuoteBreakdown(
+            $quoteInput,
+            (float) ($partner['markup_percent'] ?? 0),
+            (float) ($quoteInput['vat_rate'] ?? 0),
+            isset($quoteInput['room_base_before_commission']) ? (float) $quoteInput['room_base_before_commission'] : null
+        );
+        [$quoteColumns, $quoteParams] = self::quoteInsertColumnsAndParams($pdo, $quoteBreakdown, $quoteInput);
         $columns = [...$columns, ...$quoteColumns];
         $params = [...$params, ...$quoteParams];
 
@@ -625,6 +752,7 @@ final class ReservationsController extends Controller
             $emailInput['quote_cleaning_total'] = $quoteInput['cleaning_total'] ?? 0;
             $emailInput['quote_tourist_tax_total'] = $quoteInput['tourist_tax_total'] ?? 0;
             $emailInput['quote_vat_rate'] = $quoteInput['vat_rate'] ?? 0;
+            $emailInput['quote_room_base_before_commission'] = $quoteInput['room_base_before_commission'] ?? null;
             self::sendRequestEmails($partner, $emailInput);
         } catch (Throwable $e) {
             error_log('Failed to send reservation request emails: ' . $e);
@@ -1476,7 +1604,9 @@ final class ReservationsController extends Controller
                 'tourist_tax_total' => $request['quote_tourist_tax_total'] ?? 0,
                 'nights' => $request['quote_nights'] ?? 0,
                 'currency' => $request['quote_currency'] ?? 'EUR',
-            ], (float) ($request['quote_partner_rate'] ?? ($partner['markup_percent'] ?? 0)), (float) ($request['quote_vat_rate'] ?? 0)));
+            ], (float) ($request['quote_partner_rate'] ?? ($partner['markup_percent'] ?? 0)), (float) ($request['quote_vat_rate'] ?? 0), isset($request['quote_room_base_before_commission'])
+                ? (float) $request['quote_room_base_before_commission']
+                : null));
         }
         $signature = self::signatureVariables((int) ($partner['id'] ?? 0));
         $variables += $signature['variables'];
@@ -1601,9 +1731,18 @@ final class ReservationsController extends Controller
      */
     /**
      * @param array{room_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, nights: int, currency: string, vat_rate?: float} $quote
+     * @param float|null $roomBaseBeforeCommission Raw Lodgify room cost
+     * before the agency's commission (VAT included), only provided when the
+     * room_total was computed by computeItemQuote() (which always returns
+     * it). When set, the room's share of the commission is derived directly
+     * as room_total - room_base_before_commission instead of the standard
+     * markupPercent-based ratio — the two are mathematically identical for a
+     * normal (non-forced) price, but only the subtraction stays correct once
+     * "Forcer le prix de la nuit" has manually overridden room_total to
+     * something other than raw * (1 + markupPercent/100).
      * @return array{room_total: float, partner_rate: float, vat_rate: float, commission_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, total_traveler: float, vat_total: float, nights: int, currency: string}
      */
-    public static function computeQuoteBreakdown(array $quote, float $markupPercent, float $vatRate = 0.0): array
+    public static function computeQuoteBreakdown(array $quote, float $markupPercent, float $vatRate = 0.0, ?float $roomBaseBeforeCommission = null): array
     {
         $roomTotal = self::toMoneyValue($quote['room_total'] ?? 0);
         $extraPersonTotal = self::toMoneyValue($quote['extra_person_total'] ?? 0);
@@ -1645,9 +1784,24 @@ final class ReservationsController extends Controller
         // total (D - E) higher than the amount actually shown on the
         // channel manager.
         $combinedTotal = $roomTotal + $extraPersonTotal;
-        $commissionTotal = $markupPercent > -100
-            ? round($combinedTotal * $markupPercent / (100 + $markupPercent), 2)
-            : 0.0;
+        if ($roomBaseBeforeCommission !== null) {
+            // Room's actual commission is the gap between what the client
+            // pays (room_total, possibly manually forced) and what the
+            // property costs before commission (VAT included in both), so
+            // it stays correct even when "Forcer le prix de la nuit" set
+            // room_total to something other than raw * (1 + markup/100).
+            // The extra-person fee is never manually forced, so it keeps
+            // using the standard ratio.
+            $roomCommission = round($roomTotal - $roomBaseBeforeCommission, 2);
+            $extraCommission = $markupPercent > -100
+                ? round($extraPersonTotal * $markupPercent / (100 + $markupPercent), 2)
+                : 0.0;
+            $commissionTotal = round($roomCommission + $extraCommission, 2);
+        } else {
+            $commissionTotal = $markupPercent > -100
+                ? round($combinedTotal * $markupPercent / (100 + $markupPercent), 2)
+                : 0.0;
+        }
         // Amount of VAT actually charged on the room + extra-person total
         // (0 for properties not registered for VAT, i.e. vat_rate 0/null):
         // the difference between the VAT-inclusive amount ($combinedTotal)
@@ -1690,7 +1844,9 @@ final class ReservationsController extends Controller
             'tourist_tax_total' => $input['quote_tourist_tax_total'] ?? 0,
             'nights' => $input['quote_nights'] ?? 0,
             'currency' => $input['quote_currency'] ?? 'EUR',
-        ], $markupPercent, (float) ($input['quote_vat_rate'] ?? 0));
+        ], $markupPercent, (float) ($input['quote_vat_rate'] ?? 0), isset($input['quote_room_base_before_commission'])
+            ? (float) $input['quote_room_base_before_commission']
+            : null);
 
         return self::buildQuoteVariables($breakdown, $itemCount);
     }

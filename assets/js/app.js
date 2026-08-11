@@ -2442,6 +2442,30 @@ function initBookingQuote() {
       setQuoteField('quote_total_without_tax', Number(quote.total_without_tax || 0));
       setQuoteField('quote_tourist_tax_total', Number(quote.tourist_tax_total || 0));
       setQuoteField('quote_vat_rate', Number(quote.vat_rate || 0));
+      // "Forcer le prix de la nuit" (partner/admin only, see
+      // ReservationsController::canForcePrice()): the server always clamps
+      // the forced price up to the raw Lodgify rate (before commission), so
+      // reflect the actual applied value/floor back into the field so the
+      // agency sees when their entry was adjusted.
+      const forcedInput = form.querySelector('[data-forced-nightly-price]');
+      const forcedNote = form.querySelector('[data-forced-nightly-price-note]');
+      if (forcedInput) {
+        const nights = Number(quote.nights || 0);
+        const floorPerNight = nights > 0 ? (Number(quote.room_base_before_commission || 0) / nights) : 0;
+        forcedInput.min = floorPerNight.toFixed(2);
+        if (quote.is_price_forced && quote.forced_nightly_price !== null && quote.forced_nightly_price !== undefined) {
+          const enteredValue = Number(forcedInput.value || 0);
+          const appliedValue = Number(quote.forced_nightly_price);
+          if (forcedNote) {
+            forcedNote.hidden = !(enteredValue > 0 && Math.abs(enteredValue - appliedValue) > 0.01);
+            if (!forcedNote.hidden) {
+              forcedNote.textContent = forcedInput.dataset.i18nAdjusted || '';
+            }
+          }
+        } else if (forcedNote) {
+          forcedNote.hidden = true;
+        }
+      }
       result.hidden = false;
     }
 

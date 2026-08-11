@@ -219,6 +219,20 @@ $globalTouristTax = $globalTouristTax ?? 0.0;
       </div>
       </div>
 
+      <?php if (!empty($canForcePrice)): ?>
+      <div class="booking-section" data-booking-block="force-price">
+        <span class="booking-section-title"><?= \App\View::e(\App\I18n::t('property.force_nightly_price')) ?></span>
+        <div class="booking-block-body" data-block-body>
+          <label>
+            <span><?= \App\View::e(\App\I18n::t('property.force_nightly_price')) ?></span>
+            <input class="input" type="number" min="0" step="0.01" name="forced_nightly_price" data-forced-nightly-price data-i18n-adjusted="<?= \App\View::e(\App\I18n::t('property.force_nightly_price_adjusted')) ?>">
+          </label>
+          <p class="muted"><?= \App\View::e(\App\I18n::t('property.force_nightly_price_hint')) ?></p>
+          <p class="muted" data-forced-nightly-price-note hidden></p>
+        </div>
+      </div>
+      <?php endif; ?>
+
       <div class="booking-section" data-booking-block="traveler">
         <span class="booking-section-title"><?= \App\View::e(\App\I18n::t('property.traveler_details')) ?></span>
         <div class="booking-block-body stack-md" data-block-body>
