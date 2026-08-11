@@ -550,7 +550,7 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
    .booking-block's `overflow: hidden`, which clipped most of the dropdown
    (only the first couple of lines were visible) when it was positioned
    absolutely inside that ancestor. */
-.force-price-dropdown { position: fixed; z-index: 500; width: min(320px, 90vw); background: #fff; border: 1px solid var(--border); border-radius: .9rem; box-shadow: 0 12px 32px rgba(0,0,0,.18); padding: .9rem; display: flex; flex-direction: column; gap: .75rem; text-align: left; font-weight: 400; max-height: min(80vh, 420px); overflow-y: auto; }
+.force-price-dropdown { position: fixed; z-index: 950; width: min(320px, 90vw); background: #fff; border: 1px solid var(--border); border-radius: .9rem; box-shadow: 0 12px 32px rgba(0,0,0,.18); padding: .9rem; display: flex; flex-direction: column; gap: .75rem; text-align: left; font-weight: 400; max-height: min(80vh, 420px); overflow-y: auto; }
 .force-price-dropdown[hidden] { display: none; }
 .force-price-dropdown-header { font-weight: 700; font-size: .9rem; }
 .force-price-breakdown { border: 1px solid var(--border); border-radius: .75rem; padding: .6rem .75rem; }
