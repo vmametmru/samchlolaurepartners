@@ -223,7 +223,6 @@ $globalTouristTax = $globalTouristTax ?? 0.0;
                 <span><?= \App\View::e(\App\I18n::t('property.force_nightly_price')) ?></span>
                 <input class="input" type="number" min="0" step="0.01" data-forced-total-price-input>
               </label>
-              <p class="muted"><?= \App\View::e(\App\I18n::t('property.force_nightly_price_hint')) ?></p>
               <p class="muted" data-forced-total-price-note hidden><?= \App\View::e(\App\I18n::t('property.force_nightly_price_adjusted')) ?></p>
               <div class="force-price-dropdown-actions">
                 <button type="button" class="btn-secondary" data-force-price-dropdown-cancel><?= \App\View::e(\App\I18n::t('property.force_price_cancel')) ?></button>
@@ -244,7 +243,6 @@ $globalTouristTax = $globalTouristTax ?? 0.0;
                 <span><?= \App\View::e(\App\I18n::t('property.force_extra_person_price')) ?></span>
                 <input class="input" type="number" min="0" step="0.01" data-forced-extra-total-price-input>
               </label>
-              <p class="muted"><?= \App\View::e(\App\I18n::t('property.force_extra_person_price_hint')) ?></p>
               <p class="muted" data-forced-extra-total-price-note hidden><?= \App\View::e(\App\I18n::t('property.force_extra_person_price_adjusted')) ?></p>
               <div class="force-price-dropdown-actions">
                 <button type="button" class="btn-secondary" data-force-price-dropdown-cancel><?= \App\View::e(\App\I18n::t('property.force_price_cancel')) ?></button>

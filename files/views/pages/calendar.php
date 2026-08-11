@@ -187,7 +187,6 @@ $canForcePrice = $canForcePrice ?? false;
           <span><?= \App\View::e(\App\I18n::t('property.force_nightly_price')) ?></span>
           <input class="input" type="number" min="0" step="0.01" data-mc-fp-input>
         </label>
-        <p class="muted"><?= \App\View::e(\App\I18n::t('property.force_nightly_price_hint')) ?></p>
         <p class="muted" data-mc-fp-note hidden><?= \App\View::e(\App\I18n::t('property.force_nightly_price_adjusted')) ?></p>
         <div class="force-price-dropdown-actions">
           <button type="button" class="btn-secondary" data-mc-fp-cancel><?= \App\View::e(\App\I18n::t('property.force_price_cancel')) ?></button>
