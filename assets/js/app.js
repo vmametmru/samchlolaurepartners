@@ -2807,12 +2807,13 @@ function initMultiPropertyCart() {
     const vatRate = Number(quote.vat_rate || 0);
     const vatTotal = vatRate ? round2(roomTotal - roomTotal / (1 + vatRate / 100)) : 0;
     const commissionTotal = Math.max(0, round2(roomTotal - lodgifyTotal));
+    const currency = quote.currency || 'EUR';
     if (fpNights) fpNights.textContent = nights;
-    if (fpCurrentTotal) fpCurrentTotal.textContent = formatEuros(roomTotal);
-    if (fpLodgifyTotal) fpLodgifyTotal.textContent = formatEuros(lodgifyTotal);
+    if (fpCurrentTotal) fpCurrentTotal.textContent = `${formatEuros(roomTotal)} ${currency}`;
+    if (fpLodgifyTotal) fpLodgifyTotal.textContent = `${formatEuros(lodgifyTotal)} ${currency}`;
     if (fpVatRate) fpVatRate.textContent = vatRate;
-    if (fpVatTotal) fpVatTotal.textContent = formatEuros(vatTotal);
-    if (fpCommissionTotal) fpCommissionTotal.textContent = formatEuros(commissionTotal);
+    if (fpVatTotal) fpVatTotal.textContent = `${formatEuros(vatTotal)} ${currency}`;
+    if (fpCommissionTotal) fpCommissionTotal.textContent = `${formatEuros(commissionTotal)} ${currency}`;
     if (fpInput) fpInput.min = lodgifyTotal.toFixed(2);
   }
 
