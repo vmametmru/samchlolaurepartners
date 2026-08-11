@@ -544,6 +544,12 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .quote-room-wrap { position: relative; display: inline-flex; align-items: center; gap: .4rem; }
 .quote-edit-price-btn { border: 1px solid var(--border); background: #fff; border-radius: .4rem; width: 1.6rem; height: 1.6rem; line-height: 1; font-size: .85rem; cursor: pointer; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
 .quote-edit-price-btn:hover { color: var(--text); background: #f9fafb; }
+/* Without this, the button's own "display: inline-flex" above (an author
+   rule) always beats the browser's default "[hidden] { display: none }"
+   (a user-agent rule loses ties in the cascade), so toggling the "hidden"
+   attribute/property from JS had no visual effect and the edit (✎) button
+   stayed visible even when there was no additional person to bill for. */
+.quote-edit-price-btn[hidden] { display: none; }
 /* position: fixed (not absolute) and top/left set in JS (see the
    force-price dropdown handling in initBookingQuote() in assets/js/app.js):
    the dropdown is anchored next to its edit button but must escape
