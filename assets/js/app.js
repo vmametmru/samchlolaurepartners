@@ -2243,8 +2243,19 @@ function initColorSync() {
  * Wires an "Arrivée"/"Départ" date pair so they behave like a single range
  * picker: choosing the arrival date automatically opens the departure date
  * picker and prevents picking a departure date on or before the arrival.
+ *
+ * On phones this auto-chaining backfires: the native date picker is a
+ * full-screen modal, so calling showPicker()/focus() on the departure field
+ * the instant the arrival field changes re-opens a picker the visitor didn't
+ * ask for yet (and, on some Android browsers, lets them confirm it with the
+ * still-highlighted arrival date, producing two identical dates). Phones
+ * only get the min-date guard; the visitor taps the departure field
+ * themselves to open its picker. Desktop/tablet with a real mouse/trackpad
+ * keeps the auto-open convenience.
  */
 function initDateRanges() {
+  const isDesktop = () => Boolean(window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches);
+
   document.querySelectorAll('[data-date-range]').forEach((wrap) => {
     const checkin = wrap.querySelector('input[name="checkin"], input[name="checkin_date"], input[name="date_from"]');
     const checkout = wrap.querySelector('input[name="checkout"], input[name="checkout_date"], input[name="date_to"]');
@@ -2271,6 +2282,7 @@ function initDateRanges() {
 
     checkin.addEventListener('change', () => {
       syncCheckoutMin();
+      if (!isDesktop()) return;
       if (typeof checkout.showPicker === 'function') {
         try { checkout.showPicker(); } catch (e) { checkout.focus(); }
       } else {
@@ -2279,6 +2291,7 @@ function initDateRanges() {
     });
 
     checkout.addEventListener('change', () => {
+      if (!isDesktop()) return;
       const adults = wrap.querySelector('input[name="adults"]');
       if (adults) adults.focus();
     });
@@ -3190,7 +3203,12 @@ function initHeroMobileSearchToggle() {
   toggle.addEventListener('click', () => {
     const open = !hero.classList.contains('hero-search-open');
     setOpen(open);
-    if (open) {
+    // On phones, focusing the first field (the arrival date) right away
+    // makes the browser pop its native date picker open immediately, before
+    // the visitor even sees the revealed search form. Desktop/tablet with a
+    // real pointer keeps the auto-focus for keyboard/mouse convenience.
+    const isDesktop = window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+    if (open && isDesktop) {
       const firstField = form.querySelector('input, select, textarea, button');
       if (firstField) firstField.focus();
     }
