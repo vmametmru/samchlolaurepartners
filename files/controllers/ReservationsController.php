@@ -43,6 +43,40 @@ final class ReservationsController extends Controller
     }
 
     /**
+     * Whether the current visitor may submit a "booking_policy_override"
+     * (the "Politique de réservation" field on the quote-request form),
+     * mirroring PageController::canOverrideBookingPolicyUser(): only a
+     * logged-in agency (partner) user, tied to the same partner tenant the
+     * request is being submitted under. Re-checked here regardless of what
+     * the submitted form actually contained, so an anonymous client can
+     * never influence the policy text shown to itself or to the partner.
+     */
+    private static function canOverrideBookingPolicy(array $partner): bool
+    {
+        $user = Auth::user();
+        return $user !== null
+            && (string) ($user['role'] ?? '') === 'partner'
+            && (int) ($user['partner_id'] ?? 0) > 0
+            && (int) ($user['partner_id'] ?? 0) === (int) ($partner['id'] ?? 0);
+    }
+
+    /**
+     * Reads and sanitizes the "booking_policy_override" field from the
+     * given input, only honoring it for a logged-in agency user of the
+     * active partner (see canOverrideBookingPolicy()). Returns null when
+     * absent/blank/not authorized, so callers fall back to the partner's
+     * own default (or the global default) via PageController::bookingPolicyText().
+     */
+    private static function bookingPolicyOverrideFromInput(array $input, array $partner): ?string
+    {
+        if (!self::canOverrideBookingPolicy($partner)) {
+            return null;
+        }
+        $override = trim((string) ($input['booking_policy_override'] ?? ''));
+        return $override !== '' ? $override : null;
+    }
+
+    /**
      * Reads and sanitizes the "forced_total_price" field from the given
      * input, only honoring it when the current user is allowed to force the
      * price (see canForcePrice()). Anonymous submissions therefore always
@@ -1485,7 +1519,9 @@ final class ReservationsController extends Controller
                 (string) ($partner['name'] ?? '')
             ),
             'logo_partenaire_url' => self::partnerLogoUrlValue((string) ($partner['logo_url'] ?? '')),
-            'politique_reservation' => PageController::formatBookingPolicyHtml(PageController::bookingPolicyText()),
+            'politique_reservation' => PageController::formatBookingPolicyHtml(
+                self::bookingPolicyOverrideFromInput($input, $partner) ?? PageController::bookingPolicyText('fr', $partner)
+            ),
             'bouton_reservation' => self::bookingLinkButtonHtml(
                 (int) ($input['property_id'] ?? 0),
                 $checkin,
@@ -1693,7 +1729,7 @@ final class ReservationsController extends Controller
                 (string) ($partner['name'] ?? '')
             ),
             'logo_partenaire_url' => self::partnerLogoUrlValue((string) ($partner['logo_url'] ?? '')),
-            'politique_reservation' => PageController::formatBookingPolicyHtml(PageController::bookingPolicyText()),
+            'politique_reservation' => PageController::formatBookingPolicyHtml(PageController::bookingPolicyText('fr', $partner)),
             'bouton_reservation' => self::bookingLinkButtonHtml(
                 (int) ($request['property_id'] ?? 0),
                 (string) $request['checkin_date'],

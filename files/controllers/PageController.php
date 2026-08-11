@@ -192,6 +192,24 @@ final class PageController extends Controller
         return Auth::isPartnerOrAdmin();
     }
 
+    /**
+     * Whether the current visitor may see/use the "Politique de
+     * réservation" override field on the quote-request ("demande de
+     * devis") form: only a logged-in agency (partner) user, tied to an
+     * actual partner tenant — never an anonymous client, and never shown
+     * when no partner is active (there would be no agency to override
+     * conditions for). Re-checked server-side on submission (see
+     * ReservationsController::bookingPolicyOverrideFromInput()) regardless
+     * of what this view actually rendered.
+     */
+    private static function canOverrideBookingPolicyUser(): bool
+    {
+        $user = Auth::user();
+        return $user !== null
+            && (string) ($user['role'] ?? '') === 'partner'
+            && (int) ($user['partner_id'] ?? 0) > 0;
+    }
+
     public static function propertyDetail(int $id): void
     {
         $partner = Tenant::current();
@@ -282,6 +300,16 @@ final class PageController extends Controller
             // for the matching server-side authorization check) — never to
             // an anonymous client browsing the public site.
             'canForcePrice' => self::canForcePriceUser(),
+            // The booking-policy block under the calendar always follows the
+            // active partner's own conditions when they've set one
+            // (partners.booking_policy_text/_en), falling back to the global
+            // admin default otherwise — see bookingPolicyText().
+            'policyText' => self::bookingPolicyText(I18n::current(), $partner),
+            // The "Politique de réservation" override field on the quote
+            // request form is only shown to a logged-in agency (partner)
+            // user, and is pre-filled with the text currently shown above so
+            // editing it starts from what the visitor already sees.
+            'canOverrideBookingPolicy' => self::canOverrideBookingPolicyUser(),
         ]);
     }
 
@@ -830,6 +858,13 @@ final class PageController extends Controller
             'pageTitle' => 'Paramètres partenaire',
             'partnerData' => $partner,
             'smtpDefaults' => $smtpDefaults,
+            // The textareas are pre-filled with this partner's own override
+            // if set, otherwise with the current effective default (global
+            // setting or hardcoded fallback) — i.e. "par défaut ça affiche
+            // celui qui existe" — so a partner always sees the text that is
+            // actually shown to their own visitors/emails right now.
+            'policyText' => self::bookingPolicyText('fr', $partner),
+            'policyTextEn' => self::bookingPolicyText('en', $partner),
         ]);
     }
 
@@ -858,7 +893,15 @@ final class PageController extends Controller
             $catalogPdfUrl = self::storePartnerCatalogPdf($partnerId) ?? '';
         }
 
-        Database::connection()->prepare('UPDATE partners SET name = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, logo_url = ?, catalog_pdf_url = ?, primary_color = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, updated_at = NOW() WHERE id = ?')->execute([
+        // An empty textarea means "no override, use the global default"
+        // (matches DEFAULT_BOOKING_POLICY(_EN)/BOOKING_POLICY_TEXT(_EN)
+        // fallback chain in bookingPolicyText()), stored as NULL rather than
+        // an empty string so future admin-wide default changes still reach
+        // every partner who never customized their own conditions.
+        $policyText = trim((string) ($_POST['policy_text'] ?? ''));
+        $policyTextEn = trim((string) ($_POST['policy_text_en'] ?? ''));
+
+        Database::connection()->prepare('UPDATE partners SET name = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, logo_url = ?, catalog_pdf_url = ?, primary_color = ?, booking_policy_text = ?, booking_policy_text_en = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, updated_at = NOW() WHERE id = ?')->execute([
             trim((string) ($_POST['name'] ?? '')),
             trim((string) ($_POST['email'] ?? '')),
             trim((string) ($_POST['phone'] ?? '')) ?: null,
@@ -868,6 +911,8 @@ final class PageController extends Controller
             $logoUrl !== '' ? $logoUrl : null,
             $catalogPdfUrl !== '' ? $catalogPdfUrl : null,
             trim((string) ($_POST['primary_color'] ?? '#E61E4D')),
+            $policyText !== '' ? $policyText : null,
+            $policyTextEn !== '' ? $policyTextEn : null,
             trim((string) ($_POST['smtp_host'] ?? '')) ?: null,
             ($_POST['smtp_port'] ?? '') !== '' ? (int) $_POST['smtp_port'] : null,
             trim((string) ($_POST['smtp_user'] ?? '')) ?: null,
@@ -1240,26 +1285,39 @@ Remaining balance due 5 day(s) before arrival.
 TEXT;
 
     /**
-     * Reads the current "Politique de réservation" text (admin-configurable
-     * on /admin/politique-reservation), falling back to
-     * DEFAULT_BOOKING_POLICY when nothing has been saved yet. Shared by the
-     * admin page itself, the property-detail page (booking-policy block
-     * under the calendar) and ReservationsController (the
-     * {{politique_reservation}} email variable), so all three always show
-     * the exact same text.
+     * Reads the current "Politique de réservation" text: each partner can
+     * set their own conditions (partners.booking_policy_text/_en, editable
+     * from /partner/settings) which always take priority when $partner is
+     * given and has one saved; otherwise falls back to the admin-configured
+     * global default (/admin/politique-reservation), and finally to
+     * DEFAULT_BOOKING_POLICY when nothing has been saved yet at all — i.e.
+     * "par défaut ça affiche celui qui existe". Shared by the admin page
+     * itself, the property-detail page (booking-policy block under the
+     * calendar) and ReservationsController (the {{politique_reservation}}
+     * email variable), so all three always show the exact same text for a
+     * given partner.
      *
      * $lang defaults to 'fr' (used by emails, which are always sent in
      * French) — pages that must follow the visitor's site language pass
-     * App\I18n::current() explicitly. When $lang is 'en', the
-     * admin-provided BOOKING_POLICY_TEXT_EN override is used if set,
-     * otherwise DEFAULT_BOOKING_POLICY_EN; the French text/setting is never
-     * used as an English fallback so the page never silently reverts to
-     * French text under an English heading.
+     * App\I18n::current() explicitly. When $lang is 'en', the partner's own
+     * booking_policy_text_en (if set) or the admin-provided
+     * BOOKING_POLICY_TEXT_EN override is used, otherwise
+     * DEFAULT_BOOKING_POLICY_EN; the French text/setting is never used as
+     * an English fallback so the page never silently reverts to French
+     * text under an English heading.
      */
-    public static function bookingPolicyText(string $lang = 'fr'): string
+    public static function bookingPolicyText(string $lang = 'fr', ?array $partner = null): string
     {
         if ($lang === 'en') {
+            $partnerText = trim((string) ($partner['booking_policy_text_en'] ?? ''));
+            if ($partnerText !== '') {
+                return $partnerText;
+            }
             return Settings::get('BOOKING_POLICY_TEXT_EN', self::DEFAULT_BOOKING_POLICY_EN) ?? self::DEFAULT_BOOKING_POLICY_EN;
+        }
+        $partnerText = trim((string) ($partner['booking_policy_text'] ?? ''));
+        if ($partnerText !== '') {
+            return $partnerText;
         }
         return Settings::get('BOOKING_POLICY_TEXT', self::DEFAULT_BOOKING_POLICY) ?? self::DEFAULT_BOOKING_POLICY;
     }

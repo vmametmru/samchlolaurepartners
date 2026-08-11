@@ -43,6 +43,10 @@
       </div>
     </div>
     <label><span>Couleur principale</span><div class="color-row"><input type="color" name="primary_color" value="<?= \App\View::e($partnerData['primary_color'] ?? '#E61E4D') ?>"><input class="input" type="text" name="primary_color_text" value="<?= \App\View::e($partnerData['primary_color'] ?? '#E61E4D') ?>" data-sync-color></div></label>
+    <h2 class="section-title">Politique de réservation</h2>
+    <p class="muted">Vos propres conditions de réservation/annulation, affichées sous le calendrier sur vos pages hébergement et utilisées dans vos emails via la variable <code>{{politique_reservation}}</code>. Laissez vide pour utiliser le texte par défaut du site.</p>
+    <label><span>Texte de la politique de réservation (Français)</span><textarea class="input" name="policy_text" rows="12"><?= \App\View::e($policyText ?? '') ?></textarea></label>
+    <label><span>Texte de la politique de réservation (Anglais) — affiché quand le site est en anglais</span><textarea class="input" name="policy_text_en" rows="12"><?= \App\View::e($policyTextEn ?? '') ?></textarea></label>
     <h2 class="section-title">Configuration SMTP</h2>
     <p class="muted">Sécurité: SSL/TLS (obligatoire). Si vous laissez vide, les paramètres admin seront utilisés.</p>
     <div class="form-grid cols-2">

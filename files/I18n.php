@@ -340,6 +340,8 @@ final class I18n
             'property.full_name' => ['fr' => 'Nom et prénom complet *', 'en' => 'Full name *'],
             'property.email' => ['fr' => 'Email *', 'en' => 'Email *'],
             'property.message_optional' => ['fr' => 'Message (optionnel)', 'en' => 'Message (optional)'],
+            'property.booking_policy_override' => ['fr' => 'Politique de réservation (pour cette demande)', 'en' => 'Booking policy (for this request)'],
+            'property.booking_policy_override_hint' => ['fr' => 'Ce texte sera utilisé dans l\'email envoyé au client et dans votre copie pour cette demande uniquement.', 'en' => 'This text will be used in the email sent to the client and in your own copy, for this request only.'],
             'property.send_request' => ['fr' => 'Envoyer ma demande', 'en' => 'Send my request'],
             'property.name_required' => ['fr' => 'Nom et prénom non renseignés', 'en' => 'Full name not provided'],
             'property.email_required' => ['fr' => 'Email non renseigné', 'en' => 'Email not provided'],
