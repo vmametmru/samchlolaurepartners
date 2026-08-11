@@ -61,6 +61,26 @@ final class ReservationsController extends Controller
         return $value > 0 ? $value : null;
     }
 
+    /**
+     * Reads and sanitizes the "forced_extra_person_total" field from the
+     * given input, mirroring forcedTotalPriceFromInput() above for the
+     * "Forcer le prix des personne(s) supplémentaire(s)" override: only
+     * honored for a logged-in partner/admin user (see canForcePrice()), so
+     * anonymous submissions always get null here.
+     */
+    private static function forcedExtraPersonTotalFromInput(array $input): ?float
+    {
+        if (!self::canForcePrice()) {
+            return null;
+        }
+        $raw = $input['forced_extra_person_total'] ?? null;
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+        $value = (float) $raw;
+        return $value > 0 ? $value : null;
+    }
+
     /** @var array{under3: string, from3to12: string}|null */
     private static ?array $childrenBreakdownColumns = null;
     private static bool $childrenBreakdownColumnsResolved = false;
@@ -109,7 +129,7 @@ final class ReservationsController extends Controller
 
     /**
      * @param array{room_total: float, partner_rate: float, vat_rate: float, commission_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, total_traveler: float, vat_total: float, nights: int, currency: string} $breakdown
-     * @param array{room_base_before_commission?: float, is_price_forced?: bool} $quoteInput
+     * @param array{room_base_before_commission?: float, is_price_forced?: bool, extra_person_base_before_commission?: float, is_extra_person_price_forced?: bool} $quoteInput
      * @return array{0: array<int, string>, 1: array<int, mixed>}
      */
     private static function quoteInsertColumnsAndParams(PDO $pdo, array $breakdown, array $quoteInput = []): array
@@ -143,8 +163,15 @@ final class ReservationsController extends Controller
             $params[] = $quoteInput['room_base_before_commission'] ?? null;
             $params[] = !empty($quoteInput['is_price_forced']) ? 1 : 0;
         }
+        if (self::hasForcedExtraPersonPriceColumns($pdo)) {
+            $columns[] = 'quote_extra_person_base_before_commission';
+            $columns[] = 'quote_extra_person_price_forced';
+            $params[] = $quoteInput['extra_person_base_before_commission'] ?? null;
+            $params[] = !empty($quoteInput['is_extra_person_price_forced']) ? 1 : 0;
+        }
         return [$columns, $params];
     }
+
 
     private static ?bool $languageColumnExists = null;
 
@@ -229,6 +256,29 @@ final class ReservationsController extends Controller
             }
         }
         return self::$forcedPriceColumnsExist;
+    }
+
+    private static ?bool $forcedExtraPersonPriceColumnsExist = null;
+
+    /**
+     * Whether reservation_requests already has the quote_extra_person_
+     * base_before_commission/quote_extra_person_price_forced columns added
+     * by migration 043. Guarded the same way as hasForcedPriceColumns() so
+     * submissions never 500 if that migration hasn't applied yet on a given
+     * install (the "Forcer le prix des personne(s) supplémentaire(s))"
+     * override itself still works and is still floored — only the
+     * persisted "was this forced" audit trail is skipped).
+     */
+    private static function hasForcedExtraPersonPriceColumns(PDO $pdo): bool
+    {
+        if (self::$forcedExtraPersonPriceColumnsExist === null) {
+            try {
+                self::$forcedExtraPersonPriceColumnsExist = self::reservationRequestColumnExists($pdo, 'quote_extra_person_price_forced');
+            } catch (Throwable $e) {
+                self::$forcedExtraPersonPriceColumnsExist = false;
+            }
+        }
+        return self::$forcedExtraPersonPriceColumnsExist;
     }
 
 
@@ -370,7 +420,8 @@ final class ReservationsController extends Controller
             $totalGuests,
             $countedGuests,
             $guests,
-            self::forcedTotalPriceFromInput($input)
+            self::forcedTotalPriceFromInput($input),
+            self::forcedExtraPersonTotalFromInput($input)
         );
         if ($quoteData === null) {
             self::json(['error' => 'Service Unavailable', 'message' => 'Tarifs indisponibles pour le moment'], 503);
@@ -408,7 +459,14 @@ final class ReservationsController extends Controller
      * room_base_before_commission (the raw Lodgify rate, VAT included,
      * commission excluded) so the price shown to the client can never be
      * lower than what the property costs before the agency's commission.
-     * @return array{nights: int, currency: string, room_total: float, room_base_before_commission: float, is_price_forced: bool, forced_total_price: float|null, extra_person_total: float, extra_person_fee_rate: float, extra_persons_count: int, cleaning_total: float, tourist_tax_total: float, tourist_tax_rate: float, total_without_tax: float, vat_rate: float}|null
+     * @param float|null $forcedExtraPersonTotal Manually entered total price
+     * for the extra guest(s) ("Forcer le prix des personne(s)
+     * supplémentaire(s)"), same guard/semantics as $forcedTotalPrice above
+     * (see forcedExtraPersonTotalFromInput()), clamped up to
+     * extra_person_base_before_commission instead. Ignored (left at the
+     * computed value) when there is no extra-person fee applicable to this
+     * stay (extra_persons_count === 0), since there is nothing to override.
+     * @return array{nights: int, currency: string, room_total: float, room_base_before_commission: float, is_price_forced: bool, forced_total_price: float|null, extra_person_total: float, extra_person_base_before_commission: float, is_extra_person_price_forced: bool, forced_extra_person_total: float|null, extra_person_fee_rate: float, extra_persons_count: int, cleaning_total: float, tourist_tax_total: float, tourist_tax_rate: float, total_without_tax: float, vat_rate: float}|null
      */
     private static function computeItemQuote(
         int $propertyId,
@@ -419,7 +477,8 @@ final class ReservationsController extends Controller
         int $totalGuests,
         int $countedGuests,
         array $guests,
-        ?float $forcedTotalPrice = null
+        ?float $forcedTotalPrice = null,
+        ?float $forcedExtraPersonTotal = null
     ): ?array {
         $nights = (int) (new \DateTimeImmutable($checkin))->diff($checkoutDate)->days;
         $pdo = Database::connection();
@@ -518,6 +577,7 @@ final class ReservationsController extends Controller
         $extraPersonTotal = 0.0;
         $extraPersonFeeRate = 0.0;
         $extraPersonsCount = 0;
+        $extraPersonBaseBeforeCommission = 0.0;
         $partnerContext = Tenant::current();
         $markupPercent = $partnerContext ? (float) ($partnerContext['markup_percent'] ?? 0) : 0.0;
         if ($manualRow) {
@@ -527,7 +587,24 @@ final class ReservationsController extends Controller
             if ($minPeople !== null && $countedGuests > $minPeople && $extraPersonFeeRate > 0) {
                 $extraPersonsCount = $countedGuests - $minPeople;
                 $extraPersonTotal = round($extraPersonFeeRate * $extraPersonsCount * $nights, 2);
+                // Floor for the "Forcer le prix des personne(s)
+                // supplémentaire(s)" override: the raw Lodgify extra-person
+                // fee (before the partner's markup/commission), VAT
+                // included, same rationale as $roomBaseBeforeCommission
+                // above.
+                $extraPersonBaseBeforeCommission = round($rawExtraPersonFeeRate * (1 + $vatRate / 100) * $extraPersonsCount * $nights, 2);
             }
+        }
+        $isExtraPersonPriceForced = false;
+        $appliedForcedExtraPersonTotal = null;
+        if ($forcedExtraPersonTotal !== null && $forcedExtraPersonTotal > 0 && $extraPersonsCount > 0) {
+            $forcedExtraTotal = round($forcedExtraPersonTotal, 2);
+            if ($forcedExtraTotal < $extraPersonBaseBeforeCommission) {
+                $forcedExtraTotal = $extraPersonBaseBeforeCommission;
+            }
+            $extraPersonTotal = $forcedExtraTotal;
+            $isExtraPersonPriceForced = true;
+            $appliedForcedExtraPersonTotal = $extraPersonTotal;
         }
 
         $taxRow = $pdo->query('SELECT * FROM tourist_tax LIMIT 1')->fetch(PDO::FETCH_ASSOC) ?: [
@@ -571,6 +648,9 @@ final class ReservationsController extends Controller
             'is_price_forced' => $isPriceForced,
             'forced_total_price' => $appliedForcedTotal,
             'extra_person_total' => $extraPersonTotal,
+            'extra_person_base_before_commission' => $extraPersonBaseBeforeCommission,
+            'is_extra_person_price_forced' => $isExtraPersonPriceForced,
+            'forced_extra_person_total' => $appliedForcedExtraPersonTotal,
             'extra_person_fee_rate' => $extraPersonFeeRate,
             'extra_persons_count' => $extraPersonsCount,
             'cleaning_total' => $cleaningTotal,
@@ -698,7 +778,8 @@ final class ReservationsController extends Controller
                     $totalGuests,
                     $countedGuests,
                     $guests,
-                    self::forcedTotalPriceFromInput($input)
+                    self::forcedTotalPriceFromInput($input),
+                    self::forcedExtraPersonTotalFromInput($input)
                 );
                 if ($serverQuote !== null) {
                     $quoteInput = $serverQuote;
@@ -711,7 +792,8 @@ final class ReservationsController extends Controller
             $quoteInput,
             (float) ($partner['markup_percent'] ?? 0),
             (float) ($quoteInput['vat_rate'] ?? 0),
-            isset($quoteInput['room_base_before_commission']) ? (float) $quoteInput['room_base_before_commission'] : null
+            isset($quoteInput['room_base_before_commission']) ? (float) $quoteInput['room_base_before_commission'] : null,
+            isset($quoteInput['extra_person_base_before_commission']) ? (float) $quoteInput['extra_person_base_before_commission'] : null
         );
         [$quoteColumns, $quoteParams] = self::quoteInsertColumnsAndParams($pdo, $quoteBreakdown, $quoteInput);
         $columns = [...$columns, ...$quoteColumns];
@@ -753,6 +835,7 @@ final class ReservationsController extends Controller
             $emailInput['quote_tourist_tax_total'] = $quoteInput['tourist_tax_total'] ?? 0;
             $emailInput['quote_vat_rate'] = $quoteInput['vat_rate'] ?? 0;
             $emailInput['quote_room_base_before_commission'] = $quoteInput['room_base_before_commission'] ?? null;
+            $emailInput['quote_extra_person_base_before_commission'] = $quoteInput['extra_person_base_before_commission'] ?? null;
             self::sendRequestEmails($partner, $emailInput);
         } catch (Throwable $e) {
             error_log('Failed to send reservation request emails: ' . $e);
@@ -1606,6 +1689,8 @@ final class ReservationsController extends Controller
                 'currency' => $request['quote_currency'] ?? 'EUR',
             ], (float) ($request['quote_partner_rate'] ?? ($partner['markup_percent'] ?? 0)), (float) ($request['quote_vat_rate'] ?? 0), isset($request['quote_room_base_before_commission'])
                 ? (float) $request['quote_room_base_before_commission']
+                : null, isset($request['quote_extra_person_base_before_commission'])
+                ? (float) $request['quote_extra_person_base_before_commission']
                 : null));
         }
         $signature = self::signatureVariables((int) ($partner['id'] ?? 0));
@@ -1740,9 +1825,15 @@ final class ReservationsController extends Controller
      * normal (non-forced) price, but only the subtraction stays correct once
      * "Forcer le prix total des nuit(s)" has manually overridden room_total to
      * something other than raw * (1 + markupPercent/100).
+     * @param float|null $extraPersonBaseBeforeCommission Raw Lodgify
+     * extra-person fee before the agency's commission (VAT included), same
+     * rationale/usage as $roomBaseBeforeCommission but for
+     * "Forcer le prix des personne(s) supplémentaire(s)". Null (the extra
+     * fee was never forced, or there is no extra-person fee at all) falls
+     * back to the standard markupPercent-based ratio for that portion.
      * @return array{room_total: float, partner_rate: float, vat_rate: float, commission_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, total_traveler: float, vat_total: float, nights: int, currency: string}
      */
-    public static function computeQuoteBreakdown(array $quote, float $markupPercent, float $vatRate = 0.0, ?float $roomBaseBeforeCommission = null): array
+    public static function computeQuoteBreakdown(array $quote, float $markupPercent, float $vatRate = 0.0, ?float $roomBaseBeforeCommission = null, ?float $extraPersonBaseBeforeCommission = null): array
     {
         $roomTotal = self::toMoneyValue($quote['room_total'] ?? 0);
         $extraPersonTotal = self::toMoneyValue($quote['extra_person_total'] ?? 0);
@@ -1793,9 +1884,11 @@ final class ReservationsController extends Controller
             // The extra-person fee is never manually forced, so it keeps
             // using the standard ratio.
             $roomCommission = round($roomTotal - $roomBaseBeforeCommission, 2);
-            $extraCommission = $markupPercent > -100
-                ? round($extraPersonTotal * $markupPercent / (100 + $markupPercent), 2)
-                : 0.0;
+            $extraCommission = $extraPersonBaseBeforeCommission !== null
+                ? round($extraPersonTotal - $extraPersonBaseBeforeCommission, 2)
+                : ($markupPercent > -100
+                    ? round($extraPersonTotal * $markupPercent / (100 + $markupPercent), 2)
+                    : 0.0);
             $commissionTotal = round($roomCommission + $extraCommission, 2);
         } else {
             $commissionTotal = $markupPercent > -100
@@ -1846,6 +1939,8 @@ final class ReservationsController extends Controller
             'currency' => $input['quote_currency'] ?? 'EUR',
         ], $markupPercent, (float) ($input['quote_vat_rate'] ?? 0), isset($input['quote_room_base_before_commission'])
             ? (float) $input['quote_room_base_before_commission']
+            : null, isset($input['quote_extra_person_base_before_commission'])
+            ? (float) $input['quote_extra_person_base_before_commission']
             : null);
 
         return self::buildQuoteVariables($breakdown, $itemCount);
