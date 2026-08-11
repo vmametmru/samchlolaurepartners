@@ -51,6 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initUpdateProgress,
     initCatalogUploadProgress,
     initTranslationSuggestions,
+    initPhotoGallerySelectAll,
   ].forEach(runInit);
 });
 
@@ -3431,6 +3432,23 @@ function initTranslationSuggestions() {
         button.disabled = false;
         button.textContent = originalLabel;
       }
+    });
+  });
+}
+
+// Partner/admin photo gallery ("Galerie photo"): the "Tout sélectionner"
+// checkbox toggles every individual photo checkbox in the same form, so an
+// agency/admin can quickly select every photo before submitting the
+// "Télécharger la sélection (zip)" form (GalleryController::*DownloadZip()).
+// Only ever toggles checkbox state client-side; the actual zip is always
+// built server-side from the local images/listings/{id}/ copies.
+function initPhotoGallerySelectAll() {
+  document.querySelectorAll('[data-photo-gallery-form]').forEach((form) => {
+    const selectAll = form.querySelector('[data-photo-gallery-select-all]');
+    if (!selectAll) return;
+    const checkboxes = () => [...form.querySelectorAll('[data-photo-gallery-checkbox]')];
+    selectAll.addEventListener('change', () => {
+      checkboxes().forEach((checkbox) => { checkbox.checked = selectAll.checked; });
     });
   });
 }
