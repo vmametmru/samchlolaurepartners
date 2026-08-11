@@ -2374,6 +2374,15 @@ function initForcePriceDropdown(form, selectors) {
     if (top + maxHeight > window.innerHeight - 8 && rect.top - maxHeight - 6 > 8) {
       top = rect.top - maxHeight - 6;
     }
+    // Clamp so the dropdown (and its Annuler/Enregistrer buttons at the
+    // bottom) always stays fully within the viewport: when the edit button
+    // sits low enough on the page (e.g. the "personne(s) supplémentaire(s)"
+    // row, further down than the nightly-rate row) there may be too little
+    // room both below AND above it for the box's full height, in which case
+    // the block above left `top` positioned past the bottom of the
+    // viewport — clipping the actions row off-screen entirely rather than
+    // just requiring the box's own internal scroll (overflow-y: auto).
+    top = Math.max(8, Math.min(top, window.innerHeight - maxHeight - 8));
     dropdown.style.left = `${left}px`;
     dropdown.style.top = `${top}px`;
   };
@@ -2788,6 +2797,7 @@ function initMultiPropertyCart() {
     if (top + maxHeight > window.innerHeight - 8 && rect.top - maxHeight - 6 > 8) {
       top = rect.top - maxHeight - 6;
     }
+    top = Math.max(8, Math.min(top, window.innerHeight - maxHeight - 8));
     forcePriceDropdown.style.left = `${left}px`;
     forcePriceDropdown.style.top = `${top}px`;
   }
