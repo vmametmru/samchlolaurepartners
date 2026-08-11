@@ -331,7 +331,7 @@ final class I18n
             'property.force_price_save' => ['fr' => 'Enregistrer', 'en' => 'Save'],
             'property.force_price_cancel' => ['fr' => 'Annuler', 'en' => 'Cancel'],
             'property.force_price_current_label' => ['fr' => 'Tarif actuel (%s nuit(s)) :', 'en' => 'Current rate (%s night(s)):'],
-            'property.force_price_lodgify_label' => ['fr' => 'Prix SCL HT :', 'en' => 'SCL price excl. tax:'],
+            'property.force_price_lodgify_label' => ['fr' => 'Prix Lodgify (TVA incl., hors commission) :', 'en' => 'Lodgify price (VAT incl., before commission):'],
             'property.force_price_vat_label' => ['fr' => 'TVA (%s%%)', 'en' => 'VAT (%s%%)'],
             'property.force_price_commission_label' => ['fr' => 'Commission', 'en' => 'Commission'],
             'property.force_extra_person_price' => ['fr' => 'Forcer le prix des personne(s) supplémentaire(s) (TTC)', 'en' => 'Force the price for the extra guest(s) (tax incl.)'],
