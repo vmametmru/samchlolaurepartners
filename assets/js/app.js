@@ -883,6 +883,25 @@ function initApiForms() {
             return;
           }
         }
+        // Defense in depth: the submit button is already kept disabled
+        // while these are missing (see initBookingQuote()'s
+        // updateSubmitState()), but this still guards against a submit
+        // triggered another way (e.g. pressing Enter before scripts settle).
+        const clientName = (form.querySelector('[name="client_name"]')?.value || '').trim();
+        if (!clientName) {
+          if (feedback) feedback.textContent = form.dataset.i18nNameRequired || 'Nom et prénom non renseignés';
+          return;
+        }
+        const clientEmail = (form.querySelector('[name="client_email"]')?.value || '').trim();
+        if (!clientEmail) {
+          if (feedback) feedback.textContent = form.dataset.i18nEmailRequired || 'Email non renseigné';
+          return;
+        }
+        const guests = collectGuests(form);
+        if (!guests.length || guests.some((guest) => !(guest.nationality || '').trim())) {
+          if (feedback) feedback.textContent = form.dataset.i18nNationalityRequired || 'Nationalité non renseignée';
+          return;
+        }
       }
       const multiCartItemsField = form.querySelector('[data-multi-cart-items]');
       if (multiCartItemsField && !multiCartItemsField.value) {
@@ -2457,6 +2476,18 @@ function initBookingQuote() {
     let priceDropdown = null;
     let extraPriceDropdown = null;
 
+    // "Envoyer ma demande" must stay disabled (with an explanatory message
+    // right below it, reusing the same [data-form-feedback] slot as the
+    // submit error/success messages) until the full name, email, and every
+    // traveler's nationality have been filled in — these are required by
+    // the backend anyway, but leaving the button clickable let visitors
+    // submit and only discover the rejection afterwards.
+    const submitBtn = form.querySelector('.booking-submit-block button[type="submit"]');
+    const submitFeedback = form.querySelector('[data-form-feedback]');
+    const i18nNameRequired = form.dataset.i18nNameRequired || 'Nom et prénom non renseignés';
+    const i18nEmailRequired = form.dataset.i18nEmailRequired || 'Email non renseigné';
+    const i18nNationalityRequired = form.dataset.i18nNationalityRequired || 'Nationalité non renseignée';
+
     function isReady() {
       // The price summary only needs the stay dates and the number of
       // travelers: it is shown right under the "Nombre de Voyageur(s)"
@@ -2479,6 +2510,24 @@ function initBookingQuote() {
 
     function updateSummaryVisibility() {
       if (summaryBlock) summaryBlock.hidden = !isReady();
+    }
+
+    // Returns the first missing-field message (name, then email, then
+    // nationality), or '' once all three are filled in.
+    function missingFieldMessage() {
+      const name = (form.querySelector('[name="client_name"]')?.value || '').trim();
+      if (!name) return i18nNameRequired;
+      const email = (form.querySelector('[name="client_email"]')?.value || '').trim();
+      if (!email) return i18nEmailRequired;
+      if (!nationalityProvided()) return i18nNationalityRequired;
+      return '';
+    }
+
+    function updateSubmitState() {
+      if (!submitBtn) return;
+      const message = missingFieldMessage();
+      submitBtn.disabled = Boolean(message);
+      if (submitFeedback) submitFeedback.textContent = message;
     }
 
     async function fetchQuote() {
@@ -2671,10 +2720,11 @@ function initBookingQuote() {
     }
 
     form.addEventListener('booking-dates-changed', scheduleQuote);
-    form.addEventListener('input', () => { updateSummaryVisibility(); scheduleQuote(); });
-    form.addEventListener('change', () => { updateSummaryVisibility(); scheduleQuote(); });
-    form.addEventListener('reset', () => { box.hidden = true; updateSummaryVisibility(); });
+    form.addEventListener('input', () => { updateSummaryVisibility(); updateSubmitState(); scheduleQuote(); });
+    form.addEventListener('change', () => { updateSummaryVisibility(); updateSubmitState(); scheduleQuote(); });
+    form.addEventListener('reset', () => { box.hidden = true; updateSummaryVisibility(); updateSubmitState(); });
     updateSummaryVisibility();
+    updateSubmitState();
   });
 }
 
