@@ -179,6 +179,19 @@ final class PageController extends Controller
         }));
     }
 
+    /**
+     * Whether the current visitor may see/use the "Forcer le prix total des
+     * nuit(s)" booking-form field: logged-in partner staff or admin only (see
+     * ReservationsController::canForcePrice(), the matching server-side
+     * enforcement re-checked on every quote/reservation submission
+     * regardless of what this view actually rendered). An anonymous client
+     * browsing the public site never gets this field.
+     */
+    private static function canForcePriceUser(): bool
+    {
+        return Auth::isPartnerOrAdmin();
+    }
+
     public static function propertyDetail(int $id): void
     {
         $partner = Tenant::current();
@@ -264,6 +277,11 @@ final class PageController extends Controller
             'priceExtraPersonFee' => $manual['extra_person_fee'],
             'globalTouristTax' => $globalTouristTax,
             'partnerCode' => $partner['subdomain'] ?? null,
+            // "Forcer le prix total des nuit(s)" is only ever shown to a logged-in
+            // partner/admin user (see ReservationsController::canForcePrice()
+            // for the matching server-side authorization check) — never to
+            // an anonymous client browsing the public site.
+            'canForcePrice' => self::canForcePriceUser(),
         ]);
     }
 
@@ -585,6 +603,12 @@ final class PageController extends Controller
             'priceInfoRows' => $priceInfoRows,
             'globalTouristTax' => $globalTouristTax,
             'cleaningFeePerPerson' => $cleaningFeePerPerson,
+            // "Forcer le prix total des nuit(s)" (see property-detail's
+            // booking form) is also offered per selected item in the
+            // "Calendrier" multi-property cart, restricted the same way to
+            // logged-in partner/admin users (re-checked server-side in
+            // ReservationsController::canForcePrice() on submission).
+            'canForcePrice' => self::canForcePriceUser(),
         ]);
     }
 
@@ -2601,6 +2625,13 @@ TEXT;
                 'currency' => $rate['currency'],
                 'price_per_night' => $markedUp,
                 'price_per_night_with_markup' => $markedUp,
+                // Raw Lodgify rate before the partner's markup (commission)
+                // is applied, still excluding VAT. Used by
+                // ReservationsController::computeItemQuote() as the floor
+                // for the "Forcer le prix total des nuit(s)" override: the
+                // manually entered total price can never be lower than this
+                // rate (accumulated across nights).
+                'price_per_night_raw' => (float) $rate['price_per_night'],
                 'markup_percent' => $markup,
                 'vat_rate' => $vatRate,
                 'min_stay' => $rate['min_stay'] ?? null,

@@ -200,6 +200,7 @@ $globalTouristTax = $globalTouristTax ?? 0.0;
                 </div>
               </div>
             </div>
+            <?php require BASE_PATH . '/files/views/partials/nationalities.php'; ?>
             <input type="hidden" name="children" value="0">
             <p class="muted guest-capacity-note" data-guest-capacity-note hidden></p>
           </div>
@@ -209,8 +210,46 @@ $globalTouristTax = $globalTouristTax ?? 0.0;
       <div class="booking-block" data-booking-block="summary" hidden>
         <div class="quote-box" data-quote-box hidden>
           <div data-quote-result hidden>
-          <div class="quote-line"><span><?= sprintf(\App\View::e(\App\I18n::t('property.rate_nights')), '<span data-quote-nights></span>') ?></span><span data-quote-room></span></div>
-          <div class="quote-line" data-quote-extra-line hidden><span><?= \App\View::e(\App\I18n::t('property.extra_guests')) ?></span><span data-quote-extra></span></div>
+          <div class="quote-line"><span><?= sprintf(\App\View::e(\App\I18n::t('property.rate_nights')), '<span data-quote-nights></span>') ?></span><span class="quote-room-wrap"><span data-quote-room></span><?php if (!empty($canForcePrice)): ?><button type="button" class="quote-edit-price-btn" data-force-price-edit-btn aria-label="<?= \App\View::e(\App\I18n::t('property.force_price_edit')) ?>" title="<?= \App\View::e(\App\I18n::t('property.force_price_edit')) ?>" aria-expanded="false">✎</button>
+            <div class="force-price-dropdown" data-force-price-dropdown hidden>
+              <div class="force-price-dropdown-header"><?= \App\View::e(\App\I18n::t('property.force_nightly_price')) ?></div>
+              <div class="force-price-breakdown" data-force-price-breakdown>
+                <div class="quote-line"><span><?= sprintf(\App\View::e(\App\I18n::t('property.force_price_current_label')), '<span data-fp-nights></span>') ?></span><span data-fp-current-total></span></div>
+                <div class="quote-line"><span><?= \App\View::e(\App\I18n::t('property.force_price_lodgify_label')) ?></span><span data-fp-lodgify-total></span></div>
+                <div class="quote-line"><span data-fp-vat-label><?= sprintf(\App\View::e(\App\I18n::t('property.force_price_vat_label')), '<span data-fp-vat-rate></span>') ?></span><span data-fp-vat-total></span></div>
+                <div class="quote-line"><span><?= \App\View::e(\App\I18n::t('property.force_price_commission_label')) ?></span><span data-fp-commission-total></span></div>
+              </div>
+              <label>
+                <span><?= \App\View::e(\App\I18n::t('property.force_nightly_price')) ?></span>
+                <input class="input" type="number" min="0" step="0.01" data-forced-total-price-input>
+              </label>
+              <p class="muted" data-forced-total-price-note hidden><?= \App\View::e(\App\I18n::t('property.force_nightly_price_adjusted')) ?></p>
+              <div class="force-price-dropdown-actions">
+                <button type="button" class="btn-secondary" data-force-price-dropdown-cancel><?= \App\View::e(\App\I18n::t('property.force_price_cancel')) ?></button>
+                <button type="button" class="btn-primary" data-force-price-dropdown-save><?= \App\View::e(\App\I18n::t('property.force_price_save')) ?></button>
+              </div>
+            </div>
+            <?php endif; ?></span></div>
+          <div class="quote-line" data-quote-extra-line hidden><span><?= \App\View::e(\App\I18n::t('property.extra_guests')) ?></span><span class="quote-room-wrap"><span data-quote-extra></span><?php if (!empty($canForcePrice)): ?><button type="button" class="quote-edit-price-btn" data-force-extra-price-edit-btn aria-label="<?= \App\View::e(\App\I18n::t('property.force_price_edit')) ?>" title="<?= \App\View::e(\App\I18n::t('property.force_price_edit')) ?>" aria-expanded="false">✎</button>
+            <div class="force-price-dropdown" data-force-extra-price-dropdown hidden>
+              <div class="force-price-dropdown-header"><?= \App\View::e(\App\I18n::t('property.force_extra_person_price')) ?></div>
+              <div class="force-price-breakdown" data-force-extra-price-breakdown>
+                <div class="quote-line"><span><?= sprintf(\App\View::e(\App\I18n::t('property.force_extra_person_current_label')), '<span data-fep-count></span>') ?></span><span data-fep-current-total></span></div>
+                <div class="quote-line"><span><?= \App\View::e(\App\I18n::t('property.force_price_lodgify_label')) ?></span><span data-fep-lodgify-total></span></div>
+                <div class="quote-line"><span data-fep-vat-label><?= sprintf(\App\View::e(\App\I18n::t('property.force_price_vat_label')), '<span data-fep-vat-rate></span>') ?></span><span data-fep-vat-total></span></div>
+                <div class="quote-line"><span><?= \App\View::e(\App\I18n::t('property.force_price_commission_label')) ?></span><span data-fep-commission-total></span></div>
+              </div>
+              <label>
+                <span><?= \App\View::e(\App\I18n::t('property.force_extra_person_price')) ?></span>
+                <input class="input" type="number" min="0" step="0.01" data-forced-extra-total-price-input>
+              </label>
+              <p class="muted" data-forced-extra-total-price-note hidden><?= \App\View::e(\App\I18n::t('property.force_extra_person_price_adjusted')) ?></p>
+              <div class="force-price-dropdown-actions">
+                <button type="button" class="btn-secondary" data-force-price-dropdown-cancel><?= \App\View::e(\App\I18n::t('property.force_price_cancel')) ?></button>
+                <button type="button" class="btn-primary" data-force-price-dropdown-save><?= \App\View::e(\App\I18n::t('property.force_price_save')) ?></button>
+              </div>
+            </div>
+            <?php endif; ?></span></div>
           <div class="quote-line"><span><?= \App\View::e(\App\I18n::t('property.cleaning')) ?></span><span data-quote-cleaning></span></div>
           <div class="quote-line" data-quote-tax-line hidden><span><?= \App\View::e(\App\I18n::t('property.tourist_tax')) ?></span><span data-quote-tax-amount></span></div>
           <p class="quote-recap muted" data-quote-recap></p>
@@ -219,13 +258,17 @@ $globalTouristTax = $globalTouristTax ?? 0.0;
       </div>
       </div>
 
+      <?php if (!empty($canForcePrice)): ?>
+      <input type="hidden" name="forced_total_price" data-forced-total-price>
+      <input type="hidden" name="forced_extra_person_total" data-forced-extra-total-price>
+      <?php endif; ?>
+
       <div class="booking-section" data-booking-block="traveler">
         <span class="booking-section-title"><?= \App\View::e(\App\I18n::t('property.traveler_details')) ?></span>
         <div class="booking-block-body stack-md" data-block-body>
           <label><span><?= \App\View::e(\App\I18n::t('property.full_name')) ?></span><input class="input" type="text" name="client_name" required></label>
           <label><span><?= \App\View::e(\App\I18n::t('property.email')) ?></span><input class="input" type="email" name="client_email" required></label>
           <?php require BASE_PATH . '/files/views/partials/phone-input.php'; ?>
-          <?php require BASE_PATH . '/files/views/partials/nationalities.php'; ?>
           <label><span><?= \App\View::e(\App\I18n::t('property.message_optional')) ?></span><textarea class="input" rows="3" name="message"></textarea></label>
         </div>
       </div>

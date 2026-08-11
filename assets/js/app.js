@@ -2331,6 +2331,109 @@ function initPhoneInputs() {
 }
 
 /**
+ * Wires a single "Forcer le prix" edit button + its breakdown dropdown
+ * (used for both the room-rate override and the extra-person-fee
+ * override): opened next to its edit button instead of a full-page modal
+ * so the agency keeps the rest of the form/quote visible while overriding
+ * the price. The dropdown is positioned with `position: fixed` and its
+ * top/left computed here from the button's bounding rect (clamped to the
+ * viewport) rather than relying on CSS `position: absolute`, because an
+ * absolutely positioned dropdown was clipped by `.booking-block`'s
+ * `overflow: hidden` — only the first couple of breakdown lines were
+ * visible and the override input/Commission line/buttons below them were
+ * cut off entirely. Closes on outside click, Escape, or Annuler;
+ * Enregistrer copies the entered value into the form's hidden field and
+ * triggers a quote recompute (the form-level "input" listener in
+ * initBookingQuote() already calls scheduleQuote()).
+ */
+function initForcePriceDropdown(form, selectors) {
+  const btn = form.querySelector(selectors.button);
+  const dropdown = form.querySelector(selectors.dropdown);
+  if (!btn || !dropdown) return null;
+  // Re-parent the dropdown to <body> instead of leaving it nested inside the
+  // booking form: on the property page, that form lives inside
+  // `.booking-modal-panel`, which has both `transform` (creating a new
+  // containing block for `position: fixed` descendants) and
+  // `overflow-y: auto`. Left in place, the dropdown's fixed coordinates
+  // (computed from getBoundingClientRect(), i.e. relative to the viewport)
+  // were being applied relative to that transformed ancestor instead, and
+  // then clipped by its overflow — so clicking the edit (✎) button appeared
+  // to do nothing, the dropdown having opened off-screen/invisible. Moving
+  // it to <body> guarantees `position: fixed` is always viewport-relative.
+  document.body.appendChild(dropdown);
+  const dropdownTextInput = dropdown.querySelector(selectors.textInput);
+  const dropdownHiddenInput = form.querySelector(selectors.hiddenInput);
+
+  const positionDropdown = () => {
+    const rect = btn.getBoundingClientRect();
+    const width = dropdown.offsetWidth || 320;
+    let left = rect.right - width;
+    left = Math.max(8, Math.min(left, window.innerWidth - width - 8));
+    let top = rect.bottom + 6;
+    const maxHeight = dropdown.offsetHeight || 0;
+    if (top + maxHeight > window.innerHeight - 8 && rect.top - maxHeight - 6 > 8) {
+      top = rect.top - maxHeight - 6;
+    }
+    // Clamp so the dropdown (and its Annuler/Enregistrer buttons at the
+    // bottom) always stays fully within the viewport: when the edit button
+    // sits low enough on the page (e.g. the "personne(s) supplémentaire(s)"
+    // row, further down than the nightly-rate row) there may be too little
+    // room both below AND above it for the box's full height, in which case
+    // the block above left `top` positioned past the bottom of the
+    // viewport — clipping the actions row off-screen entirely rather than
+    // just requiring the box's own internal scroll (overflow-y: auto).
+    top = Math.max(8, Math.min(top, window.innerHeight - maxHeight - 8));
+    dropdown.style.left = `${left}px`;
+    dropdown.style.top = `${top}px`;
+  };
+  const openDropdown = () => {
+    if (dropdownHiddenInput && dropdownTextInput) dropdownTextInput.value = dropdownHiddenInput.value || '';
+    dropdown.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    positionDropdown();
+  };
+  const closeDropdown = () => {
+    dropdown.hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
+  };
+  btn.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (dropdown.hidden) openDropdown(); else closeDropdown();
+  });
+  dropdown.addEventListener('click', (event) => event.stopPropagation());
+  document.addEventListener('click', () => {
+    if (!dropdown.hidden) closeDropdown();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !dropdown.hidden) closeDropdown();
+  });
+  window.addEventListener('resize', () => { if (!dropdown.hidden) positionDropdown(); });
+  window.addEventListener('scroll', () => { if (!dropdown.hidden) closeDropdown(); }, true);
+  const cancelBtn = dropdown.querySelector('[data-force-price-dropdown-cancel]');
+  if (cancelBtn) cancelBtn.addEventListener('click', closeDropdown);
+  const saveBtn = dropdown.querySelector('[data-force-price-dropdown-save]');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', () => {
+      if (dropdownHiddenInput && dropdownTextInput) {
+        dropdownHiddenInput.value = dropdownTextInput.value;
+        dropdownHiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      closeDropdown();
+    });
+  }
+  // Return the (now re-parented) dropdown so callers can keep looking up
+  // its inner fields (breakdown amounts, override input) by querying it
+  // directly instead of `form.querySelector(...)`: once appendChild() has
+  // moved it to <body> above, it is no longer a descendant of `form`, so
+  // any later `form.querySelector('[data-fp-*]')` call (see renderQuote()
+  // in initBookingQuote()) would silently return null and leave those
+  // fields blank — reproduced by clicking "Edition de Tarif": the dropdown
+  // opened but the current total/Lodgify rate/VAT/commission breakdown
+  // never appeared.
+  return dropdown;
+}
+
+/**
  * Fetches a live price estimate (room total, cleaning fee folded into the
  * room line, tourist tax shown as a separate note) once the booking form
  * has enough information (no page reload, no visible loading indicator
@@ -2346,6 +2449,13 @@ function initBookingQuote() {
 
     let requestId = 0;
     let debounceTimer = null;
+    // Populated below by initForcePriceDropdown(): once a dropdown has been
+    // re-parented to <body> (see that function's comment), its breakdown
+    // fields (data-fp-*/data-fep-*, the override text input) are no longer
+    // descendants of `form`, so renderQuote() below must look them up
+    // through these dropdown references instead of `form.querySelector`.
+    let priceDropdown = null;
+    let extraPriceDropdown = null;
 
     function isReady() {
       // The price summary only needs the stay dates and the number of
@@ -2407,8 +2517,17 @@ function initBookingQuote() {
       form.querySelector('[data-quote-room]').textContent = formatMoney(quote.room_total);
       const extraLine = form.querySelector('[data-quote-extra-line]');
       const extraEl = form.querySelector('[data-quote-extra]');
+      const extraForceBtn = form.querySelector('[data-force-extra-price-edit-btn]');
       const extraApplies = Number(quote.extra_person_total) > 0;
-      if (extraLine) extraLine.hidden = !extraApplies;
+      // The selected occupancy exceeds the property's base occupancy
+      // (extra_persons_count > 0) whenever there actually are additional
+      // person(s) to bill for. The edit (✎) button must only be shown in
+      // that case: if the selected number of guests is within the base
+      // occupancy (e.g. base price for 4, and <= 4 selected), there is no
+      // additional person and the override button must stay hidden.
+      const hasExtraPersons = Number(quote.extra_persons_count || 0) > 0;
+      if (extraLine) extraLine.hidden = !extraApplies && !hasExtraPersons;
+      if (extraForceBtn) extraForceBtn.hidden = !hasExtraPersons;
       if (extraEl) extraEl.textContent = formatMoney(quote.extra_person_total || 0);
       const cleaningEl = form.querySelector('[data-quote-cleaning]');
       if (cleaningEl) cleaningEl.textContent = formatMoney(quote.cleaning_total);
@@ -2442,8 +2561,109 @@ function initBookingQuote() {
       setQuoteField('quote_total_without_tax', Number(quote.total_without_tax || 0));
       setQuoteField('quote_tourist_tax_total', Number(quote.tourist_tax_total || 0));
       setQuoteField('quote_vat_rate', Number(quote.vat_rate || 0));
+      // "Forcer le prix total des nuit(s)" (partner/admin only, see
+      // ReservationsController::canForcePrice()): the small edit button next
+      // to the rate line opens a dropdown showing the breakdown (current
+      // total, Sam Chlo Laure/Lodgify rate before commission, VAT,
+      // commission) plus the override input. The server always clamps the
+      // forced total up to the raw Lodgify rate (before commission), so
+      // reflect the actual applied value back so the agency sees when their
+      // entry was adjusted.
+      const forcedHiddenInput = form.querySelector('[data-forced-total-price]');
+      const priceScope = priceDropdown || form;
+      const forcedTextInput = priceScope.querySelector('[data-forced-total-price-input]');
+      const forcedNote = priceScope.querySelector('[data-forced-total-price-note]');
+      const fpNights = priceScope.querySelector('[data-fp-nights]');
+      const fpCurrentTotal = priceScope.querySelector('[data-fp-current-total]');
+      const fpLodgifyTotal = priceScope.querySelector('[data-fp-lodgify-total]');
+      const fpVatRate = priceScope.querySelector('[data-fp-vat-rate]');
+      const fpVatTotal = priceScope.querySelector('[data-fp-vat-total]');
+      const fpCommissionTotal = priceScope.querySelector('[data-fp-commission-total]');
+      if (forcedHiddenInput) {
+        const nights = Number(quote.nights || 0);
+        const roomTotal = Number(quote.room_total || 0);
+        const lodgifyTotal = Number(quote.room_base_before_commission || 0);
+        const vatRate = Number(quote.vat_rate || 0);
+        const round2 = (value) => Math.round(value * 100) / 100;
+        const vatTotal = vatRate ? round2(roomTotal - roomTotal / (1 + vatRate / 100)) : 0;
+        const commissionTotal = Math.max(0, round2(roomTotal - lodgifyTotal));
+        if (fpNights) fpNights.textContent = nights;
+        if (fpCurrentTotal) fpCurrentTotal.textContent = formatMoney(roomTotal);
+        if (fpLodgifyTotal) fpLodgifyTotal.textContent = formatMoney(lodgifyTotal);
+        if (fpVatRate) fpVatRate.textContent = vatRate;
+        if (fpVatTotal) fpVatTotal.textContent = formatMoney(vatTotal);
+        if (fpCommissionTotal) fpCommissionTotal.textContent = formatMoney(commissionTotal);
+        if (forcedTextInput) forcedTextInput.min = lodgifyTotal.toFixed(2);
+        if (quote.is_price_forced && quote.forced_total_price !== null && quote.forced_total_price !== undefined) {
+          const enteredValue = Number(forcedHiddenInput.value || 0);
+          const appliedValue = Number(quote.forced_total_price);
+          if (forcedNote) {
+            forcedNote.hidden = !(enteredValue > 0 && Math.abs(enteredValue - appliedValue) > 0.01);
+          }
+        } else if (forcedNote) {
+          forcedNote.hidden = true;
+        }
+      }
+      // "Forcer le prix des personne(s) supplémentaire(s)" (partner/admin
+      // only, same guard as above): mirrors the room-price override, but
+      // floored at the raw Lodgify extra-person fee (before commission)
+      // instead of the room rate.
+      const forcedExtraHiddenInput = form.querySelector('[data-forced-extra-total-price]');
+      const extraPriceScope = extraPriceDropdown || form;
+      const forcedExtraTextInput = extraPriceScope.querySelector('[data-forced-extra-total-price-input]');
+      const forcedExtraNote = extraPriceScope.querySelector('[data-forced-extra-total-price-note]');
+      const fepCount = extraPriceScope.querySelector('[data-fep-count]');
+      const fepCurrentTotal = extraPriceScope.querySelector('[data-fep-current-total]');
+      const fepLodgifyTotal = extraPriceScope.querySelector('[data-fep-lodgify-total]');
+      const fepVatRate = extraPriceScope.querySelector('[data-fep-vat-rate]');
+      const fepVatTotal = extraPriceScope.querySelector('[data-fep-vat-total]');
+      const fepCommissionTotal = extraPriceScope.querySelector('[data-fep-commission-total]');
+      if (forcedExtraHiddenInput) {
+        const round2 = (value) => Math.round(value * 100) / 100;
+        const extraCount = Number(quote.extra_persons_count || 0);
+        const extraTotal = Number(quote.extra_person_total || 0);
+        const extraLodgifyTotal = Number(quote.extra_person_base_before_commission || 0);
+        const vatRate = Number(quote.vat_rate || 0);
+        const extraVatTotal = vatRate ? round2(extraTotal - extraTotal / (1 + vatRate / 100)) : 0;
+        const extraCommissionTotal = Math.max(0, round2(extraTotal - extraLodgifyTotal));
+        if (fepCount) fepCount.textContent = extraCount;
+        if (fepCurrentTotal) fepCurrentTotal.textContent = formatMoney(extraTotal);
+        if (fepLodgifyTotal) fepLodgifyTotal.textContent = formatMoney(extraLodgifyTotal);
+        if (fepVatRate) fepVatRate.textContent = vatRate;
+        if (fepVatTotal) fepVatTotal.textContent = formatMoney(extraVatTotal);
+        if (fepCommissionTotal) fepCommissionTotal.textContent = formatMoney(extraCommissionTotal);
+        if (forcedExtraTextInput) forcedExtraTextInput.min = extraLodgifyTotal.toFixed(2);
+        if (quote.is_extra_person_price_forced && quote.forced_extra_person_total !== null && quote.forced_extra_person_total !== undefined) {
+          const enteredValue = Number(forcedExtraHiddenInput.value || 0);
+          const appliedValue = Number(quote.forced_extra_person_total);
+          if (forcedExtraNote) {
+            forcedExtraNote.hidden = !(enteredValue > 0 && Math.abs(enteredValue - appliedValue) > 0.01);
+          }
+        } else if (forcedExtraNote) {
+          forcedExtraNote.hidden = true;
+        }
+      }
       result.hidden = false;
     }
+
+    // "Forcer le prix total des nuit(s)" dropdown: opened next to the rate
+    // line instead of a full-page modal so the agency keeps the rest of the
+    // form/quote visible while overriding the price. Closes on outside
+    // click, Escape, or Annuler; Enregistrer copies the entered value into
+    // the form's hidden field and triggers a quote recompute (the form-level
+    // "input" listener below already calls scheduleQuote()).
+    priceDropdown = initForcePriceDropdown(form, {
+      button: '[data-force-price-edit-btn]',
+      dropdown: '[data-force-price-dropdown]',
+      textInput: '[data-forced-total-price-input]',
+      hiddenInput: '[data-forced-total-price]',
+    });
+    extraPriceDropdown = initForcePriceDropdown(form, {
+      button: '[data-force-extra-price-edit-btn]',
+      dropdown: '[data-force-extra-price-dropdown]',
+      textInput: '[data-forced-extra-total-price-input]',
+      hiddenInput: '[data-forced-extra-total-price]',
+    });
 
     function scheduleQuote() {
       clearTimeout(debounceTimer);
@@ -2495,6 +2715,7 @@ const MULTI_CART_I18N = {
     solution: 'Solution : ',
     solutionAddSeveral: 'Rajouter un ou plusieurs biens',
     solutionAddOne: 'Rajouter un bien',
+    editPrice: 'Modifier le prix',
   },
   en: {
     months: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
@@ -2512,6 +2733,7 @@ const MULTI_CART_I18N = {
     solution: 'Solution: ',
     solutionAddSeveral: 'Add one or more properties',
     solutionAddOne: 'Add a property',
+    editPrice: 'Edit price',
   },
 };
 
@@ -2538,6 +2760,118 @@ function initMultiPropertyCart() {
   const viewBtn = document.querySelector('[data-multi-cart-view-btn]');
   const submitBtn = checkoutForm ? checkoutForm.querySelector('[type="submit"]') : null;
   if (!listEl || !checkoutForm || !itemsInput) return;
+
+  // "Forcer le prix total des nuit(s)" (same override already offered on
+  // the property-detail booking form, see initForcePriceDropdown() above):
+  // partner/admin only (server re-checks via ReservationsController::
+  // canForcePrice() on /api/reservations/quote and /request-multiple
+  // regardless of what this page rendered). One shared dropdown is reused
+  // for every cart item (rather than one per item) since the cart list is
+  // fully rebuilt on every renderCart() call anyway.
+  const canForcePrice = cartRoot.dataset.canForcePrice === '1';
+  const forcePriceDropdown = cartRoot.querySelector('[data-multi-cart-force-price-dropdown]');
+  if (forcePriceDropdown) {
+    // Re-parented to <body> so its `position: fixed` coordinates are always
+    // viewport-relative, same reasoning as initForcePriceDropdown() above.
+    document.body.appendChild(forcePriceDropdown);
+  }
+  const fpInput = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-input]') : null;
+  const fpNote = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-note]') : null;
+  const fpNights = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-nights]') : null;
+  const fpCurrentTotal = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-current-total]') : null;
+  const fpLodgifyTotal = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-lodgify-total]') : null;
+  const fpVatRate = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-vat-rate]') : null;
+  const fpVatTotal = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-vat-total]') : null;
+  const fpCommissionTotal = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-commission-total]') : null;
+  const fpCancelBtn = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-cancel]') : null;
+  const fpSaveBtn = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-save]') : null;
+  let forcePriceItemIndex = null;
+
+  function positionForcePriceDropdown(btn) {
+    const rect = btn.getBoundingClientRect();
+    const width = forcePriceDropdown.offsetWidth || 320;
+    let left = rect.right - width;
+    left = Math.max(8, Math.min(left, window.innerWidth - width - 8));
+    let top = rect.bottom + 6;
+    const maxHeight = forcePriceDropdown.offsetHeight || 0;
+    if (top + maxHeight > window.innerHeight - 8 && rect.top - maxHeight - 6 > 8) {
+      top = rect.top - maxHeight - 6;
+    }
+    top = Math.max(8, Math.min(top, window.innerHeight - maxHeight - 8));
+    forcePriceDropdown.style.left = `${left}px`;
+    forcePriceDropdown.style.top = `${top}px`;
+  }
+
+  function closeForcePriceDropdown() {
+    if (!forcePriceDropdown) return;
+    forcePriceDropdown.hidden = true;
+    forcePriceItemIndex = null;
+  }
+
+  async function openForcePriceDropdown(index, btn) {
+    if (!forcePriceDropdown) return;
+    const item = cart[index];
+    if (!item) return;
+    forcePriceItemIndex = index;
+    if (fpInput) fpInput.value = item.forcedTotalPrice != null ? String(item.forcedTotalPrice) : '';
+    if (fpNote) fpNote.hidden = true;
+    forcePriceDropdown.hidden = false;
+    positionForcePriceDropdown(btn);
+    const adultsVal = Number(filterForm?.querySelector('[name="adults"]')?.value
+      || checkoutForm.querySelector('[name="adults"]')?.value || 0);
+    const under3Val = Number(filterForm?.querySelector('[name="children_under3"]')?.value
+      || checkoutForm.querySelector('[name="children_under3"]')?.value || 0);
+    const from3to12Val = Number(filterForm?.querySelector('[name="children_3to12"]')?.value
+      || checkoutForm.querySelector('[name="children_3to12"]')?.value || 0);
+    const guests = collectGuests(checkoutForm);
+    // Fetched without the item's own forced_total_price so the breakdown
+    // always reflects the real Lodgify-based figures to override, not
+    // whatever was previously forced.
+    const quote = await fetchItemQuote({ ...item, forcedTotalPrice: null, forcedExtraPersonTotal: item.forcedExtraPersonTotal }, adultsVal, under3Val, from3to12Val, guests);
+    if (forcePriceItemIndex !== index || !quote) return;
+    const round2 = (value) => Math.round(value * 100) / 100;
+    const nights = Number(quote.nights || 0);
+    const roomTotal = Number(quote.room_total || 0);
+    const lodgifyTotal = Number(quote.room_base_before_commission || 0);
+    const vatRate = Number(quote.vat_rate || 0);
+    const vatTotal = vatRate ? round2(roomTotal - roomTotal / (1 + vatRate / 100)) : 0;
+    const commissionTotal = Math.max(0, round2(roomTotal - lodgifyTotal));
+    const currency = quote.currency || 'EUR';
+    if (fpNights) fpNights.textContent = nights;
+    if (fpCurrentTotal) fpCurrentTotal.textContent = `${formatEuros(roomTotal)} ${currency}`;
+    if (fpLodgifyTotal) fpLodgifyTotal.textContent = `${formatEuros(lodgifyTotal)} ${currency}`;
+    if (fpVatRate) fpVatRate.textContent = vatRate;
+    if (fpVatTotal) fpVatTotal.textContent = `${formatEuros(vatTotal)} ${currency}`;
+    if (fpCommissionTotal) fpCommissionTotal.textContent = `${formatEuros(commissionTotal)} ${currency}`;
+    if (fpInput) fpInput.min = lodgifyTotal.toFixed(2);
+  }
+
+  if (forcePriceDropdown) {
+    forcePriceDropdown.addEventListener('click', (event) => event.stopPropagation());
+    document.addEventListener('click', () => {
+      if (forcePriceDropdown && !forcePriceDropdown.hidden) closeForcePriceDropdown();
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !forcePriceDropdown.hidden) closeForcePriceDropdown();
+    });
+    window.addEventListener('resize', () => {
+      // Not repositioned on resize (no stored button reference once open
+      // across renders); simplest safe behaviour is to just close it.
+      if (!forcePriceDropdown.hidden) closeForcePriceDropdown();
+    });
+    if (fpCancelBtn) fpCancelBtn.addEventListener('click', closeForcePriceDropdown);
+    if (fpSaveBtn) {
+      fpSaveBtn.addEventListener('click', () => {
+        if (forcePriceItemIndex === null) return;
+        const item = cart[forcePriceItemIndex];
+        if (!item) return;
+        const raw = fpInput ? Number(fpInput.value || 0) : 0;
+        item.forcedTotalPrice = raw > 0 ? raw : null;
+        closeForcePriceDropdown();
+        renderCart();
+      });
+    }
+  }
 
   if (viewBtn) {
     viewBtn.addEventListener('click', () => {
@@ -2680,7 +3014,7 @@ function initMultiPropertyCart() {
   let cartQuoteRequestId = 0;
 
   async function fetchItemQuote(item, adultsVal, under3Val, from3to12Val, guests) {
-    const key = [item.propertyId, item.checkin, item.checkout, adultsVal, under3Val, from3to12Val].join('|');
+    const key = [item.propertyId, item.checkin, item.checkout, adultsVal, under3Val, from3to12Val, item.forcedTotalPrice || '', item.forcedExtraPersonTotal || ''].join('|');
     if (quoteCache.has(key)) return quoteCache.get(key);
     try {
       const response = await fetch('/api/reservations/quote', {
@@ -2693,7 +3027,13 @@ function initMultiPropertyCart() {
           adults: adultsVal,
           children_under3: under3Val,
           children_3to12: from3to12Val,
-          guests
+          guests,
+          // "Forcer le prix total des nuit(s)" override for this cart item
+          // (partner/admin only, server re-checks via canForcePrice()):
+          // included here so both the live cart total and the breakdown
+          // shown in the edit dropdown reflect the applied override.
+          forced_total_price: item.forcedTotalPrice || '',
+          forced_extra_person_total: item.forcedExtraPersonTotal || '',
         }),
         credentials: 'same-origin'
       });
@@ -2787,7 +3127,7 @@ function initMultiPropertyCart() {
     cart.forEach((item, index) => {
       const nights = nightsBetween(item.checkin, item.checkout);
       totalNights += nights;
-      totalAmount += item.roomTotal;
+      totalAmount += (item.forcedTotalPrice != null ? item.forcedTotalPrice : item.roomTotal);
       distinctPropertyIds.add(item.propertyId);
       nightsPerItem.add(nights);
 
@@ -2813,6 +3153,32 @@ function initMultiPropertyCart() {
       info.appendChild(nameEl);
       info.appendChild(datesEl);
       li.appendChild(info);
+
+      // "Forcer le prix total des nuit(s)" (partner/admin only): shown next
+      // to a small live price note (approximate room-only total from the
+      // board's cal-price cells; refreshCartTaxAndTotal() below fetches the
+      // real per-item quote — including this override once set — for the
+      // grand total/tourist tax note).
+      if (canForcePrice && forcePriceDropdown) {
+        const priceWrap = document.createElement('span');
+        priceWrap.className = 'quote-room-wrap multi-cart-item-price-wrap';
+        const priceEl = document.createElement('span');
+        priceEl.className = 'multi-cart-item-price';
+        priceEl.textContent = formatEuros(item.forcedTotalPrice != null ? item.forcedTotalPrice : item.roomTotal);
+        priceWrap.appendChild(priceEl);
+        const editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.className = 'quote-edit-price-btn';
+        editBtn.setAttribute('aria-label', T.editPrice || 'Modifier le prix');
+        editBtn.setAttribute('title', T.editPrice || 'Modifier le prix');
+        editBtn.textContent = '✎';
+        editBtn.addEventListener('click', (event) => {
+          event.stopPropagation();
+          openForcePriceDropdown(index, editBtn);
+        });
+        priceWrap.appendChild(editBtn);
+        li.appendChild(priceWrap);
+      }
 
       const removeBtn = document.createElement('button');
       removeBtn.type = 'button';
@@ -2905,6 +3271,11 @@ function initMultiPropertyCart() {
       property_name: item.propertyName,
       checkin_date: item.checkin,
       checkout_date: item.checkout,
+      // "Forcer le prix total des nuit(s)" override for this item
+      // (partner/admin only — re-checked server-side in
+      // ReservationsController::canForcePrice()/requestMultiple()).
+      forced_total_price: item.forcedTotalPrice || null,
+      forced_extra_person_total: item.forcedExtraPersonTotal || null,
     })));
     if (feedbackEl) feedbackEl.textContent = '';
     refreshCartTaxAndTotal();
@@ -3036,6 +3407,8 @@ function initMultiPropertyCart() {
           checkin,
           checkout,
           roomTotal: roomTotalFor(checkin, checkout),
+          forcedTotalPrice: null,
+          forcedExtraPersonTotal: null,
         });
         checkin = null;
         checkout = null;
