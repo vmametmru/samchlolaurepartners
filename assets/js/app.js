@@ -2442,31 +2442,94 @@ function initBookingQuote() {
       setQuoteField('quote_total_without_tax', Number(quote.total_without_tax || 0));
       setQuoteField('quote_tourist_tax_total', Number(quote.tourist_tax_total || 0));
       setQuoteField('quote_vat_rate', Number(quote.vat_rate || 0));
-      // "Forcer le prix de la nuit" (partner/admin only, see
-      // ReservationsController::canForcePrice()): the server always clamps
-      // the forced price up to the raw Lodgify rate (before commission), so
-      // reflect the actual applied value/floor back into the field so the
-      // agency sees when their entry was adjusted.
-      const forcedInput = form.querySelector('[data-forced-nightly-price]');
-      const forcedNote = form.querySelector('[data-forced-nightly-price-note]');
-      if (forcedInput) {
+      // "Forcer le prix total des nuit(s)" (partner/admin only, see
+      // ReservationsController::canForcePrice()): the small edit button next
+      // to the rate line opens a dropdown showing the breakdown (current
+      // total, Sam Chlo Laure/Lodgify rate before commission, VAT,
+      // commission) plus the override input. The server always clamps the
+      // forced total up to the raw Lodgify rate (before commission), so
+      // reflect the actual applied value back so the agency sees when their
+      // entry was adjusted.
+      const forcedHiddenInput = form.querySelector('[data-forced-total-price]');
+      const forcedTextInput = form.querySelector('[data-forced-total-price-input]');
+      const forcedNote = form.querySelector('[data-forced-total-price-note]');
+      const fpNights = form.querySelector('[data-fp-nights]');
+      const fpCurrentTotal = form.querySelector('[data-fp-current-total]');
+      const fpLodgifyTotal = form.querySelector('[data-fp-lodgify-total]');
+      const fpVatRate = form.querySelector('[data-fp-vat-rate]');
+      const fpVatTotal = form.querySelector('[data-fp-vat-total]');
+      const fpCommissionTotal = form.querySelector('[data-fp-commission-total]');
+      if (forcedHiddenInput) {
         const nights = Number(quote.nights || 0);
-        const floorPerNight = nights > 0 ? (Number(quote.room_base_before_commission || 0) / nights) : 0;
-        forcedInput.min = floorPerNight.toFixed(2);
-        if (quote.is_price_forced && quote.forced_nightly_price !== null && quote.forced_nightly_price !== undefined) {
-          const enteredValue = Number(forcedInput.value || 0);
-          const appliedValue = Number(quote.forced_nightly_price);
+        const roomTotal = Number(quote.room_total || 0);
+        const lodgifyTotal = Number(quote.room_base_before_commission || 0);
+        const vatRate = Number(quote.vat_rate || 0);
+        const round2 = (value) => Math.round(value * 100) / 100;
+        const vatTotal = vatRate ? round2(roomTotal - roomTotal / (1 + vatRate / 100)) : 0;
+        const commissionTotal = Math.max(0, round2(roomTotal - lodgifyTotal));
+        if (fpNights) fpNights.textContent = nights;
+        if (fpCurrentTotal) fpCurrentTotal.textContent = formatMoney(roomTotal);
+        if (fpLodgifyTotal) fpLodgifyTotal.textContent = formatMoney(lodgifyTotal);
+        if (fpVatRate) fpVatRate.textContent = vatRate;
+        if (fpVatTotal) fpVatTotal.textContent = formatMoney(vatTotal);
+        if (fpCommissionTotal) fpCommissionTotal.textContent = formatMoney(commissionTotal);
+        if (forcedTextInput) forcedTextInput.min = lodgifyTotal.toFixed(2);
+        if (quote.is_price_forced && quote.forced_total_price !== null && quote.forced_total_price !== undefined) {
+          const enteredValue = Number(forcedHiddenInput.value || 0);
+          const appliedValue = Number(quote.forced_total_price);
           if (forcedNote) {
             forcedNote.hidden = !(enteredValue > 0 && Math.abs(enteredValue - appliedValue) > 0.01);
-            if (!forcedNote.hidden) {
-              forcedNote.textContent = forcedInput.dataset.i18nAdjusted || '';
-            }
           }
         } else if (forcedNote) {
           forcedNote.hidden = true;
         }
       }
       result.hidden = false;
+    }
+
+    // "Forcer le prix total des nuit(s)" dropdown: opened next to the rate
+    // line instead of a full-page modal so the agency keeps the rest of the
+    // form/quote visible while overriding the price. Closes on outside
+    // click, Escape, or Annuler; Enregistrer copies the entered value into
+    // the form's hidden field and triggers a quote recompute (the form-level
+    // "input" listener below already calls scheduleQuote()).
+    const forcePriceBtn = form.querySelector('[data-force-price-edit-btn]');
+    const forcePriceDropdown = form.querySelector('[data-force-price-dropdown]');
+    if (forcePriceBtn && forcePriceDropdown) {
+      const dropdownTextInput = forcePriceDropdown.querySelector('[data-forced-total-price-input]');
+      const dropdownHiddenInput = form.querySelector('[data-forced-total-price]');
+      const openDropdown = () => {
+        if (dropdownHiddenInput && dropdownTextInput) dropdownTextInput.value = dropdownHiddenInput.value || '';
+        forcePriceDropdown.hidden = false;
+        forcePriceBtn.setAttribute('aria-expanded', 'true');
+      };
+      const closeDropdown = () => {
+        forcePriceDropdown.hidden = true;
+        forcePriceBtn.setAttribute('aria-expanded', 'false');
+      };
+      forcePriceBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        if (forcePriceDropdown.hidden) openDropdown(); else closeDropdown();
+      });
+      forcePriceDropdown.addEventListener('click', (event) => event.stopPropagation());
+      document.addEventListener('click', () => {
+        if (!forcePriceDropdown.hidden) closeDropdown();
+      });
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && !forcePriceDropdown.hidden) closeDropdown();
+      });
+      const cancelBtn = forcePriceDropdown.querySelector('[data-force-price-dropdown-cancel]');
+      if (cancelBtn) cancelBtn.addEventListener('click', closeDropdown);
+      const saveBtn = forcePriceDropdown.querySelector('[data-force-price-dropdown-save]');
+      if (saveBtn) {
+        saveBtn.addEventListener('click', () => {
+          if (dropdownHiddenInput && dropdownTextInput) {
+            dropdownHiddenInput.value = dropdownTextInput.value;
+            dropdownHiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+          closeDropdown();
+        });
+      }
     }
 
     function scheduleQuote() {

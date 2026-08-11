@@ -539,6 +539,15 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .template-image-gallery-item:hover { border-color: #f3d1e2; }
 .template-image-gallery-item.active { border-color: var(--brand); background: #fdf2f8; }
 .template-var-modal .input:disabled { background: #f3f4f6; color: var(--muted); cursor: not-allowed; }
+.quote-room-wrap { position: relative; display: inline-flex; align-items: center; gap: .4rem; }
+.quote-edit-price-btn { border: 1px solid var(--border); background: #fff; border-radius: .4rem; width: 1.6rem; height: 1.6rem; line-height: 1; font-size: .85rem; cursor: pointer; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
+.quote-edit-price-btn:hover { color: var(--text); background: #f9fafb; }
+.force-price-dropdown { position: absolute; top: calc(100% + .4rem); right: 0; z-index: 500; width: min(320px, 90vw); background: #fff; border: 1px solid var(--border); border-radius: .9rem; box-shadow: 0 12px 32px rgba(0,0,0,.18); padding: .9rem; display: flex; flex-direction: column; gap: .75rem; text-align: left; font-weight: 400; }
+.force-price-dropdown[hidden] { display: none; }
+.force-price-dropdown-header { font-weight: 700; font-size: .9rem; }
+.force-price-breakdown { border: 1px solid var(--border); border-radius: .75rem; padding: .6rem .75rem; }
+.force-price-breakdown .quote-line { font-size: .82rem; }
+.force-price-dropdown-actions { display: flex; justify-content: flex-end; gap: .5rem; }
 .partner-accordion-list .partner-accordion { border-top: 1px solid var(--border); }
 .partner-accordion-list .partner-accordion:first-of-type { border-top: 0; }
 .partner-accordion-summary { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .9rem 1rem; cursor: pointer; list-style: none; }

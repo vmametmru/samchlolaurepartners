@@ -180,8 +180,8 @@ final class PageController extends Controller
     }
 
     /**
-     * Whether the current visitor may see/use the "Forcer le prix de la
-     * nuit" booking-form field: logged-in partner staff or admin only (see
+     * Whether the current visitor may see/use the "Forcer le prix total des
+     * nuit(s)" booking-form field: logged-in partner staff or admin only (see
      * ReservationsController::canForcePrice(), the matching server-side
      * enforcement re-checked on every quote/reservation submission
      * regardless of what this view actually rendered). An anonymous client
@@ -277,7 +277,7 @@ final class PageController extends Controller
             'priceExtraPersonFee' => $manual['extra_person_fee'],
             'globalTouristTax' => $globalTouristTax,
             'partnerCode' => $partner['subdomain'] ?? null,
-            // "Forcer le prix de la nuit" is only ever shown to a logged-in
+            // "Forcer le prix total des nuit(s)" is only ever shown to a logged-in
             // partner/admin user (see ReservationsController::canForcePrice()
             // for the matching server-side authorization check) — never to
             // an anonymous client browsing the public site.
@@ -2622,8 +2622,9 @@ TEXT;
                 // Raw Lodgify rate before the partner's markup (commission)
                 // is applied, still excluding VAT. Used by
                 // ReservationsController::computeItemQuote() as the floor
-                // for the "Forcer le prix de la nuit" override: the manually
-                // entered nightly price can never be lower than this rate.
+                // for the "Forcer le prix total des nuit(s)" override: the
+                // manually entered total price can never be lower than this
+                // rate (accumulated across nights).
                 'price_per_night_raw' => (float) $rate['price_per_night'],
                 'markup_percent' => $markup,
                 'vat_rate' => $vatRate,

@@ -77,8 +77,8 @@ final class Auth
     /**
      * Whether the current visitor is a logged-in partner or admin user
      * (i.e. NOT an anonymous client browsing the public site). Used to gate
-     * agency/admin-only booking-form features — e.g. the "Forcer le prix de
-     * la nuit" manual price override (PageController::propertyDetail()'s
+     * agency/admin-only booking-form features — e.g. the "Forcer le prix
+     * total des nuit(s)" manual price override (PageController::propertyDetail()'s
      * canForcePrice view flag and ReservationsController's matching
      * server-side re-check) — so they only ever apply for staff, never for
      * a visitor who happens to submit the underlying field name directly.
