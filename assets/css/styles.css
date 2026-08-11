@@ -472,7 +472,8 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
   body.mobile-nav-open .navbar-links { transform: translateX(0); }
   .navbar-mobile-backdrop { display: block; position: fixed; top: 4.5rem; left: 0; right: 0; bottom: 0; border: 0; margin: 0; padding: 0; background: rgba(15,23,42,.28); opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .22s ease, visibility 0s linear .22s; z-index: 65; }
   body.mobile-nav-open .navbar-mobile-backdrop { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity .22s ease, visibility 0s linear 0s; }
-  .navbar-links > a, .navbar-user-info { width: 100%; padding: .35rem 0; }
+  .navbar-links > a:not(.btn-icon), .navbar-user-info { width: 100%; padding: .35rem 0; }
+  .navbar-links > a.btn-icon { align-self: flex-end; }
   .navbar-dropdown { width: 100%; }
   .navbar-dropdown > summary { width: 100%; padding: .5rem 0; }
   .navbar-dropdown-menu { position: static; width: 100%; min-width: 0; box-shadow: none; border: 0; border-radius: 0; padding: .25rem 0 .5rem .5rem; }
