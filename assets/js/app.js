@@ -2350,6 +2350,17 @@ function initForcePriceDropdown(form, selectors) {
   const btn = form.querySelector(selectors.button);
   const dropdown = form.querySelector(selectors.dropdown);
   if (!btn || !dropdown) return;
+  // Re-parent the dropdown to <body> instead of leaving it nested inside the
+  // booking form: on the property page, that form lives inside
+  // `.booking-modal-panel`, which has both `transform` (creating a new
+  // containing block for `position: fixed` descendants) and
+  // `overflow-y: auto`. Left in place, the dropdown's fixed coordinates
+  // (computed from getBoundingClientRect(), i.e. relative to the viewport)
+  // were being applied relative to that transformed ancestor instead, and
+  // then clipped by its overflow — so clicking the edit (✎) button appeared
+  // to do nothing, the dropdown having opened off-screen/invisible. Moving
+  // it to <body> guarantees `position: fixed` is always viewport-relative.
+  document.body.appendChild(dropdown);
   const dropdownTextInput = dropdown.querySelector(selectors.textInput);
   const dropdownHiddenInput = form.querySelector(selectors.hiddenInput);
 
@@ -2667,6 +2678,7 @@ const MULTI_CART_I18N = {
     solution: 'Solution : ',
     solutionAddSeveral: 'Rajouter un ou plusieurs biens',
     solutionAddOne: 'Rajouter un bien',
+    editPrice: 'Modifier le prix',
   },
   en: {
     months: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
@@ -2684,6 +2696,7 @@ const MULTI_CART_I18N = {
     solution: 'Solution: ',
     solutionAddSeveral: 'Add one or more properties',
     solutionAddOne: 'Add a property',
+    editPrice: 'Edit price',
   },
 };
 
@@ -2710,6 +2723,116 @@ function initMultiPropertyCart() {
   const viewBtn = document.querySelector('[data-multi-cart-view-btn]');
   const submitBtn = checkoutForm ? checkoutForm.querySelector('[type="submit"]') : null;
   if (!listEl || !checkoutForm || !itemsInput) return;
+
+  // "Forcer le prix total des nuit(s)" (same override already offered on
+  // the property-detail booking form, see initForcePriceDropdown() above):
+  // partner/admin only (server re-checks via ReservationsController::
+  // canForcePrice() on /api/reservations/quote and /request-multiple
+  // regardless of what this page rendered). One shared dropdown is reused
+  // for every cart item (rather than one per item) since the cart list is
+  // fully rebuilt on every renderCart() call anyway.
+  const canForcePrice = cartRoot.dataset.canForcePrice === '1';
+  const forcePriceDropdown = cartRoot.querySelector('[data-multi-cart-force-price-dropdown]');
+  if (forcePriceDropdown) {
+    // Re-parented to <body> so its `position: fixed` coordinates are always
+    // viewport-relative, same reasoning as initForcePriceDropdown() above.
+    document.body.appendChild(forcePriceDropdown);
+  }
+  const fpInput = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-input]') : null;
+  const fpNote = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-note]') : null;
+  const fpNights = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-nights]') : null;
+  const fpCurrentTotal = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-current-total]') : null;
+  const fpLodgifyTotal = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-lodgify-total]') : null;
+  const fpVatRate = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-vat-rate]') : null;
+  const fpVatTotal = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-vat-total]') : null;
+  const fpCommissionTotal = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-commission-total]') : null;
+  const fpCancelBtn = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-cancel]') : null;
+  const fpSaveBtn = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-save]') : null;
+  let forcePriceItemIndex = null;
+
+  function positionForcePriceDropdown(btn) {
+    const rect = btn.getBoundingClientRect();
+    const width = forcePriceDropdown.offsetWidth || 320;
+    let left = rect.right - width;
+    left = Math.max(8, Math.min(left, window.innerWidth - width - 8));
+    let top = rect.bottom + 6;
+    const maxHeight = forcePriceDropdown.offsetHeight || 0;
+    if (top + maxHeight > window.innerHeight - 8 && rect.top - maxHeight - 6 > 8) {
+      top = rect.top - maxHeight - 6;
+    }
+    forcePriceDropdown.style.left = `${left}px`;
+    forcePriceDropdown.style.top = `${top}px`;
+  }
+
+  function closeForcePriceDropdown() {
+    if (!forcePriceDropdown) return;
+    forcePriceDropdown.hidden = true;
+    forcePriceItemIndex = null;
+  }
+
+  async function openForcePriceDropdown(index, btn) {
+    if (!forcePriceDropdown) return;
+    const item = cart[index];
+    if (!item) return;
+    forcePriceItemIndex = index;
+    if (fpInput) fpInput.value = item.forcedTotalPrice != null ? String(item.forcedTotalPrice) : '';
+    if (fpNote) fpNote.hidden = true;
+    forcePriceDropdown.hidden = false;
+    positionForcePriceDropdown(btn);
+    const adultsVal = Number(filterForm?.querySelector('[name="adults"]')?.value
+      || checkoutForm.querySelector('[name="adults"]')?.value || 0);
+    const under3Val = Number(filterForm?.querySelector('[name="children_under3"]')?.value
+      || checkoutForm.querySelector('[name="children_under3"]')?.value || 0);
+    const from3to12Val = Number(filterForm?.querySelector('[name="children_3to12"]')?.value
+      || checkoutForm.querySelector('[name="children_3to12"]')?.value || 0);
+    const guests = collectGuests(checkoutForm);
+    // Fetched without the item's own forced_total_price so the breakdown
+    // always reflects the real Lodgify-based figures to override, not
+    // whatever was previously forced.
+    const quote = await fetchItemQuote({ ...item, forcedTotalPrice: null, forcedExtraPersonTotal: item.forcedExtraPersonTotal }, adultsVal, under3Val, from3to12Val, guests);
+    if (forcePriceItemIndex !== index || !quote) return;
+    const round2 = (value) => Math.round(value * 100) / 100;
+    const nights = Number(quote.nights || 0);
+    const roomTotal = Number(quote.room_total || 0);
+    const lodgifyTotal = Number(quote.room_base_before_commission || 0);
+    const vatRate = Number(quote.vat_rate || 0);
+    const vatTotal = vatRate ? round2(roomTotal - roomTotal / (1 + vatRate / 100)) : 0;
+    const commissionTotal = Math.max(0, round2(roomTotal - lodgifyTotal));
+    if (fpNights) fpNights.textContent = nights;
+    if (fpCurrentTotal) fpCurrentTotal.textContent = formatEuros(roomTotal);
+    if (fpLodgifyTotal) fpLodgifyTotal.textContent = formatEuros(lodgifyTotal);
+    if (fpVatRate) fpVatRate.textContent = vatRate;
+    if (fpVatTotal) fpVatTotal.textContent = formatEuros(vatTotal);
+    if (fpCommissionTotal) fpCommissionTotal.textContent = formatEuros(commissionTotal);
+    if (fpInput) fpInput.min = lodgifyTotal.toFixed(2);
+  }
+
+  if (forcePriceDropdown) {
+    forcePriceDropdown.addEventListener('click', (event) => event.stopPropagation());
+    document.addEventListener('click', () => {
+      if (forcePriceDropdown && !forcePriceDropdown.hidden) closeForcePriceDropdown();
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !forcePriceDropdown.hidden) closeForcePriceDropdown();
+    });
+    window.addEventListener('resize', () => {
+      // Not repositioned on resize (no stored button reference once open
+      // across renders); simplest safe behaviour is to just close it.
+      if (!forcePriceDropdown.hidden) closeForcePriceDropdown();
+    });
+    if (fpCancelBtn) fpCancelBtn.addEventListener('click', closeForcePriceDropdown);
+    if (fpSaveBtn) {
+      fpSaveBtn.addEventListener('click', () => {
+        if (forcePriceItemIndex === null) return;
+        const item = cart[forcePriceItemIndex];
+        if (!item) return;
+        const raw = fpInput ? Number(fpInput.value || 0) : 0;
+        item.forcedTotalPrice = raw > 0 ? raw : null;
+        closeForcePriceDropdown();
+        renderCart();
+      });
+    }
+  }
 
   if (viewBtn) {
     viewBtn.addEventListener('click', () => {
@@ -2852,7 +2975,7 @@ function initMultiPropertyCart() {
   let cartQuoteRequestId = 0;
 
   async function fetchItemQuote(item, adultsVal, under3Val, from3to12Val, guests) {
-    const key = [item.propertyId, item.checkin, item.checkout, adultsVal, under3Val, from3to12Val].join('|');
+    const key = [item.propertyId, item.checkin, item.checkout, adultsVal, under3Val, from3to12Val, item.forcedTotalPrice || '', item.forcedExtraPersonTotal || ''].join('|');
     if (quoteCache.has(key)) return quoteCache.get(key);
     try {
       const response = await fetch('/api/reservations/quote', {
@@ -2865,7 +2988,13 @@ function initMultiPropertyCart() {
           adults: adultsVal,
           children_under3: under3Val,
           children_3to12: from3to12Val,
-          guests
+          guests,
+          // "Forcer le prix total des nuit(s)" override for this cart item
+          // (partner/admin only, server re-checks via canForcePrice()):
+          // included here so both the live cart total and the breakdown
+          // shown in the edit dropdown reflect the applied override.
+          forced_total_price: item.forcedTotalPrice || '',
+          forced_extra_person_total: item.forcedExtraPersonTotal || '',
         }),
         credentials: 'same-origin'
       });
@@ -2959,7 +3088,7 @@ function initMultiPropertyCart() {
     cart.forEach((item, index) => {
       const nights = nightsBetween(item.checkin, item.checkout);
       totalNights += nights;
-      totalAmount += item.roomTotal;
+      totalAmount += (item.forcedTotalPrice != null ? item.forcedTotalPrice : item.roomTotal);
       distinctPropertyIds.add(item.propertyId);
       nightsPerItem.add(nights);
 
@@ -2985,6 +3114,32 @@ function initMultiPropertyCart() {
       info.appendChild(nameEl);
       info.appendChild(datesEl);
       li.appendChild(info);
+
+      // "Forcer le prix total des nuit(s)" (partner/admin only): shown next
+      // to a small live price note (approximate room-only total from the
+      // board's cal-price cells; refreshCartTaxAndTotal() below fetches the
+      // real per-item quote — including this override once set — for the
+      // grand total/tourist tax note).
+      if (canForcePrice && forcePriceDropdown) {
+        const priceWrap = document.createElement('span');
+        priceWrap.className = 'quote-room-wrap multi-cart-item-price-wrap';
+        const priceEl = document.createElement('span');
+        priceEl.className = 'multi-cart-item-price';
+        priceEl.textContent = formatEuros(item.forcedTotalPrice != null ? item.forcedTotalPrice : item.roomTotal);
+        priceWrap.appendChild(priceEl);
+        const editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.className = 'quote-edit-price-btn';
+        editBtn.setAttribute('aria-label', T.editPrice || 'Modifier le prix');
+        editBtn.setAttribute('title', T.editPrice || 'Modifier le prix');
+        editBtn.textContent = '✎';
+        editBtn.addEventListener('click', (event) => {
+          event.stopPropagation();
+          openForcePriceDropdown(index, editBtn);
+        });
+        priceWrap.appendChild(editBtn);
+        li.appendChild(priceWrap);
+      }
 
       const removeBtn = document.createElement('button');
       removeBtn.type = 'button';
@@ -3077,6 +3232,11 @@ function initMultiPropertyCart() {
       property_name: item.propertyName,
       checkin_date: item.checkin,
       checkout_date: item.checkout,
+      // "Forcer le prix total des nuit(s)" override for this item
+      // (partner/admin only — re-checked server-side in
+      // ReservationsController::canForcePrice()/requestMultiple()).
+      forced_total_price: item.forcedTotalPrice || null,
+      forced_extra_person_total: item.forcedExtraPersonTotal || null,
     })));
     if (feedbackEl) feedbackEl.textContent = '';
     refreshCartTaxAndTotal();
@@ -3208,6 +3368,8 @@ function initMultiPropertyCart() {
           checkin,
           checkout,
           roomTotal: roomTotalFor(checkin, checkout),
+          forcedTotalPrice: null,
+          forcedExtraPersonTotal: null,
         });
         checkin = null;
         checkout = null;

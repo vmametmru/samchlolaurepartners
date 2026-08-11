@@ -50,15 +50,7 @@ final class ReservationsController extends Controller
      */
     private static function forcedTotalPriceFromInput(array $input): ?float
     {
-        if (!self::canForcePrice()) {
-            return null;
-        }
-        $raw = $input['forced_total_price'] ?? null;
-        if ($raw === null || $raw === '') {
-            return null;
-        }
-        $value = (float) $raw;
-        return $value > 0 ? $value : null;
+        return self::forcedPriceValue($input['forced_total_price'] ?? null);
     }
 
     /**
@@ -70,10 +62,22 @@ final class ReservationsController extends Controller
      */
     private static function forcedExtraPersonTotalFromInput(array $input): ?float
     {
+        return self::forcedPriceValue($input['forced_extra_person_total'] ?? null);
+    }
+
+    /**
+     * Shared sanitizer behind forcedTotalPriceFromInput()/
+     * forcedExtraPersonTotalFromInput() above, and requestMultiple()'s
+     * per-item forced_total_price/forced_extra_person_total (the "Calendrier"
+     * multi-property cart's own "Forcer le prix" override, one per selected
+     * item instead of a single top-level input field). Only ever honored
+     * for a logged-in partner/admin user (see canForcePrice()).
+     */
+    private static function forcedPriceValue(mixed $raw): ?float
+    {
         if (!self::canForcePrice()) {
             return null;
         }
-        $raw = $input['forced_extra_person_total'] ?? null;
         if ($raw === null || $raw === '') {
             return null;
         }
@@ -935,7 +939,26 @@ final class ReservationsController extends Controller
             // email actually shows real amounts instead of 0,00 EUR. A null
             // result (Lodgify rates unavailable) degrades to a zeroed quote
             // rather than failing the whole submission.
-            $itemQuote = self::computeItemQuote($propertyId, $property, $checkinDate->format('Y-m-d'), $checkoutDate, $adults, $totalGuests, $countedGuests, $guests);
+            //
+            // Each item can also carry its own "Forcer le prix total des
+            // nuit(s)"/"...personne(s) supplémentaire(s)" override (the
+            // Calendrier cart's own edit button per selected item, mirroring
+            // the single-property booking form's field of the same name):
+            // only ever honored for a logged-in partner/admin user (see
+            // canForcePrice()), and clamped the same way inside
+            // computeItemQuote().
+            $itemQuote = self::computeItemQuote(
+                $propertyId,
+                $property,
+                $checkinDate->format('Y-m-d'),
+                $checkoutDate,
+                $adults,
+                $totalGuests,
+                $countedGuests,
+                $guests,
+                self::forcedPriceValue($item['forced_total_price'] ?? null),
+                self::forcedPriceValue($item['forced_extra_person_total'] ?? null)
+            );
 
             $normalizedItems[] = [
                 'property_id' => $propertyId,
@@ -1056,10 +1079,19 @@ final class ReservationsController extends Controller
                 $params[] = $guestsJson;
                 $params[] = $message;
                 if ($hasQuoteColumns) {
+                    // Pass room_base_before_commission/extra_person_base_
+                    // before_commission (present on $item['quote'] from
+                    // computeItemQuote() above) so the commission stays
+                    // correct when this item's price was manually forced —
+                    // same as requestReservation()'s single-property flow —
+                    // instead of falling back to the standard markup ratio,
+                    // which would misreport the commission on a forced price.
                     $itemBreakdown = self::computeQuoteBreakdown(
                         $item['quote'] ?? [],
                         (float) ($partner['markup_percent'] ?? 0),
-                        (float) ($item['quote']['vat_rate'] ?? 0)
+                        (float) ($item['quote']['vat_rate'] ?? 0),
+                        isset($item['quote']['room_base_before_commission']) ? (float) $item['quote']['room_base_before_commission'] : null,
+                        isset($item['quote']['extra_person_base_before_commission']) ? (float) $item['quote']['extra_person_base_before_commission'] : null
                     );
                     $params[] = $itemBreakdown['currency'];
                     $params[] = $itemBreakdown['nights'];
@@ -1116,6 +1148,15 @@ final class ReservationsController extends Controller
                     'quote_cleaning_total' => $quote['cleaning_total'] ?? 0,
                     'quote_total_without_tax' => $quote['total_without_tax'] ?? 0,
                     'quote_tourist_tax_total' => $quote['tourist_tax_total'] ?? 0,
+                    // Passed so requestQuoteVariables()/computeQuoteBreakdown()
+                    // extract the commission correctly (base rate - not
+                    // markup ratio) when this item's "Forcer le prix" override
+                    // is set — otherwise the {{commission_partenaire}}/
+                    // {{paiement_a_samchlolaure}} email variables would use
+                    // the standard markup% ratio and misreport the
+                    // commission for a manually forced price.
+                    'quote_room_base_before_commission' => $quote['room_base_before_commission'] ?? null,
+                    'quote_extra_person_base_before_commission' => $quote['extra_person_base_before_commission'] ?? null,
                     'quote_vat_rate' => $quote['vat_rate'] ?? 0,
                     'language' => $requestLanguage,
                 ], $itemCount);

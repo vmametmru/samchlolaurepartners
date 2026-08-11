@@ -603,6 +603,12 @@ final class PageController extends Controller
             'priceInfoRows' => $priceInfoRows,
             'globalTouristTax' => $globalTouristTax,
             'cleaningFeePerPerson' => $cleaningFeePerPerson,
+            // "Forcer le prix total des nuit(s)" (see property-detail's
+            // booking form) is also offered per selected item in the
+            // "Calendrier" multi-property cart, restricted the same way to
+            // logged-in partner/admin users (re-checked server-side in
+            // ReservationsController::canForcePrice() on submission).
+            'canForcePrice' => self::canForcePriceUser(),
         ]);
     }
 
