@@ -200,6 +200,7 @@ $globalTouristTax = $globalTouristTax ?? 0.0;
                 </div>
               </div>
             </div>
+            <?php require BASE_PATH . '/files/views/partials/nationalities.php'; ?>
             <input type="hidden" name="children" value="0">
             <p class="muted guest-capacity-note" data-guest-capacity-note hidden></p>
           </div>
@@ -270,7 +271,6 @@ $globalTouristTax = $globalTouristTax ?? 0.0;
           <label><span><?= \App\View::e(\App\I18n::t('property.full_name')) ?></span><input class="input" type="text" name="client_name" required></label>
           <label><span><?= \App\View::e(\App\I18n::t('property.email')) ?></span><input class="input" type="email" name="client_email" required></label>
           <?php require BASE_PATH . '/files/views/partials/phone-input.php'; ?>
-          <?php require BASE_PATH . '/files/views/partials/nationalities.php'; ?>
           <label><span><?= \App\View::e(\App\I18n::t('property.message_optional')) ?></span><textarea class="input" rows="3" name="message"></textarea></label>
         </div>
       </div>

@@ -2349,7 +2349,7 @@ function initPhoneInputs() {
 function initForcePriceDropdown(form, selectors) {
   const btn = form.querySelector(selectors.button);
   const dropdown = form.querySelector(selectors.dropdown);
-  if (!btn || !dropdown) return;
+  if (!btn || !dropdown) return null;
   // Re-parent the dropdown to <body> instead of leaving it nested inside the
   // booking form: on the property page, that form lives inside
   // `.booking-modal-panel`, which has both `transform` (creating a new
@@ -2412,6 +2412,16 @@ function initForcePriceDropdown(form, selectors) {
       closeDropdown();
     });
   }
+  // Return the (now re-parented) dropdown so callers can keep looking up
+  // its inner fields (breakdown amounts, override input) by querying it
+  // directly instead of `form.querySelector(...)`: once appendChild() has
+  // moved it to <body> above, it is no longer a descendant of `form`, so
+  // any later `form.querySelector('[data-fp-*]')` call (see renderQuote()
+  // in initBookingQuote()) would silently return null and leave those
+  // fields blank — reproduced by clicking "Edition de Tarif": the dropdown
+  // opened but the current total/Lodgify rate/VAT/commission breakdown
+  // never appeared.
+  return dropdown;
 }
 
 /**
@@ -2430,6 +2440,13 @@ function initBookingQuote() {
 
     let requestId = 0;
     let debounceTimer = null;
+    // Populated below by initForcePriceDropdown(): once a dropdown has been
+    // re-parented to <body> (see that function's comment), its breakdown
+    // fields (data-fp-*/data-fep-*, the override text input) are no longer
+    // descendants of `form`, so renderQuote() below must look them up
+    // through these dropdown references instead of `form.querySelector`.
+    let priceDropdown = null;
+    let extraPriceDropdown = null;
 
     function isReady() {
       // The price summary only needs the stay dates and the number of
@@ -2544,14 +2561,15 @@ function initBookingQuote() {
       // reflect the actual applied value back so the agency sees when their
       // entry was adjusted.
       const forcedHiddenInput = form.querySelector('[data-forced-total-price]');
-      const forcedTextInput = form.querySelector('[data-forced-total-price-input]');
-      const forcedNote = form.querySelector('[data-forced-total-price-note]');
-      const fpNights = form.querySelector('[data-fp-nights]');
-      const fpCurrentTotal = form.querySelector('[data-fp-current-total]');
-      const fpLodgifyTotal = form.querySelector('[data-fp-lodgify-total]');
-      const fpVatRate = form.querySelector('[data-fp-vat-rate]');
-      const fpVatTotal = form.querySelector('[data-fp-vat-total]');
-      const fpCommissionTotal = form.querySelector('[data-fp-commission-total]');
+      const priceScope = priceDropdown || form;
+      const forcedTextInput = priceScope.querySelector('[data-forced-total-price-input]');
+      const forcedNote = priceScope.querySelector('[data-forced-total-price-note]');
+      const fpNights = priceScope.querySelector('[data-fp-nights]');
+      const fpCurrentTotal = priceScope.querySelector('[data-fp-current-total]');
+      const fpLodgifyTotal = priceScope.querySelector('[data-fp-lodgify-total]');
+      const fpVatRate = priceScope.querySelector('[data-fp-vat-rate]');
+      const fpVatTotal = priceScope.querySelector('[data-fp-vat-total]');
+      const fpCommissionTotal = priceScope.querySelector('[data-fp-commission-total]');
       if (forcedHiddenInput) {
         const nights = Number(quote.nights || 0);
         const roomTotal = Number(quote.room_total || 0);
@@ -2582,14 +2600,15 @@ function initBookingQuote() {
       // floored at the raw Lodgify extra-person fee (before commission)
       // instead of the room rate.
       const forcedExtraHiddenInput = form.querySelector('[data-forced-extra-total-price]');
-      const forcedExtraTextInput = form.querySelector('[data-forced-extra-total-price-input]');
-      const forcedExtraNote = form.querySelector('[data-forced-extra-total-price-note]');
-      const fepCount = form.querySelector('[data-fep-count]');
-      const fepCurrentTotal = form.querySelector('[data-fep-current-total]');
-      const fepLodgifyTotal = form.querySelector('[data-fep-lodgify-total]');
-      const fepVatRate = form.querySelector('[data-fep-vat-rate]');
-      const fepVatTotal = form.querySelector('[data-fep-vat-total]');
-      const fepCommissionTotal = form.querySelector('[data-fep-commission-total]');
+      const extraPriceScope = extraPriceDropdown || form;
+      const forcedExtraTextInput = extraPriceScope.querySelector('[data-forced-extra-total-price-input]');
+      const forcedExtraNote = extraPriceScope.querySelector('[data-forced-extra-total-price-note]');
+      const fepCount = extraPriceScope.querySelector('[data-fep-count]');
+      const fepCurrentTotal = extraPriceScope.querySelector('[data-fep-current-total]');
+      const fepLodgifyTotal = extraPriceScope.querySelector('[data-fep-lodgify-total]');
+      const fepVatRate = extraPriceScope.querySelector('[data-fep-vat-rate]');
+      const fepVatTotal = extraPriceScope.querySelector('[data-fep-vat-total]');
+      const fepCommissionTotal = extraPriceScope.querySelector('[data-fep-commission-total]');
       if (forcedExtraHiddenInput) {
         const round2 = (value) => Math.round(value * 100) / 100;
         const extraCount = Number(quote.extra_persons_count || 0);
@@ -2624,13 +2643,13 @@ function initBookingQuote() {
     // click, Escape, or Annuler; Enregistrer copies the entered value into
     // the form's hidden field and triggers a quote recompute (the form-level
     // "input" listener below already calls scheduleQuote()).
-    initForcePriceDropdown(form, {
+    priceDropdown = initForcePriceDropdown(form, {
       button: '[data-force-price-edit-btn]',
       dropdown: '[data-force-price-dropdown]',
       textInput: '[data-forced-total-price-input]',
       hiddenInput: '[data-forced-total-price]',
     });
-    initForcePriceDropdown(form, {
+    extraPriceDropdown = initForcePriceDropdown(form, {
       button: '[data-force-extra-price-edit-btn]',
       dropdown: '[data-force-extra-price-dropdown]',
       textInput: '[data-forced-extra-total-price-input]',
