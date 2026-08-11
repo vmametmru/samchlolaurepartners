@@ -467,9 +467,11 @@ final class ReservationsController extends Controller
      * for the extra guest(s) ("Forcer le prix des personne(s)
      * supplémentaire(s)"), same guard/semantics as $forcedTotalPrice above
      * (see forcedExtraPersonTotalFromInput()), clamped up to
-     * extra_person_base_before_commission instead. Ignored (left at the
-     * computed value) when there is no extra-person fee applicable to this
-     * stay (extra_persons_count === 0), since there is nothing to override.
+     * extra_person_base_before_commission instead. Honored even when the
+     * selected occupancy does not exceed the property's base headcount
+     * (extra_persons_count === 0, e.g. exactly min_people guests selected):
+     * the agency can still manually add an extra-person charge for that
+     * stay, clamped up to 0 (no Lodgify floor to enforce in that case).
      * @return array{nights: int, currency: string, room_total: float, room_base_before_commission: float, is_price_forced: bool, forced_total_price: float|null, extra_person_total: float, extra_person_base_before_commission: float, is_extra_person_price_forced: bool, forced_extra_person_total: float|null, extra_person_fee_rate: float, extra_persons_count: int, cleaning_total: float, tourist_tax_total: float, tourist_tax_rate: float, total_without_tax: float, vat_rate: float}|null
      */
     private static function computeItemQuote(
@@ -601,7 +603,7 @@ final class ReservationsController extends Controller
         }
         $isExtraPersonPriceForced = false;
         $appliedForcedExtraPersonTotal = null;
-        if ($forcedExtraPersonTotal !== null && $forcedExtraPersonTotal > 0 && $extraPersonsCount > 0) {
+        if ($forcedExtraPersonTotal !== null && $forcedExtraPersonTotal > 0) {
             $forcedExtraTotal = round($forcedExtraPersonTotal, 2);
             if ($forcedExtraTotal < $extraPersonBaseBeforeCommission) {
                 $forcedExtraTotal = $extraPersonBaseBeforeCommission;

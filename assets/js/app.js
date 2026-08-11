@@ -2491,8 +2491,15 @@ function initBookingQuote() {
       form.querySelector('[data-quote-room]').textContent = formatMoney(quote.room_total);
       const extraLine = form.querySelector('[data-quote-extra-line]');
       const extraEl = form.querySelector('[data-quote-extra]');
+      const extraForceBtn = form.querySelector('[data-force-extra-price-edit-btn]');
       const extraApplies = Number(quote.extra_person_total) > 0;
-      if (extraLine) extraLine.hidden = !extraApplies;
+      // Keep the line visible (even at 0,00) when the partner/admin
+      // override button is present: otherwise, whenever the selected
+      // occupancy exactly matches the property's base occupancy (extra
+      // person fee = 0), the whole line — including its edit (✎) icon —
+      // was hidden, making it impossible to force a non-zero extra-person
+      // price for that stay.
+      if (extraLine) extraLine.hidden = !extraApplies && !extraForceBtn;
       if (extraEl) extraEl.textContent = formatMoney(quote.extra_person_total || 0);
       const cleaningEl = form.querySelector('[data-quote-cleaning]');
       if (cleaningEl) cleaningEl.textContent = formatMoney(quote.cleaning_total);
