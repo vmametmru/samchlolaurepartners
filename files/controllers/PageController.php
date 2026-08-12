@@ -678,6 +678,11 @@ final class PageController extends Controller
         View::render('pages/contact', ['pageTitle' => 'Contact']);
     }
 
+    public static function privacyPolicy(): void
+    {
+        View::render('pages/privacy-policy', ['pageTitle' => I18n::t('privacy.page_title')]);
+    }
+
     public static function submitPartnerCode(): never
     {
         $code = trim((string) ($_POST['code'] ?? ''));
