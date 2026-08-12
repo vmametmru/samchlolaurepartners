@@ -111,5 +111,18 @@
   </ol>
   <p>Le montant exact à reverser (« Paiement à Sam Chlo Laure ») ainsi que le détail de la commission sont également visibles sur la page de détail de chaque réservation confirmée, dans « Réservations ».</p>
 
+  <hr>
+
+  <h2>6. Comment modifier le tarif total ou le tarif des personnes supplémentaires ?</h2>
+  <p>Lors d'une demande de réservation (onglet « Tarifs et disponibilités » d'un hébergement, ou depuis le calendrier), le récapitulatif du tarif affiche le prix total des nuits ainsi que, le cas échéant, le prix des personnes supplémentaires. En tant que partenaire, vous pouvez ajuster ces montants avant d'envoyer la demande :</p>
+  <ol>
+    <li>Une fois les dates (et le nombre de voyageurs) sélectionnées, repérez l'icône crayon ✎ à côté du tarif total des nuits ou à côté du tarif des personnes supplémentaires, dans le récapitulatif.</li>
+    <li>Cliquez sur cette icône ✎ pour ouvrir la fenêtre de modification du tarif.</li>
+    <li>Cette fenêtre affiche le détail du calcul (tarif Lodgify, TVA, commission) et un champ vous permettant de saisir le nouveau montant total que vous souhaitez appliquer.</li>
+    <li>Saisissez le montant souhaité, puis cliquez sur « Enregistrer » pour l'appliquer au récapitulatif, ou sur « Annuler » pour fermer la fenêtre sans changement.</li>
+    <li>Le récapitulatif se met alors à jour avec le nouveau montant ; c'est ce montant modifié qui sera transmis dans la demande de réservation envoyée au client.</li>
+  </ol>
+  <p><em>À savoir : cette possibilité de modifier le tarif total et le tarif des personnes supplémentaires est réservée aux partenaires (et aux administrateurs) connectés ; elle n'est pas proposée aux visiteurs du site. Elle est disponible aussi bien sur la fiche d'un hébergement que sur une réservation multi-biens depuis le calendrier.</em></p>
+
   <p><em>Une question qui n'est pas couverte ici ? <a href="/contact">Contactez-nous</a>.</em></p>
 </section>
