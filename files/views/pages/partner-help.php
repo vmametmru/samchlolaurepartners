@@ -26,12 +26,48 @@
   <hr>
 
   <h2>3. Détail de chaque partie</h2>
-  <ul>
-    <li><strong>Réservations :</strong> liste complète de toutes les demandes de réservation reçues. Vous pouvez filtrer par statut (ouverte, confirmée, annulée) et ouvrir chaque demande pour voir le détail (informations client, dates, tarif, commission) puis la confirmer, l'annuler ou la rouvrir.</li>
-    <li><strong>Paramètres :</strong> permet de modifier les informations de votre profil partenaire (nom, email de contact, téléphone, réseaux sociaux, logo, catalogue PDF).</li>
-    <li><strong>Hébergements :</strong> liste de tous les hébergements disponibles sur le site.</li>
-    <li><strong>Catalogue :</strong> si vous avez ajouté un catalogue PDF dans vos paramètres, un bouton de téléchargement apparaît ici pour le transmettre facilement à vos clients.</li>
-  </ul>
+
+  <h3>a. Réservations : comment gérer les demandes</h3>
+  <ol>
+    <li>Cliquez sur « Réservations » depuis le tableau de bord (ou le menu) pour afficher la liste complète des demandes reçues.</li>
+    <li>Filtrez la liste en cochant une ou plusieurs cases de statut : « Ouverte (En attente) », « Confirmée », « Annulée ».</li>
+    <li>Cliquez sur le nom du client (ou l'icône 👁️) pour ouvrir le détail d'une demande : informations client, hébergement, dates de séjour, nombre de voyageurs, détail du tarif (nuits, frais, taxes) et de la commission.</li>
+    <li>Depuis la liste ou la fiche détail, utilisez les actions selon le statut de la demande :
+      <ul>
+        <li><strong>▶️ Confirmer :</strong> passe la demande en « Confirmée ». Un email de confirmation est envoyé au client, et si un rappel avant arrivée est programmé, il part immédiatement si l'arrivée est déjà proche.</li>
+        <li><strong>⏸️ En attente :</strong> repasse une demande confirmée en « Ouverte » (utile en cas d'erreur de confirmation). Un email informe le client du changement de statut.</li>
+        <li><strong>❌ Annuler :</strong> passe la demande en « Annulée ». Un email d'annulation est envoyé au client.</li>
+      </ul>
+    </li>
+  </ol>
+  <p><em>À savoir : le montant exact à reverser à Sam Chlo Laure (« Paiement à Sam Chlo Laure ») ainsi que le détail de la commission sont visibles sur la fiche détail de chaque réservation confirmée.</em></p>
+
+  <h3>b. Paramètres : configurer votre espace partenaire</h3>
+  <ol>
+    <li>Cliquez sur « Paramètres » depuis le tableau de bord (ou le menu) pour ouvrir la page « Paramètres du compte ».</li>
+    <li>Renseignez ou modifiez le nom du partenaire, l'email de contact, le numéro de téléphone et les liens de vos réseaux sociaux (Facebook, TikTok, Instagram).</li>
+    <li>Ajoutez ou remplacez votre logo, votre catalogue PDF (voir ci-dessous) et la couleur principale utilisée sur vos pages publiques.</li>
+    <li>Si besoin, configurez votre propre serveur SMTP (hôte, port, utilisateur, mot de passe) pour l'envoi de vos emails ; laissez ces champs vides pour utiliser la configuration SMTP par défaut du site.</li>
+    <li>Gérez vos politiques de réservation/annulation (créer, modifier, définir celle par défaut, supprimer) : elles sont proposées au choix lors d'une demande de réservation depuis le calendrier ou l'onglet « Tarifs et disponibilités ».</li>
+    <li>Cliquez sur « Sauvegarder » pour enregistrer vos modifications.</li>
+  </ol>
+
+  <h3>c. Télécharger le Catalogue</h3>
+  <ol>
+    <li>Dans « Paramètres », utilisez le champ « Catalogue PDF (20 Mo max) » pour importer votre catalogue au format PDF, puis cliquez sur « Sauvegarder ».</li>
+    <li>Une fois le catalogue enregistré, un bouton « 📄 Télécharger le catalogue » apparaît dans les accès rapides de votre tableau de bord.</li>
+    <li>Cliquez sur ce bouton pour ouvrir ou télécharger le PDF et le transmettre facilement à vos clients.</li>
+    <li>Pour remplacer le catalogue, importez simplement un nouveau fichier dans « Paramètres » ; pour le retirer, cochez « Effacer » à côté du catalogue actuel puis sauvegardez.</li>
+  </ol>
+
+  <h3>d. Profil : vos informations personnelles de connexion</h3>
+  <p>À ne pas confondre avec « Paramètres » (qui concerne le partenaire/l'agence) : « Mon profil » concerne uniquement votre compte utilisateur personnel.</p>
+  <ol>
+    <li>Cliquez sur votre avatar en haut à droite du site, puis sur « Voir profil » pour ouvrir la page « Mon profil ».</li>
+    <li>Modifiez votre prénom, votre nom, votre téléphone et votre photo de profil.</li>
+    <li>Pour changer de mot de passe, renseignez votre mot de passe actuel puis le nouveau mot de passe (laissez ces champs vides pour le conserver).</li>
+    <li>Cliquez sur « Enregistrer » pour valider les modifications.</li>
+  </ol>
 
   <hr>
 
@@ -66,16 +102,7 @@
 
   <hr>
 
-  <h2>5. Comment modifier son profil ?</h2>
-  <ol>
-    <li>Cliquez sur « Paramètres » depuis le tableau de bord, ou sur votre avatar en haut à droite puis « Voir profil » pour vos informations de connexion personnelles.</li>
-    <li>Dans « Paramètres », modifiez le nom du partenaire, l'email de contact, le téléphone, les liens Facebook/TikTok/Instagram, le logo ou le catalogue PDF.</li>
-    <li>Validez le formulaire pour enregistrer les modifications.</li>
-  </ol>
-
-  <hr>
-
-  <h2>6. Comment payer Sam Chlo Laure ?</h2>
+  <h2>5. Comment payer Sam Chlo Laure ?</h2>
   <p>Lorsqu'une réservation est confirmée, Sam Chlo Laure vous envoie par email un lien de paiement sécurisé correspondant au montant net à reverser (le montant total payé par le client, déduction faite de votre commission partenaire).</p>
   <ol>
     <li>Ouvrez l'email reçu de Sam Chlo Laure concernant la réservation confirmée.</li>
