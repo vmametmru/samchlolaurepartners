@@ -233,6 +233,10 @@ final class I18n
 
             'footer.privacy_policy' => ['fr' => 'Politique de confidentialité', 'en' => 'Privacy policy'],
             'privacy.page_title' => ['fr' => 'Politique de confidentialité', 'en' => 'Privacy policy'],
+            'footer.help_public' => ['fr' => 'Aide', 'en' => 'Help'],
+            'footer.help_partner' => ['fr' => 'Aide partenaire', 'en' => 'Partner help'],
+            'help.page_title' => ['fr' => "Aide", 'en' => 'Help'],
+            'partner.help.page_title' => ['fr' => 'Aide partenaire', 'en' => 'Partner help'],
 
             'calendar.title' => ['fr' => 'Calendrier', 'en' => 'Calendar'],
             'calendar.help' => ['fr' => 'Aide', 'en' => 'Help'],

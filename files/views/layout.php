@@ -39,6 +39,11 @@ $jsVersion = is_file($jsPath) ? (string) filemtime($jsPath) : '1';
         <?php if (!empty($partner['tiktok_url'])): ?><a href="<?= \App\View::e($partner['tiktok_url']) ?>" target="_blank" rel="noopener noreferrer">TikTok</a><?php endif; ?>
         <?php if (!empty($partner['instagram_url'])): ?><a href="<?= \App\View::e($partner['instagram_url']) ?>" target="_blank" rel="noopener noreferrer">Instagram</a><?php endif; ?>
       <?php endif; ?>
+      <?php if (is_array($user) && ($user['role'] ?? '') === 'partner'): ?>
+        <a href="/aide-partenaire"><?= \App\View::e(\App\I18n::t('footer.help_partner')) ?></a>
+      <?php else: ?>
+        <a href="/aide"><?= \App\View::e(\App\I18n::t('footer.help_public')) ?></a>
+      <?php endif; ?>
       <a href="/politique-confidentialite"><?= \App\View::e(\App\I18n::t('footer.privacy_policy')) ?></a>
     </div>
   </footer>

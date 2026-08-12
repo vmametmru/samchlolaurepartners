@@ -214,6 +214,12 @@ try {
         case route($method, $path, 'GET', '#^/politique-confidentialite$#'):
             PageController::privacyPolicy();
             break;
+        case route($method, $path, 'GET', '#^/aide$#'):
+            PageController::help();
+            break;
+        case route($method, $path, 'GET', '#^/aide-partenaire$#'):
+            PageController::partnerHelp();
+            break;
         case route($method, $path, 'POST', '#^/partner-code$#'):
             PageController::submitPartnerCode();
         case route($method, $path, 'GET', '#^/login$#'):
