@@ -32,6 +32,17 @@ final class Auth
             return null;
         }
 
+        // A partner user's environment (the "Code Partenaire" cookie, see
+        // Tenant::current()) is always forced back to their OWN partner on
+        // login, regardless of whichever partner's environment the browser
+        // was previously on: e.g. partenaire1 logging in while partenaire2's
+        // code is active is immediately switched back to partenaire1's own
+        // environment. Admins have no partner_id and are left untouched —
+        // they may log in from/stay on any environment.
+        if ((string) $user['role'] === 'partner' && $user['subdomain'] !== null && $user['subdomain'] !== '') {
+            Tenant::setCodeCookie((string) $user['subdomain']);
+        }
+
         $payload = self::userPayload($user);
         $token = self::issueToken($payload);
         self::setAuthCookie($token);
