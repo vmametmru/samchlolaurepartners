@@ -9,7 +9,7 @@ $globalTouristTax = (float) ($globalTouristTax ?? 0);
 $formatFee = static fn (float $value): string => rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.');
 ?>
 <section class="container section-lg">
-  <div class="section-header"><h1>Gestion des partenaires</h1><a class="btn-primary" href="/admin/partners/new">+ Nouveau partenaire</a></div>
+  <div class="section-header"><h1>Gestion des partenaires</h1><div class="stack-actions"><a class="btn-secondary" href="/admin/gallery">🖼️ Galerie photo</a><a class="btn-primary" href="/admin/partners/new">+ Nouveau partenaire</a></div></div>
   <div class="card overflow-hidden">
     <table class="table partners-table">
       <colgroup>

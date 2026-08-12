@@ -13,6 +13,7 @@ use App\controllers\DiagnosticController;
 use App\controllers\EmailSchedulesController;
 use App\controllers\EmailTemplatesController;
 use App\controllers\FeesController;
+use App\controllers\GalleryController;
 use App\controllers\LodgifyController;
 use App\controllers\PageController;
 use App\controllers\PartnersController;
@@ -275,6 +276,14 @@ try {
             PageController::partnerDeletePolicy((int) $matches[1]);
         case route($method, $path, 'POST', '#^/partner/settings/policies/(\d+)/default$#', $matches):
             PageController::partnerSetDefaultPolicy((int) $matches[1]);
+        case route($method, $path, 'GET', '#^/partner/gallery$#'):
+            GalleryController::partnerIndex();
+            break;
+        case route($method, $path, 'GET', '#^/partner/gallery/(\d+)$#', $matches):
+            GalleryController::partnerShow((int) $matches[1]);
+            break;
+        case route($method, $path, 'POST', '#^/partner/gallery/(\d+)/zip$#', $matches):
+            GalleryController::partnerDownloadZip((int) $matches[1]);
         case route($method, $path, 'GET', '#^/admin/partners$#'):
             PageController::adminPartners();
             break;
@@ -303,6 +312,14 @@ try {
             PageController::adminSavePartnerTemplate((int) $matches[1], (int) $matches[2]);
         case route($method, $path, 'POST', '#^/admin/partners/(\d+)/templates/(\d+)/delete$#', $matches):
             PageController::adminDeletePartnerTemplate((int) $matches[1], (int) $matches[2]);
+        case route($method, $path, 'GET', '#^/admin/gallery$#'):
+            GalleryController::adminIndex();
+            break;
+        case route($method, $path, 'GET', '#^/admin/gallery/(\d+)$#', $matches):
+            GalleryController::adminShow((int) $matches[1]);
+            break;
+        case route($method, $path, 'POST', '#^/admin/gallery/(\d+)/zip$#', $matches):
+            GalleryController::adminDownloadZip((int) $matches[1]);
         case route($method, $path, 'GET', '#^/admin/reservations$#'):
             PageController::adminReservations();
             break;
