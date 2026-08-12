@@ -231,6 +231,9 @@ final class I18n
             'contact.message' => ['fr' => 'Message *', 'en' => 'Message *'],
             'contact.send' => ['fr' => 'Envoyer le message', 'en' => 'Send message'],
 
+            'footer.privacy_policy' => ['fr' => 'Politique de confidentialité', 'en' => 'Privacy policy'],
+            'privacy.page_title' => ['fr' => 'Politique de confidentialité', 'en' => 'Privacy policy'],
+
             'calendar.title' => ['fr' => 'Calendrier', 'en' => 'Calendar'],
             'calendar.help' => ['fr' => 'Aide', 'en' => 'Help'],
             'calendar.help_close' => ['fr' => 'Fermer', 'en' => 'Close'],
