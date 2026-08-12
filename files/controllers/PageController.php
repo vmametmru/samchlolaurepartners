@@ -1507,8 +1507,10 @@ TEXT;
     {
         // A policy saved via the WYSIWYG editor on /partner/settings
         // (booking_policies.text_fr/text_en) is already rich HTML — bold,
-        // underline, font-size spans, ... produced by the editor and
-        // sanitized on save. Passing it through the legacy plain-text
+        // underline, ... produced by the editor and sanitized on save
+        // (font-size/font-family are never kept: both the site and the
+        // email templates always apply their own). Passing it through the
+        // legacy plain-text
         // heuristic below (escaping/line-splitting) would mangle its markup,
         // so it is only re-sanitized (defense in depth) and returned as-is.
         // Only the legacy plain-text sources (partners.booking_policy_text(_en)
@@ -1550,12 +1552,16 @@ TEXT;
 
     /**
      * Only the tags/attributes needed by the "Politique de réservation"
-     * WYSIWYG editor's toolbar (bold, underline, font size — see
+     * WYSIWYG editor's toolbar (bold, underline, line breaks — see
      * assets/js/app.js initBookingPolicyEditors()) survive: everything else
      * (script/style tags, event handler attributes, unrelated CSS
-     * declarations, ...) is stripped. Applied both when a policy is saved
-     * (BookingPoliciesController::sanitizedInput()) and again defensively
-     * whenever it is rendered (formatBookingPolicyHtml()).
+     * declarations, ...) is stripped. In particular font-size/font-family/
+     * color declarations are always dropped: both the site (.prose CSS)
+     * and the email templates define their own font and font size, so the
+     * saved policy HTML must never override them — it must inherit
+     * whichever page or template it is rendered into. Applied both when a
+     * policy is saved (BookingPoliciesController::sanitizedInput()) and
+     * again defensively whenever it is rendered (formatBookingPolicyHtml()).
      */
     public static function sanitizeBookingPolicyHtml(string $html): string
     {
@@ -1568,7 +1574,7 @@ TEXT;
                 $safeDeclarations = [];
                 foreach (explode(';', $styleMatch[1]) as $declaration) {
                     $declaration = trim($declaration);
-                    if ($declaration !== '' && preg_match('/^(?:font-size|font-weight|font-style|text-decoration|color)\s*:\s*[#a-zA-Z0-9 ,.%\-]+$/', $declaration)) {
+                    if ($declaration !== '' && preg_match('/^(?:font-weight|font-style|text-decoration)\s*:\s*[#a-zA-Z0-9 ,.%\-]+$/', $declaration)) {
                         $safeDeclarations[] = $declaration;
                     }
                 }

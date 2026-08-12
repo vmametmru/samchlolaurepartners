@@ -3690,15 +3690,19 @@ function initConfirmSubmitButtons() {
 /**
  * WYSIWYG editor for the "Politiques de réservation" text on
  * /partner/settings (see partner-settings.php): a plain contenteditable
- * `[data-policy-editor]` div with a small floating toolbar offering Bold,
- * Underline and a font-size dropdown (the only formatting requested for
- * these policy texts), mirroring the toolbar already used by the email
- * template editor (see ensureFormatToolbar() in initTemplateEditor()) but
- * standalone — this page has no preview iframe, the editor lives directly
- * in the page document. On submit, each editor's live HTML is copied into
- * its companion hidden `[data-policy-editor-input]` field so the server
- * receives the actual rich-text content (further sanitized server-side by
- * PageController::sanitizeBookingPolicyHtml()).
+ * `[data-policy-editor]` div with a small floating toolbar offering only
+ * Bold and Underline (line breaks come from Enter as usual) — the only
+ * formatting requested for these policy texts, mirroring the toolbar
+ * already used by the email template editor (see ensureFormatToolbar() in
+ * initTemplateEditor()) but standalone — this page has no preview iframe,
+ * the editor lives directly in the page document. Font family/size are
+ * intentionally NOT editable here: both the site (.prose CSS) and the
+ * email templates define their own font/size, so the saved policy HTML
+ * must never carry inline font-size/font-family so it always inherits
+ * whichever page or template renders it. On submit, each editor's live
+ * HTML is copied into its companion hidden `[data-policy-editor-input]`
+ * field so the server receives the actual rich-text content (further
+ * sanitized server-side by PageController::sanitizeBookingPolicyHtml()).
  */
 function initBookingPolicyEditors() {
   const editors = document.querySelectorAll('[data-policy-editor]');
@@ -3714,16 +3718,7 @@ function initBookingPolicyEditors() {
     toolbar.className = 'policy-editor-toolbar';
     toolbar.innerHTML = `
       <button type="button" data-cmd="bold" title="Gras"><b>G</b></button>
-      <button type="button" data-cmd="underline" title="Souligné"><u>S</u></button>
-      <select data-cmd="fontSize" title="Taille de police">
-        <option value="">Taille…</option>
-        <option value="12">12px</option>
-        <option value="14">14px</option>
-        <option value="16">16px</option>
-        <option value="18">18px</option>
-        <option value="20">20px</option>
-        <option value="24">24px</option>
-      </select>`;
+      <button type="button" data-cmd="underline" title="Souligné"><u>S</u></button>`;
     toolbar.style.display = 'none';
     toolbar.addEventListener('mousedown', (event) => event.preventDefault());
     toolbar.querySelector('[data-cmd="bold"]').addEventListener('click', () => {
@@ -3734,38 +3729,8 @@ function initBookingPolicyEditors() {
       document.execCommand('underline');
       syncActiveEditor();
     });
-    toolbar.querySelector('select[data-cmd="fontSize"]').addEventListener('change', (event) => {
-      const size = event.target.value;
-      event.target.value = '';
-      if (!size || !activeEditor) return;
-      applyFontSize(size);
-      syncActiveEditor();
-    });
     document.body.appendChild(toolbar);
     return toolbar;
-  }
-
-  function applyFontSize(sizePx) {
-    const selection = window.getSelection();
-    if (lastRange) {
-      selection.removeAllRanges();
-      selection.addRange(lastRange);
-    }
-    if (!selection || !selection.rangeCount || selection.isCollapsed) return;
-    const range = selection.getRangeAt(0);
-    const span = document.createElement('span');
-    span.style.fontSize = `${sizePx}px`;
-    try {
-      range.surroundContents(span);
-    } catch (error) {
-      const contents = range.extractContents();
-      span.appendChild(contents);
-      range.insertNode(span);
-    }
-    selection.removeAllRanges();
-    const newRange = document.createRange();
-    newRange.selectNodeContents(span);
-    selection.addRange(newRange);
   }
 
   function syncActiveEditor() {
