@@ -43,6 +43,53 @@ final class ReservationsController extends Controller
     }
 
     /**
+     * Whether the current visitor may choose a "booking_policy_id"
+     * (the "Politique de réservation" dropdown on the quote-request form),
+     * mirroring PageController::canOverrideBookingPolicyUser(): only a
+     * logged-in agency (partner) user, tied to the same partner tenant the
+     * request is being submitted under. Re-checked here regardless of what
+     * the submitted form actually contained, so an anonymous client can
+     * never influence the policy text shown to itself or to the partner.
+     */
+    private static function canOverrideBookingPolicy(array $partner): bool
+    {
+        $user = Auth::user();
+        return $user !== null
+            && (string) ($user['role'] ?? '') === 'partner'
+            && (int) ($user['partner_id'] ?? 0) > 0
+            && (int) ($user['partner_id'] ?? 0) === (int) ($partner['id'] ?? 0);
+    }
+
+    /**
+     * Reads and validates a "booking_policy_id" field from the given input,
+     * only honoring it for a logged-in agency user of the active partner
+     * (see canOverrideBookingPolicy()) *and* only when it actually refers to
+     * one of that partner's own saved policies (booking_policies table) —
+     * this re-check happens here regardless of what the submitted form
+     * actually contained, so neither an anonymous client nor a partner
+     * spoofing another partner's policy id can influence the text shown.
+     * Returns null when absent/invalid/not authorized, so callers fall back
+     * to the partner's own default policy (or the global default) via
+     * PageController::bookingPolicyText().
+     */
+    private static function bookingPolicyIdFromInput(array $input, array $partner): ?int
+    {
+        if (!self::canOverrideBookingPolicy($partner)) {
+            return null;
+        }
+        $policyId = (int) ($input['booking_policy_id'] ?? 0);
+        if ($policyId <= 0) {
+            return null;
+        }
+        foreach (PageController::partnerBookingPolicies((int) ($partner['id'] ?? 0)) as $policy) {
+            if ((int) ($policy['id'] ?? 0) === $policyId) {
+                return $policyId;
+            }
+        }
+        return null;
+    }
+
+    /**
      * Reads and sanitizes the "forced_total_price" field from the given
      * input, only honoring it when the current user is allowed to force the
      * price (see canForcePrice()). Anonymous submissions therefore always
@@ -1143,6 +1190,7 @@ final class ReservationsController extends Controller
                     'property_name' => $item['property_name'],
                     'message' => $message,
                     'guests' => $input['guests'] ?? [],
+                    'booking_policy_id' => $input['booking_policy_id'] ?? null,
                     'quote_currency' => $quote['currency'] ?? 'EUR',
                     'quote_nights' => $quote['nights'] ?? 0,
                     'quote_room_total' => $quote['room_total'] ?? 0,
@@ -1485,7 +1533,9 @@ final class ReservationsController extends Controller
                 (string) ($partner['name'] ?? '')
             ),
             'logo_partenaire_url' => self::partnerLogoUrlValue((string) ($partner['logo_url'] ?? '')),
-            'politique_reservation' => PageController::formatBookingPolicyHtml(PageController::bookingPolicyText()),
+            'politique_reservation' => PageController::formatBookingPolicyHtml(
+                PageController::bookingPolicyText('fr', $partner, self::bookingPolicyIdFromInput($input, $partner))
+            ),
             'bouton_reservation' => self::bookingLinkButtonHtml(
                 (int) ($input['property_id'] ?? 0),
                 $checkin,
@@ -1693,7 +1743,7 @@ final class ReservationsController extends Controller
                 (string) ($partner['name'] ?? '')
             ),
             'logo_partenaire_url' => self::partnerLogoUrlValue((string) ($partner['logo_url'] ?? '')),
-            'politique_reservation' => PageController::formatBookingPolicyHtml(PageController::bookingPolicyText()),
+            'politique_reservation' => PageController::formatBookingPolicyHtml(PageController::bookingPolicyText('fr', $partner)),
             'bouton_reservation' => self::bookingLinkButtonHtml(
                 (int) ($request['property_id'] ?? 0),
                 (string) $request['checkin_date'],

@@ -48,6 +48,8 @@ document.addEventListener('DOMContentLoaded', () => {
     initHeroMobileSearchToggle,
     initHeroSearchCollapse,
     initConfirmSubmit,
+    initConfirmSubmitButtons,
+    initBookingPolicyEditors,
     initUpdateProgress,
     initCatalogUploadProgress,
     initTranslationSuggestions,
@@ -3663,6 +3665,136 @@ function initConfirmSubmit() {
         event.preventDefault();
       }
     });
+  });
+}
+
+// Per-button confirmation (as opposed to initConfirmSubmit()'s whole-form
+// data-confirm-submit): a submit button carrying data-confirm only prompts
+// when *that* button is the one that triggered the submit (event.submitter),
+// so other buttons in the same form (e.g. "Sauvegarder" next to "Supprimer"
+// on a booking-policy card, see partner-settings.php) are never blocked by
+// it.
+function initConfirmSubmitButtons() {
+  document.querySelectorAll('form').forEach((form) => {
+    form.addEventListener('submit', (event) => {
+      const submitter = event.submitter;
+      if (!submitter || !submitter.hasAttribute('data-confirm')) return;
+      const message = submitter.getAttribute('data-confirm') || '';
+      if (message !== '' && !window.confirm(message)) {
+        event.preventDefault();
+      }
+    });
+  });
+}
+
+/**
+ * WYSIWYG editor for the "Politiques de réservation" text on
+ * /partner/settings (see partner-settings.php): a plain contenteditable
+ * `[data-policy-editor]` div with a small floating toolbar offering only
+ * Bold and Underline (line breaks come from Enter as usual) — the only
+ * formatting requested for these policy texts, mirroring the toolbar
+ * already used by the email template editor (see ensureFormatToolbar() in
+ * initTemplateEditor()) but standalone — this page has no preview iframe,
+ * the editor lives directly in the page document. Font family/size are
+ * intentionally NOT editable here: both the site (.prose CSS) and the
+ * email templates define their own font/size, so the saved policy HTML
+ * must never carry inline font-size/font-family so it always inherits
+ * whichever page or template renders it. On submit, each editor's live
+ * HTML is copied into its companion hidden `[data-policy-editor-input]`
+ * field so the server receives the actual rich-text content (further
+ * sanitized server-side by PageController::sanitizeBookingPolicyHtml()).
+ */
+function initBookingPolicyEditors() {
+  const editors = document.querySelectorAll('[data-policy-editor]');
+  if (!editors.length) return;
+
+  let toolbar = null;
+  let activeEditor = null;
+  let lastRange = null;
+
+  function ensureToolbar() {
+    if (toolbar) return toolbar;
+    toolbar = document.createElement('div');
+    toolbar.className = 'policy-editor-toolbar';
+    toolbar.innerHTML = `
+      <button type="button" data-cmd="bold" title="Gras"><b>G</b></button>
+      <button type="button" data-cmd="underline" title="Souligné"><u>S</u></button>`;
+    toolbar.style.display = 'none';
+    toolbar.addEventListener('mousedown', (event) => event.preventDefault());
+    toolbar.querySelector('[data-cmd="bold"]').addEventListener('click', () => {
+      document.execCommand('bold');
+      syncActiveEditor();
+    });
+    toolbar.querySelector('[data-cmd="underline"]').addEventListener('click', () => {
+      document.execCommand('underline');
+      syncActiveEditor();
+    });
+    document.body.appendChild(toolbar);
+    return toolbar;
+  }
+
+  function syncActiveEditor() {
+    if (!activeEditor) return;
+    const input = activeEditor.nextElementSibling;
+    if (input && input.hasAttribute('data-policy-editor-input')) {
+      input.value = activeEditor.innerHTML;
+    }
+  }
+
+  function positionToolbar(editor) {
+    const bar = ensureToolbar();
+    const rect = editor.getBoundingClientRect();
+    bar.style.display = 'flex';
+    bar.style.position = 'absolute';
+    bar.style.top = `${window.scrollY + rect.top - bar.offsetHeight - 4}px`;
+    bar.style.left = `${window.scrollX + rect.left}px`;
+  }
+
+  editors.forEach((editor) => {
+    // Keep the hidden input (submitted to the server) in sync with the
+    // editor's current content at every point a user could possibly
+    // submit the form, not just on blur/focusout.
+    const input = editor.nextElementSibling;
+    editor.addEventListener('focus', () => {
+      activeEditor = editor;
+      lastRange = null;
+      positionToolbar(editor);
+    });
+    editor.addEventListener('input', () => {
+      if (input && input.hasAttribute('data-policy-editor-input')) {
+        input.value = editor.innerHTML;
+      }
+    });
+    editor.addEventListener('keyup', () => {
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount) lastRange = selection.getRangeAt(0);
+    });
+    editor.addEventListener('mouseup', () => {
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount) lastRange = selection.getRangeAt(0);
+    });
+    editor.addEventListener('blur', () => {
+      syncActiveEditor();
+      window.setTimeout(() => {
+        if (document.activeElement !== toolbar && !toolbar?.contains(document.activeElement)) {
+          if (toolbar) toolbar.style.display = 'none';
+          if (activeEditor === editor) activeEditor = null;
+        }
+      }, 150);
+    });
+    // Initial sync so a form submitted without ever focusing the editor
+    // (e.g. only the label field was changed) still posts the existing content.
+    if (input && input.hasAttribute('data-policy-editor-input')) {
+      input.value = editor.innerHTML;
+    }
+    const form = editor.closest('form');
+    if (form) {
+      form.addEventListener('submit', () => {
+        if (input && input.hasAttribute('data-policy-editor-input')) {
+          input.value = editor.innerHTML;
+        }
+      });
+    }
   });
 }
 

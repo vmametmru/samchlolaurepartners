@@ -23,6 +23,9 @@ $checkoutLabel = $formatHour($property['checkout_hour'] ?? null);
 $priceMinPeople = $priceMinPeople ?? null;
 $priceExtraPersonFee = $priceExtraPersonFee ?? null;
 $globalTouristTax = $globalTouristTax ?? 0.0;
+$canOverrideBookingPolicy = $canOverrideBookingPolicy ?? false;
+$bookingPolicies = $bookingPolicies ?? [];
+$policyText = $policyText ?? \App\controllers\PageController::bookingPolicyText(\App\I18n::current());
 ?>
 <section class="container section-lg" data-gallery>
   <div class="property-detail-header">
@@ -142,7 +145,7 @@ $globalTouristTax = $globalTouristTax ?? 0.0;
           <?php require BASE_PATH . '/files/views/partials/calendar.php'; ?>
           <div class="booking-policy-block">
             <h3 class="section-title"><?= \App\View::e(\App\I18n::t('property.booking_policy_title')) ?></h3>
-            <div class="prose"><?= \App\controllers\PageController::formatBookingPolicyHtml(\App\controllers\PageController::bookingPolicyText(\App\I18n::current())) ?></div>
+            <div class="prose"><?= \App\controllers\PageController::formatBookingPolicyHtml($policyText ?? \App\controllers\PageController::bookingPolicyText(\App\I18n::current())) ?></div>
           </div>
         <?php endif; ?>
       </div>
@@ -270,6 +273,17 @@ $globalTouristTax = $globalTouristTax ?? 0.0;
           <label><span><?= \App\View::e(\App\I18n::t('property.email')) ?></span><input class="input" type="email" name="client_email" required></label>
           <?php require BASE_PATH . '/files/views/partials/phone-input.php'; ?>
           <label><span><?= \App\View::e(\App\I18n::t('property.message_optional')) ?></span><textarea class="input" rows="3" name="message"></textarea></label>
+          <?php if ($canOverrideBookingPolicy && $bookingPolicies !== []): ?>
+          <label>
+            <span><?= \App\View::e(\App\I18n::t('property.booking_policy_override')) ?></span>
+            <select class="input" name="booking_policy_id">
+              <?php foreach ($bookingPolicies as $policy): ?>
+                <option value="<?= (int) $policy['id'] ?>"<?= !empty($policy['is_default']) ? ' selected' : '' ?>><?= \App\View::e((string) $policy['label']) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </label>
+          <p class="muted"><?= \App\View::e(\App\I18n::t('property.booking_policy_override_hint')) ?></p>
+          <?php endif; ?>
         </div>
       </div>
 

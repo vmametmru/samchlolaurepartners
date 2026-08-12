@@ -258,6 +258,14 @@ try {
             break;
         case route($method, $path, 'POST', '#^/partner/settings$#'):
             PageController::partnerSaveSettings();
+        case route($method, $path, 'POST', '#^/partner/settings/policies$#'):
+            PageController::partnerCreatePolicy();
+        case route($method, $path, 'POST', '#^/partner/settings/policies/(\d+)$#', $matches):
+            PageController::partnerUpdatePolicy((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/partner/settings/policies/(\d+)/delete$#', $matches):
+            PageController::partnerDeletePolicy((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/partner/settings/policies/(\d+)/default$#', $matches):
+            PageController::partnerSetDefaultPolicy((int) $matches[1]);
         case route($method, $path, 'GET', '#^/admin/partners$#'):
             PageController::adminPartners();
             break;
