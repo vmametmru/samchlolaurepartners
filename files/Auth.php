@@ -32,12 +32,15 @@ final class Auth
             return null;
         }
 
-        // A partner user may only log in on their own partner's environment
-        // (the "Code Partenaire" cookie set via Tenant, see Tenant::current()):
-        // codepartenaire1 must not be able to authenticate while partenaire2's
-        // code is active. Only admins are exempt and may log in anywhere.
-        if ((string) $user['role'] === 'partner' && !self::partnerMatchesCurrentTenant((int) $user['partner_id'])) {
-            return null;
+        // A partner user's environment (the "Code Partenaire" cookie, see
+        // Tenant::current()) is always forced back to their OWN partner on
+        // login, regardless of whichever partner's environment the browser
+        // was previously on: e.g. partenaire1 logging in while partenaire2's
+        // code is active is immediately switched back to partenaire1's own
+        // environment. Admins have no partner_id and are left untouched —
+        // they may log in from/stay on any environment.
+        if ((string) $user['role'] === 'partner' && $user['subdomain'] !== null && $user['subdomain'] !== '') {
+            Tenant::setCodeCookie((string) $user['subdomain']);
         }
 
         $payload = self::userPayload($user);
@@ -45,19 +48,6 @@ final class Auth
         self::setAuthCookie($token);
 
         return ['token' => $token, 'user' => $payload];
-    }
-
-    /**
-     * Whether the given partner id is the one currently active for this
-     * visitor (per the "Code Partenaire" cookie, see Tenant::current()).
-     * Used to restrict a partner login to their own environment: a partner
-     * user must only be able to authenticate while their own partner's code
-     * is active, never while browsing another partner's environment.
-     */
-    private static function partnerMatchesCurrentTenant(int $partnerId): bool
-    {
-        $tenant = Tenant::current();
-        return $tenant !== null && isset($tenant['id']) && (int) $tenant['id'] === $partnerId;
     }
 
     public static function logout(): void
