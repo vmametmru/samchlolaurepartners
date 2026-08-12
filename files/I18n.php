@@ -253,7 +253,7 @@ final class I18n
             'calendar.show_property_name' => ['fr' => 'Afficher le nom du bien', 'en' => 'Show property name'],
             'calendar.legend_available' => ['fr' => 'Disponible', 'en' => 'Available'],
             'calendar.legend_unavailable' => ['fr' => 'Indisponible', 'en' => 'Unavailable'],
-            'calendar.legend_blocked' => ['fr' => 'Bloquée', 'en' => 'Blocked'],
+            'calendar.legend_blocked' => ['fr' => 'Arrivée ou Départ uniquement', 'en' => 'Arrival or Departure Only'],
             'calendar.legend_single_night' => ['fr' => "Réservation d'1 nuit (arrivée ou départ uniquement)", 'en' => '1-night booking (arrival or departure only)'],
             'calendar.legend_not_bookable' => ['fr' => 'Non réservable / Non renseigné', 'en' => 'Not bookable / Not set'],
             'calendar.legend_not_bookable_full' => ['fr' => 'Non réservable (séjour minimum non atteint) / Non renseigné / Date passée', 'en' => 'Not bookable (minimum stay not reached) / Not set / Past date'],
