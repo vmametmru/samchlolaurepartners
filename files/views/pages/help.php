@@ -30,10 +30,11 @@
   <h3>b. Depuis le calendrier</h3>
   <ol>
     <li>Ouvrez la page « Calendrier ».</li>
-    <li>Cliquez sur la date d'arrivée souhaitée pour un hébergement, puis sur la date de départ, directement dans le tableau.</li>
-    <li>Vous pouvez répéter l'opération sur un autre hébergement (mêmes dates ou dates différentes) pour l'ajouter à votre sélection et réserver plusieurs biens à la fois.</li>
+    <li>Renseignez le formulaire avec les dates souhaitées et le nombre de personnes, puis cliquez sur « Afficher les disponibilités ». Choisissez des dates plus larges afin d'avoir une meilleure visibilité sur les jours avant et après vos dates.</li>
+    <li>Cliquez sur la date d'arrivée souhaitée pour un hébergement, puis sur la date de départ, directement dans le tableau. Vous pouvez répéter l'opération sur un autre hébergement (mêmes dates ou dates différentes) pour l'ajouter à votre sélection et réserver plusieurs biens à la fois.</li>
     <li>Validez votre sélection puis complétez le formulaire pour envoyer votre demande.</li>
   </ol>
+  <p><em>À savoir : vous pouvez sélectionner plusieurs biens afin d'avoir suffisamment de place pour le nombre de voyageurs, et vous pouvez aussi sélectionner un bien puis en changer en sélectionnant de nouvelles dates dans le tableau.</em></p>
 
   <h3>c. Depuis l'onglet « Tarifs et disponibilités » d'un hébergement</h3>
   <ol>

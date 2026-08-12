@@ -49,10 +49,11 @@
   <h3>b. Via le calendrier</h3>
   <ol>
     <li>Ouvrez la page « Calendrier » (menu « Pages Publiques » → « Calendrier »).</li>
-    <li>Cliquez sur la date d'arrivée puis sur la date de départ pour l'hébergement souhaité, directement dans le tableau.</li>
-    <li>Vous pouvez ajouter d'autres hébergements à la sélection (mêmes dates ou dates différentes) pour une réservation multi-biens.</li>
+    <li>Renseignez le formulaire avec les dates souhaitées et le nombre de personnes, puis cliquez sur « Afficher les disponibilités ». Choisissez des dates plus larges afin d'avoir une meilleure visibilité sur les jours avant et après vos dates.</li>
+    <li>Cliquez sur la date d'arrivée puis sur la date de départ pour l'hébergement souhaité, directement dans le tableau. Vous pouvez ajouter d'autres hébergements à la sélection (mêmes dates ou dates différentes) pour une réservation multi-biens.</li>
     <li>Validez votre sélection puis complétez le formulaire avec les coordonnées du client pour envoyer la demande.</li>
   </ol>
+  <p><em>À savoir : vous pouvez sélectionner plusieurs biens afin d'avoir suffisamment de place pour le nombre de voyageurs, et vous pouvez aussi sélectionner un bien puis en changer en sélectionnant de nouvelles dates dans le tableau.</em></p>
 
   <h3>c. Via la recherche de la page d'accueil</h3>
   <ol>
