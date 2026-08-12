@@ -683,6 +683,17 @@ final class PageController extends Controller
         View::render('pages/privacy-policy', ['pageTitle' => I18n::t('privacy.page_title')]);
     }
 
+    public static function help(): void
+    {
+        View::render('pages/help', ['pageTitle' => I18n::t('help.page_title')]);
+    }
+
+    public static function partnerHelp(): void
+    {
+        self::requirePartnerUser();
+        View::render('pages/partner-help', ['pageTitle' => I18n::t('partner.help.page_title')]);
+    }
+
     public static function submitPartnerCode(): never
     {
         $code = trim((string) ($_POST['code'] ?? ''));
