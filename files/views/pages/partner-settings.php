@@ -43,10 +43,6 @@
       </div>
     </div>
     <label><span>Couleur principale</span><div class="color-row"><input type="color" name="primary_color" value="<?= \App\View::e($partnerData['primary_color'] ?? '#E61E4D') ?>"><input class="input" type="text" name="primary_color_text" value="<?= \App\View::e($partnerData['primary_color'] ?? '#E61E4D') ?>" data-sync-color></div></label>
-    <h2 class="section-title">Politique de réservation</h2>
-    <p class="muted">Vos propres conditions de réservation/annulation, affichées sous le calendrier sur vos pages hébergement et utilisées dans vos emails via la variable <code>{{politique_reservation}}</code>. Laissez vide pour utiliser le texte par défaut du site.</p>
-    <label><span>Texte de la politique de réservation (Français)</span><textarea class="input" name="policy_text" rows="12"><?= \App\View::e($policyText ?? '') ?></textarea></label>
-    <label><span>Texte de la politique de réservation (Anglais) — affiché quand le site est en anglais</span><textarea class="input" name="policy_text_en" rows="12"><?= \App\View::e($policyTextEn ?? '') ?></textarea></label>
     <h2 class="section-title">Configuration SMTP</h2>
     <p class="muted">Sécurité: SSL/TLS (obligatoire). Si vous laissez vide, les paramètres admin seront utilisés.</p>
     <div class="form-grid cols-2">
@@ -58,4 +54,54 @@
     <p class="muted">Email d'envoi par défaut (admin): <?= \App\View::e($smtpDefaults['smtp_from_email'] ?? 'infos@grand-baie-maurice.com') ?></p>
     <button class="btn-primary" type="submit">Sauvegarder</button>
   </form>
+
+  <div class="card card-body stack-md">
+    <h2 class="section-title">Politiques de réservation</h2>
+    <p class="muted">Créez autant de politiques de réservation/annulation que nécessaire (ex: "Standard", "Longue durée") et choisissez celle qui s'applique lors d'une demande de réservation depuis le calendrier ou l'onglet "Tarifs &amp; Disponibilités". La politique marquée "par défaut" est celle affichée sous le calendrier de vos pages hébergement et utilisée dans vos emails via la variable <code>{{politique_reservation}}</code>.</p>
+
+    <?php foreach (($bookingPolicies ?? []) as $policy): ?>
+      <form class="policy-card stack-md" method="post" action="/partner/settings/policies/<?= (int) $policy['id'] ?>">
+        <div class="form-grid cols-2">
+          <label><span>Nom de la politique</span><input class="input" type="text" name="label" value="<?= \App\View::e((string) $policy['label']) ?>" required></label>
+          <label class="policy-default-flag">
+            <input type="radio" name="default_policy_radio" disabled<?= !empty($policy['is_default']) ? ' checked' : '' ?>>
+            <span><?= !empty($policy['is_default']) ? 'Politique par défaut' : 'Non par défaut' ?></span>
+          </label>
+        </div>
+        <label>
+          <span>Texte (Français)</span>
+          <div class="policy-editor" data-policy-editor contenteditable="true"><?= (string) $policy['text_fr'] ?></div>
+          <input type="hidden" name="text_fr" data-policy-editor-input>
+        </label>
+        <label>
+          <span>Texte (Anglais) — affiché quand le site est en anglais</span>
+          <div class="policy-editor" data-policy-editor contenteditable="true"><?= (string) ($policy['text_en'] ?? '') ?></div>
+          <input type="hidden" name="text_en" data-policy-editor-input>
+        </label>
+        <div class="policy-card-actions">
+          <button class="btn-primary" type="submit">Sauvegarder</button>
+          <?php if (empty($policy['is_default'])): ?>
+            <button class="btn-secondary" type="submit" formaction="/partner/settings/policies/<?= (int) $policy['id'] ?>/default">Définir par défaut</button>
+          <?php endif; ?>
+          <button class="btn-secondary policy-delete-btn" type="submit" formaction="/partner/settings/policies/<?= (int) $policy['id'] ?>/delete" data-confirm="Supprimer cette politique de réservation ?">Supprimer</button>
+        </div>
+      </form>
+    <?php endforeach; ?>
+
+    <form class="policy-card stack-md" method="post" action="/partner/settings/policies">
+      <h3 class="section-title">Ajouter une politique</h3>
+      <label><span>Nom de la politique</span><input class="input" type="text" name="label" placeholder="Ex: Standard, Longue durée…" required></label>
+      <label>
+        <span>Texte (Français)</span>
+        <div class="policy-editor" data-policy-editor contenteditable="true"></div>
+        <input type="hidden" name="text_fr" data-policy-editor-input>
+      </label>
+      <label>
+        <span>Texte (Anglais) — affiché quand le site est en anglais</span>
+        <div class="policy-editor" data-policy-editor contenteditable="true"></div>
+        <input type="hidden" name="text_en" data-policy-editor-input>
+      </label>
+      <button class="btn-primary" type="submit">Créer la politique</button>
+    </form>
+  </div>
 </section>

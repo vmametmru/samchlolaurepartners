@@ -194,13 +194,13 @@ final class PageController extends Controller
 
     /**
      * Whether the current visitor may see/use the "Politique de
-     * réservation" override field on the quote-request ("demande de
+     * réservation" policy-choice dropdown on the quote-request ("demande de
      * devis") form: only a logged-in agency (partner) user, tied to an
      * actual partner tenant — never an anonymous client, and never shown
-     * when no partner is active (there would be no agency to override
-     * conditions for). Re-checked server-side on submission (see
-     * ReservationsController::bookingPolicyOverrideFromInput()) regardless
-     * of what this view actually rendered.
+     * when no partner is active (there would be no agency to choose a
+     * policy for). Re-checked server-side on submission (see
+     * ReservationsController::bookingPolicyIdFromInput()) regardless of
+     * what this view actually rendered.
      */
     private static function canOverrideBookingPolicyUser(): bool
     {
@@ -279,6 +279,7 @@ final class PageController extends Controller
         // foreigners aged 12+, so visitors know it is added to the total
         // shown in the booking quote below.
         $globalTouristTax = (float) (Database::connection()->query('SELECT per_person_per_night FROM tourist_tax LIMIT 1')->fetchColumn() ?: 0);
+        $canOverrideBookingPolicy = self::canOverrideBookingPolicyUser();
         View::render('pages/property-detail', [
             'pageTitle' => View::localized($property, 'name'),
             'property' => $property,
@@ -301,15 +302,18 @@ final class PageController extends Controller
             // an anonymous client browsing the public site.
             'canForcePrice' => self::canForcePriceUser(),
             // The booking-policy block under the calendar always follows the
-            // active partner's own conditions when they've set one
-            // (partners.booking_policy_text/_en), falling back to the global
+            // active partner's own default policy when they've created one
+            // (booking_policies.is_default, or the legacy
+            // partners.booking_policy_text/_en), falling back to the global
             // admin default otherwise — see bookingPolicyText().
             'policyText' => self::bookingPolicyText(I18n::current(), $partner),
-            // The "Politique de réservation" override field on the quote
-            // request form is only shown to a logged-in agency (partner)
-            // user, and is pre-filled with the text currently shown above so
-            // editing it starts from what the visitor already sees.
-            'canOverrideBookingPolicy' => self::canOverrideBookingPolicyUser(),
+            // The "Politique de réservation" dropdown on the quote-request
+            // form (choosing which of the partner's saved policies applies
+            // to this request) is only shown to a logged-in agency (partner)
+            // user — see ReservationsController::bookingPolicyIdFromInput()
+            // for the matching server-side re-check.
+            'canOverrideBookingPolicy' => $canOverrideBookingPolicy,
+            'bookingPolicies' => $canOverrideBookingPolicy && $partner ? self::partnerBookingPolicies((int) $partner['id']) : [],
         ]);
     }
 
@@ -521,6 +525,7 @@ final class PageController extends Controller
         // view for the "Information sur les prix affichés" note (see below).
         $partner = Tenant::current();
         $cleaningFeePerPerson = $partner ? (float) ($partner['cleaning_fee_per_person_per_night'] ?? 0) : 0.0;
+        $canOverrideBookingPolicy = self::canOverrideBookingPolicyUser();
         // Shown in the "Information sur les prix affichés" block so visitors
         // know the tourist tax is added to the total and reflected in the
         // selection summary below.
@@ -637,6 +642,12 @@ final class PageController extends Controller
             // logged-in partner/admin users (re-checked server-side in
             // ReservationsController::canForcePrice() on submission).
             'canForcePrice' => self::canForcePriceUser(),
+            // Same policy-choice dropdown as the property-detail request
+            // form (see propertyDetail()) is offered on the /calendrier
+            // multi-property request form, restricted to a logged-in agency
+            // (partner) user tied to the active partner.
+            'canOverrideBookingPolicy' => $canOverrideBookingPolicy,
+            'bookingPolicies' => $canOverrideBookingPolicy && $partner ? self::partnerBookingPolicies((int) $partner['id']) : [],
         ]);
     }
 
@@ -858,13 +869,13 @@ final class PageController extends Controller
             'pageTitle' => 'Paramètres partenaire',
             'partnerData' => $partner,
             'smtpDefaults' => $smtpDefaults,
-            // The textareas are pre-filled with this partner's own override
-            // if set, otherwise with the current effective default (global
-            // setting or hardcoded fallback) — i.e. "par défaut ça affiche
-            // celui qui existe" — so a partner always sees the text that is
-            // actually shown to their own visitors/emails right now.
-            'policyText' => self::bookingPolicyText('fr', $partner),
-            'policyTextEn' => self::bookingPolicyText('en', $partner),
+            // A partner can now create several named policies (see
+            // booking_policies table / partnerBookingPolicies()) and pick
+            // which one to use when submitting a quote-request on behalf of
+            // a client (property "Tarifs & Disponibilités" tab and
+            // /calendrier); the first one (is_default = 1) is the one shown
+            // by default under the calendar / used in emails.
+            'bookingPolicies' => self::partnerBookingPolicies((int) $user['partner_id']),
         ]);
     }
 
@@ -893,15 +904,14 @@ final class PageController extends Controller
             $catalogPdfUrl = self::storePartnerCatalogPdf($partnerId) ?? '';
         }
 
-        // An empty textarea means "no override, use the global default"
-        // (matches DEFAULT_BOOKING_POLICY(_EN)/BOOKING_POLICY_TEXT(_EN)
-        // fallback chain in bookingPolicyText()), stored as NULL rather than
-        // an empty string so future admin-wide default changes still reach
-        // every partner who never customized their own conditions.
-        $policyText = trim((string) ($_POST['policy_text'] ?? ''));
-        $policyTextEn = trim((string) ($_POST['policy_text_en'] ?? ''));
-
-        Database::connection()->prepare('UPDATE partners SET name = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, logo_url = ?, catalog_pdf_url = ?, primary_color = ?, booking_policy_text = ?, booking_policy_text_en = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, updated_at = NOW() WHERE id = ?')->execute([
+        // The single policy_text/policy_text_en textareas have been replaced
+        // by the "Politiques de réservation" list below (booking_policies
+        // table, managed via partnerCreatePolicy()/partnerUpdatePolicy()/
+        // partnerDeletePolicy()/partnerSetDefaultPolicy()), so this form no
+        // longer touches partners.booking_policy_text(_en) at all — those
+        // legacy columns are only ever read as a fallback (bookingPolicyText())
+        // for a partner who hasn't created any policy yet.
+        Database::connection()->prepare('UPDATE partners SET name = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, logo_url = ?, catalog_pdf_url = ?, primary_color = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, updated_at = NOW() WHERE id = ?')->execute([
             trim((string) ($_POST['name'] ?? '')),
             trim((string) ($_POST['email'] ?? '')),
             trim((string) ($_POST['phone'] ?? '')) ?: null,
@@ -911,8 +921,6 @@ final class PageController extends Controller
             $logoUrl !== '' ? $logoUrl : null,
             $catalogPdfUrl !== '' ? $catalogPdfUrl : null,
             trim((string) ($_POST['primary_color'] ?? '#E61E4D')),
-            $policyText !== '' ? $policyText : null,
-            $policyTextEn !== '' ? $policyTextEn : null,
             trim((string) ($_POST['smtp_host'] ?? '')) ?: null,
             ($_POST['smtp_port'] ?? '') !== '' ? (int) $_POST['smtp_port'] : null,
             trim((string) ($_POST['smtp_user'] ?? '')) ?: null,
@@ -920,6 +928,95 @@ final class PageController extends Controller
             $partnerId,
         ]);
         self::redirect('/partner/settings', 'Paramètres sauvegardés.');
+    }
+
+    /**
+     * Creates a new named "Politique de réservation" (booking_policies row)
+     * for the logged-in partner. When it's the partner's first policy ever,
+     * it is automatically marked as the default one (there must always be
+     * exactly one default once at least one policy exists, so the
+     * booking-policy block under the calendar and the {{politique_reservation}}
+     * email variable always have something to show).
+     */
+    public static function partnerCreatePolicy(): never
+    {
+        $user = self::requirePartnerUser();
+        $partnerId = (int) $user['partner_id'];
+        $label = trim((string) ($_POST['label'] ?? ''));
+        if ($label === '') {
+            self::redirect('/partner/settings', 'Le nom de la politique est obligatoire.', 'error');
+        }
+        $isFirstPolicy = self::partnerBookingPolicies($partnerId) === [];
+        Database::connection()->prepare('INSERT INTO booking_policies (partner_id, label, text_fr, text_en, is_default) VALUES (?, ?, ?, ?, ?)')->execute([
+            $partnerId,
+            $label,
+            self::sanitizeBookingPolicyHtml((string) ($_POST['text_fr'] ?? '')),
+            self::sanitizeBookingPolicyHtml((string) ($_POST['text_en'] ?? '')),
+            $isFirstPolicy ? 1 : 0,
+        ]);
+        self::redirect('/partner/settings', 'Politique de réservation créée.');
+    }
+
+    /**
+     * Updates one of the logged-in partner's own policies — re-checked
+     * against partner_id in the WHERE clause so a partner can never edit
+     * another partner's policy just by guessing its id.
+     */
+    public static function partnerUpdatePolicy(int $id): never
+    {
+        $user = self::requirePartnerUser();
+        $partnerId = (int) $user['partner_id'];
+        $label = trim((string) ($_POST['label'] ?? ''));
+        if ($label === '') {
+            self::redirect('/partner/settings', 'Le nom de la politique est obligatoire.', 'error');
+        }
+        Database::connection()->prepare('UPDATE booking_policies SET label = ?, text_fr = ?, text_en = ?, updated_at = NOW() WHERE id = ? AND partner_id = ?')->execute([
+            $label,
+            self::sanitizeBookingPolicyHtml((string) ($_POST['text_fr'] ?? '')),
+            self::sanitizeBookingPolicyHtml((string) ($_POST['text_en'] ?? '')),
+            $id,
+            $partnerId,
+        ]);
+        self::redirect('/partner/settings', 'Politique de réservation sauvegardée.');
+    }
+
+    /**
+     * Deletes one of the logged-in partner's own policies. If the deleted
+     * policy was the default one and others remain, the most recently
+     * created remaining policy is promoted to default so there is never a
+     * partner with policies but no default among them.
+     */
+    public static function partnerDeletePolicy(int $id): never
+    {
+        $user = self::requirePartnerUser();
+        $partnerId = (int) $user['partner_id'];
+        $pdo = Database::connection();
+        $stmt = $pdo->prepare('SELECT is_default FROM booking_policies WHERE id = ? AND partner_id = ? LIMIT 1');
+        $stmt->execute([$id, $partnerId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row === false) {
+            self::redirect('/partner/settings', 'Politique de réservation introuvable.', 'error');
+        }
+        $pdo->prepare('DELETE FROM booking_policies WHERE id = ? AND partner_id = ?')->execute([$id, $partnerId]);
+        if ((int) $row['is_default'] === 1) {
+            $pdo->prepare('UPDATE booking_policies SET is_default = 1 WHERE partner_id = ? ORDER BY created_at DESC, id DESC LIMIT 1')->execute([$partnerId]);
+        }
+        self::redirect('/partner/settings', 'Politique de réservation supprimée.');
+    }
+
+    /**
+     * Marks one of the logged-in partner's own policies as the default one
+     * (shown under the calendar and used in emails/quote-request forms when
+     * no other policy is explicitly chosen), clearing the flag on every
+     * other policy of that same partner.
+     */
+    public static function partnerSetDefaultPolicy(int $id): never
+    {
+        $user = self::requirePartnerUser();
+        $partnerId = (int) $user['partner_id'];
+        $pdo = Database::connection();
+        $pdo->prepare('UPDATE booking_policies SET is_default = (id = ?) WHERE partner_id = ?')->execute([$id, $partnerId]);
+        self::redirect('/partner/settings', 'Politique de réservation par défaut mise à jour.');
     }
 
     public static function adminPartners(): void
@@ -1285,29 +1382,49 @@ Remaining balance due 5 day(s) before arrival.
 TEXT;
 
     /**
-     * Reads the current "Politique de réservation" text: each partner can
-     * set their own conditions (partners.booking_policy_text/_en, editable
-     * from /partner/settings) which always take priority when $partner is
-     * given and has one saved; otherwise falls back to the admin-configured
+     * Reads the current "Politique de réservation" text. Each partner can
+     * now create *several* named policies (booking_policies table, editable
+     * from /partner/settings) instead of a single FR/EN pair: when $policyId
+     * is given and belongs to the active partner, that specific policy's
+     * text is used; otherwise the partner's own default policy (is_default
+     * = 1) is used when one exists. Partners who never migrated to the new
+     * table (or removed all their policies) still fall back to the legacy
+     * partners.booking_policy_text/_en columns, then to the admin-configured
      * global default (/admin/politique-reservation), and finally to
      * DEFAULT_BOOKING_POLICY when nothing has been saved yet at all — i.e.
      * "par défaut ça affiche celui qui existe". Shared by the admin page
-     * itself, the property-detail page (booking-policy block under the
-     * calendar) and ReservationsController (the {{politique_reservation}}
-     * email variable), so all three always show the exact same text for a
-     * given partner.
+     * itself, the property-detail/calendar pages (booking-policy block
+     * under the calendar) and ReservationsController (the
+     * {{politique_reservation}} email variable), so they always show the
+     * exact same text for a given partner/policy.
      *
      * $lang defaults to 'fr' (used by emails, which are always sent in
      * French) — pages that must follow the visitor's site language pass
-     * App\I18n::current() explicitly. When $lang is 'en', the partner's own
-     * booking_policy_text_en (if set) or the admin-provided
-     * BOOKING_POLICY_TEXT_EN override is used, otherwise
+     * App\I18n::current() explicitly. When $lang is 'en', the policy's own
+     * text_en (or the partner's legacy booking_policy_text_en, or the
+     * admin-provided BOOKING_POLICY_TEXT_EN override) is used, otherwise
      * DEFAULT_BOOKING_POLICY_EN; the French text/setting is never used as
      * an English fallback so the page never silently reverts to French
      * text under an English heading.
      */
-    public static function bookingPolicyText(string $lang = 'fr', ?array $partner = null): string
+    public static function bookingPolicyText(string $lang = 'fr', ?array $partner = null, ?int $policyId = null): string
     {
+        $partnerId = (int) ($partner['id'] ?? 0);
+        if ($partnerId > 0) {
+            $policy = null;
+            if ($policyId !== null && $policyId > 0) {
+                $policy = self::findBookingPolicy($partnerId, $policyId);
+            }
+            if ($policy === null) {
+                $policy = self::defaultBookingPolicy($partnerId);
+            }
+            if ($policy !== null) {
+                $policyText = trim((string) ($policy[$lang === 'en' ? 'text_en' : 'text_fr'] ?? ''));
+                if ($policyText !== '') {
+                    return $policyText;
+                }
+            }
+        }
         if ($lang === 'en') {
             $partnerText = trim((string) ($partner['booking_policy_text_en'] ?? ''));
             if ($partnerText !== '') {
@@ -1320,6 +1437,52 @@ TEXT;
             return $partnerText;
         }
         return Settings::get('BOOKING_POLICY_TEXT', self::DEFAULT_BOOKING_POLICY) ?? self::DEFAULT_BOOKING_POLICY;
+    }
+
+    /**
+     * Every "Politique de réservation" saved by the given partner (see
+     * booking_policies table), most-recently-created first with the
+     * partner's default policy always listed first — used both to populate
+     * the management list on /partner/settings and the policy-choice
+     * dropdown shown to a logged-in agency user on the quote-request forms
+     * (property "Tarifs & Disponibilités" tab and /calendrier).
+     */
+    public static function partnerBookingPolicies(int $partnerId): array
+    {
+        if ($partnerId <= 0 || !Database::tableExists('booking_policies')) {
+            return [];
+        }
+        $stmt = Database::connection()->prepare('SELECT * FROM booking_policies WHERE partner_id = ? ORDER BY is_default DESC, created_at ASC, id ASC');
+        $stmt->execute([$partnerId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /**
+     * A single policy row, only ever returned when it actually belongs to
+     * the given partner — callers (bookingPolicyText(), ReservationsController's
+     * bookingPolicyIdFromInput()) must never let a submitted policy id leak
+     * another partner's conditions.
+     */
+    private static function findBookingPolicy(int $partnerId, int $policyId): ?array
+    {
+        if (!Database::tableExists('booking_policies')) {
+            return null;
+        }
+        $stmt = Database::connection()->prepare('SELECT * FROM booking_policies WHERE id = ? AND partner_id = ? LIMIT 1');
+        $stmt->execute([$policyId, $partnerId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ?: null;
+    }
+
+    private static function defaultBookingPolicy(int $partnerId): ?array
+    {
+        if (!Database::tableExists('booking_policies')) {
+            return null;
+        }
+        $stmt = Database::connection()->prepare('SELECT * FROM booking_policies WHERE partner_id = ? AND is_default = 1 ORDER BY id ASC LIMIT 1');
+        $stmt->execute([$partnerId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ?: null;
     }
 
     /**
@@ -1342,6 +1505,18 @@ TEXT;
      */
     public static function formatBookingPolicyHtml(string $text): string
     {
+        // A policy saved via the WYSIWYG editor on /partner/settings
+        // (booking_policies.text_fr/text_en) is already rich HTML — bold,
+        // underline, font-size spans, ... produced by the editor and
+        // sanitized on save. Passing it through the legacy plain-text
+        // heuristic below (escaping/line-splitting) would mangle its markup,
+        // so it is only re-sanitized (defense in depth) and returned as-is.
+        // Only the legacy plain-text sources (partners.booking_policy_text(_en)
+        // and the admin-wide Settings::BOOKING_POLICY_TEXT(_EN)/
+        // DEFAULT_BOOKING_POLICY(_EN) fallback) ever reach the heuristic.
+        if (preg_match('/<[a-z][^>]*>/i', $text) === 1) {
+            return self::sanitizeBookingPolicyHtml($text);
+        }
         $rawLines = preg_split('/\r\n|\r|\n/', $text) ?: [];
         if (isset($rawLines[0]) && trim($rawLines[0]) !== '' && mb_strtolower(trim($rawLines[0])) === 'politique de réservation') {
             array_shift($rawLines);
@@ -1371,6 +1546,38 @@ TEXT;
         }
 
         return implode('<br>', $htmlLines);
+    }
+
+    /**
+     * Only the tags/attributes needed by the "Politique de réservation"
+     * WYSIWYG editor's toolbar (bold, underline, font size — see
+     * assets/js/app.js initBookingPolicyEditors()) survive: everything else
+     * (script/style tags, event handler attributes, unrelated CSS
+     * declarations, ...) is stripped. Applied both when a policy is saved
+     * (BookingPoliciesController::sanitizedInput()) and again defensively
+     * whenever it is rendered (formatBookingPolicyHtml()).
+     */
+    public static function sanitizeBookingPolicyHtml(string $html): string
+    {
+        $allowedTags = '<p><br><b><strong><u><i><em><span><ul><ol><li><div><h3><h4>';
+        $clean = strip_tags($html, $allowedTags);
+        return preg_replace_callback('/<(\w+)([^>]*)>/i', static function (array $match): string {
+            $tag = strtolower($match[1]);
+            $keptAttribute = '';
+            if (preg_match('/\bstyle\s*=\s*"([^"]*)"/i', $match[2], $styleMatch)) {
+                $safeDeclarations = [];
+                foreach (explode(';', $styleMatch[1]) as $declaration) {
+                    $declaration = trim($declaration);
+                    if ($declaration !== '' && preg_match('/^(?:font-size|font-weight|font-style|text-decoration|color)\s*:\s*[#a-zA-Z0-9 ,.%\-]+$/', $declaration)) {
+                        $safeDeclarations[] = $declaration;
+                    }
+                }
+                if ($safeDeclarations !== []) {
+                    $keptAttribute = ' style="' . htmlspecialchars(implode(';', $safeDeclarations), ENT_QUOTES, 'UTF-8') . '"';
+                }
+            }
+            return '<' . $tag . $keptAttribute . '>';
+        }, $clean) ?? $clean;
     }
 
     public static function adminBookingPolicy(): void

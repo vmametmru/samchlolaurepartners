@@ -23,6 +23,8 @@ $today = isset($today) && $today !== '' ? (string) $today : date('Y-m-d');
 $frenchDays = \App\I18n::weekdaysShortSundayFirst();
 $frenchMonthsShort = \App\I18n::monthNamesShort();
 $canForcePrice = $canForcePrice ?? false;
+$canOverrideBookingPolicy = $canOverrideBookingPolicy ?? false;
+$bookingPolicies = $bookingPolicies ?? [];
 ?>
 <section class="container section-lg">
   <div class="section-header">
@@ -224,6 +226,17 @@ $canForcePrice = $canForcePrice ?? false;
         <?php require BASE_PATH . '/files/views/partials/phone-input.php'; ?>
         <?php require BASE_PATH . '/files/views/partials/nationalities.php'; ?>
         <label><span><?= \App\View::e(\App\I18n::t('calendar.message_optional')) ?></span><textarea class="input" rows="3" name="message"></textarea></label>
+        <?php if ($canOverrideBookingPolicy && $bookingPolicies !== []): ?>
+        <label>
+          <span><?= \App\View::e(\App\I18n::t('property.booking_policy_override')) ?></span>
+          <select class="input" name="booking_policy_id">
+            <?php foreach ($bookingPolicies as $policy): ?>
+              <option value="<?= (int) $policy['id'] ?>"<?= !empty($policy['is_default']) ? ' selected' : '' ?>><?= \App\View::e((string) $policy['label']) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </label>
+        <p class="muted"><?= \App\View::e(\App\I18n::t('property.booking_policy_override_hint')) ?></p>
+        <?php endif; ?>
         <button class="btn-primary" type="submit"><?= \App\View::e(\App\I18n::t('calendar.send_requests')) ?></button>
         <p class="form-feedback" data-form-feedback></p>
       </form>
