@@ -45,17 +45,26 @@ final class ReservationsController extends Controller
     /**
      * Whether the current visitor may choose a "booking_policy_id"
      * (the "Politique de réservation" dropdown on the quote-request form),
-     * mirroring PageController::canOverrideBookingPolicyUser(): only a
-     * logged-in agency (partner) user, tied to the same partner tenant the
-     * request is being submitted under. Re-checked here regardless of what
-     * the submitted form actually contained, so an anonymous client can
-     * never influence the policy text shown to itself or to the partner.
+     * mirroring PageController::canOverrideBookingPolicyUser(): a logged-in
+     * agency (partner) user tied to the same partner tenant the request is
+     * being submitted under, or an admin user (who, like canForcePrice(),
+     * is trusted regardless of which partner tenant is active — an admin
+     * has no partner_id of their own to match against). Re-checked here
+     * regardless of what the submitted form actually contained, so an
+     * anonymous client can never influence the policy text shown to itself
+     * or to the partner.
      */
     private static function canOverrideBookingPolicy(array $partner): bool
     {
         $user = Auth::user();
-        return $user !== null
-            && (string) ($user['role'] ?? '') === 'partner'
+        if ($user === null || (int) ($partner['id'] ?? 0) <= 0) {
+            return false;
+        }
+        $role = (string) ($user['role'] ?? '');
+        if ($role === 'admin') {
+            return true;
+        }
+        return $role === 'partner'
             && (int) ($user['partner_id'] ?? 0) > 0
             && (int) ($user['partner_id'] ?? 0) === (int) ($partner['id'] ?? 0);
     }

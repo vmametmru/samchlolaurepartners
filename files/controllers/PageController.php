@@ -195,19 +195,26 @@ final class PageController extends Controller
     /**
      * Whether the current visitor may see/use the "Politique de
      * réservation" policy-choice dropdown on the quote-request ("demande de
-     * devis") form: only a logged-in agency (partner) user, tied to an
-     * actual partner tenant — never an anonymous client, and never shown
-     * when no partner is active (there would be no agency to choose a
-     * policy for). Re-checked server-side on submission (see
+     * devis") form: a logged-in agency (partner) user tied to an actual
+     * partner tenant, or an admin user (mirroring canForcePriceUser(),
+     * which likewise trusts admin regardless of which partner tenant is
+     * active) — never an anonymous client, and never shown when no partner
+     * is active (there would be no agency to choose a policy for).
+     * Re-checked server-side on submission (see
      * ReservationsController::bookingPolicyIdFromInput()) regardless of
      * what this view actually rendered.
      */
     private static function canOverrideBookingPolicyUser(): bool
     {
         $user = Auth::user();
-        return $user !== null
-            && (string) ($user['role'] ?? '') === 'partner'
-            && (int) ($user['partner_id'] ?? 0) > 0;
+        if ($user === null) {
+            return false;
+        }
+        $role = (string) ($user['role'] ?? '');
+        if ($role === 'admin') {
+            return true;
+        }
+        return $role === 'partner' && (int) ($user['partner_id'] ?? 0) > 0;
     }
 
     public static function propertyDetail(int $id): void
