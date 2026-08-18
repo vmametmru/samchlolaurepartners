@@ -220,16 +220,18 @@ $propertyDescription = $property ? trim(\App\View::localized($property, 'descrip
         <?php endif; ?>
         <div><span class="muted">Total Voyageur :</span> <strong><?= \App\View::e(\App\controllers\ReservationsController::formatMoneyFr((float) ($reservation['quote_total_traveler'] ?? 0), $quoteCurrency)) ?></strong></div>
         <?php
-          // Shows 0,00 EUR (never hidden) when the property isn't
-          // registered for VAT, so partners always see the row and know
-          // it isn't simply missing.
+          // Hidden entirely (row + value) when the property isn't
+          // registered for VAT (or the computed total rounds to 0,00), per
+          // the site-wide convention: a TVA amount of 0 is never shown.
           $quoteVatTotal = \App\controllers\ReservationsController::vatTotalFromStoredQuote(
             (float) ($reservation['quote_room_total'] ?? 0),
             (float) ($reservation['quote_extra_person_total'] ?? 0),
             (float) ($reservation['quote_vat_rate'] ?? 0)
           );
         ?>
-        <div><span class="muted">TVA totale :</span> <strong><?= \App\View::e(\App\controllers\ReservationsController::formatMoneyFr($quoteVatTotal, $quoteCurrency)) ?></strong></div>
+        <?php if ($quoteVatTotal > 0): ?>
+          <div><span class="muted">TVA totale :</span> <strong><?= \App\View::e(\App\controllers\ReservationsController::formatMoneyFr($quoteVatTotal, $quoteCurrency)) ?></strong></div>
+        <?php endif; ?>
       </div>
     </div>
   <?php endif; ?>

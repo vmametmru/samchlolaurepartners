@@ -21,6 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initPropertyTabs,
     initMaps,
     initApiForms,
+    initNoClientEmailToggle,
     initFormStatusPopups,
     initNationalities,
     initTemplateEditor,
@@ -902,6 +903,35 @@ function initFormStatusPopups() {
   });
 }
 
+/**
+ * "Pas de Email" checkbox (property-detail.php / calendar.php booking
+ * forms, partner/admin only — see ReservationsController::canForcePrice()
+ * for the matching server-side re-check): lets the agency create a
+ * request with just a phone number when the client has no email. Toggling
+ * it clears/relaxes the email field's native `required` attribute and
+ * flags the form (via `form.dataset.noClientEmail`) so the extra JS
+ * validation below (initApiForms()/initBookingQuote()) also stops
+ * requiring an email. An anonymous client never sees this checkbox, so
+ * `noClientEmail` can only ever be '1' for a logged-in partner/admin.
+ */
+function initNoClientEmailToggle() {
+  document.querySelectorAll('[data-no-client-email-toggle]').forEach((checkbox) => {
+    const form = checkbox.closest('form');
+    const emailInput = form ? form.querySelector('[name="client_email"]') : null;
+    if (!form || !emailInput) return;
+
+    function apply() {
+      const skip = checkbox.checked;
+      form.dataset.noClientEmail = skip ? '1' : '0';
+      emailInput.required = !skip;
+      if (skip) emailInput.value = '';
+    }
+
+    checkbox.addEventListener('change', apply);
+    apply();
+  });
+}
+
 function initApiForms() {
   document.querySelectorAll('[data-api-form]').forEach((form) => {
     form.addEventListener('submit', async (event) => {
@@ -938,7 +968,7 @@ function initApiForms() {
           return;
         }
         const clientEmail = (form.querySelector('[name="client_email"]')?.value || '').trim();
-        if (!clientEmail) {
+        if (!clientEmail && form.dataset.noClientEmail !== '1') {
           if (feedback) feedback.textContent = form.dataset.i18nEmailRequired || 'Email non renseigné';
           return;
         }
@@ -2942,7 +2972,7 @@ function initBookingQuote() {
       const name = (form.querySelector('[name="client_name"]')?.value || '').trim();
       if (!name) return i18nNameRequired;
       const email = (form.querySelector('[name="client_email"]')?.value || '').trim();
-      if (!email) return i18nEmailRequired;
+      if (!email && form.dataset.noClientEmail !== '1') return i18nEmailRequired;
       if (!nationalityProvided()) return i18nNationalityRequired;
       return '';
     }
@@ -3051,6 +3081,7 @@ function initBookingQuote() {
       const fpLodgifyTotal = priceScope.querySelector('[data-fp-lodgify-total]');
       const fpVatRate = priceScope.querySelector('[data-fp-vat-rate]');
       const fpVatTotal = priceScope.querySelector('[data-fp-vat-total]');
+      const fpVatRow = priceScope.querySelector('[data-fp-vat-row]');
       const fpCommissionTotal = priceScope.querySelector('[data-fp-commission-total]');
       if (forcedHiddenInput) {
         const nights = Number(quote.nights || 0);
@@ -3065,6 +3096,9 @@ function initBookingQuote() {
         if (fpLodgifyTotal) fpLodgifyTotal.textContent = formatMoney(lodgifyTotal);
         if (fpVatRate) fpVatRate.textContent = vatRate;
         if (fpVatTotal) fpVatTotal.textContent = formatMoney(vatTotal);
+        // A TVA amount of 0 is never shown anywhere on the site: hide the
+        // whole row rather than displaying "0,00".
+        if (fpVatRow) fpVatRow.hidden = vatTotal <= 0;
         if (fpCommissionTotal) fpCommissionTotal.textContent = formatMoney(commissionTotal);
         if (forcedTextInput) forcedTextInput.min = lodgifyTotal.toFixed(2);
         if (quote.is_price_forced && quote.forced_total_price !== null && quote.forced_total_price !== undefined) {
@@ -3090,6 +3124,7 @@ function initBookingQuote() {
       const fepLodgifyTotal = extraPriceScope.querySelector('[data-fep-lodgify-total]');
       const fepVatRate = extraPriceScope.querySelector('[data-fep-vat-rate]');
       const fepVatTotal = extraPriceScope.querySelector('[data-fep-vat-total]');
+      const fepVatRow = extraPriceScope.querySelector('[data-fep-vat-row]');
       const fepCommissionTotal = extraPriceScope.querySelector('[data-fep-commission-total]');
       if (forcedExtraHiddenInput) {
         const round2 = (value) => Math.round(value * 100) / 100;
@@ -3104,6 +3139,7 @@ function initBookingQuote() {
         if (fepLodgifyTotal) fepLodgifyTotal.textContent = formatMoney(extraLodgifyTotal);
         if (fepVatRate) fepVatRate.textContent = vatRate;
         if (fepVatTotal) fepVatTotal.textContent = formatMoney(extraVatTotal);
+        if (fepVatRow) fepVatRow.hidden = extraVatTotal <= 0;
         if (fepCommissionTotal) fepCommissionTotal.textContent = formatMoney(extraCommissionTotal);
         if (forcedExtraTextInput) forcedExtraTextInput.min = extraLodgifyTotal.toFixed(2);
         if (quote.is_extra_person_price_forced && quote.forced_extra_person_total !== null && quote.forced_extra_person_total !== undefined) {
@@ -3256,6 +3292,7 @@ function initMultiPropertyCart() {
   const fpLodgifyTotal = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-lodgify-total]') : null;
   const fpVatRate = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-vat-rate]') : null;
   const fpVatTotal = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-vat-total]') : null;
+  const fpVatRow = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-vat-row]') : null;
   const fpCommissionTotal = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-commission-total]') : null;
   const fpCancelBtn = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-cancel]') : null;
   const fpSaveBtn = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-save]') : null;
@@ -3316,6 +3353,7 @@ function initMultiPropertyCart() {
     if (fpLodgifyTotal) fpLodgifyTotal.textContent = `${formatEuros(lodgifyTotal)} ${currency}`;
     if (fpVatRate) fpVatRate.textContent = vatRate;
     if (fpVatTotal) fpVatTotal.textContent = `${formatEuros(vatTotal)} ${currency}`;
+    if (fpVatRow) fpVatRow.hidden = vatTotal <= 0;
     if (fpCommissionTotal) fpCommissionTotal.textContent = `${formatEuros(commissionTotal)} ${currency}`;
     if (fpInput) fpInput.min = lodgifyTotal.toFixed(2);
   }
