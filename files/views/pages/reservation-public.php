@@ -115,7 +115,7 @@ $needsClientEmail = !empty($needsClientEmail);
 
     <?php if ($editable): ?>
       <div data-reservation-edit-form hidden>
-        <form method="post" action="/r/<?= \App\View::e($token) ?>/update" class="stack-md" data-reservation-edit-quote-form data-reservation-token="<?= \App\View::e($token) ?>" data-max-guests="0">
+        <form method="post" action="/r/<?= \App\View::e($token) ?>/update" class="stack-md" data-reservation-edit-quote-form data-reservation-base-url="/r/<?= \App\View::e($token) ?>" data-max-guests="0">
           <input type="hidden" name="guests_json" data-guests-json value="">
           <input type="hidden" name="children" value="<?= $childrenUnder + $children3to12v ?>">
           <input type="hidden" name="property_id" value="<?= (int) $request['property_id'] ?>" data-reservation-property-id>
@@ -189,17 +189,24 @@ $needsClientEmail = !empty($needsClientEmail);
          correct right after picking a new property above, before any page
          reload). Kept outside the "$editable" block so it's still usable
          in read-only mode. -->
-    <div class="simple-modal-overlay" data-reservation-gallery-modal hidden>
-      <div class="simple-modal-dialog" role="dialog" aria-modal="true" aria-label="Galerie photo">
+    <div class="simple-modal-overlay" data-reservation-gallery-modal data-reservation-base-url="/r/<?= \App\View::e($token) ?>" hidden>
+      <div class="simple-modal-dialog simple-modal-dialog-wide" role="dialog" aria-modal="true" aria-label="Galerie photo">
         <div class="simple-modal-header">
           <h3>Galerie photo</h3>
           <button type="button" class="btn-icon-plain" data-reservation-gallery-modal-close aria-label="Fermer">✕</button>
         </div>
-        <div class="reservation-gallery-grid" data-reservation-gallery-grid>
-          <p class="muted">Chargement des photos…</p>
+        <div class="gallery-main" data-reservation-gallery-main-wrap>
+          <img class="reservation-gallery-main-img" data-reservation-gallery-main src="" alt="">
+        </div>
+        <div class="gallery-carousel" data-reservation-gallery-carousel>
+          <div class="gallery-carousel-track" data-reservation-gallery-thumbs>
+            <p class="muted">Chargement des photos…</p>
+          </div>
         </div>
         <?php if ($propertyDescription !== ''): ?>
-          <p class="muted reservation-property-description" data-reservation-gallery-description><?= \App\View::plainText($propertyDescription, 400) ?></p>
+          <div class="reservation-property-description-block" data-reservation-gallery-description-block>
+            <p class="muted reservation-property-description" data-reservation-gallery-description><?= \App\View::plainText($propertyDescription, 400) ?></p>
+          </div>
         <?php endif; ?>
       </div>
     </div>

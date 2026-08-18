@@ -1686,6 +1686,61 @@ final class ReservationsController extends Controller
             return ['ok' => false, 'message' => 'Cette demande n\'est plus modifiable en ligne : seule l\'agence peut la modifier.'];
         }
 
+        $result = self::applyRequestEdit($request, $input);
+        if (!$result['ok']) {
+            return $result;
+        }
+        $updated = $result['request'];
+
+        // The change is already persisted: a notification-email failure
+        // must not turn an otherwise-successful update into an error for
+        // the client, who would then wrongly believe nothing was saved.
+        try {
+            $partner = self::fetchPartner((int) $request['partner_id']);
+            self::sendClientEditNotificationEmail($partner, $updated);
+        } catch (Throwable $e) {
+            error_log('Failed to send client-edited-reservation notification email: ' . $e);
+        }
+
+        return ['ok' => true, 'message' => 'Votre demande modifiée a bien été renvoyée à l\'agence.', 'request' => $updated];
+    }
+
+    /**
+     * Lets the partner themselves edit a still-pending reservation request
+     * from /partner/reservations/{id} — the same name/dates/party size/
+     * nationality/property fields the client can change via their own
+     * public "Partager le lien" link (updatePublicRequest() above), reusing
+     * the exact same validation/re-pricing/persistence core
+     * (applyRequestEdit()) so the two paths can never drift. Scoped to the
+     * partner's own tenant via ReservationsController::findForPartner() at
+     * the controller layer (PageController::partnerUpdateReservation());
+     * no client notification-of-edit email is sent here, since it's the
+     * partner making the change, not the client.
+     */
+    public static function updateForPartner(array $request, array $input): array
+    {
+        if ((string) ($request['status'] ?? '') !== 'pending') {
+            return ['ok' => false, 'message' => 'Cette demande n\'est plus modifiable : seule une demande en attente peut être modifiée.'];
+        }
+        $result = self::applyRequestEdit($request, $input, false);
+        if (!$result['ok']) {
+            return $result;
+        }
+        return ['ok' => true, 'message' => 'La demande a bien été modifiée.', 'request' => $result['request']];
+    }
+
+    /**
+     * Core validation/re-pricing/persistence shared by updatePublicRequest()
+     * (client-facing) and updateForPartner() (partner-facing): both must
+     * apply the exact same rules (capacity, dates, pricing) so a request
+     * edited by either party is priced identically. Callers own the
+     * "pending only" guard and whatever success/notification behaviour is
+     * specific to their own audience.
+     *
+     * @return array{ok: bool, message?: string, request?: array}
+     */
+    private static function applyRequestEdit(array $request, array $input, bool $trackClientUpdate = true): array
+    {
         $clientName = trim((string) ($input['client_name'] ?? ''));
         $clientEmail = trim((string) ($input['client_email'] ?? (string) $request['client_email']));
         $checkin = trim((string) ($input['checkin_date'] ?? ''));
@@ -1782,29 +1837,25 @@ final class ReservationsController extends Controller
         [$quoteColumns, $quoteParams] = self::quoteInsertColumnsAndParams($pdo, $quoteBreakdown, $quoteData);
         $columns = [...$columns, ...$quoteColumns];
         $params = [...$params, ...$quoteParams];
-        $columns[] = 'last_client_update_at';
+        // last_client_update_at (see db/migrations/046_...) tracks edits
+        // made by the client themselves, so it must never be touched when
+        // the partner is the one editing (updateForPartner()).
+        if ($trackClientUpdate) {
+            $columns[] = 'last_client_update_at';
+        }
         $set = implode(', ', array_map(static fn (string $column): string => "{$column} = ?", $columns));
 
         try {
             $pdo->prepare("UPDATE reservation_requests SET {$set}, updated_at = NOW() WHERE id = ?")
-                ->execute([...$params, gmdate('Y-m-d H:i:s'), (int) $request['id']]);
+                ->execute([...$params, ...($trackClientUpdate ? [gmdate('Y-m-d H:i:s')] : []), (int) $request['id']]);
         } catch (Throwable $e) {
             error_log((string) $e);
             return ['ok' => false, 'message' => 'Impossible d\'enregistrer les modifications pour le moment.'];
         }
 
-        $updated = self::findByToken((string) $request['public_token']);
+        $updated = self::findById((int) $request['id']);
 
-        // The change is already persisted: a notification-email failure
-        // must not turn an otherwise-successful update into an error for
-        // the client, who would then wrongly believe nothing was saved.
-        try {
-            self::sendClientEditNotificationEmail($partner, $updated ?? $request);
-        } catch (Throwable $e) {
-            error_log('Failed to send client-edited-reservation notification email: ' . $e);
-        }
-
-        return ['ok' => true, 'message' => 'Votre demande modifiée a bien été renvoyée à l\'agence.', 'request' => $updated ?? $request];
+        return ['ok' => true, 'request' => $updated ?? $request];
     }
 
     /**
@@ -2087,6 +2138,29 @@ final class ReservationsController extends Controller
              WHERE rr.id = ? AND rr.partner_id = ? LIMIT 1'
         );
         $stmt->execute([$id, $partnerId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if ($row) {
+            $row['guests'] = self::decodeGuests($row['guests'] ?? null);
+        }
+        return $row;
+    }
+
+    /**
+     * Re-fetches a reservation request by its own id, regardless of
+     * partner/token — used by applyRequestEdit() to read back the freshly
+     * persisted row after an update, since the caller may be either the
+     * client (which only has a public_token, see findByToken()) or the
+     * partner (which only has the numeric id, see findForPartner()).
+     */
+    private static function findById(int $id): ?array
+    {
+        $stmt = Database::connection()->prepare(
+            'SELECT rr.*, r.confirmed_at, r.cancelled_at
+             FROM reservation_requests rr
+             LEFT JOIN reservations r ON r.request_id = rr.id
+             WHERE rr.id = ? LIMIT 1'
+        );
+        $stmt->execute([$id]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
         if ($row) {
             $row['guests'] = self::decodeGuests($row['guests'] ?? null);

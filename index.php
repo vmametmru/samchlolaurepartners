@@ -281,6 +281,15 @@ try {
         case route($method, $path, 'POST', '#^/partner/reservations/(\d+)/reopen$#', $matches):
             PageController::partnerReopenReservation((int) $matches[1]);
             break;
+        case route($method, $path, 'POST', '#^/partner/reservations/(\d+)/update$#', $matches):
+            PageController::partnerUpdateReservation((int) $matches[1]);
+            break;
+        case route($method, $path, 'GET', '#^/partner/reservations/(\d+)/available-properties$#', $matches):
+            PageController::partnerReservationAvailableProperties((int) $matches[1]);
+            break;
+        case route($method, $path, 'GET', '#^/partner/reservations/(\d+)/property-photos$#', $matches):
+            PageController::partnerReservationPropertyPhotos((int) $matches[1]);
+            break;
         case route($method, $path, 'GET', '#^/partner/settings$#'):
             PageController::partnerSettings();
             break;

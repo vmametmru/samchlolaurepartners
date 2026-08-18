@@ -1114,7 +1114,7 @@ function initReservationPublicPropertyPicker() {
   const closeBtn = modal.querySelector('[data-reservation-property-modal-close]');
   const summaryEl = modal.querySelector('[data-reservation-modal-summary]');
   const listEl = modal.querySelector('[data-reservation-modal-list]');
-  const token = form.dataset.reservationToken || '';
+  const baseUrl = form.dataset.reservationBaseUrl || '';
 
   function formatMoney(amount, currency) {
     return `${Number(amount || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
@@ -1150,7 +1150,7 @@ function initReservationPublicPropertyPicker() {
       children_3to12: children3to12
     });
     try {
-      const response = await fetch(`/r/${token}/available-properties?${params.toString()}`, {
+      const response = await fetch(`${baseUrl}/available-properties?${params.toString()}`, {
         headers: { 'Accept': 'application/json' },
         credentials: 'same-origin'
       });
@@ -1247,17 +1247,28 @@ function initReservationPublicPhotoGallery() {
   const modal = document.querySelector('[data-reservation-gallery-modal]');
   if (!openBtn || !modal) return;
   const closeBtn = modal.querySelector('[data-reservation-gallery-modal-close]');
-  const gridEl = modal.querySelector('[data-reservation-gallery-grid]');
-  const tokenMatch = window.location.pathname.match(/^\/r\/([a-f0-9]{32})/);
-  const token = tokenMatch ? tokenMatch[1] : '';
+  const mainImg = modal.querySelector('[data-reservation-gallery-main]');
+  const thumbsEl = modal.querySelector('[data-reservation-gallery-thumbs]');
+  const baseUrl = modal.dataset.reservationBaseUrl || '';
 
   function closeModal() {
     modal.hidden = true;
   }
 
+  // Renders the fetched photos as a "main photo + thumbnails below" gallery,
+  // matching property-detail.php's data-gallery/data-gallery-main/
+  // data-gallery-thumb pattern: clicking a thumbnail swaps the main photo in
+  // place instead of navigating away or opening another overlay.
+  function selectThumb(thumbs, thumb) {
+    thumbs.forEach((item) => item.classList.remove('active'));
+    thumb.classList.add('active');
+    if (mainImg) mainImg.src = thumb.dataset.src || '';
+  }
+
   async function loadPhotos() {
-    if (!gridEl) return;
-    gridEl.innerHTML = '<p class="muted">Chargement des photos…</p>';
+    if (!thumbsEl) return;
+    thumbsEl.innerHTML = '<p class="muted">Chargement des photos…</p>';
+    if (mainImg) mainImg.src = '';
     // Always re-read the current property id: it may have changed via
     // "Changer d'hébergement" since the gallery was last opened, without
     // any page reload (see initReservationPublicPropertyPicker()).
@@ -1265,7 +1276,7 @@ function initReservationPublicPhotoGallery() {
     const propertyId = propertyIdField?.value || openBtn.dataset.reservationGalleryPropertyId || '';
     const descriptionEl = modal.querySelector('[data-reservation-gallery-description]');
     try {
-      const response = await fetch(`/r/${token}/property-photos?property_id=${encodeURIComponent(propertyId)}`, {
+      const response = await fetch(`${baseUrl}/property-photos?property_id=${encodeURIComponent(propertyId)}`, {
         headers: { 'Accept': 'application/json' },
         credentials: 'same-origin'
       });
@@ -1273,20 +1284,26 @@ function initReservationPublicPhotoGallery() {
       if (!response.ok) throw new Error(data.message || 'Erreur');
       const images = data.data?.images || [];
       if (!images.length) {
-        gridEl.innerHTML = '<p class="muted">Aucune photo disponible pour ce bien.</p>';
+        thumbsEl.innerHTML = '<p class="muted">Aucune photo disponible pour ce bien.</p>';
       } else {
-        gridEl.innerHTML = images.map((image) => {
+        thumbsEl.innerHTML = images.map((image, index) => {
           const url = escapeHtml(image.url || '');
-          return `<div class="reservation-gallery-item"><img src="${url}" alt="" loading="lazy"></div>`;
+          return `<button type="button" class="gallery-thumb${index === 0 ? ' active' : ''}" data-reservation-gallery-thumb data-src="${url}"><img src="${url}" alt="" loading="${index === 0 ? 'eager' : 'lazy'}"></button>`;
         }).join('');
+        if (mainImg) mainImg.src = images[0].url || '';
+        const thumbs = [...thumbsEl.querySelectorAll('[data-reservation-gallery-thumb]')];
+        thumbs.forEach((thumb) => {
+          thumb.addEventListener('click', () => selectThumb(thumbs, thumb));
+        });
       }
       if (descriptionEl) {
         const description = data.data?.description || '';
         descriptionEl.textContent = description;
-        descriptionEl.hidden = description === '';
+        const descriptionBlock = modal.querySelector('[data-reservation-gallery-description-block]');
+        if (descriptionBlock) descriptionBlock.hidden = description === '';
       }
     } catch (error) {
-      gridEl.innerHTML = '<p class="muted">Impossible de charger les photos pour le moment.</p>';
+      thumbsEl.innerHTML = '<p class="muted">Impossible de charger les photos pour le moment.</p>';
     }
   }
 
