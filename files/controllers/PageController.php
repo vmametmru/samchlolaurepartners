@@ -1061,8 +1061,9 @@ final class PageController extends Controller
         $input = $_POST;
         $guests = json_decode((string) ($input['guests_json'] ?? '[]'), true);
         $input['guests'] = is_array($guests) ? $guests : [];
+        $notifyClient = empty($input['skip_client_notification']);
 
-        $result = ReservationsController::updateForPartner($request, $input);
+        $result = ReservationsController::updateForPartner($request, $input, $notifyClient);
         self::redirect(self::partnerReservationsRedirectUrl($id), $result['message'], $result['ok'] ? 'success' : 'error');
     }
 

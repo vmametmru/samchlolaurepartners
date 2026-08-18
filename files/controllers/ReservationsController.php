@@ -1713,11 +1713,14 @@ final class ReservationsController extends Controller
      * the exact same validation/re-pricing/persistence core
      * (applyRequestEdit()) so the two paths can never drift. Scoped to the
      * partner's own tenant via ReservationsController::findForPartner() at
-     * the controller layer (PageController::partnerUpdateReservation());
-     * no client notification-of-edit email is sent here, since it's the
-     * partner making the change, not the client.
+     * the controller layer (PageController::partnerUpdateReservation()).
+     * By default the client is notified by email that the agency modified
+     * their request (sendPartnerEditNotificationEmail()); pass
+     * $notifyClient = false (wired to the "Ne pas notifier le client par
+     * email" checkbox on /partner/reservations/{id}) to save the change
+     * silently, with no email sent at all.
      */
-    public static function updateForPartner(array $request, array $input): array
+    public static function updateForPartner(array $request, array $input, bool $notifyClient = true): array
     {
         if ((string) ($request['status'] ?? '') !== 'pending') {
             return ['ok' => false, 'message' => 'Cette demande n\'est plus modifiable : seule une demande en attente peut être modifiée.'];
@@ -1726,7 +1729,21 @@ final class ReservationsController extends Controller
         if (!$result['ok']) {
             return $result;
         }
-        return ['ok' => true, 'message' => 'La demande a bien été modifiée.', 'request' => $result['request']];
+        $updated = $result['request'];
+
+        if ($notifyClient) {
+            // The change is already persisted: a notification-email failure
+            // must not turn an otherwise-successful update into an error for
+            // the partner, who would then wrongly believe nothing was saved.
+            try {
+                $partner = self::fetchPartner((int) $request['partner_id']);
+                self::sendPartnerEditNotificationEmail($partner, $updated);
+            } catch (Throwable $e) {
+                error_log('Failed to send partner-edited-reservation notification email: ' . $e);
+            }
+        }
+
+        return ['ok' => true, 'message' => 'La demande a bien été modifiée.', 'request' => $updated];
     }
 
     /**
@@ -1925,10 +1942,14 @@ final class ReservationsController extends Controller
      * Lists properties available for the "changer d'hébergement" modal on
      * the public reservation page (PageController::
      * reservationPublicAvailableProperties()): visible to the request's
-     * partner, able to host the requested party size, available according
-     * to this app's own local reservations (isPropertyLocallyAvailable())
-     * only — no live Lodgify calendar check is performed here, by design.
-     * Each entry carries the
+     * partner, able to host the requested party size (max_guests), free of
+     * conflicting local reservations (isPropertyLocallyAvailable()) AND
+     * actually available on the live Lodgify calendar for the requested
+     * dates (LodgifyClient::isAvailableForRange()) — all three conditions
+     * must hold before a property is offered as a candidate, otherwise the
+     * modal could suggest a property that's really booked (e.g. via another
+     * channel) but has no matching row in this app's own `reservations`
+     * table. Each entry carries the
      * newly computed price for the requested dates/party size (so the modal
      * can show it next to the request's last recorded "avant modif" price)
      * plus its photo/bedrooms/sofa-bed-count so the modal can render a full
@@ -1967,6 +1988,9 @@ final class ReservationsController extends Controller
                 continue;
             }
             if (!self::isPropertyLocallyAvailable($propertyId, $checkin, $checkoutDate->format('Y-m-d'), (int) $request['id'])) {
+                continue;
+            }
+            if (!$client->isAvailableForRange($propertyId, $checkin, $checkoutDate->format('Y-m-d'))) {
                 continue;
             }
             $quote = self::quoteTotalForCandidate(
@@ -2040,6 +2064,32 @@ final class ReservationsController extends Controller
             . ' au ' . htmlspecialchars((string) ($request['checkout_date'] ?? ''), ENT_QUOTES, 'UTF-8')
             . '.</p><p><a href="' . htmlspecialchars($link, ENT_QUOTES, 'UTF-8') . '">Voir la demande</a></p>';
         Mailer::sendRawEmail($partner, $partnerEmail, 'Demande de réservation modifiée par le client - #' . $id, $html);
+    }
+
+    /**
+     * Notifies the client by email that the agency (partner) has just
+     * modified their reservation request from /partner/reservations/{id}
+     * (updateForPartner()), so the client isn't left unaware of a changed
+     * date/party size/property/quote. Only sent when the partner leaves
+     * the "Ne pas notifier le client par email" checkbox unchecked.
+     * Deliberately a plain, unbranded notification (not a customizable
+     * template), mirroring sendClientEditNotificationEmail() above.
+     */
+    private static function sendPartnerEditNotificationEmail(array $partner, array $request): void
+    {
+        $clientEmail = trim((string) ($request['client_email'] ?? ''));
+        if ($clientEmail === '') {
+            return;
+        }
+        $id = (int) ($request['id'] ?? 0);
+        $html = '<p>Bonjour ' . htmlspecialchars((string) ($request['client_name'] ?? ''), ENT_QUOTES, 'UTF-8')
+            . ',</p><p>' . htmlspecialchars((string) ($partner['name'] ?? ''), ENT_QUOTES, 'UTF-8')
+            . ' a modifié votre demande de réservation pour '
+            . htmlspecialchars((string) ($request['property_name'] ?? ''), ENT_QUOTES, 'UTF-8')
+            . ' du ' . htmlspecialchars((string) ($request['checkin_date'] ?? ''), ENT_QUOTES, 'UTF-8')
+            . ' au ' . htmlspecialchars((string) ($request['checkout_date'] ?? ''), ENT_QUOTES, 'UTF-8')
+            . '.</p><p>Cordialement,<br>' . htmlspecialchars((string) ($partner['name'] ?? ''), ENT_QUOTES, 'UTF-8') . '</p>';
+        Mailer::sendRawEmail($partner, $clientEmail, 'Votre demande de réservation a été modifiée - #' . $id, $html, [], self::nullableString($partner['email'] ?? null));
     }
 
     /**

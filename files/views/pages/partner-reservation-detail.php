@@ -103,6 +103,8 @@ $propertyDescription = $property ? trim(\App\View::localized($property, 'descrip
           <div class="form-grid cols-2">
             <label><span>Date d'arrivée</span><input class="input" type="date" name="checkin_date" value="<?= \App\View::e($reservation['checkin_date']) ?>" required data-reservation-quote-field></label>
             <label><span>Date de départ</span><input class="input" type="date" name="checkout_date" value="<?= \App\View::e($reservation['checkout_date']) ?>" required data-reservation-quote-field></label>
+          </div>
+          <div class="form-grid cols-3">
             <label><span>Adultes</span><input class="input" type="number" min="1" max="20" name="adults" value="<?= (int) $reservation['adults'] ?>" required data-reservation-quote-field></label>
             <label><span>Enfants (3-12 ans)</span><input class="input" type="number" min="0" max="20" name="children_3to12" value="<?= $children3to12v ?>" data-reservation-quote-field></label>
             <label><span>Bébés (- 3 ans)</span><input class="input" type="number" min="0" max="2" name="children_under3" value="<?= $childrenUnder ?>" data-reservation-quote-field></label>
@@ -133,6 +135,7 @@ $propertyDescription = $property ? trim(\App\View::localized($property, 'descrip
 
           <div class="button-row">
             <button class="btn-secondary" type="button" data-reservation-edit-cancel>Annuler la modification</button>
+            <label class="inline-check"><input type="checkbox" name="skip_client_notification" value="1"> Ne pas notifier le client par email</label>
             <button class="btn-primary" type="submit">Enregistrer les modifications</button>
           </div>
         </form>
