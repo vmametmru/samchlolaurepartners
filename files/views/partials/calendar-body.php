@@ -1,11 +1,12 @@
 <?php declare(strict_types=1);
 // Renders the calendar grid (months + legend) for the property detail page.
-// Always shows 12 months; every day renders its date/availability/min-stay
-// as data attributes so the client-side script (initBookingCalendarSelection
-// in assets/js/app.js) can decide which dates are clickable as arrival vs.
-// departure (a departure date can reuse a date another guest arrives on,
-// and vice versa).
-$calendarMonths = 12;
+// Shows $calendarMonths months (defaults to 12 when the caller doesn't set
+// it, e.g. the property-detail "Tarifs & Disponibilités" tab); every day
+// renders its date/availability/min-stay as data attributes so the
+// client-side script (initBookingCalendarSelection in assets/js/app.js) can
+// decide which dates are clickable as arrival vs. departure (a departure
+// date can reuse a date another guest arrives on, and vice versa).
+$calendarMonths = isset($calendarMonths) && (int) $calendarMonths > 0 ? (int) $calendarMonths : 12;
 $calendarStartDate = isset($calendarStart) && $calendarStart !== ''
     ? new DateTimeImmutable((string) $calendarStart)
     : new DateTimeImmutable('first day of this month');
@@ -77,3 +78,7 @@ $frenchMonths = \App\I18n::monthNames();
   <span class="dot dot-gray"></span> <?= \App\View::e(\App\I18n::t('calendar.legend_not_bookable_full')) ?>
   <span class="calendar-legend-note"><?= \App\View::e(\App\I18n::t('calendar.legend_price_currency')) ?></span>
 </div>
+<?php $calendarUpdatedAtLabel = \App\controllers\PageController::calendarUpdatedAtLabel(); ?>
+<?php if ($calendarUpdatedAtLabel !== null): ?>
+  <p class="muted calendar-updated-note"><?= \App\View::e($calendarUpdatedAtLabel) ?></p>
+<?php endif; ?>

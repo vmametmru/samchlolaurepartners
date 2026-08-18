@@ -760,10 +760,24 @@ final class ReservationsController extends Controller
         $childrenUnder3 = $childBreakdown['under3'];
         $children3to12 = $childBreakdown['from3to12'];
 
-        if ($clientName === '' || $clientEmail === '' || $checkin === '' || $checkout === '' || $adults === 0) {
+        $clientPhone = trim((string) ($input['client_phone'] ?? ''));
+        // "Pas de Email" checkbox (property-detail.php/calendar.php, see
+        // initNoClientEmailToggle() in app.js): only a partner/admin can
+        // submit a request without an email, and only when a phone number
+        // is provided instead — an anonymous client's request must always
+        // include a valid email, re-checked here server-side since the
+        // checkbox is never rendered for them and client input alone can't
+        // be trusted.
+        $skipEmail = self::canForcePrice() && (string) ($input['no_client_email'] ?? '') === '1' && $clientPhone !== '';
+
+        if ($clientName === '' || $checkin === '' || $checkout === '' || $adults === 0) {
             self::json(['error' => 'Bad Request', 'message' => 'Required fields missing'], 400);
         }
-        if (filter_var($clientEmail, FILTER_VALIDATE_EMAIL) === false) {
+        if ($skipEmail) {
+            $clientEmail = '';
+        } elseif ($clientEmail === '') {
+            self::json(['error' => 'Bad Request', 'message' => 'Required fields missing'], 400);
+        } elseif (filter_var($clientEmail, FILTER_VALIDATE_EMAIL) === false) {
             self::json(['error' => 'Bad Request', 'message' => 'Invalid client_email'], 400);
         }
 
@@ -964,11 +978,19 @@ final class ReservationsController extends Controller
             $items = [];
         }
         $guests = is_array($input['guests'] ?? null) ? $input['guests'] : [];
+        $clientPhone = trim((string) ($input['client_phone'] ?? ''));
+        // "Pas de Email" checkbox — see the matching check in
+        // requestReservation() for the full rationale.
+        $skipEmail = self::canForcePrice() && (string) ($input['no_client_email'] ?? '') === '1' && $clientPhone !== '';
 
-        if ($clientName === '' || $clientEmail === '' || $adults < 1 || $items === []) {
+        if ($clientName === '' || $adults < 1 || $items === []) {
             self::json(['error' => 'Bad Request', 'message' => 'Required fields missing'], 400);
         }
-        if (filter_var($clientEmail, FILTER_VALIDATE_EMAIL) === false) {
+        if ($skipEmail) {
+            $clientEmail = '';
+        } elseif ($clientEmail === '') {
+            self::json(['error' => 'Bad Request', 'message' => 'Required fields missing'], 400);
+        } elseif (filter_var($clientEmail, FILTER_VALIDATE_EMAIL) === false) {
             self::json(['error' => 'Bad Request', 'message' => 'Invalid client_email'], 400);
         }
 
@@ -1464,6 +1486,30 @@ final class ReservationsController extends Controller
     }
 
     /**
+     * Toggles whether the client is allowed to see/use the "Changer
+     * d'hébergement" button on their own public link (see
+     * reservation-public.php) once a devis has been generated — hidden by
+     * default (migration 047) as soon as a quote exists, re-enabled here
+     * per-request by the partner via the checkbox next to "Changer
+     * d'hébergement" on /partner/reservations/{id}.
+     */
+    public static function setClientCanChangeProperty(int $partnerId, int $id, bool $allow): bool
+    {
+        $pdo = Database::connection();
+        // rowCount() alone can't tell "not found" apart from "found but
+        // value unchanged" (e.g. re-ticking an already-checked box), so the
+        // ownership check is done as its own existence query first.
+        $exists = $pdo->prepare('SELECT id FROM reservation_requests WHERE id = ? AND partner_id = ? LIMIT 1');
+        $exists->execute([$id, $partnerId]);
+        if (!$exists->fetchColumn()) {
+            return false;
+        }
+        $stmt = $pdo->prepare('UPDATE reservation_requests SET client_can_change_property = ? WHERE id = ? AND partner_id = ?');
+        $stmt->execute([$allow ? 1 : 0, $id, $partnerId]);
+        return true;
+    }
+
+    /**
      * Resolves the owning partner_id for a reservation request, regardless
      * of partner, so admin-only actions (confirm/cancel/reopen/delete) can
      * reuse the same partner-scoped logic (confirmForPartner()/cancelForPartner()/
@@ -1675,10 +1721,15 @@ final class ReservationsController extends Controller
      * price/availability from the same authoritative Lodgify-backed
      * computeItemQuote()/computeQuoteBreakdown() logic used everywhere else
      * on the site (never trusting anything the client submitted for
-     * pricing), then notifies the partner by email. Only ever allowed while
-     * the request is still "pending" — once a partner has confirmed it, the
-     * client can no longer modify it (see PageController::
-     * reservationPublicUpdate(), which checks this before calling here).
+     * pricing), then always notifies both the partner and the client
+     * themselves by email with a change-details diff
+     * (describeRequestChanges()) — a client-initiated edit is never
+     * silenced; the "Ne pas notifier le client par email" opt-out only
+     * applies to partner-initiated edits (see updateForPartner() below).
+     * Only ever allowed while the request is still "pending" — once a
+     * partner has confirmed it, the client can no longer modify it (see
+     * PageController::reservationPublicUpdate(), which checks this before
+     * calling here).
      *
      * @return array{ok: bool, message: string, request?: array<string, mixed>}
      */
@@ -1699,7 +1750,18 @@ final class ReservationsController extends Controller
         // the client, who would then wrongly believe nothing was saved.
         try {
             $partner = self::fetchPartner((int) $request['partner_id']);
-            self::sendClientEditNotificationEmail($partner, $updated);
+            // A client editing their own pending request always notifies
+            // the partner — there is no opt-out for this path. Only a
+            // partner-initiated edit can be sent silently, via the
+            // per-request "Ne pas notifier le client par email" checkbox
+            // (see updateForPartner() below).
+            self::sendClientEditNotificationEmail($partner, $request, $updated);
+            // The client also gets their own confirmation email (in
+            // addition to the partner notification above) summarizing
+            // exactly what they just changed, so they have written
+            // proof of the new dates/party size/hébergement/price
+            // without needing to re-open the public link.
+            self::sendClientSelfEditConfirmationEmail($partner, $request, $updated);
         } catch (Throwable $e) {
             error_log('Failed to send client-edited-reservation notification email: ' . $e);
         }
@@ -1744,7 +1806,7 @@ final class ReservationsController extends Controller
             // the partner, who would then wrongly believe nothing was saved.
             try {
                 $partner = self::fetchPartner((int) $request['partner_id']);
-                self::sendPartnerEditNotificationEmail($partner, $updated);
+                self::sendPartnerEditNotificationEmail($partner, $request, $updated);
             } catch (Throwable $e) {
                 error_log('Failed to send partner-edited-reservation notification email: ' . $e);
             }
@@ -1922,6 +1984,7 @@ final class ReservationsController extends Controller
         return ((int) $stmt->fetchColumn()) === 0;
     }
 
+
     /**
      * Computes just the traveler-facing total (currency + total_traveler)
      * for a candidate property/date/party-size combination, for the
@@ -2011,6 +2074,16 @@ final class ReservationsController extends Controller
         }
 
         $currentPropertyId = (int) ($request['property_id'] ?? 0);
+        // sofa_bed_count is not reliably present in Lodgify's own property
+        // payload, so it's tracked manually per-property in the local
+        // "Biens Lodgify" admin table (see PageController::
+        // manualLodgifyColumnsByPropertyId()/adminSaveLodgifyPropertiesManual())
+        // and must be used here instead of $property['sofa_bed_count'].
+        $propertyIds = array_values(array_filter(array_map(
+            static fn(array $property): int => (int) ($property['id'] ?? 0),
+            $properties
+        )));
+        $manualOverrides = PageController::manualLodgifyColumnsByPropertyId($propertyIds);
         $results = [];
         foreach ($properties as $property) {
             $propertyId = (int) ($property['id'] ?? 0);
@@ -2052,7 +2125,7 @@ final class ReservationsController extends Controller
                 'total_traveler' => $quote['total_traveler'] ?? null,
                 'image_url' => $property['images'][0]['url'] ?? null,
                 'bedrooms' => (int) ($property['bedrooms'] ?? 0),
-                'sofa_bed_count' => (int) ($property['sofa_bed_count'] ?? 0),
+                'sofa_bed_count' => (int) ($manualOverrides[$propertyId]['sofa_bed_count'] ?? 0),
             ];
         }
 
@@ -2082,6 +2155,53 @@ final class ReservationsController extends Controller
     }
 
     /**
+     * Builds an HTML `<ul>` list of what actually changed between the
+     * request's state right before an edit ($before) and right after
+     * ($after) — dates, party size, hébergement and price — so both
+     * sendClientEditNotificationEmail() (to the partner) and
+     * sendClientSelfEditConfirmationEmail() (to the client) can show the
+     * concrete "détails du changement" instead of just the new values.
+     * Returns '' when nothing tracked here actually changed.
+     */
+    private static function describeRequestChanges(array $before, array $after): string
+    {
+        $lines = [];
+        $beforeCheckin = (string) ($before['checkin_date'] ?? '');
+        $beforeCheckout = (string) ($before['checkout_date'] ?? '');
+        $afterCheckin = (string) ($after['checkin_date'] ?? '');
+        $afterCheckout = (string) ($after['checkout_date'] ?? '');
+        if ($beforeCheckin !== $afterCheckin || $beforeCheckout !== $afterCheckout) {
+            $lines[] = 'Dates : du ' . htmlspecialchars(self::formatDateShortFr($beforeCheckin), ENT_QUOTES, 'UTF-8')
+                . ' au ' . htmlspecialchars(self::formatDateShortFr($beforeCheckout), ENT_QUOTES, 'UTF-8')
+                . ' → du ' . htmlspecialchars(self::formatDateShortFr($afterCheckin), ENT_QUOTES, 'UTF-8')
+                . ' au ' . htmlspecialchars(self::formatDateShortFr($afterCheckout), ENT_QUOTES, 'UTF-8');
+        }
+        $beforeBreakdown = self::childBreakdownValues($before);
+        $afterBreakdown = self::childBreakdownValues($after);
+        $beforeParty = (int) ($before['adults'] ?? 0) . ' adulte(s), ' . $beforeBreakdown['from3to12'] . ' enfant(s), ' . $beforeBreakdown['under3'] . ' bébé(s)';
+        $afterParty = (int) ($after['adults'] ?? 0) . ' adulte(s), ' . $afterBreakdown['from3to12'] . ' enfant(s), ' . $afterBreakdown['under3'] . ' bébé(s)';
+        if ($beforeParty !== $afterParty) {
+            $lines[] = 'Voyageurs : ' . htmlspecialchars($beforeParty, ENT_QUOTES, 'UTF-8') . ' → ' . htmlspecialchars($afterParty, ENT_QUOTES, 'UTF-8');
+        }
+        $beforeProperty = (string) ($before['property_name'] ?? '');
+        $afterProperty = (string) ($after['property_name'] ?? '');
+        if ($beforeProperty !== $afterProperty) {
+            $lines[] = 'Hébergement : ' . htmlspecialchars($beforeProperty, ENT_QUOTES, 'UTF-8') . ' → ' . htmlspecialchars($afterProperty, ENT_QUOTES, 'UTF-8');
+        }
+        $beforeTotal = (float) ($before['quote_total_traveler'] ?? 0);
+        $afterTotal = (float) ($after['quote_total_traveler'] ?? 0);
+        $currency = (string) ($after['quote_currency'] ?? $before['quote_currency'] ?? 'EUR');
+        if (abs($beforeTotal - $afterTotal) > 0.01) {
+            $lines[] = 'Tarif total : ' . htmlspecialchars(self::formatMoneyFr($beforeTotal, $currency), ENT_QUOTES, 'UTF-8')
+                . ' → ' . htmlspecialchars(self::formatMoneyFr($afterTotal, $currency), ENT_QUOTES, 'UTF-8');
+        }
+        if ($lines === []) {
+            return '';
+        }
+        return '<ul><li>' . implode('</li><li>', $lines) . '</li></ul>';
+    }
+
+    /**
      * Notifies the partner by email that a client has just edited and
      * resent their reservation request via the public "Partager le lien"
      * page, so the partner sees the change (dates/guests/property/quote)
@@ -2089,7 +2209,7 @@ final class ReservationsController extends Controller
      * Deliberately a plain, unbranded notification (not a customizable
      * template) since it's an internal ops alert, not client-facing.
      */
-    private static function sendClientEditNotificationEmail(array $partner, array $request): void
+    private static function sendClientEditNotificationEmail(array $partner, array $before, array $request): void
     {
         $partnerEmail = trim((string) ($partner['email'] ?? ''));
         if ($partnerEmail === '') {
@@ -2102,8 +2222,37 @@ final class ReservationsController extends Controller
             . htmlspecialchars((string) ($request['property_name'] ?? ''), ENT_QUOTES, 'UTF-8')
             . ' du ' . htmlspecialchars((string) ($request['checkin_date'] ?? ''), ENT_QUOTES, 'UTF-8')
             . ' au ' . htmlspecialchars((string) ($request['checkout_date'] ?? ''), ENT_QUOTES, 'UTF-8')
-            . '.</p><p><a href="' . htmlspecialchars($link, ENT_QUOTES, 'UTF-8') . '">Voir la demande</a></p>';
+            . '.</p>' . self::describeRequestChanges($before, $request)
+            . '<p><a href="' . htmlspecialchars($link, ENT_QUOTES, 'UTF-8') . '">Voir la demande</a></p>';
         Mailer::sendRawEmail($partner, $partnerEmail, 'Demande de réservation modifiée par le client - #' . $id, $html);
+    }
+
+    /**
+     * Confirms to the client themselves, by email, the change they just
+     * made and resent via the public "Partager le lien" page — sent in
+     * addition to sendClientEditNotificationEmail() above (which alerts the
+     * partner), so the client also has written proof of exactly what
+     * changed (dates/party size/hébergement/price) without needing to
+     * re-open the link. Only sent when a real client email is on file.
+     */
+    private static function sendClientSelfEditConfirmationEmail(array $partner, array $before, array $request): void
+    {
+        $clientEmail = trim((string) ($request['client_email'] ?? ''));
+        if ($clientEmail === '') {
+            return;
+        }
+        $id = (int) ($request['id'] ?? 0);
+        $changesHtml = self::describeRequestChanges($before, $request);
+        $html = '<p>Bonjour ' . htmlspecialchars((string) ($request['client_name'] ?? ''), ENT_QUOTES, 'UTF-8')
+            . ',</p><p>Votre demande de réservation #' . $id . ' pour '
+            . htmlspecialchars((string) ($request['property_name'] ?? ''), ENT_QUOTES, 'UTF-8')
+            . ' a bien été mise à jour avec les nouvelles dates du '
+            . htmlspecialchars((string) ($request['checkin_date'] ?? ''), ENT_QUOTES, 'UTF-8')
+            . ' au ' . htmlspecialchars((string) ($request['checkout_date'] ?? ''), ENT_QUOTES, 'UTF-8')
+            . ' et renvoyée à l\'agence.</p>'
+            . ($changesHtml !== '' ? '<p>Détail du changement :</p>' . $changesHtml : '')
+            . '<p>Cordialement,<br>' . htmlspecialchars((string) ($partner['name'] ?? ''), ENT_QUOTES, 'UTF-8') . '</p>';
+        Mailer::sendRawEmail($partner, $clientEmail, 'Confirmation de la modification de votre demande de réservation - #' . $id, $html, [], self::nullableString($partner['email'] ?? null));
     }
 
     /**
@@ -2115,7 +2264,7 @@ final class ReservationsController extends Controller
      * Deliberately a plain, unbranded notification (not a customizable
      * template), mirroring sendClientEditNotificationEmail() above.
      */
-    private static function sendPartnerEditNotificationEmail(array $partner, array $request): void
+    private static function sendPartnerEditNotificationEmail(array $partner, array $before, array $request): void
     {
         $clientEmail = trim((string) ($request['client_email'] ?? ''));
         if ($clientEmail === '') {
@@ -2128,7 +2277,8 @@ final class ReservationsController extends Controller
             . htmlspecialchars((string) ($request['property_name'] ?? ''), ENT_QUOTES, 'UTF-8')
             . ' du ' . htmlspecialchars((string) ($request['checkin_date'] ?? ''), ENT_QUOTES, 'UTF-8')
             . ' au ' . htmlspecialchars((string) ($request['checkout_date'] ?? ''), ENT_QUOTES, 'UTF-8')
-            . '.</p><p>Cordialement,<br>' . htmlspecialchars((string) ($partner['name'] ?? ''), ENT_QUOTES, 'UTF-8') . '</p>';
+            . '.</p>' . self::describeRequestChanges($before, $request)
+            . '<p>Cordialement,<br>' . htmlspecialchars((string) ($partner['name'] ?? ''), ENT_QUOTES, 'UTF-8') . '</p>';
         Mailer::sendRawEmail($partner, $clientEmail, 'Votre demande de réservation a été modifiée - #' . $id, $html, [], self::nullableString($partner['email'] ?? null));
     }
 

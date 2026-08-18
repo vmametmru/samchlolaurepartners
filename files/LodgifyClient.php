@@ -1137,6 +1137,47 @@ final class LodgifyClient
         });
     }
 
+    /**
+     * Local-database-only variant of getAvailability(): used by the
+     * "Modifier les Dates" modal (PageController::
+     * reservationDatesAvailabilityFragment()), which must never itself
+     * trigger a live Lodgify call — availability there must only ever come
+     * from whatever the hourly cron (Scheduler::warmLodgifyCache()) already
+     * populated in lodgify_cache. Returns the last cached value even if
+     * expired (stale), or [] if no cached range covers these dates.
+     *
+     * The requested range rarely matches one of the exact ranges the cron
+     * warms (current month -> +12 months, today -> +30 days), so instead of
+     * requiring an exact cache-key match we reuse any cached range(s) that
+     * overlap [$from, $to] and slice them down to the requested days.
+     */
+    public function getAvailabilityFromCache(int $propertyId, string $from, string $to): array
+    {
+        $key = 'lodgify:v2:availability:' . $propertyId . ':' . $from . ':' . $to;
+        $exact = $this->cacheGet($key, true);
+        if ($exact !== null && $exact !== []) {
+            return $exact;
+        }
+        return $this->cachedRangeSlice(
+            'lodgify:v2:availability:' . $propertyId . ':',
+            $from,
+            $to,
+            static fn (array $entry): ?string => isset($entry['date']) ? (string) $entry['date'] : null
+        );
+    }
+
+    /**
+     * Local-database-only variant of getProperties(): used by the
+     * "Disponibilités des 3 prochains mois" table on /admin/sync, which must
+     * never itself trigger a live Lodgify call (same reasoning as
+     * getAvailabilityFromCache() above). Returns the last cached list even
+     * if expired (stale), or [] if properties have never been synced yet.
+     */
+    public function getPropertiesFromCache(): array
+    {
+        return $this->cacheGet('lodgify:v2:properties', true) ?? [];
+    }
+
     private function fetchAvailability(int $propertyId, string $from, string $to): array
     {
         // Lodgify's real v2 endpoint expects "start"/"end" query params (not
@@ -1457,6 +1498,31 @@ final class LodgifyClient
         return $this->remember($key, self::AVAILABILITY_TTL, function () use ($propertyId, $from, $to): array {
             return $this->fetchRates($propertyId, $from, $to);
         });
+    }
+
+    /**
+     * Local-database-only variant of getRates(): used by the "Modifier les
+     * Dates" modal (PageController::reservationDatesAvailabilityFragment()),
+     * same reasoning as getAvailabilityFromCache() above — never itself
+     * triggers a live Lodgify call, only reads whatever the hourly cron
+     * already cached. Returns the last cached value even if expired
+     * (stale), or [] if no cached range covers these dates. Like
+     * getAvailabilityFromCache() above, falls back to slicing any cached
+     * range that overlaps [$from, $to] when no exact-range entry exists.
+     */
+    public function getRatesFromCache(int $propertyId, string $from, string $to): array
+    {
+        $key = 'lodgify:v2:rates:' . $propertyId . ':' . $from . ':' . $to;
+        $exact = $this->cacheGet($key, true);
+        if ($exact !== null && $exact !== []) {
+            return $exact;
+        }
+        return $this->cachedRangeSlice(
+            'lodgify:v2:rates:' . $propertyId . ':',
+            $from,
+            $to,
+            static fn (array $entry): ?string => isset($entry['date_from']) ? (string) $entry['date_from'] : null
+        );
     }
 
     private function fetchRates(int $propertyId, string $from, string $to): array
@@ -2213,8 +2279,63 @@ final class LodgifyClient
         return is_array($decoded) ? $decoded : null;
     }
 
-    private function cacheSet(string $key, array $value, int $ttl): void
+    /**
+     * Local-database-only lookup across every cached range sharing
+     * $keyPrefix (e.g. "lodgify:v2:availability:123:"), used by
+     * getAvailabilityFromCache()/getRatesFromCache() when no entry matches
+     * the requested range exactly.
+     *
+     * The hourly cron (Scheduler::warmLodgifyCache()) only warms a couple of
+     * fixed ranges, while readers ask for arbitrary windows (the "Modifier
+     * les Dates" modal asks for 4 months anchored on the request's check-in
+     * month). Cache keys embed their own ":{from}:{to}" range, so we can
+     * reuse any overlapping cached range and keep only the days falling in
+     * [$from, $to] — never issuing an API call. Most recent entries win on
+     * duplicate days. Returns [] when nothing cached covers the range.
+     *
+     * @param callable(array):?string $dateOf extracts an entry's date
+     * @return list<array<string,mixed>>
+     */
+    private function cachedRangeSlice(string $keyPrefix, string $from, string $to, callable $dateOf): array
     {
+        $stmt = Database::connection()->prepare(
+            'SELECT cache_key, data FROM lodgify_cache WHERE cache_key LIKE ? ORDER BY created_at ASC'
+        );
+        $stmt->execute([str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $keyPrefix) . '%']);
+        $byDate = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $suffix = substr((string) $row['cache_key'], strlen($keyPrefix));
+            $parts = explode(':', $suffix);
+            if (count($parts) !== 2) {
+                continue;
+            }
+            [$cachedFrom, $cachedTo] = $parts;
+            if ($cachedFrom > $to || $cachedTo < $from) {
+                continue;
+            }
+            $decoded = json_decode((string) $row['data'], true);
+            if (!is_array($decoded)) {
+                continue;
+            }
+            foreach ($decoded as $entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
+                $date = $dateOf($entry);
+                if ($date === null || $date === '' || $date < $from || $date > $to) {
+                    continue;
+                }
+                $byDate[$date] = $entry;
+            }
+        }
+        if ($byDate === []) {
+            return [];
+        }
+        ksort($byDate);
+        return array_values($byDate);
+    }
+
+    private function cacheSet(string $key, array $value, int $ttl): void    {
         $stmt = Database::connection()->prepare(
             'INSERT INTO lodgify_cache (cache_key, data, expires_at)
              VALUES (?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))

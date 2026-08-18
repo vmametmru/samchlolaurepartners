@@ -21,6 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initPropertyTabs,
     initMaps,
     initApiForms,
+    initNoClientEmailToggle,
     initFormStatusPopups,
     initNationalities,
     initTemplateEditor,
@@ -58,6 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initReservationPublicEditToggle,
     initReservationPublicQuote,
     initReservationPublicPropertyPicker,
+    initReservationDatesModal,
     initReservationPublicPhotoGallery,
   ].forEach(runInit);
 });
@@ -902,6 +904,35 @@ function initFormStatusPopups() {
   });
 }
 
+/**
+ * "Pas de Email" checkbox (property-detail.php / calendar.php booking
+ * forms, partner/admin only — see ReservationsController::canForcePrice()
+ * for the matching server-side re-check): lets the agency create a
+ * request with just a phone number when the client has no email. Toggling
+ * it clears/relaxes the email field's native `required` attribute and
+ * flags the form (via `form.dataset.noClientEmail`) so the extra JS
+ * validation below (initApiForms()/initBookingQuote()) also stops
+ * requiring an email. An anonymous client never sees this checkbox, so
+ * `noClientEmail` can only ever be '1' for a logged-in partner/admin.
+ */
+function initNoClientEmailToggle() {
+  document.querySelectorAll('[data-no-client-email-toggle]').forEach((checkbox) => {
+    const form = checkbox.closest('form');
+    const emailInput = form ? form.querySelector('[name="client_email"]') : null;
+    if (!form || !emailInput) return;
+
+    function apply() {
+      const skip = checkbox.checked;
+      form.dataset.noClientEmail = skip ? '1' : '0';
+      emailInput.required = !skip;
+      if (skip) emailInput.value = '';
+    }
+
+    checkbox.addEventListener('change', apply);
+    apply();
+  });
+}
+
 function initApiForms() {
   document.querySelectorAll('[data-api-form]').forEach((form) => {
     form.addEventListener('submit', async (event) => {
@@ -938,7 +969,7 @@ function initApiForms() {
           return;
         }
         const clientEmail = (form.querySelector('[name="client_email"]')?.value || '').trim();
-        if (!clientEmail) {
+        if (!clientEmail && form.dataset.noClientEmail !== '1') {
           if (feedback) feedback.textContent = form.dataset.i18nEmailRequired || 'Email non renseigné';
           return;
         }
@@ -1262,6 +1293,215 @@ function initReservationPublicPropertyPicker() {
   closeBtn?.addEventListener('click', closeModal);
   modal.addEventListener('click', (event) => {
     if (event.target === modal) closeModal();
+  });
+}
+
+/**
+ * "Modifier les Dates" modal on /partner/reservations/{id} and the public
+ * /r/{token} page (partner-reservation-detail.php / reservation-public.php):
+ * lets the partner/client pick new stay dates from the same availability/
+ * pricing calendar as the "Tarifs & Disponibilités" tab
+ * (PageController::partnerReservationDatesAvailability()/
+ * reservationPublicDatesAvailability(), rendering calendar-body.php
+ * server-side), instead of typing raw dates into the (now readonly)
+ * checkin/checkout inputs. The request's current dates show in orange;
+ * picking a new arrival/departure switches to red. "Valider les dates" sets
+ * the readonly inputs' values and dispatches a `change` event, which
+ * initReservationPublicQuote() already listens for to recompute the full
+ * quote (room + extra person + commission + VAT, excluding cleaning fee/
+ * tourist tax, same as the rest of the site). On /partner/reservations/{id}
+ * the opening button carries data-reservation-price-locked-field, so it is
+ * disabled like every other price-affecting action while "Modifier (Sans
+ * toucher aux Prix)" is active — dates are excluded from that mode.
+ */
+function initReservationDatesModal() {
+  const form = document.querySelector('[data-reservation-edit-quote-form]');
+  const openBtn = document.querySelector('[data-reservation-change-dates]');
+  const modal = document.querySelector('[data-reservation-dates-modal]');
+  if (!form || !openBtn || !modal) return;
+
+  const checkinInput = form.querySelector('[data-reservation-dates-checkin]');
+  const checkoutInput = form.querySelector('[data-reservation-dates-checkout]');
+  const closeBtn = modal.querySelector('[data-reservation-dates-modal-close]');
+  const cancelBtn = modal.querySelector('[data-reservation-dates-cancel]');
+  const validateBtn = modal.querySelector('[data-reservation-dates-validate]');
+  const prevBtn = modal.querySelector('[data-reservation-dates-prev-month]');
+  const nextBtn = modal.querySelector('[data-reservation-dates-next-month]');
+  const calendarEl = modal.querySelector('[data-reservation-dates-calendar]');
+  const summaryEl = modal.querySelector('[data-reservation-dates-summary]');
+  if (!checkinInput || !checkoutInput || !calendarEl) return;
+
+  const baseUrl = form.dataset.reservationBaseUrl || '';
+  let originalCheckin = '';
+  let originalCheckout = '';
+  let anchor = '';
+  let newCheckin = null;
+  let newCheckout = null;
+  let nightInfo = new Map();
+
+  function formatFr(dateStr) {
+    const [y, m, d] = dateStr.split('-');
+    return escapeHtml(`${d}/${m}/${y}`);
+  }
+
+  function nightsBetween(startStr, endStr) {
+    const start = new Date(`${startStr}T00:00:00`);
+    const end = new Date(`${endStr}T00:00:00`);
+    return Math.round((end - start) / 86400000);
+  }
+
+  function addDaysStr(dateStr, days) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const date = new Date(Date.UTC(y, m - 1, d));
+    date.setUTCDate(date.getUTCDate() + days);
+    return date.toISOString().slice(0, 10);
+  }
+
+  function isNightAvailable(date) {
+    const info = nightInfo.get(date);
+    return Boolean(info && info.available);
+  }
+
+  function minStayFor(date) {
+    const info = nightInfo.get(date);
+    return info ? info.minStay : 1;
+  }
+
+  function isRangeFullyAvailable(startDate, endDate) {
+    let cursor = startDate;
+    while (cursor < endDate) {
+      if (!isNightAvailable(cursor)) return false;
+      cursor = addDaysStr(cursor, 1);
+    }
+    return true;
+  }
+
+  function rebuildNightInfo() {
+    nightInfo = new Map();
+    calendarEl.querySelectorAll('[data-calendar-date]').forEach((cell) => {
+      const date = cell.dataset.calendarDate;
+      if (!date) return;
+      nightInfo.set(date, {
+        available: cell.dataset.calendarAvailable === '1',
+        minStay: Math.max(1, parseInt(cell.dataset.calendarMinstay || '1', 10) || 1),
+      });
+    });
+  }
+
+  function updateHighlight() {
+    calendarEl.querySelectorAll('[data-calendar-date]').forEach((cell) => {
+      const date = cell.dataset.calendarDate;
+      const isNew = date === newCheckin || date === newCheckout
+        || Boolean(newCheckin && newCheckout && date > newCheckin && date < newCheckout);
+      const isCurrent = !newCheckin && Boolean(originalCheckin && originalCheckout)
+        && (date === originalCheckin || date === originalCheckout || (date > originalCheckin && date < originalCheckout));
+      cell.classList.toggle('new-dates', isNew);
+      cell.classList.toggle('current-dates', isCurrent);
+    });
+    if (summaryEl) {
+      if (newCheckin && newCheckout) {
+        summaryEl.innerHTML = `<div class="quote-line"><span>Arrivée</span><span>${formatFr(newCheckin)}</span></div><div class="quote-line"><span>Départ</span><span>${formatFr(newCheckout)}</span></div><div class="quote-line"><span>Nuits</span><span>${nightsBetween(newCheckin, newCheckout)}</span></div>`;
+      } else if (newCheckin) {
+        const minStay = minStayFor(newCheckin);
+        const minHint = minStay > 1 ? ` (séjour minimum : ${minStay} nuits)` : '';
+        summaryEl.innerHTML = `<div class="quote-line"><span>Arrivée</span><span>${formatFr(newCheckin)}</span></div><p class="muted">Cliquez sur la date de départ${minHint}.</p>`;
+      } else if (originalCheckin && originalCheckout) {
+        summaryEl.innerHTML = `<div class="quote-line"><span>Arrivée actuelle</span><span>${formatFr(originalCheckin)}</span></div><div class="quote-line"><span>Départ actuel</span><span>${formatFr(originalCheckout)}</span></div>`;
+      } else {
+        summaryEl.innerHTML = '<p class="muted">Cliquez sur la date d\'arrivée dans le calendrier.</p>';
+      }
+    }
+    if (validateBtn) validateBtn.disabled = !(newCheckin && newCheckout);
+  }
+
+  async function loadCalendar() {
+    calendarEl.innerHTML = '<p class="muted">Chargement des disponibilités…</p>';
+    const propertyId = form.querySelector('[data-reservation-property-id]')?.value || '';
+    const params = new URLSearchParams({ property_id: propertyId, anchor });
+    try {
+      const response = await fetch(`${baseUrl}/dates-availability?${params.toString()}`, {
+        headers: { 'Accept': 'application/json' },
+        credentials: 'same-origin'
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Erreur');
+      const payload = data.data || {};
+      if (payload.restricted || !payload.rates_available) {
+        calendarEl.innerHTML = '<p class="muted">Disponibilités non accessibles pour ce bien.</p>';
+        return;
+      }
+      calendarEl.innerHTML = `${payload.price_note_html || ''}${payload.calendar_html || ''}`;
+      rebuildNightInfo();
+      updateHighlight();
+    } catch (error) {
+      calendarEl.innerHTML = '<p class="muted">Impossible de charger les disponibilités pour le moment.</p>';
+    }
+  }
+
+  function openModal() {
+    originalCheckin = checkinInput.value || '';
+    originalCheckout = checkoutInput.value || '';
+    newCheckin = null;
+    newCheckout = null;
+    anchor = originalCheckin ? `${originalCheckin.slice(0, 7)}-01` : '';
+    modal.hidden = false;
+    loadCalendar();
+  }
+
+  function closeModal() {
+    modal.hidden = true;
+  }
+
+  openBtn.addEventListener('click', () => {
+    if (openBtn.disabled) return;
+    openModal();
+  });
+  closeBtn?.addEventListener('click', closeModal);
+  cancelBtn?.addEventListener('click', closeModal);
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) closeModal();
+  });
+
+  prevBtn?.addEventListener('click', () => {
+    anchor = `${addDaysStr(anchor, -1).slice(0, 7)}-01`;
+    loadCalendar();
+  });
+  nextBtn?.addEventListener('click', () => {
+    const [y, m] = anchor.split('-').map(Number);
+    anchor = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
+    loadCalendar();
+  });
+
+  calendarEl.addEventListener('click', (event) => {
+    const cell = event.target.closest('[data-calendar-date]');
+    if (!cell) return;
+    const date = cell.dataset.calendarDate;
+    if (!date) return;
+    if (!newCheckin || newCheckout) {
+      if (!isNightAvailable(date)) return;
+      newCheckin = date;
+      newCheckout = null;
+    } else if (date === newCheckin) {
+      newCheckin = null;
+      newCheckout = null;
+    } else if (date <= newCheckin || !isRangeFullyAvailable(newCheckin, date)) {
+      newCheckin = isNightAvailable(date) ? date : null;
+      newCheckout = null;
+    } else if (nightsBetween(newCheckin, date) < minStayFor(newCheckin)) {
+      return;
+    } else {
+      newCheckout = date;
+    }
+    updateHighlight();
+  });
+
+  validateBtn?.addEventListener('click', () => {
+    if (!newCheckin || !newCheckout) return;
+    checkinInput.value = newCheckin;
+    checkoutInput.value = newCheckout;
+    checkinInput.dispatchEvent(new Event('change', { bubbles: true }));
+    checkoutInput.dispatchEvent(new Event('change', { bubbles: true }));
+    closeModal();
   });
 }
 
@@ -2942,7 +3182,7 @@ function initBookingQuote() {
       const name = (form.querySelector('[name="client_name"]')?.value || '').trim();
       if (!name) return i18nNameRequired;
       const email = (form.querySelector('[name="client_email"]')?.value || '').trim();
-      if (!email) return i18nEmailRequired;
+      if (!email && form.dataset.noClientEmail !== '1') return i18nEmailRequired;
       if (!nationalityProvided()) return i18nNationalityRequired;
       return '';
     }
@@ -3051,6 +3291,7 @@ function initBookingQuote() {
       const fpLodgifyTotal = priceScope.querySelector('[data-fp-lodgify-total]');
       const fpVatRate = priceScope.querySelector('[data-fp-vat-rate]');
       const fpVatTotal = priceScope.querySelector('[data-fp-vat-total]');
+      const fpVatRow = priceScope.querySelector('[data-fp-vat-row]');
       const fpCommissionTotal = priceScope.querySelector('[data-fp-commission-total]');
       if (forcedHiddenInput) {
         const nights = Number(quote.nights || 0);
@@ -3065,6 +3306,9 @@ function initBookingQuote() {
         if (fpLodgifyTotal) fpLodgifyTotal.textContent = formatMoney(lodgifyTotal);
         if (fpVatRate) fpVatRate.textContent = vatRate;
         if (fpVatTotal) fpVatTotal.textContent = formatMoney(vatTotal);
+        // A TVA amount of 0 is never shown anywhere on the site: hide the
+        // whole row rather than displaying "0,00".
+        if (fpVatRow) fpVatRow.hidden = vatTotal <= 0;
         if (fpCommissionTotal) fpCommissionTotal.textContent = formatMoney(commissionTotal);
         if (forcedTextInput) forcedTextInput.min = lodgifyTotal.toFixed(2);
         if (quote.is_price_forced && quote.forced_total_price !== null && quote.forced_total_price !== undefined) {
@@ -3090,6 +3334,7 @@ function initBookingQuote() {
       const fepLodgifyTotal = extraPriceScope.querySelector('[data-fep-lodgify-total]');
       const fepVatRate = extraPriceScope.querySelector('[data-fep-vat-rate]');
       const fepVatTotal = extraPriceScope.querySelector('[data-fep-vat-total]');
+      const fepVatRow = extraPriceScope.querySelector('[data-fep-vat-row]');
       const fepCommissionTotal = extraPriceScope.querySelector('[data-fep-commission-total]');
       if (forcedExtraHiddenInput) {
         const round2 = (value) => Math.round(value * 100) / 100;
@@ -3104,6 +3349,7 @@ function initBookingQuote() {
         if (fepLodgifyTotal) fepLodgifyTotal.textContent = formatMoney(extraLodgifyTotal);
         if (fepVatRate) fepVatRate.textContent = vatRate;
         if (fepVatTotal) fepVatTotal.textContent = formatMoney(extraVatTotal);
+        if (fepVatRow) fepVatRow.hidden = extraVatTotal <= 0;
         if (fepCommissionTotal) fepCommissionTotal.textContent = formatMoney(extraCommissionTotal);
         if (forcedExtraTextInput) forcedExtraTextInput.min = extraLodgifyTotal.toFixed(2);
         if (quote.is_extra_person_price_forced && quote.forced_extra_person_total !== null && quote.forced_extra_person_total !== undefined) {
@@ -3256,6 +3502,7 @@ function initMultiPropertyCart() {
   const fpLodgifyTotal = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-lodgify-total]') : null;
   const fpVatRate = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-vat-rate]') : null;
   const fpVatTotal = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-vat-total]') : null;
+  const fpVatRow = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-vat-row]') : null;
   const fpCommissionTotal = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-commission-total]') : null;
   const fpCancelBtn = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-cancel]') : null;
   const fpSaveBtn = forcePriceDropdown ? forcePriceDropdown.querySelector('[data-mc-fp-save]') : null;
@@ -3316,6 +3563,7 @@ function initMultiPropertyCart() {
     if (fpLodgifyTotal) fpLodgifyTotal.textContent = `${formatEuros(lodgifyTotal)} ${currency}`;
     if (fpVatRate) fpVatRate.textContent = vatRate;
     if (fpVatTotal) fpVatTotal.textContent = `${formatEuros(vatTotal)} ${currency}`;
+    if (fpVatRow) fpVatRow.hidden = vatTotal <= 0;
     if (fpCommissionTotal) fpCommissionTotal.textContent = `${formatEuros(commissionTotal)} ${currency}`;
     if (fpInput) fpInput.min = lodgifyTotal.toFixed(2);
   }

@@ -11,6 +11,11 @@ $children3to12v = (int) $children3to12;
 $guests = is_array($request['guests'] ?? null) ? $request['guests'] : [];
 $quoteCurrency = (string) ($request['quote_currency'] ?? 'EUR');
 $hasQuote = ($request['quote_room_total'] ?? null) !== null;
+// Once a devis exists, the "Changer d'hébergement" button is hidden by
+// default (migration 047, client_can_change_property) unless the partner
+// re-enabled it — single source of truth reused for both the button itself
+// and the live-quote hint text below it.
+$canChangeProperty = !$hasQuote || !empty($request['client_can_change_property']);
 $nationalitiesSummary = \App\controllers\ReservationsController::guestNationalitiesText($guests);
 $property = $property ?? null;
 $propertyPhotoUrl = $property['images'][0]['url'] ?? '';
@@ -125,11 +130,14 @@ $needsClientEmail = !empty($needsClientEmail);
             <label><span>Téléphone</span><input class="input" type="tel" name="client_phone" value="<?= \App\View::e((string) ($request['client_phone'] ?? '')) ?>"></label>
           </div>
           <div class="form-grid cols-2">
-            <label><span>Date d'arrivée</span><input class="input" type="date" name="checkin_date" value="<?= \App\View::e($request['checkin_date']) ?>" required data-reservation-quote-field></label>
-            <label><span>Date de départ</span><input class="input" type="date" name="checkout_date" value="<?= \App\View::e($request['checkout_date']) ?>" required data-reservation-quote-field></label>
+            <label><span>Date d'arrivée</span><input class="input" type="date" name="checkin_date" value="<?= \App\View::e($request['checkin_date']) ?>" required readonly data-reservation-quote-field data-reservation-dates-checkin></label>
+            <label><span>Date de départ</span><input class="input" type="date" name="checkout_date" value="<?= \App\View::e($request['checkout_date']) ?>" required readonly data-reservation-quote-field data-reservation-dates-checkout></label>
             <label><span>Adultes</span><input class="input" type="number" min="1" max="20" name="adults" value="<?= (int) $request['adults'] ?>" required data-reservation-quote-field></label>
             <label><span>Enfants (3-12 ans)</span><input class="input" type="number" min="0" max="20" name="children_3to12" value="<?= $children3to12v ?>" data-reservation-quote-field></label>
             <label><span>Bébés (- 3 ans)</span><input class="input" type="number" min="0" max="2" name="children_under3" value="<?= $childrenUnder ?>" data-reservation-quote-field></label>
+          </div>
+          <div class="button-row">
+            <button type="button" class="btn-secondary" data-reservation-change-dates>Modifier les Dates</button>
           </div>
 
           <div class="stack-sm">
@@ -143,7 +151,14 @@ $needsClientEmail = !empty($needsClientEmail);
               <strong data-reservation-property-name><?= \App\View::e($request['property_name'] ?: '—') ?></strong>
               <div class="button-row">
                 <a class="btn-secondary" target="_blank" rel="noopener" data-reservation-view-property-link href="/properties/<?= (int) $request['property_id'] ?>#rates-availability">Voir le bien</a>
-                <button type="button" class="btn-secondary" data-reservation-change-property>Changer d'hébergement</button>
+                <?php if ($canChangeProperty): ?>
+                  <!-- Once a devis exists this button is hidden by default
+                       (migration 047, client_can_change_property): the
+                       partner must explicitly re-enable it per request via
+                       the checkbox on /partner/reservations/{id} before the
+                       client can swap properties themselves again. -->
+                  <button type="button" class="btn-secondary" data-reservation-change-property>Changer d'hébergement</button>
+                <?php endif; ?>
               </div>
             </div>
           </div>
@@ -152,7 +167,7 @@ $needsClientEmail = !empty($needsClientEmail);
 
           <div class="quote-box reservation-quote-box" data-reservation-live-quote>
             <div class="quote-line"><span>Dernier tarif enregistré</span><span><?= \App\View::e(\App\controllers\ReservationsController::formatMoneyFr((float) ($request['quote_total_traveler'] ?? 0), $quoteCurrency)) ?></span></div>
-            <p class="muted reservation-quote-hint" data-reservation-quote-hint>Modifiez les dates, les voyageurs ou l'hébergement ci-dessus pour recalculer le tarif automatiquement.</p>
+            <p class="muted reservation-quote-hint" data-reservation-quote-hint><?php if ($canChangeProperty): ?>Modifiez les dates, les voyageurs ou l'hébergement ci-dessus pour recalculer le tarif automatiquement.<?php else: ?>Modifiez les dates, les voyageurs ci-dessus pour recalculer le tarif automatiquement.<?php endif; ?></p>
           </div>
 
           <div class="button-row">
@@ -175,9 +190,37 @@ $needsClientEmail = !empty($needsClientEmail);
             <h3>Changer d'hébergement</h3>
             <button type="button" class="btn-icon-plain" data-reservation-property-modal-close aria-label="Fermer">✕</button>
           </div>
+          <p class="muted reservation-modal-price-note">Les tarifs affichés correspondent au tarif de la chambre et des personnes supplémentaires uniquement (hors frais de ménage et taxe de séjour).</p>
           <div class="reservation-modal-summary" data-reservation-modal-summary></div>
           <div class="reservation-modal-list" data-reservation-modal-list>
             <p class="muted">Chargement des biens disponibles…</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- "Modifier les Dates" modal: shows this property's availability &
+           rates (same calendar-body.php partial and price note as the
+           "Tarifs & Disponibilités" tab) starting on the current arrival
+           month, current dates highlighted in orange; picking a new
+           arrival/departure highlights them in red instead. -->
+      <div class="simple-modal-overlay" data-reservation-dates-modal hidden>
+        <div class="simple-modal-dialog simple-modal-dialog-wide" role="dialog" aria-modal="true" aria-label="Modifier les dates">
+          <div class="simple-modal-header">
+            <h3>Modifier les dates</h3>
+            <button type="button" class="btn-icon-plain" data-reservation-dates-modal-close aria-label="Fermer">✕</button>
+          </div>
+          <p class="muted">Les dates actuelles apparaissent en orange. Cliquez sur la date d'arrivée puis sur la date de départ pour sélectionner de nouvelles dates (elles apparaîtront en rouge).</p>
+          <div class="button-row">
+            <button type="button" class="btn-secondary" data-reservation-dates-prev-month>← Mois précédent</button>
+            <button type="button" class="btn-secondary" data-reservation-dates-next-month>Mois suivant →</button>
+          </div>
+          <div data-reservation-dates-calendar class="reservation-dates-calendar">
+            <p class="muted">Chargement des disponibilités…</p>
+          </div>
+          <div class="reservation-modal-summary" data-reservation-dates-summary></div>
+          <div class="button-row">
+            <button type="button" class="btn-secondary" data-reservation-dates-cancel>Annuler</button>
+            <button type="button" class="btn-primary" data-reservation-dates-validate disabled>Valider les dates</button>
           </div>
         </div>
       </div>

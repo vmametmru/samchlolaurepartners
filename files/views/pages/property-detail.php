@@ -219,7 +219,7 @@ $policyText = $policyText ?? \App\controllers\PageController::bookingPolicyText(
               <div class="force-price-breakdown" data-force-price-breakdown>
                 <div class="quote-line"><span><?= sprintf(\App\View::e(\App\I18n::t('property.force_price_current_label')), '<span data-fp-nights></span>') ?></span><span data-fp-current-total></span></div>
                 <div class="quote-line"><span><?= \App\View::e(\App\I18n::t('property.force_price_lodgify_label')) ?></span><span data-fp-lodgify-total></span></div>
-                <div class="quote-line"><span data-fp-vat-label><?= sprintf(\App\View::e(\App\I18n::t('property.force_price_vat_label')), '<span data-fp-vat-rate></span>') ?></span><span data-fp-vat-total></span></div>
+                <div class="quote-line" data-fp-vat-row><span data-fp-vat-label><?= sprintf(\App\View::e(\App\I18n::t('property.force_price_vat_label')), '<span data-fp-vat-rate></span>') ?></span><span data-fp-vat-total></span></div>
                 <div class="quote-line"><span><?= \App\View::e(\App\I18n::t('property.force_price_commission_label')) ?></span><span data-fp-commission-total></span></div>
               </div>
               <label>
@@ -239,7 +239,7 @@ $policyText = $policyText ?? \App\controllers\PageController::bookingPolicyText(
               <div class="force-price-breakdown" data-force-extra-price-breakdown>
                 <div class="quote-line"><span><?= sprintf(\App\View::e(\App\I18n::t('property.force_extra_person_current_label')), '<span data-fep-count></span>') ?></span><span data-fep-current-total></span></div>
                 <div class="quote-line"><span><?= \App\View::e(\App\I18n::t('property.force_price_lodgify_label')) ?></span><span data-fep-lodgify-total></span></div>
-                <div class="quote-line"><span data-fep-vat-label><?= sprintf(\App\View::e(\App\I18n::t('property.force_price_vat_label')), '<span data-fep-vat-rate></span>') ?></span><span data-fep-vat-total></span></div>
+                <div class="quote-line" data-fep-vat-row><span data-fep-vat-label><?= sprintf(\App\View::e(\App\I18n::t('property.force_price_vat_label')), '<span data-fep-vat-rate></span>') ?></span><span data-fep-vat-total></span></div>
                 <div class="quote-line"><span><?= \App\View::e(\App\I18n::t('property.force_price_commission_label')) ?></span><span data-fep-commission-total></span></div>
               </div>
               <label>
@@ -271,6 +271,14 @@ $policyText = $policyText ?? \App\controllers\PageController::bookingPolicyText(
         <div class="booking-block-body stack-md" data-block-body>
           <label><span><?= \App\View::e(\App\I18n::t('property.full_name')) ?></span><input class="input" type="text" name="client_name" required></label>
           <label><span><?= \App\View::e(\App\I18n::t('property.email')) ?></span><input class="input" type="email" name="client_email" required></label>
+          <?php if (!empty($canForcePrice)): ?>
+            <!-- Partner/admin only (see ReservationsController::canForcePrice()
+                 for the matching server-side re-check): lets the agency
+                 create a request with just a phone number, when the client
+                 has no email address. An anonymous client browsing the
+                 public site never sees this and can never skip the email. -->
+            <label class="inline-check"><input type="checkbox" name="no_client_email" value="1" data-no-client-email-toggle> <?= \App\View::e(\App\I18n::t('property.no_client_email')) ?></label>
+          <?php endif; ?>
           <?php require BASE_PATH . '/files/views/partials/phone-input.php'; ?>
           <label><span><?= \App\View::e(\App\I18n::t('property.message_optional')) ?></span><textarea class="input" rows="3" name="message"></textarea></label>
           <?php if ($canOverrideBookingPolicy && $bookingPolicies !== []): ?>

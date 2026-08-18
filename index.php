@@ -254,6 +254,9 @@ try {
         case route($method, $path, 'GET', '#^/r/([a-f0-9]{32})/available-properties$#', $matches):
             PageController::reservationPublicAvailableProperties((string) $matches[1]);
             break;
+        case route($method, $path, 'GET', '#^/r/([a-f0-9]{32})/dates-availability$#', $matches):
+            PageController::reservationPublicDatesAvailability((string) $matches[1]);
+            break;
         case route($method, $path, 'GET', '#^/r/([a-f0-9]{32})/property-photos$#', $matches):
             PageController::reservationPublicPropertyPhotos((string) $matches[1]);
             break;
@@ -281,11 +284,17 @@ try {
         case route($method, $path, 'POST', '#^/partner/reservations/(\d+)/reopen$#', $matches):
             PageController::partnerReopenReservation((int) $matches[1]);
             break;
+        case route($method, $path, 'POST', '#^/partner/reservations/(\d+)/client-property-change$#', $matches):
+            PageController::partnerToggleClientPropertyChange((int) $matches[1]);
+            break;
         case route($method, $path, 'POST', '#^/partner/reservations/(\d+)/update$#', $matches):
             PageController::partnerUpdateReservation((int) $matches[1]);
             break;
         case route($method, $path, 'GET', '#^/partner/reservations/(\d+)/available-properties$#', $matches):
             PageController::partnerReservationAvailableProperties((int) $matches[1]);
+            break;
+        case route($method, $path, 'GET', '#^/partner/reservations/(\d+)/dates-availability$#', $matches):
+            PageController::partnerReservationDatesAvailability((int) $matches[1]);
             break;
         case route($method, $path, 'GET', '#^/partner/reservations/(\d+)/property-photos$#', $matches):
             PageController::partnerReservationPropertyPhotos((int) $matches[1]);

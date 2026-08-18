@@ -24,6 +24,61 @@
     <noscript><form method="post" action="/admin/sync"><button class="btn-secondary" type="submit">Synchroniser les photos (sans JavaScript)</button></form></noscript>
   </div>
 </section>
+
+<section class="container section-lg">
+  <h2>Disponibilités des 3 prochains mois</h2>
+  <p class="text-muted">
+    <?php if (!empty($cronLastRunLabel)): ?>
+      <?= \App\View::e($cronLastRunLabel) ?>
+    <?php else: ?>
+      Le cron n'a pas encore mis à jour automatiquement le cache des disponibilités.
+    <?php endif; ?>
+  </p>
+  <p class="muted">Ce tableau affiche uniquement les disponibilités déjà présentes en base de données locale (aucun appel à l'API Lodgify n'est effectué pour le générer) : un bien absent ou une case grisée signifie simplement que le cron n'a pas encore mis en cache cette période.</p>
+
+  <?php if (empty($availabilityRows) || empty($availabilityDates)): ?>
+    <p class="muted">Aucune donnée de disponibilité en cache pour le moment.</p>
+  <?php else: ?>
+    <div class="calendar-legend">
+      <span class="dot dot-green"></span> Disponible
+      <span class="dot dot-red"></span> Indisponible
+      <span class="dot dot-gray"></span> Non renseigné (pas encore en cache)
+    </div>
+    <div class="admin-availability-board">
+      <table class="calendar-board-table">
+        <thead>
+          <tr>
+            <th class="cal-fixed cal-col-name">Bien</th>
+            <?php foreach ($availabilityDates as $date):
+              $dow = (int) $date->format('w');
+              $isWeekend = $dow === 0 || $dow === 6;
+            ?>
+              <th class="cal-day-head<?= $isWeekend ? ' cal-weekend' : '' ?>" title="<?= \App\View::e($date->format('Y-m-d')) ?>">
+                <span class="cal-day-num"><?= (int) $date->format('j') ?></span>
+                <span class="cal-day-mon"><?= \App\View::e(\App\I18n::monthNamesShort()[(int) $date->format('n')] ?? '') ?></span>
+              </th>
+            <?php endforeach; ?>
+          </tr>
+        </thead>
+        <tbody>
+          <?php foreach ($availabilityRows as $row): ?>
+            <tr>
+              <td class="cal-fixed cal-col-name"><?= \App\View::e($row['name']) ?></td>
+              <?php foreach ($availabilityDates as $date):
+                $key = $date->format('Y-m-d');
+                $state = $row['availability'][$key] ?? null;
+                $class = $state === true ? 'cal-available' : ($state === false ? 'cal-unavailable' : 'cal-unknown');
+              ?>
+                <td class="cal-cell <?= $class ?>" title="<?= \App\View::e($key) ?>"></td>
+              <?php endforeach; ?>
+            </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
+  <?php endif; ?>
+</section>
+
 <script>
 (function () {
   const root = document.querySelector('[data-lodgify-sync]');

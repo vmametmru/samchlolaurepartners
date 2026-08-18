@@ -169,6 +169,10 @@ $bookingPolicies = $bookingPolicies ?? [];
         </tbody>
       </table>
     </div>
+    <?php $calendarUpdatedAtLabel = \App\controllers\PageController::calendarUpdatedAtLabel(); ?>
+    <?php if ($calendarUpdatedAtLabel !== null): ?>
+      <p class="muted calendar-updated-note"><?= \App\View::e($calendarUpdatedAtLabel) ?></p>
+    <?php endif; ?>
 
     <div class="multi-booking-cart" id="multi-cart-selection" data-multi-cart data-can-force-price="<?= $canForcePrice ? '1' : '0' ?>" hidden>
       <div class="multi-cart-header">
@@ -182,7 +186,7 @@ $bookingPolicies = $bookingPolicies ?? [];
         <div class="force-price-breakdown">
           <div class="quote-line"><span><?= sprintf(\App\View::e(\App\I18n::t('property.force_price_current_label')), '<span data-mc-fp-nights></span>') ?></span><span data-mc-fp-current-total></span></div>
           <div class="quote-line"><span><?= \App\View::e(\App\I18n::t('property.force_price_lodgify_label')) ?></span><span data-mc-fp-lodgify-total></span></div>
-          <div class="quote-line"><span data-mc-fp-vat-label><?= sprintf(\App\View::e(\App\I18n::t('property.force_price_vat_label')), '<span data-mc-fp-vat-rate></span>') ?></span><span data-mc-fp-vat-total></span></div>
+          <div class="quote-line" data-mc-fp-vat-row><span data-mc-fp-vat-label><?= sprintf(\App\View::e(\App\I18n::t('property.force_price_vat_label')), '<span data-mc-fp-vat-rate></span>') ?></span><span data-mc-fp-vat-total></span></div>
           <div class="quote-line"><span><?= \App\View::e(\App\I18n::t('property.force_price_commission_label')) ?></span><span data-mc-fp-commission-total></span></div>
         </div>
         <label>
@@ -223,6 +227,14 @@ $bookingPolicies = $bookingPolicies ?? [];
           <label><span><?= \App\View::e(\App\I18n::t('calendar.full_name')) ?></span><input class="input" type="text" name="client_name" required></label>
           <label><span><?= \App\View::e(\App\I18n::t('calendar.email')) ?></span><input class="input" type="email" name="client_email" required></label>
         </div>
+        <?php if ($canForcePrice): ?>
+          <!-- Partner/admin only (see ReservationsController::canForcePrice()
+               for the matching server-side re-check): lets the agency
+               create a request with just a phone number, when the client
+               has no email address. An anonymous client browsing the
+               public site never sees this and can never skip the email. -->
+          <label class="inline-check"><input type="checkbox" name="no_client_email" value="1" data-no-client-email-toggle> <?= \App\View::e(\App\I18n::t('calendar.no_client_email')) ?></label>
+        <?php endif; ?>
         <?php require BASE_PATH . '/files/views/partials/phone-input.php'; ?>
         <?php require BASE_PATH . '/files/views/partials/nationalities.php'; ?>
         <label><span><?= \App\View::e(\App\I18n::t('calendar.message_optional')) ?></span><textarea class="input" rows="3" name="message"></textarea></label>

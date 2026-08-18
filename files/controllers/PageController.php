@@ -1027,6 +1027,29 @@ final class PageController extends Controller
     }
 
     /**
+     * Handles the "Autoriser le client à changer d'hébergement" checkbox on
+     * /partner/reservations/{id} (see ReservationsController::
+     * setClientCanChangeProperty()): once a devis exists the "Changer
+     * d'hébergement" button on the client's own public link is hidden by
+     * default (migration 047), this lets the partner re-enable it per
+     * request without going through the full "Modifier" edit form.
+     */
+    public static function partnerToggleClientPropertyChange(int $id): never
+    {
+        $user = self::requirePartnerUser();
+        $partnerId = (int) $user['partner_id'];
+        $allow = !empty($_POST['allow']);
+        if (!ReservationsController::setClientCanChangeProperty($partnerId, $id, $allow)) {
+            throw new HttpException(404, 'Not Found', 'Réservation introuvable');
+        }
+        self::redirect(
+            self::partnerReservationsRedirectUrl($id),
+            $allow ? 'Le client peut désormais changer d\'hébergement sur sa demande.' : 'Le client ne peut plus changer d\'hébergement sur sa demande.',
+            'success'
+        );
+    }
+
+    /**
      * Reopens a confirmed/cancelled reservation back to "Ouverte" (pending),
      * used by the "En Attente" / pause-icon button on /partner/reservations
      * (see ReservationsController::reopenForPartner()).
@@ -1403,6 +1426,160 @@ final class PageController extends Controller
             ],
             'properties' => $properties,
         ]]);
+    }
+
+    /**
+     * Shared by partnerReservationDatesAvailability()/
+     * reservationPublicDatesAvailability() below: builds the exact same
+     * rates/availability/price-note data as propertyDetail()'s "Tarifs &
+     * Disponibilités" tab (this app has no local pricing or availability
+     * data of its own; both read LodgifyClient::getAvailability()/
+     * getRates()'s 1h-TTL local cache, never a forced/live Lodgify call, so
+     * external-channel bookings — Airbnb, Booking.com, ... — are reflected
+     * identically in both places). Rendered as a JSON-friendly HTML
+     * fragment (via calendar-body.php) for a given property and 4-month
+     * range anchored on $anchorDate's month, for the "Modifier les Dates"
+     * modal on /partner/reservations/{id} and the public /r/{token} page.
+     */
+    private static function reservationDatesAvailabilityFragment(array $partner, int $propertyId, ?string $anchorDate): array
+    {
+        $visibility = PartnerPropertyVisibility::visibilityFor($partner, $propertyId);
+        if ($visibility === PartnerPropertyVisibility::NONE) {
+            throw new HttpException(404, 'Not Found', 'Hébergement introuvable');
+        }
+        $client = new LodgifyClient();
+        $today = date('Y-m-d');
+        // The "Modifier les Dates" modal only shows 4 months at a time (2
+        // per row), unlike the property-detail "Tarifs & Disponibilités"
+        // tab's 12-month calendar (files/views/partials/calendar.php),
+        // since the partner/client navigates via the prev/next-month
+        // buttons in initReservationDatesModal() (assets/js/app.js).
+        $calendarMonths = 4;
+        try {
+            $anchor = ($anchorDate !== null && $anchorDate !== '') ? new \DateTimeImmutable($anchorDate) : new \DateTimeImmutable('today');
+        } catch (Throwable $e) {
+            $anchor = new \DateTimeImmutable('today');
+        }
+        $rangeStart = $anchor->modify('first day of this month')->format('Y-m-d');
+        $rangeEnd = $anchor->modify('first day of this month')->modify('+' . $calendarMonths . ' months')->modify('-1 day')->format('Y-m-d');
+
+        $manualOverrides = self::manualLodgifyColumnsByPropertyId([$propertyId]);
+        $manual = $manualOverrides[$propertyId] ?? ['sofa_bed_count' => null, 'min_people' => null, 'extra_person_fee' => null, 'vat_rate' => null];
+        $vatRate = self::resolveVatRate($client, $propertyId, $manual['vat_rate']);
+
+        $availability = [];
+        $rates = [];
+        if ($visibility !== PartnerPropertyVisibility::PARTIAL) {
+            // This modal must NEVER itself trigger a live Lodgify API call
+            // (only the cron job's Scheduler::warmLodgifyCache() and the
+            // email buttons' forced re-check are allowed to do that): read
+            // strictly from whatever is already sitting in the local
+            // lodgify_cache table (LodgifyClient::getAvailabilityFromCache()/
+            // getRatesFromCache()), even if stale/expired. Those readers
+            // slice the cron's warmed ranges down to this 4-month window,
+            // since the cron only caches a couple of fixed ranges and an
+            // exact-key match would otherwise almost never happen here.
+            $availability = $client->getAvailabilityFromCache($propertyId, $rangeStart, $rangeEnd);
+            $rates = self::publicRates($client, $propertyId, $rangeStart, $rangeEnd, $vatRate, true);
+        }
+
+        $cleaningFeePerPerson = (float) ($partner['cleaning_fee_per_person_per_night'] ?? 0);
+        $extraPersonFeeMarkup = (float) ($partner['markup_percent'] ?? 0);
+        $priceExtraPersonFee = $manual['extra_person_fee'];
+        if ($priceExtraPersonFee !== null) {
+            $priceExtraPersonFee = round((float) $priceExtraPersonFee * (1 + $extraPersonFeeMarkup / 100) * (1 + $vatRate / 100), 2);
+        }
+        $globalTouristTax = (float) (Database::connection()->query('SELECT per_person_per_night FROM tourist_tax LIMIT 1')->fetchColumn() ?: 0);
+        $priceMinPeople = $manual['min_people'];
+        $minRate = $rates !== [] ? min(array_map(static fn (array $r) => (float) $r['price_per_night'], $rates)) : null;
+
+        ob_start(); ?>
+        <p class="muted calendar-price-note">
+          <?= View::e(sprintf(
+              I18n::t('calendar.price_note'),
+              $cleaningFeePerPerson > 0 ? sprintf(I18n::t('calendar.price_note_cleaning_fee'), number_format($cleaningFeePerPerson, 2, ',', ' ')) : ''
+          )) ?>
+          <?php if ($priceMinPeople !== null): ?>
+            <?= View::e(sprintf(I18n::t('property.price_min_people'), (int) $priceMinPeople)) ?>
+            <?php if ($priceExtraPersonFee !== null && $priceExtraPersonFee > 0): ?>
+              <?= View::e(sprintf(I18n::t('property.price_extra_person_fee'), number_format((float) $priceExtraPersonFee, 2, ',', ' '))) ?>
+            <?php endif; ?>
+            <?= View::e(I18n::t('property.price_babies_and_tax')) ?>
+            <?php if ($globalTouristTax > 0): ?>
+              <?= View::e(sprintf(I18n::t('property.tourist_tax_note'), number_format($globalTouristTax, 2, ',', ' '))) ?>
+            <?php endif; ?>
+          <?php endif; ?>
+        </p>
+        <?php
+        $priceNoteHtml = ob_get_clean();
+
+        $calendarStart = $rangeStart;
+        ob_start();
+        require BASE_PATH . '/files/views/partials/calendar-body.php';
+        $calendarHtml = ob_get_clean();
+
+        return [
+            'restricted' => $visibility === PartnerPropertyVisibility::PARTIAL,
+            'rates_available' => $minRate !== null,
+            'anchor' => $rangeStart,
+            'price_note_html' => $priceNoteHtml,
+            'calendar_html' => $calendarHtml,
+        ];
+    }
+
+    /**
+     * JSON availability/pricing fragment for the "Modifier les Dates" modal
+     * on /partner/reservations/{id} — reuses the same calendar-body.php
+     * partial as the "Tarifs & Disponibilités" tab (propertyDetail()), so
+     * the partner sees identical per-night prices/legend while picking new
+     * dates. Excluded when the partner is in "Modifier (Sans toucher aux
+     * Prix)" lock mode client-side (the button carries
+     * data-reservation-price-locked-field), but this endpoint is re-checked
+     * against the request's own "pending" status regardless.
+     */
+    public static function partnerReservationDatesAvailability(int $id): never
+    {
+        $user = self::requirePartnerUser();
+        $partnerId = (int) $user['partner_id'];
+        $request = ReservationsController::findForPartner($partnerId, $id);
+        if (!$request) {
+            self::json(['error' => 'Not Found', 'message' => 'Demande introuvable'], 404);
+        }
+        $partner = PartnersController::formData($partnerId);
+        if (!empty($partner['subdomain'])) {
+            Tenant::setCodeCookie((string) $partner['subdomain']);
+        }
+        $propertyId = (int) ($_GET['property_id'] ?? $request['property_id'] ?? 0);
+        if ($propertyId <= 0) {
+            self::json(['error' => 'Bad Request', 'message' => 'Bien introuvable pour cette demande.'], 400);
+        }
+        $anchor = trim((string) ($_GET['anchor'] ?? '')) ?: (string) $request['checkin_date'];
+        self::json(['data' => self::reservationDatesAvailabilityFragment($partner, $propertyId, $anchor)]);
+    }
+
+    /**
+     * Public-token equivalent of partnerReservationDatesAvailability(),
+     * for the client's own /r/{token} "Modifier les Dates" modal.
+     */
+    public static function reservationPublicDatesAvailability(string $token): never
+    {
+        $request = ReservationsController::findByToken($token);
+        if (!$request) {
+            self::json(['error' => 'Not Found', 'message' => 'Demande introuvable'], 404);
+        }
+        if ((string) $request['status'] !== 'pending') {
+            self::json(['error' => 'Forbidden', 'message' => 'Cette demande n\'est plus modifiable en ligne.'], 403);
+        }
+        $partner = PartnersController::formData((int) $request['partner_id']);
+        if (!empty($partner['subdomain'])) {
+            Tenant::setCodeCookie((string) $partner['subdomain']);
+        }
+        $propertyId = (int) ($_GET['property_id'] ?? $request['property_id'] ?? 0);
+        if ($propertyId <= 0) {
+            self::json(['error' => 'Bad Request', 'message' => 'Bien introuvable pour cette demande.'], 400);
+        }
+        $anchor = trim((string) ($_GET['anchor'] ?? '')) ?: (string) $request['checkin_date'];
+        self::json(['data' => self::reservationDatesAvailabilityFragment($partner, $propertyId, $anchor)]);
     }
 
     /**
@@ -2535,7 +2712,81 @@ TEXT;
         View::render('pages/admin-sync', [
             'pageTitle' => 'Synchronisation Lodgify',
             'lastSyncLabel' => self::formatLodgifyLastSync(),
+            'cronLastRunLabel' => self::formatLodgifyCacheWarmedAt(),
+            'availabilityDates' => self::adminSyncAvailabilityDates(),
+            'availabilityRows' => self::adminSyncAvailabilityRows(),
         ]);
+    }
+
+    /**
+     * The next-3-months date range shown by the "Disponibilités des 3
+     * prochains mois" table on /admin/sync.
+     *
+     * @return list<\DateTimeImmutable>
+     */
+    private static function adminSyncAvailabilityDates(): array
+    {
+        $today = new \DateTimeImmutable('today');
+        $end = $today->modify('+3 months');
+        $dates = [];
+        for ($cursor = $today; $cursor < $end; $cursor = $cursor->modify('+1 day')) {
+            $dates[] = $cursor;
+        }
+        return $dates;
+    }
+
+    /**
+     * Builds the rows of the "Disponibilités des 3 prochains mois" table on
+     * /admin/sync: one row per property, stacked one under the other, each
+     * showing per-day availability for the next 3 months. This must NEVER
+     * trigger a live Lodgify API call (only the cron's
+     * Scheduler::warmLodgifyCache() and the manual "Synchroniser
+     * maintenant" action are allowed to do that) — it only ever reads
+     * whatever is already sitting in the local lodgify_cache table via
+     * LodgifyClient::getPropertiesFromCache()/getAvailabilityFromCache(),
+     * even if stale/expired, and shows nothing for a property/range the
+     * cron hasn't warmed yet rather than fetching it.
+     *
+     * @return list<array{id:int, name:string, availability:array<string,?bool>}>
+     */
+    private static function adminSyncAvailabilityRows(): array
+    {
+        $client = new LodgifyClient();
+        $properties = $client->getPropertiesFromCache();
+        if ($properties === []) {
+            return [];
+        }
+        // Matches the exact date range Scheduler::warmLodgifyCache() warms
+        // for the property detail / calendar's 12-month window (current
+        // month -> +12 months): getAvailabilityFromCache() is keyed on the
+        // exact from/to strings, so re-using this range is what lets us
+        // read back the cron's cached data instead of always getting [].
+        $monthStart = new \DateTimeImmutable('first day of this month');
+        $warmedFrom = $monthStart->format('Y-m-d');
+        $warmedTo = $monthStart->modify('+12 months')->modify('-1 day')->format('Y-m-d');
+
+        $rows = [];
+        foreach ($properties as $property) {
+            $propertyId = (int) ($property['id'] ?? 0);
+            if ($propertyId <= 0) {
+                continue;
+            }
+            $availability = $client->getAvailabilityFromCache($propertyId, $warmedFrom, $warmedTo);
+            $map = [];
+            foreach ($availability as $day) {
+                if (!is_array($day) || !isset($day['date'])) {
+                    continue;
+                }
+                $map[(string) $day['date']] = isset($day['available']) ? (bool) $day['available'] : null;
+            }
+            $rows[] = [
+                'id' => $propertyId,
+                'name' => (string) (View::localized($property, 'name') ?: ($property['name'] ?? ('Bien #' . $propertyId))),
+                'availability' => $map,
+            ];
+        }
+        usort($rows, static fn (array $a, array $b): int => strnatcasecmp($a['name'], $b['name']));
+        return $rows;
     }
 
     /**
@@ -3468,9 +3719,63 @@ TEXT;
         return 'Mis à jour le ' . $date->format('d/m/Y') . ' à ' . $date->format('H:i') . ' (GMT+4)';
     }
 
-    public static function publicRates(LodgifyClient $client, int $propertyId, string $from, string $to, float $vatRate = 0.0): array
+    /**
+     * Formats when the cron (bin/run-scheduler.php -> Scheduler::
+     * warmLodgifyCache()) last automatically refreshed the local
+     * availability cache (lodgify_cache), converted to GMT+4 (Île Maurice)
+     * regardless of the server's own timezone. Distinct from
+     * formatLodgifyLastSync(), which only tracks the manual "Synchroniser
+     * maintenant" property-fiche sync.
+     */
+    private static function formatLodgifyCacheWarmedAt(): ?string
     {
-        $rawRates = $client->getRates($propertyId, $from, $to, 2);
+        $raw = Settings::get('LODGIFY_CACHE_WARMED_AT');
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+        try {
+            $date = new \DateTimeImmutable($raw);
+            $date = $date->setTimezone(new \DateTimeZone('Etc/GMT-4'));
+        } catch (\Throwable $e) {
+            return null;
+        }
+        return 'Base de données mise à jour automatiquement par le cron le ' . $date->format('d/m/Y') . ' à ' . $date->format('H:i') . ' (GMT+4)';
+    }
+
+    /**
+     * Same underlying LODGIFY_CACHE_WARMED_AT timestamp as
+     * formatLodgifyCacheWarmedAt() (last time the cron's
+     * Scheduler::warmLodgifyCache() — or any other future manual trigger —
+     * refreshed the local availability/rates cache), but phrased for
+     * visitors/partners rather than the admin sync page: shown under every
+     * calendar table (property-detail "Tarifs & Disponibilités" tab,
+     * /calendrier multi-property board, and the "Modifier les Dates"
+     * reservation-edit modal), all of which only ever read this same local
+     * cache (see reservationDatesAvailabilityFragment()'s doc comment).
+     */
+    public static function calendarUpdatedAtLabel(): ?string
+    {
+        $raw = Settings::get('LODGIFY_CACHE_WARMED_AT');
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+        try {
+            $date = new \DateTimeImmutable($raw);
+            $date = $date->setTimezone(new \DateTimeZone('Etc/GMT-4'));
+        } catch (\Throwable $e) {
+            return null;
+        }
+        return 'Disponibilités et Tarifs mis à jour le ' . $date->format('d/m/Y') . ' à ' . $date->format('H:i') . ' (GMT + 4)';
+    }
+
+    public static function publicRates(LodgifyClient $client, int $propertyId, string $from, string $to, float $vatRate = 0.0, bool $cacheOnly = false): array
+    {
+        // $cacheOnly is used by reservationDatesAvailabilityFragment() (the
+        // "Modifier les Dates" modal), which must never itself trigger a
+        // live Lodgify call — see LodgifyClient::getRatesFromCache().
+        $rawRates = $cacheOnly
+            ? $client->getRatesFromCache($propertyId, $from, $to)
+            : $client->getRates($propertyId, $from, $to, 2);
         // The public property page must show the tenant's marked-up price, not
         // the raw Lodgify price: markup_percent was previously hardcoded to 0
         // here, so the margin configured for the current partner (resolved from
