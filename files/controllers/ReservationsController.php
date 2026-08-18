@@ -2011,6 +2011,16 @@ final class ReservationsController extends Controller
         }
 
         $currentPropertyId = (int) ($request['property_id'] ?? 0);
+        // sofa_bed_count is not reliably present in Lodgify's own property
+        // payload, so it's tracked manually per-property in the local
+        // "Biens Lodgify" admin table (see PageController::
+        // manualLodgifyColumnsByPropertyId()/adminSaveLodgifyPropertiesManual())
+        // and must be used here instead of $property['sofa_bed_count'].
+        $propertyIds = array_values(array_filter(array_map(
+            static fn(array $property): int => (int) ($property['id'] ?? 0),
+            $properties
+        )));
+        $manualOverrides = PageController::manualLodgifyColumnsByPropertyId($propertyIds);
         $results = [];
         foreach ($properties as $property) {
             $propertyId = (int) ($property['id'] ?? 0);
@@ -2052,7 +2062,7 @@ final class ReservationsController extends Controller
                 'total_traveler' => $quote['total_traveler'] ?? null,
                 'image_url' => $property['images'][0]['url'] ?? null,
                 'bedrooms' => (int) ($property['bedrooms'] ?? 0),
-                'sofa_bed_count' => (int) ($property['sofa_bed_count'] ?? 0),
+                'sofa_bed_count' => (int) ($manualOverrides[$propertyId]['sofa_bed_count'] ?? 0),
             ];
         }
 

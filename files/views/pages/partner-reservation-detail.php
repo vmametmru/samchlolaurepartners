@@ -156,6 +156,7 @@ $propertyDescription = $property ? trim(\App\View::localized($property, 'descrip
             <h3>Changer d'hébergement</h3>
             <button type="button" class="btn-icon-plain" data-reservation-property-modal-close aria-label="Fermer">✕</button>
           </div>
+          <p class="muted reservation-modal-price-note">Les tarifs affichés correspondent au tarif de la chambre et des personnes supplémentaires uniquement (hors frais de ménage et taxe de séjour).</p>
           <div class="reservation-modal-summary" data-reservation-modal-summary></div>
           <div class="reservation-modal-list" data-reservation-modal-list>
             <p class="muted">Chargement des biens disponibles…</p>
