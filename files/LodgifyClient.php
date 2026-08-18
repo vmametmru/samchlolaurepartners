@@ -1152,6 +1152,18 @@ final class LodgifyClient
         return $this->cacheGet($key, true) ?? [];
     }
 
+    /**
+     * Local-database-only variant of getProperties(): used by the
+     * "Disponibilités des 3 prochains mois" table on /admin/sync, which must
+     * never itself trigger a live Lodgify call (same reasoning as
+     * getAvailabilityFromCache() above). Returns the last cached list even
+     * if expired (stale), or [] if properties have never been synced yet.
+     */
+    public function getPropertiesFromCache(): array
+    {
+        return $this->cacheGet('lodgify:v2:properties', true) ?? [];
+    }
+
     private function fetchAvailability(int $propertyId, string $from, string $to): array
     {
         // Lodgify's real v2 endpoint expects "start"/"end" query params (not

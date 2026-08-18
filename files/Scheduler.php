@@ -358,9 +358,11 @@ SQL;
                 continue;
             }
             $result['properties']++;
+            $timedOut = false;
             foreach ($ranges as [$from, $to]) {
                 if (time() >= $deadline) {
-                    return $result;
+                    $timedOut = true;
+                    break;
                 }
                 try {
                     $client->getAvailability($propertyId, $from, $to);
@@ -371,6 +373,21 @@ SQL;
                     $result['errors'][] = 'property ' . $propertyId . ': ' . $e->getMessage();
                 }
             }
+            if ($timedOut) {
+                break;
+            }
+        }
+        // Persists when the cron last (attempted to) refresh the
+        // availability cache, so /admin/sync's local-database-only
+        // "Disponibilités des 3 prochains mois" table can show visitors
+        // when the data they are looking at was last updated automatically
+        // — distinct from LODGIFY_LAST_SYNC_AT, which only tracks the
+        // manual "Synchroniser maintenant" property-fiche sync.
+        try {
+            Settings::set('LODGIFY_CACHE_WARMED_AT', gmdate('c'));
+            Settings::reload();
+        } catch (\Throwable $e) {
+            error_log('[scheduler] failed to record cache warm-up timestamp: ' . $e->getMessage());
         }
         return $result;
     }

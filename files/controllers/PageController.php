@@ -2710,7 +2710,81 @@ TEXT;
         View::render('pages/admin-sync', [
             'pageTitle' => 'Synchronisation Lodgify',
             'lastSyncLabel' => self::formatLodgifyLastSync(),
+            'cronLastRunLabel' => self::formatLodgifyCacheWarmedAt(),
+            'availabilityDates' => self::adminSyncAvailabilityDates(),
+            'availabilityRows' => self::adminSyncAvailabilityRows(),
         ]);
+    }
+
+    /**
+     * The next-3-months date range shown by the "Disponibilités des 3
+     * prochains mois" table on /admin/sync.
+     *
+     * @return list<\DateTimeImmutable>
+     */
+    private static function adminSyncAvailabilityDates(): array
+    {
+        $today = new \DateTimeImmutable('today');
+        $end = $today->modify('+3 months');
+        $dates = [];
+        for ($cursor = $today; $cursor < $end; $cursor = $cursor->modify('+1 day')) {
+            $dates[] = $cursor;
+        }
+        return $dates;
+    }
+
+    /**
+     * Builds the rows of the "Disponibilités des 3 prochains mois" table on
+     * /admin/sync: one row per property, stacked one under the other, each
+     * showing per-day availability for the next 3 months. This must NEVER
+     * trigger a live Lodgify API call (only the cron's
+     * Scheduler::warmLodgifyCache() and the manual "Synchroniser
+     * maintenant" action are allowed to do that) — it only ever reads
+     * whatever is already sitting in the local lodgify_cache table via
+     * LodgifyClient::getPropertiesFromCache()/getAvailabilityFromCache(),
+     * even if stale/expired, and shows nothing for a property/range the
+     * cron hasn't warmed yet rather than fetching it.
+     *
+     * @return list<array{id:int, name:string, availability:array<string,?bool>}>
+     */
+    private static function adminSyncAvailabilityRows(): array
+    {
+        $client = new LodgifyClient();
+        $properties = $client->getPropertiesFromCache();
+        if ($properties === []) {
+            return [];
+        }
+        // Matches the exact date range Scheduler::warmLodgifyCache() warms
+        // for the property detail / calendar's 12-month window (current
+        // month -> +12 months): getAvailabilityFromCache() is keyed on the
+        // exact from/to strings, so re-using this range is what lets us
+        // read back the cron's cached data instead of always getting [].
+        $monthStart = new \DateTimeImmutable('first day of this month');
+        $warmedFrom = $monthStart->format('Y-m-d');
+        $warmedTo = $monthStart->modify('+12 months')->modify('-1 day')->format('Y-m-d');
+
+        $rows = [];
+        foreach ($properties as $property) {
+            $propertyId = (int) ($property['id'] ?? 0);
+            if ($propertyId <= 0) {
+                continue;
+            }
+            $availability = $client->getAvailabilityFromCache($propertyId, $warmedFrom, $warmedTo);
+            $map = [];
+            foreach ($availability as $day) {
+                if (!is_array($day) || !isset($day['date'])) {
+                    continue;
+                }
+                $map[(string) $day['date']] = isset($day['available']) ? (bool) $day['available'] : null;
+            }
+            $rows[] = [
+                'id' => $propertyId,
+                'name' => (string) (View::localized($property, 'name') ?: ($property['name'] ?? ('Bien #' . $propertyId))),
+                'availability' => $map,
+            ];
+        }
+        usort($rows, static fn (array $a, array $b): int => strnatcasecmp($a['name'], $b['name']));
+        return $rows;
     }
 
     /**
@@ -3641,6 +3715,29 @@ TEXT;
             return null;
         }
         return 'Mis à jour le ' . $date->format('d/m/Y') . ' à ' . $date->format('H:i') . ' (GMT+4)';
+    }
+
+    /**
+     * Formats when the cron (bin/run-scheduler.php -> Scheduler::
+     * warmLodgifyCache()) last automatically refreshed the local
+     * availability cache (lodgify_cache), converted to GMT+4 (Île Maurice)
+     * regardless of the server's own timezone. Distinct from
+     * formatLodgifyLastSync(), which only tracks the manual "Synchroniser
+     * maintenant" property-fiche sync.
+     */
+    private static function formatLodgifyCacheWarmedAt(): ?string
+    {
+        $raw = Settings::get('LODGIFY_CACHE_WARMED_AT');
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+        try {
+            $date = new \DateTimeImmutable($raw);
+            $date = $date->setTimezone(new \DateTimeZone('Etc/GMT-4'));
+        } catch (\Throwable $e) {
+            return null;
+        }
+        return 'Base de données mise à jour automatiquement par le cron le ' . $date->format('d/m/Y') . ' à ' . $date->format('H:i') . ' (GMT+4)';
     }
 
     public static function publicRates(LodgifyClient $client, int $propertyId, string $from, string $to, float $vatRate = 0.0, bool $cacheOnly = false): array

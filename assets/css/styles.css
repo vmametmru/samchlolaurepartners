@@ -334,6 +334,14 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .calendar-board.cal-name-hidden { --cal-name-w: 0px; }
 .calendar-board.cal-name-hidden .cal-col-name { display: none; }
 
+/* /admin/sync "Disponibilités des 3 prochains mois" table: local-cache-only
+   read-only availability grid, one row per property (stacked, no
+   side-by-side columns), reusing the calendar-board-table/cal-cell/
+   cal-available/cal-unavailable/cal-unknown styling above but with its own
+   (simpler, photo-less) sticky name column. */
+.admin-availability-board { --cal-day-w: 40px; --cal-name-w: 180px; overflow-x: auto; overflow-y: hidden; margin-top: .5rem; border: 1px solid var(--border, #e5e7eb); border-radius: .8rem; max-width: 100%; }
+.admin-availability-board .cal-col-name { left: 0; }
+
 .calendar-filter { margin-top: 1.25rem; display: flex; flex-direction: column; gap: 1rem; }
 .calendar-filter-section { display: flex; flex-direction: column; gap: .5rem; }
 .calendar-filter-label { font-weight: 700; font-size: .9rem; }
