@@ -251,6 +251,9 @@ try {
         case route($method, $path, 'GET', '#^/r/([a-f0-9]{32})$#', $matches):
             PageController::reservationPublic((string) $matches[1]);
             break;
+        case route($method, $path, 'GET', '#^/r/([a-f0-9]{32})/available-properties$#', $matches):
+            PageController::reservationPublicAvailableProperties((string) $matches[1]);
+            break;
         case route($method, $path, 'POST', '#^/r/([a-f0-9]{32})/update$#', $matches):
             PageController::reservationPublicUpdate((string) $matches[1]);
         case route($method, $path, 'POST', '#^/r/([a-f0-9]{32})/cancel$#', $matches):

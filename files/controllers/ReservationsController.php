@@ -174,6 +174,30 @@ final class ReservationsController extends Controller
                     break;
                 }
             }
+            // Neither the modern (children_under3/children_3to12) nor the
+            // legacy migration-018 (children_under5/children_5to12) columns
+            // exist: migration 018 never applied on this database. Without a
+            // breakdown column, every request/update silently collapses the
+            // "< 3 ans"/bébé count into the aggregate "children" column,
+            // which is exactly the "3 enfants + 0 bébé" data-loss bug this
+            // self-heal fixes — ADD the modern columns inline so the split
+            // is persisted going forward, the same self-healing pattern as
+            // Database::ensureColumnNullable() elsewhere in this codebase.
+            if (self::$childrenBreakdownColumns === null) {
+                $under3Added = Database::ensureColumn(
+                    'reservation_requests',
+                    'children_under3',
+                    'TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER children'
+                );
+                $from3to12Added = Database::ensureColumn(
+                    'reservation_requests',
+                    'children_3to12',
+                    'TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER children_under3'
+                );
+                if ($under3Added && $from3to12Added) {
+                    self::$childrenBreakdownColumns = ['under3' => 'children_under3', 'from3to12' => 'children_3to12'];
+                }
+            }
         } catch (Throwable $e) {
             self::$childrenBreakdownColumns = null;
         }
@@ -350,7 +374,7 @@ final class ReservationsController extends Controller
     /**
      * @return array{under3: int, from3to12: int}
      */
-    private static function childBreakdownValues(array $source): array
+    public static function childBreakdownValues(array $source): array
     {
         return [
             'under3' => self::childCount($source, 'children_under3', 'children_under5'),
@@ -1728,6 +1752,139 @@ final class ReservationsController extends Controller
     }
 
     /**
+     * Whether $propertyId has no CONFIRMED reservation overlapping
+     * [$checkin, $checkout) in this app's own database, excluding
+     * $excludeRequestId (the request currently being edited, so a property
+     * already booked by that very request never excludes itself). Used by
+     * the "changer d'hébergement" picker on the public reservation page
+     * (publicAvailableProperties() below) to check availability against
+     * this site's own bookings rather than Lodgify's live calendar, per
+     * the client's explicit request that the picker only ever reflect
+     * what has actually been confirmed locally.
+     */
+    public static function isPropertyLocallyAvailable(int $propertyId, string $checkin, string $checkout, int $excludeRequestId = 0): bool
+    {
+        $stmt = Database::connection()->prepare(
+            'SELECT COUNT(*) FROM reservations res
+             INNER JOIN reservation_requests rr ON rr.id = res.request_id
+             WHERE res.cancelled_at IS NULL
+               AND rr.property_id = ?
+               AND rr.id != ?
+               AND rr.checkin_date < ?
+               AND rr.checkout_date > ?'
+        );
+        $stmt->execute([(string) $propertyId, $excludeRequestId, $checkout, $checkin]);
+        return ((int) $stmt->fetchColumn()) === 0;
+    }
+
+    /**
+     * Computes just the traveler-facing total (currency + total_traveler)
+     * for a candidate property/date/party-size combination, for the
+     * "changer d'hébergement" picker (publicAvailableProperties() below).
+     * Thin public wrapper around the private computeItemQuote()/
+     * computeQuoteBreakdown() pair used everywhere else, so pricing stays
+     * fully authoritative (never trusts anything client-submitted). Returns
+     * null if Lodgify rates aren't available for this property/range,
+     * mirroring computeItemQuote()'s own degrade-gracefully contract.
+     *
+     * @param array<int, array{type?: string, nationality?: string}> $guests
+     * @return array{currency: string, total_traveler: float}|null
+     */
+    public static function quoteTotalForCandidate(
+        int $partnerId,
+        int $propertyId,
+        ?array $property,
+        string $checkin,
+        \DateTimeImmutable $checkoutDate,
+        int $adults,
+        int $totalGuests,
+        int $countedGuests,
+        array $guests
+    ): ?array {
+        $partner = self::fetchPartner($partnerId);
+        $quoteData = self::computeItemQuote($propertyId, $property, $checkin, $checkoutDate, $adults, $totalGuests, $countedGuests, $guests);
+        if ($quoteData === null) {
+            return null;
+        }
+        $breakdown = self::computeQuoteBreakdown(
+            $quoteData,
+            (float) ($partner['markup_percent'] ?? 0),
+            (float) ($quoteData['vat_rate'] ?? 0),
+            $quoteData['room_base_before_commission'] ?? null,
+            $quoteData['extra_person_base_before_commission'] ?? null
+        );
+        return ['currency' => $breakdown['currency'], 'total_traveler' => $breakdown['total_traveler']];
+    }
+
+    /**
+     * Lists properties available for the "changer d'hébergement" modal on
+     * the public reservation page (PageController::
+     * reservationPublicAvailableProperties()): visible to the request's
+     * partner, able to host the requested party size, and — per the
+     * client's explicit requirement — available according to this app's own
+     * local reservations (isPropertyLocallyAvailable() above), never
+     * Lodgify's live calendar. Each entry carries the newly computed price
+     * for the requested dates/party size so the modal can show it next to
+     * the request's last recorded ("avant modif") price.
+     *
+     * @param array<int, array{type?: string, nationality?: string}> $guests
+     * @return array<int, array{id: int, name: string, max_guests: int, currency: ?string, total_traveler: ?float}>
+     */
+    public static function publicAvailableProperties(
+        array $request,
+        string $checkin,
+        \DateTimeImmutable $checkoutDate,
+        int $adults,
+        int $totalGuests,
+        int $countedGuests,
+        array $guests
+    ): array {
+        $partner = PartnersController::formData((int) $request['partner_id']);
+        $properties = [];
+        try {
+            $properties = PageController::publicVisibleProperties((new LodgifyClient())->getProperties(), $partner);
+        } catch (Throwable $e) {
+            error_log('Lodgify: failed to list properties for public availability picker: ' . $e->getMessage());
+            return [];
+        }
+
+        $results = [];
+        foreach ($properties as $property) {
+            $propertyId = (int) ($property['id'] ?? 0);
+            if ($propertyId <= 0) {
+                continue;
+            }
+            $maxGuests = (int) ($property['max_guests'] ?? 0);
+            if ($maxGuests > 0 && $countedGuests > $maxGuests) {
+                continue;
+            }
+            if (!self::isPropertyLocallyAvailable($propertyId, $checkin, $checkoutDate->format('Y-m-d'), (int) $request['id'])) {
+                continue;
+            }
+            $quote = self::quoteTotalForCandidate(
+                (int) $request['partner_id'],
+                $propertyId,
+                $property,
+                $checkin,
+                $checkoutDate,
+                $adults,
+                $totalGuests,
+                $countedGuests,
+                $guests
+            );
+            $results[] = [
+                'id' => $propertyId,
+                'name' => (string) ($property['name'] ?? ''),
+                'max_guests' => $maxGuests,
+                'currency' => $quote['currency'] ?? null,
+                'total_traveler' => $quote['total_traveler'] ?? null,
+            ];
+        }
+
+        return $results;
+    }
+
+    /**
      * Cancels a reservation request from the client-facing public link
      * (PageController::reservationPublicCancel()), mirroring cancelForPartner()
      * but re-checking the "pending only" rule itself (a confirmed request
@@ -2248,6 +2405,33 @@ final class ReservationsController extends Controller
         $monthName = $months[(int) $date->format('n')];
 
         return $dayName . ' ' . $date->format('d') . ' ' . $monthName . ' ' . $date->format('Y');
+    }
+
+    /**
+     * Formats an ISO ("Y-m-d") date as "dd mmm yyyy" in French (e.g.
+     * "18 août 2026"), without the weekday prefix that formatDateFr() adds
+     * — used for the public reservation page's "Arrivée"/"Départ" summary.
+     * Falls back to the original (unformatted) value when it isn't a valid
+     * date, rather than throwing.
+     */
+    public static function formatDateShortFr(string $isoDate): string
+    {
+        $isoDate = trim($isoDate);
+        if ($isoDate === '') {
+            return '';
+        }
+        try {
+            $date = new \DateTimeImmutable($isoDate);
+        } catch (Throwable $e) {
+            return $isoDate;
+        }
+
+        $months = [
+            1 => 'janv.', 2 => 'févr.', 3 => 'mars', 4 => 'avr.', 5 => 'mai', 6 => 'juin',
+            7 => 'juil.', 8 => 'août', 9 => 'sept.', 10 => 'oct.', 11 => 'nov.', 12 => 'déc.',
+        ];
+
+        return $date->format('d') . ' ' . $months[(int) $date->format('n')] . ' ' . $date->format('Y');
     }
 
     /**

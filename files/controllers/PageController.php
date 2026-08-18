@@ -149,6 +149,21 @@ final class PageController extends Controller
     }
 
     /**
+     * Public wrapper around filterVisibleProperties() (always excluding
+     * "partial" visibility properties), for ReservationsController::
+     * publicAvailableProperties() — the "changer d'hébergement" picker on
+     * the public reservation page — to reuse the same partner-visibility
+     * filtering as reservationPublic() itself without duplicating it.
+     *
+     * @param array<int, array> $properties
+     * @return array<int, array>
+     */
+    public static function publicVisibleProperties(array $properties, ?array $partner): array
+    {
+        return self::filterVisibleProperties($properties, $partner, true);
+    }
+
+    /**
      * Removes properties the active partner isn't allowed to see ("none")
      * from a Lodgify property list. When $excludePartial is true, "partial"
      * properties are dropped too — used for date-based availability search
@@ -1007,32 +1022,111 @@ final class PageController extends Controller
             Tenant::setCodeCookie((string) $partner['subdomain']);
         }
         $editable = (string) $request['status'] === 'pending';
-        $properties = [];
-        if ($editable) {
-            try {
-                $properties = self::filterVisibleProperties((new LodgifyClient())->getProperties(), $partner, true);
-            } catch (Throwable $e) {
-                Flash::set('Impossible de charger la liste des hébergements pour le moment.', 'error');
-            }
-        }
+        // The full property list is no longer eagerly fetched here: the
+        // "Changer d'hébergement" picker (see reservation-public.php) now
+        // loads its own candidates on demand from reservationPublicAvailableProperties(),
+        // filtered by capacity and by this app's own local availability.
+        // Single source of truth for the "< 3 ans"/"3-12 ans" split — see
+        // ReservationsController::childBreakdownValues(), which already
+        // self-heals a database that never got the migration-018 breakdown
+        // columns (childrenBreakdownColumns()). Passed to the view instead
+        // of re-deriving the same fallback chain there, which used to read
+        // "children_under3"/"children_3to12" (columns that may not even
+        // exist) before falling back to the aggregate "children" total.
+        $childBreakdown = ReservationsController::childBreakdownValues($request);
         View::render('pages/reservation-public', [
             'pageTitle' => 'Ma demande de réservation',
             'token' => $token,
             'request' => $request,
             'partner' => $partner,
-            'properties' => $properties,
             'editable' => $editable,
+            'childrenUnder3' => $childBreakdown['under3'],
+            'children3to12' => $childBreakdown['from3to12'],
+            // Hides the top navigation menu, keeping only the logo/name
+            // (see partials/navbar.php) — this link is shared directly with
+            // clients over WhatsApp/email and must not expose the rest of
+            // the site's navigation.
+            'minimalHeader' => true,
         ]);
     }
 
     /**
+     * Lists properties available for the "changer d'hébergement" modal on
+     * the public reservation page, for the dates/party size currently
+     * entered in the edit form (query params checkin_date/checkout_date/
+     * adults/children_3to12/children_under3, falling back to the request's
+     * own values when omitted) — delegates the actual filtering/pricing to
+     * ReservationsController::publicAvailableProperties(), which checks
+     * availability against this app's own local reservations rather than
+     * Lodgify's live calendar.
+     */
+    public static function reservationPublicAvailableProperties(string $token): never
+    {
+        $request = ReservationsController::findByToken($token);
+        if (!$request) {
+            self::json(['error' => 'Not Found', 'message' => 'Demande introuvable'], 404);
+        }
+        if ((string) $request['status'] !== 'pending') {
+            self::json(['error' => 'Forbidden', 'message' => 'Cette demande n\'est plus modifiable en ligne.'], 403);
+        }
+        $partner = PartnersController::formData((int) $request['partner_id']);
+        if (!empty($partner['subdomain'])) {
+            Tenant::setCodeCookie((string) $partner['subdomain']);
+        }
+
+        $childBreakdown = ReservationsController::childBreakdownValues($request);
+        $checkin = trim((string) ($_GET['checkin_date'] ?? '')) ?: (string) $request['checkin_date'];
+        $checkout = trim((string) ($_GET['checkout_date'] ?? '')) ?: (string) $request['checkout_date'];
+        $adults = max(1, (int) ($_GET['adults'] ?? $request['adults'] ?? 1));
+        $childrenUnder3 = max(0, (int) ($_GET['children_under3'] ?? $childBreakdown['under3']));
+        $children3to12 = max(0, (int) ($_GET['children_3to12'] ?? $childBreakdown['from3to12']));
+
+        try {
+            $checkinDate = new \DateTimeImmutable($checkin);
+            $checkoutDate = new \DateTimeImmutable($checkout);
+        } catch (Throwable $e) {
+            self::json(['error' => 'Bad Request', 'message' => 'Dates invalides.'], 400);
+        }
+        if ($checkoutDate <= $checkinDate) {
+            self::json(['error' => 'Bad Request', 'message' => 'La date de départ doit être après la date d\'arrivée.'], 400);
+        }
+
+        $totalGuests = $adults + $childrenUnder3 + $children3to12;
+        $countedGuests = $adults + $children3to12;
+        $guests = is_array($request['guests'] ?? null) ? $request['guests'] : [];
+
+        $properties = ReservationsController::publicAvailableProperties(
+            $request,
+            $checkin,
+            $checkoutDate,
+            $adults,
+            $totalGuests,
+            $countedGuests,
+            $guests
+        );
+
+        self::json(['data' => [
+            'checkin_date' => $checkin,
+            'checkout_date' => $checkoutDate->format('Y-m-d'),
+            'adults' => $adults,
+            'children_3to12' => $children3to12,
+            'children_under3' => $childrenUnder3,
+            'previous_price' => [
+                'currency' => (string) ($request['quote_currency'] ?? 'EUR'),
+                'total_traveler' => (float) ($request['quote_total_traveler'] ?? 0),
+            ],
+            'properties' => $properties,
+        ]]);
+    }
+
+    /**
      * Handles the "Renvoyer la demande modifiée" submission on the public
-     * reservation page: rebuilds the {type, nationality} guests array from
-     * the form's simplified per-party-type nationality fields, then
-     * delegates the actual re-validation/re-pricing/persistence to
-     * ReservationsController::updatePublicRequest(), which re-checks
-     * server-side that the request is still "pending" regardless of what
-     * this page last rendered.
+     * reservation page: decodes the {type, nationality} guests array built
+     * client-side (initNationalities()/collectGuests() in assets/js/app.js,
+     * posted as the "guests_json" hidden field) before delegating the
+     * actual re-validation/re-pricing/persistence to ReservationsController::
+     * updatePublicRequest(), which re-checks server-side that the request is
+     * still "pending" regardless of what this page last rendered.
      */
     public static function reservationPublicUpdate(string $token): never
     {
@@ -1046,21 +1140,8 @@ final class PageController extends Controller
         }
 
         $input = $_POST;
-        $adults = max(0, (int) ($input['adults'] ?? 0));
-        $childrenUnder3 = max(0, (int) ($input['children_under3'] ?? 0));
-        $children3to12 = max(0, (int) ($input['children_3to12'] ?? 0));
-        $adultNationality = trim((string) ($input['adult_nationality'] ?? ''));
-        $childNationality = trim((string) ($input['child_nationality'] ?? '')) ?: $adultNationality;
-        $guests = [];
-        for ($i = 0; $i < $adults; $i++) {
-            $guests[] = ['type' => 'adult', 'nationality' => $adultNationality];
-        }
-        for ($i = 0; $i < ($childrenUnder3 + $children3to12); $i++) {
-            $guests[] = ['type' => 'child', 'nationality' => $childNationality];
-        }
-        $input['guests'] = $guests;
-        $input['children_under3'] = $childrenUnder3;
-        $input['children_3to12'] = $children3to12;
+        $guests = json_decode((string) ($input['guests_json'] ?? '[]'), true);
+        $input['guests'] = is_array($guests) ? $guests : [];
 
         $result = ReservationsController::updatePublicRequest($request, $input);
         self::redirect('/r/' . $token, $result['message'], $result['ok'] ? 'success' : 'error');
