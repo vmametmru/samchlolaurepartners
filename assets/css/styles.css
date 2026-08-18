@@ -213,6 +213,7 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .reservation-property-current { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; border: 1px solid var(--border); border-radius: .75rem; padding: .75rem 1rem; }
 .reservation-quote-hint { margin: .5rem 0 0; font-size: .82rem; }
 .simple-modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, .55); display: flex; align-items: center; justify-content: center; padding: 1.5rem; z-index: 1000; }
+.simple-modal-overlay[hidden] { display: none; }
 .simple-modal-dialog { background: var(--card); border-radius: 1rem; padding: 1.25rem; width: 100%; max-width: 34rem; max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 50px rgba(15, 23, 42, .25); }
 .simple-modal-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
 .simple-modal-header h3 { margin: 0; }
