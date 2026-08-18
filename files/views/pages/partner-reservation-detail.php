@@ -2,6 +2,7 @@
 $rid = (int) $reservation['id'];
 $status = (string) $reservation['status'];
 $editable = $status === 'pending';
+$hasQuote = ($reservation['quote_room_total'] ?? null) !== null;
 $childrenUnder = (int) ($childrenUnder3 ?? 0);
 $children3to12v = (int) ($children3to12 ?? 0);
 $guests = is_array($reservation['guests'] ?? null) ? $reservation['guests'] : [];
@@ -127,6 +128,20 @@ $propertyDescription = $property ? trim(\App\View::localized($property, 'descrip
               <div class="button-row">
                 <a class="btn-secondary" target="_blank" rel="noopener" data-reservation-view-property-link href="/properties/<?= (int) $reservation['property_id'] ?>#rates-availability">Voir le bien</a>
                 <button type="button" class="btn-secondary" data-reservation-change-property data-reservation-price-locked-field>Changer d'hébergement</button>
+                <?php if ($hasQuote): ?>
+                  <!-- Once a devis exists, the same button on the client's
+                       own public link (reservation-public.php) is hidden by
+                       default (migration 047, client_can_change_property);
+                       this tick lets the partner re-enable it for this
+                       request without opening the full "Modifier" form —
+                       submits on change, no separate save button needed. -->
+                  <form method="post" action="/partner/reservations/<?= $rid ?>/client-property-change" class="inline-check-form">
+                    <label class="inline-check">
+                      <input type="checkbox" name="allow" value="1" onchange="this.form.submit()" <?= !empty($reservation['client_can_change_property']) ? 'checked' : '' ?>>
+                      Autoriser le client à changer d'hébergement
+                    </label>
+                  </form>
+                <?php endif; ?>
               </div>
             </div>
           </div>

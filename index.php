@@ -281,6 +281,9 @@ try {
         case route($method, $path, 'POST', '#^/partner/reservations/(\d+)/reopen$#', $matches):
             PageController::partnerReopenReservation((int) $matches[1]);
             break;
+        case route($method, $path, 'POST', '#^/partner/reservations/(\d+)/client-property-change$#', $matches):
+            PageController::partnerToggleClientPropertyChange((int) $matches[1]);
+            break;
         case route($method, $path, 'POST', '#^/partner/reservations/(\d+)/update$#', $matches):
             PageController::partnerUpdateReservation((int) $matches[1]);
             break;

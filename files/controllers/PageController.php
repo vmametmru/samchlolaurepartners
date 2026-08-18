@@ -1027,6 +1027,29 @@ final class PageController extends Controller
     }
 
     /**
+     * Handles the "Autoriser le client à changer d'hébergement" checkbox on
+     * /partner/reservations/{id} (see ReservationsController::
+     * setClientCanChangeProperty()): once a devis exists the "Changer
+     * d'hébergement" button on the client's own public link is hidden by
+     * default (migration 047), this lets the partner re-enable it per
+     * request without going through the full "Modifier" edit form.
+     */
+    public static function partnerToggleClientPropertyChange(int $id): never
+    {
+        $user = self::requirePartnerUser();
+        $partnerId = (int) $user['partner_id'];
+        $allow = !empty($_POST['allow']);
+        if (!ReservationsController::setClientCanChangeProperty($partnerId, $id, $allow)) {
+            throw new HttpException(404, 'Not Found', 'Réservation introuvable');
+        }
+        self::redirect(
+            self::partnerReservationsRedirectUrl($id),
+            $allow ? 'Le client peut désormais changer d\'hébergement sur sa demande.' : 'Le client ne peut plus changer d\'hébergement sur sa demande.',
+            'success'
+        );
+    }
+
+    /**
      * Reopens a confirmed/cancelled reservation back to "Ouverte" (pending),
      * used by the "En Attente" / pause-icon button on /partner/reservations
      * (see ReservationsController::reopenForPartner()).

@@ -1464,6 +1464,30 @@ final class ReservationsController extends Controller
     }
 
     /**
+     * Toggles whether the client is allowed to see/use the "Changer
+     * d'hébergement" button on their own public link (see
+     * reservation-public.php) once a devis has been generated — hidden by
+     * default (migration 047) as soon as a quote exists, re-enabled here
+     * per-request by the partner via the checkbox next to "Changer
+     * d'hébergement" on /partner/reservations/{id}.
+     */
+    public static function setClientCanChangeProperty(int $partnerId, int $id, bool $allow): bool
+    {
+        $pdo = Database::connection();
+        // rowCount() alone can't tell "not found" apart from "found but
+        // value unchanged" (e.g. re-ticking an already-checked box), so the
+        // ownership check is done as its own existence query first.
+        $exists = $pdo->prepare('SELECT id FROM reservation_requests WHERE id = ? AND partner_id = ? LIMIT 1');
+        $exists->execute([$id, $partnerId]);
+        if (!$exists->fetchColumn()) {
+            return false;
+        }
+        $stmt = $pdo->prepare('UPDATE reservation_requests SET client_can_change_property = ? WHERE id = ? AND partner_id = ?');
+        $stmt->execute([$allow ? 1 : 0, $id, $partnerId]);
+        return true;
+    }
+
+    /**
      * Resolves the owning partner_id for a reservation request, regardless
      * of partner, so admin-only actions (confirm/cancel/reopen/delete) can
      * reuse the same partner-scoped logic (confirmForPartner()/cancelForPartner()/
