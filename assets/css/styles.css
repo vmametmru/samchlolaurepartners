@@ -264,7 +264,12 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 /* "Modifier les Dates" modal (reservation-public.php / partner-reservation-
    detail.php, initReservationDatesModal() in app.js): the request's current
    dates are shown in orange until the visitor starts picking new ones, at
-   which point the newly selected range takes over in red. */
+   which point the newly selected range takes over in red. Unlike the
+   property-detail "Tarifs & Disponibilités" tab's 3-per-row (desktop)
+   12-month calendar, this modal only ever renders 4 months at a time
+   (PageController::reservationDatesAvailabilityFragment()), always shown
+   2 per row regardless of viewport width. */
+.reservation-dates-calendar .calendar-months { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .reservation-dates-calendar .calendar-cell.current-dates { background: #fed7aa; color: #9a3412; }
 .reservation-dates-calendar .calendar-cell.new-dates { background: #dc2626; color: white; }
 .calendar-legend-row { margin-top: 1rem; display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }

@@ -1430,21 +1430,18 @@ final class PageController extends Controller
 
     /**
      * Shared by partnerReservationDatesAvailability()/
-     * reservationPublicDatesAvailability() below: builds the same rates/
-     * price-note data as propertyDetail()'s "Tarifs & Disponibilités" tab
-     * (still sourced from Lodgify, since this app has no local pricing
-     * data), but with day-by-day AVAILABILITY read from this app's own
-     * `reservations` table instead of Lodgify's live calendar — per
-     * explicit requirement, the "Modifier les Dates" modal must never call
-     * Lodgify for availability (see ReservationsController::
-     * localAvailabilityForRange()). Rendered as a JSON-friendly HTML
-     * fragment (via calendar-body.php) for a given property and 12-month
+     * reservationPublicDatesAvailability() below: builds the exact same
+     * rates/availability/price-note data as propertyDetail()'s "Tarifs &
+     * Disponibilités" tab (this app has no local pricing or availability
+     * data of its own; both read LodgifyClient::getAvailability()/
+     * getRates()'s 1h-TTL local cache, never a forced/live Lodgify call, so
+     * external-channel bookings — Airbnb, Booking.com, ... — are reflected
+     * identically in both places). Rendered as a JSON-friendly HTML
+     * fragment (via calendar-body.php) for a given property and 4-month
      * range anchored on $anchorDate's month, for the "Modifier les Dates"
      * modal on /partner/reservations/{id} and the public /r/{token} page.
-     * $excludeRequestId is the reservation request currently being edited,
-     * so its own current dates are never shown as booked.
      */
-    private static function reservationDatesAvailabilityFragment(array $partner, int $propertyId, ?string $anchorDate, int $excludeRequestId = 0): array
+    private static function reservationDatesAvailabilityFragment(array $partner, int $propertyId, ?string $anchorDate): array
     {
         $visibility = PartnerPropertyVisibility::visibilityFor($partner, $propertyId);
         if ($visibility === PartnerPropertyVisibility::NONE) {
@@ -1452,7 +1449,12 @@ final class PageController extends Controller
         }
         $client = new LodgifyClient();
         $today = date('Y-m-d');
-        $calendarMonths = 12;
+        // The "Modifier les Dates" modal only shows 4 months at a time (2
+        // per row), unlike the property-detail "Tarifs & Disponibilités"
+        // tab's 12-month calendar (files/views/partials/calendar.php),
+        // since the partner/client navigates via the prev/next-month
+        // buttons in initReservationDatesModal() (assets/js/app.js).
+        $calendarMonths = 4;
         try {
             $anchor = ($anchorDate !== null && $anchorDate !== '') ? new \DateTimeImmutable($anchorDate) : new \DateTimeImmutable('today');
         } catch (Throwable $e) {
@@ -1468,7 +1470,14 @@ final class PageController extends Controller
         $availability = [];
         $rates = [];
         if ($visibility !== PartnerPropertyVisibility::PARTIAL) {
-            $availability = ReservationsController::localAvailabilityForRange($propertyId, $rangeStart, $rangeEnd, $excludeRequestId);
+            // Same source, same 1h-TTL local cache, as the property-detail
+            // "Tarifs & Disponibilités" tab (propertyDetail() above) — never
+            // a forced/live Lodgify call, just LodgifyClient::
+            // getAvailability()'s cache (AVAILABILITY_TTL), refreshed hourly
+            // by Scheduler::warmLodgifyCache() from the cron job — so the
+            // "Modifier les Dates" modal shows the exact same availability
+            // the partner/client already saw on the property page.
+            $availability = $client->getAvailability($propertyId, $rangeStart, $rangeEnd);
             $rates = self::publicRates($client, $propertyId, $rangeStart, $rangeEnd, $vatRate);
         }
 
@@ -1543,7 +1552,7 @@ final class PageController extends Controller
             self::json(['error' => 'Bad Request', 'message' => 'Bien introuvable pour cette demande.'], 400);
         }
         $anchor = trim((string) ($_GET['anchor'] ?? '')) ?: (string) $request['checkin_date'];
-        self::json(['data' => self::reservationDatesAvailabilityFragment($partner, $propertyId, $anchor, (int) $request['id'])]);
+        self::json(['data' => self::reservationDatesAvailabilityFragment($partner, $propertyId, $anchor)]);
     }
 
     /**
@@ -1568,7 +1577,7 @@ final class PageController extends Controller
             self::json(['error' => 'Bad Request', 'message' => 'Bien introuvable pour cette demande.'], 400);
         }
         $anchor = trim((string) ($_GET['anchor'] ?? '')) ?: (string) $request['checkin_date'];
-        self::json(['data' => self::reservationDatesAvailabilityFragment($partner, $propertyId, $anchor, (int) $request['id'])]);
+        self::json(['data' => self::reservationDatesAvailabilityFragment($partner, $propertyId, $anchor)]);
     }
 
     /**

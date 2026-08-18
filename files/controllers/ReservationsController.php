@@ -1984,57 +1984,6 @@ final class ReservationsController extends Controller
         return ((int) $stmt->fetchColumn()) === 0;
     }
 
-    /**
-     * Day-by-day local-only availability for $propertyId over
-     * [$rangeStart, $rangeEnd] (inclusive), for the "Modifier les Dates"
-     * calendar modal (PageController::reservationDatesAvailabilityFragment()):
-     * per explicit requirement, that modal must read availability from this
-     * app's own `reservations` table only, never Lodgify's live calendar
-     * (unlike propertyDetail()'s "Tarifs & Disponibilités" tab, which still
-     * uses LodgifyClient::getAvailability()). A night is "unavailable" when
-     * a non-cancelled CONFIRMED reservation on this property covers it,
-     * excluding $excludeRequestId (the request currently being edited, so
-     * its own current dates never show as booked). Shaped like
-     * LodgifyClient::getAvailability()'s return value (date/available pairs)
-     * so calendar-body.php can render it unchanged; `single_night` (a
-     * Lodgify-specific turnover-day nuance) is always false here since this
-     * app's own reservations table has no equivalent concept.
-     *
-     * @return array<int, array{date: string, available: bool, single_night: bool}>
-     */
-    public static function localAvailabilityForRange(int $propertyId, string $rangeStart, string $rangeEnd, int $excludeRequestId = 0): array
-    {
-        $stmt = Database::connection()->prepare(
-            'SELECT rr.checkin_date, rr.checkout_date FROM reservations res
-             INNER JOIN reservation_requests rr ON rr.id = res.request_id
-             WHERE res.cancelled_at IS NULL
-               AND rr.property_id = ?
-               AND rr.id != ?
-               AND rr.checkin_date < ?
-               AND rr.checkout_date > ?'
-        );
-        $stmt->execute([(string) $propertyId, $excludeRequestId, $rangeEnd, $rangeStart]);
-        $bookedNights = [];
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $cursor = new \DateTimeImmutable((string) $row['checkin_date']);
-            $end = new \DateTimeImmutable((string) $row['checkout_date']);
-            while ($cursor < $end) {
-                $bookedNights[$cursor->format('Y-m-d')] = true;
-                $cursor = $cursor->modify('+1 day');
-            }
-        }
-
-        $result = [];
-        $cursor = new \DateTimeImmutable($rangeStart);
-        $end = new \DateTimeImmutable($rangeEnd);
-        while ($cursor <= $end) {
-            $date = $cursor->format('Y-m-d');
-            $result[] = ['date' => $date, 'available' => !isset($bookedNights[$date]), 'single_night' => false];
-            $cursor = $cursor->modify('+1 day');
-        }
-        return $result;
-    }
-
 
     /**
      * Computes just the traveler-facing total (currency + total_traveler)
