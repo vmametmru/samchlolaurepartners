@@ -1721,13 +1721,15 @@ final class ReservationsController extends Controller
      * price/availability from the same authoritative Lodgify-backed
      * computeItemQuote()/computeQuoteBreakdown() logic used everywhere else
      * on the site (never trusting anything the client submitted for
-     * pricing), then notifies both the partner and the client themselves
-     * by email with a change-details diff (describeRequestChanges()),
-     * unless the partner has ticked "Ne pas envoyer de email" on /partner/
-     * settings (partners.notify_on_client_edit). Only ever allowed while
-     * the request is still "pending" — once a partner has confirmed it, the
-     * client can no longer modify it (see PageController::
-     * reservationPublicUpdate(), which checks this before calling here).
+     * pricing), then always notifies both the partner and the client
+     * themselves by email with a change-details diff
+     * (describeRequestChanges()) — a client-initiated edit is never
+     * silenced; the "Ne pas notifier le client par email" opt-out only
+     * applies to partner-initiated edits (see updateForPartner() below).
+     * Only ever allowed while the request is still "pending" — once a
+     * partner has confirmed it, the client can no longer modify it (see
+     * PageController::reservationPublicUpdate(), which checks this before
+     * calling here).
      *
      * @return array{ok: bool, message: string, request?: array<string, mixed>}
      */
@@ -1748,21 +1750,18 @@ final class ReservationsController extends Controller
         // the client, who would then wrongly believe nothing was saved.
         try {
             $partner = self::fetchPartner((int) $request['partner_id']);
-            // The partner can opt out of these two client-edit emails
-            // entirely via the "Ne pas envoyer de email" checkbox on
-            // /partner/settings (partners.notify_on_client_edit), e.g. for
-            // an agency that only wants to check /partner/reservations
-            // itself rather than being emailed every time a client tweaks
-            // their own pending request.
-            if ((int) ($partner['notify_on_client_edit'] ?? 1) === 1) {
-                self::sendClientEditNotificationEmail($partner, $request, $updated);
-                // The client also gets their own confirmation email (in
-                // addition to the partner notification above) summarizing
-                // exactly what they just changed, so they have written
-                // proof of the new dates/party size/hébergement/price
-                // without needing to re-open the public link.
-                self::sendClientSelfEditConfirmationEmail($partner, $request, $updated);
-            }
+            // A client editing their own pending request always notifies
+            // the partner — there is no opt-out for this path. Only a
+            // partner-initiated edit can be sent silently, via the
+            // per-request "Ne pas notifier le client par email" checkbox
+            // (see updateForPartner() below).
+            self::sendClientEditNotificationEmail($partner, $request, $updated);
+            // The client also gets their own confirmation email (in
+            // addition to the partner notification above) summarizing
+            // exactly what they just changed, so they have written
+            // proof of the new dates/party size/hébergement/price
+            // without needing to re-open the public link.
+            self::sendClientSelfEditConfirmationEmail($partner, $request, $updated);
         } catch (Throwable $e) {
             error_log('Failed to send client-edited-reservation notification email: ' . $e);
         }
