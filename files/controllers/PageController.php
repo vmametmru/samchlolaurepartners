@@ -772,11 +772,29 @@ final class PageController extends Controller
             $reservations,
             static fn(array $row): bool => in_array((string) $row['status'], $selectedStatuses, true)
         ));
+        foreach ($reservations as &$reservation) {
+            $reservation['public_url'] = self::reservationPublicUrl((int) $reservation['id']);
+        }
+        unset($reservation);
         View::render('pages/partner-reservations', [
             'pageTitle' => 'Réservations',
             'reservations' => $reservations,
             'selectedStatuses' => $selectedStatuses,
         ]);
+    }
+
+    /**
+     * Builds the absolute "Partager le lien" URL for a reservation request
+     * (an online, editable copy of the client's reservation the partner can
+     * send via WhatsApp or any other channel — see
+     * ReservationsController::ensurePublicToken()/findByToken()), lazily
+     * generating the request's public_token if it doesn't have one yet.
+     * Returns null if migration 046 hasn't applied yet on this install.
+     */
+    private static function reservationPublicUrl(int $id): ?string
+    {
+        $token = ReservationsController::ensurePublicToken($id);
+        return $token !== null ? (Auth::currentBaseUrl() . '/r/' . $token) : null;
     }
 
     /**
@@ -915,6 +933,7 @@ final class PageController extends Controller
         if (!$reservation) {
             throw new HttpException(404, 'Not Found', 'Réservation introuvable');
         }
+        $reservation['public_url'] = self::reservationPublicUrl($id);
         View::render('pages/partner-reservation-detail', ['pageTitle' => 'Demande #' . $id, 'reservation' => $reservation]);
     }
 
@@ -958,6 +977,108 @@ final class PageController extends Controller
             throw new HttpException(404, 'Not Found', 'Réservation introuvable');
         }
         self::redirect(self::partnerReservationsRedirectUrl($id), 'Réservation repassée en attente.', 'info');
+    }
+
+    /**
+     * Renders the client-facing "Partager le lien" page: an online, editable
+     * copy of a reservation request the client can reach via an unguessable
+     * link (see ReservationsController::findByToken()). While the request is
+     * still "pending" the client can adjust their name/dates/party size/
+     * nationality/property and resend it (reservationPublicUpdate()) or
+     * cancel it (reservationPublicCancel()); once the partner has confirmed
+     * it, this renders read-only — only the partner can reopen/modify it
+     * from /partner/reservations from that point on.
+     */
+    public static function reservationPublic(string $token): void
+    {
+        $request = ReservationsController::findByToken($token);
+        if (!$request) {
+            throw new HttpException(404, 'Not Found', 'Demande introuvable');
+        }
+        $partner = PartnersController::formData((int) $request['partner_id']);
+        // The whole pricing/policy engine (ReservationsController::
+        // computeItemQuote() and friends, PageController::
+        // bookingPolicyText()) resolves the active partner from
+        // Tenant::current(), which reads the "partner_code" cookie — set it
+        // to this reservation's own partner so re-quoting on update always
+        // uses the correct markup/VAT/booking policy, regardless of
+        // whatever partner (if any) this browser already had active.
+        if (!empty($partner['subdomain'])) {
+            Tenant::setCodeCookie((string) $partner['subdomain']);
+        }
+        $editable = (string) $request['status'] === 'pending';
+        $properties = [];
+        if ($editable) {
+            try {
+                $properties = self::filterVisibleProperties((new LodgifyClient())->getProperties(), $partner, true);
+            } catch (Throwable $e) {
+                Flash::set('Impossible de charger la liste des hébergements pour le moment.', 'error');
+            }
+        }
+        View::render('pages/reservation-public', [
+            'pageTitle' => 'Ma demande de réservation',
+            'token' => $token,
+            'request' => $request,
+            'partner' => $partner,
+            'properties' => $properties,
+            'editable' => $editable,
+        ]);
+    }
+
+    /**
+     * Handles the "Renvoyer la demande modifiée" submission on the public
+     * reservation page: rebuilds the {type, nationality} guests array from
+     * the form's simplified per-party-type nationality fields, then
+     * delegates the actual re-validation/re-pricing/persistence to
+     * ReservationsController::updatePublicRequest(), which re-checks
+     * server-side that the request is still "pending" regardless of what
+     * this page last rendered.
+     */
+    public static function reservationPublicUpdate(string $token): never
+    {
+        $request = ReservationsController::findByToken($token);
+        if (!$request) {
+            throw new HttpException(404, 'Not Found', 'Demande introuvable');
+        }
+        $partner = PartnersController::formData((int) $request['partner_id']);
+        if (!empty($partner['subdomain'])) {
+            Tenant::setCodeCookie((string) $partner['subdomain']);
+        }
+
+        $input = $_POST;
+        $adults = max(0, (int) ($input['adults'] ?? 0));
+        $childrenUnder3 = max(0, (int) ($input['children_under3'] ?? 0));
+        $children3to12 = max(0, (int) ($input['children_3to12'] ?? 0));
+        $adultNationality = trim((string) ($input['adult_nationality'] ?? ''));
+        $childNationality = trim((string) ($input['child_nationality'] ?? '')) ?: $adultNationality;
+        $guests = [];
+        for ($i = 0; $i < $adults; $i++) {
+            $guests[] = ['type' => 'adult', 'nationality' => $adultNationality];
+        }
+        for ($i = 0; $i < ($childrenUnder3 + $children3to12); $i++) {
+            $guests[] = ['type' => 'child', 'nationality' => $childNationality];
+        }
+        $input['guests'] = $guests;
+        $input['children_under3'] = $childrenUnder3;
+        $input['children_3to12'] = $children3to12;
+
+        $result = ReservationsController::updatePublicRequest($request, $input);
+        self::redirect('/r/' . $token, $result['message'], $result['ok'] ? 'success' : 'error');
+    }
+
+    /**
+     * Handles the "Annuler la demande" submission on the public reservation
+     * page (see reservationPublic()). Delegates the "pending only" guard to
+     * ReservationsController::cancelPublicRequest().
+     */
+    public static function reservationPublicCancel(string $token): never
+    {
+        $request = ReservationsController::findByToken($token);
+        if (!$request) {
+            throw new HttpException(404, 'Not Found', 'Demande introuvable');
+        }
+        $result = ReservationsController::cancelPublicRequest($request);
+        self::redirect('/r/' . $token, $result['message'], $result['ok'] ? 'info' : 'error');
     }
 
     public static function partnerSettings(): void

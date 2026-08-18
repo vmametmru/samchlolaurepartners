@@ -28,6 +28,9 @@ $statusOptions = ['pending' => 'Ouverte (En attente)', 'confirmed' => 'Confirmé
           <td><span class="badge badge-<?= \App\View::e($status) ?>"><?= \App\View::e(\App\View::badgeLabel($status)) ?></span></td>
           <td class="reservation-actions">
             <a class="icon-btn" title="Ouvrir le devis" href="/partner/reservations/<?= $rid ?>">👁️</a>
+            <?php if (!empty($reservation['public_url'])): ?>
+              <a class="icon-btn" title="Partager sur WhatsApp" target="_blank" rel="noopener noreferrer" href="https://wa.me/?text=<?= urlencode('Voici le lien de votre demande de réservation : ' . $reservation['public_url']) ?>">🔗</a>
+            <?php endif; ?>
             <?php if ($status === 'confirmed'): ?>
               <form method="post" action="/partner/reservations/<?= $rid ?>/reopen" class="inline-form">
                 <input type="hidden" name="redirect_to" value="<?= \App\View::e($currentUrl) ?>">

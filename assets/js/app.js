@@ -54,6 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initCatalogUploadProgress,
     initTranslationSuggestions,
     initPhotoGallerySelectAll,
+    initCopyLinkButton,
   ].forEach(runInit);
 });
 
@@ -394,6 +395,43 @@ function initCalendarNameColumnToggle() {
       // Ignore storage errors (e.g. private browsing): the choice simply
       // won't persist across page loads, which is a harmless degradation.
     }
+  });
+}
+
+// Generic "copy link" button used by the "Partager le lien" action on
+// /partner/reservations and its detail page (public reservation-editing
+// link): copies the URL in data-copy-link (not window.location.href, unlike
+// initShareButton() above) and briefly flips the button label to confirm
+// the copy succeeded.
+function initCopyLinkButton() {
+  document.querySelectorAll('[data-copy-link]').forEach((btn) => {
+    const url = btn.dataset.copyLink || '';
+    if (!url) return;
+    const originalLabel = btn.textContent;
+    let resetTimeout = null;
+    btn.addEventListener('click', async () => {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(url);
+        } else {
+          const textarea = document.createElement('textarea');
+          textarea.value = url;
+          textarea.style.position = 'fixed';
+          textarea.style.opacity = '0';
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textarea);
+        }
+      } catch (error) {
+        return;
+      }
+      btn.textContent = '✅ Lien copié';
+      if (resetTimeout) window.clearTimeout(resetTimeout);
+      resetTimeout = window.setTimeout(() => {
+        btn.textContent = originalLabel;
+      }, 2000);
+    });
   });
 }
 

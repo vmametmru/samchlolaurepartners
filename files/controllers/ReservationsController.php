@@ -1487,6 +1487,293 @@ final class ReservationsController extends Controller
         return $partnerId !== null ? self::reopenForPartner($partnerId, $id) : null;
     }
 
+    private static ?bool $publicTokenColumnExists = null;
+
+    /**
+     * Whether reservation_requests already has the public_token column
+     * added by migration 046. Guarded the same way as hasVatRateColumn()
+     * so nothing 500s if that migration hasn't applied yet on a given
+     * install — the "Partager le lien" feature is simply unavailable until
+     * it does (ensurePublicToken()/findByToken() return null).
+     */
+    private static function hasPublicTokenColumn(PDO $pdo): bool
+    {
+        if (self::$publicTokenColumnExists === null) {
+            try {
+                self::$publicTokenColumnExists = self::reservationRequestColumnExists($pdo, 'public_token');
+            } catch (Throwable $e) {
+                self::$publicTokenColumnExists = false;
+            }
+        }
+        return self::$publicTokenColumnExists;
+    }
+
+    /**
+     * Returns the reservation request's public_token — an unguessable
+     * random identifier used to build the "Partager le lien" URL a partner
+     * can send a client (via WhatsApp or any other channel) so they can
+     * open an online, editable copy of their reservation request (see
+     * PageController::reservationPublic()) — generating and persisting one
+     * lazily if it doesn't already have one (older requests created before
+     * this feature existed). Returns null only if migration 046 hasn't
+     * applied yet on this install, or the request itself doesn't exist.
+     */
+    public static function ensurePublicToken(int $id): ?string
+    {
+        $pdo = Database::connection();
+        if (!self::hasPublicTokenColumn($pdo)) {
+            return null;
+        }
+        $stmt = $pdo->prepare('SELECT public_token FROM reservation_requests WHERE id = ? LIMIT 1');
+        $stmt->execute([$id]);
+        $existing = $stmt->fetchColumn();
+        if ($existing === false) {
+            return null;
+        }
+        if (is_string($existing) && $existing !== '') {
+            return $existing;
+        }
+        // random_bytes(16) is astronomically unlikely to collide with the
+        // UNIQUE KEY added by migration 046, but retry with a fresh
+        // candidate a handful of times just in case rather than failing
+        // the whole request outright.
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $candidate = bin2hex(random_bytes(16));
+            try {
+                $updateStmt = $pdo->prepare(
+                    'UPDATE reservation_requests SET public_token = ? WHERE id = ? AND (public_token IS NULL OR public_token = \'\')'
+                );
+                $updateStmt->execute([$candidate, $id]);
+                if ($updateStmt->rowCount() > 0) {
+                    return $candidate;
+                }
+                // Another request already set the token concurrently.
+                $recheck = $pdo->prepare('SELECT public_token FROM reservation_requests WHERE id = ? LIMIT 1');
+                $recheck->execute([$id]);
+                $token = $recheck->fetchColumn();
+                return is_string($token) && $token !== '' ? $token : null;
+            } catch (Throwable $e) {
+                continue;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Looks up a single reservation request by its public_token (see
+     * ensurePublicToken()), for the client-facing "Partager le lien" pages.
+     * Deliberately never lists/enumerates by token — the only way in is a
+     * single, exact, unguessable token match. Returns null if not found or
+     * if migration 046 hasn't applied yet.
+     */
+    public static function findByToken(string $token): ?array
+    {
+        $token = trim($token);
+        $pdo = Database::connection();
+        if ($token === '' || !self::hasPublicTokenColumn($pdo)) {
+            return null;
+        }
+        $stmt = $pdo->prepare(
+            'SELECT rr.*, r.confirmed_at, r.cancelled_at
+             FROM reservation_requests rr
+             LEFT JOIN reservations r ON r.request_id = rr.id
+             WHERE rr.public_token = ? LIMIT 1'
+        );
+        $stmt->execute([$token]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if ($row) {
+            $row['guests'] = self::decodeGuests($row['guests'] ?? null);
+        }
+        return $row;
+    }
+
+    /**
+     * Persists a client-submitted edit to their own reservation request via
+     * the public "Partager le lien" page (PageController::
+     * reservationPublicUpdate()): re-validates capacity and re-computes the
+     * price/availability from the same authoritative Lodgify-backed
+     * computeItemQuote()/computeQuoteBreakdown() logic used everywhere else
+     * on the site (never trusting anything the client submitted for
+     * pricing), then notifies the partner by email. Only ever allowed while
+     * the request is still "pending" — once a partner has confirmed it, the
+     * client can no longer modify it (see PageController::
+     * reservationPublicUpdate(), which checks this before calling here).
+     *
+     * @return array{ok: bool, message: string, request?: array<string, mixed>}
+     */
+    public static function updatePublicRequest(array $request, array $input): array
+    {
+        if ((string) ($request['status'] ?? '') !== 'pending') {
+            return ['ok' => false, 'message' => 'Cette demande n\'est plus modifiable en ligne : seule l\'agence peut la modifier.'];
+        }
+
+        $clientName = trim((string) ($input['client_name'] ?? ''));
+        $clientEmail = trim((string) ($input['client_email'] ?? (string) $request['client_email']));
+        $checkin = trim((string) ($input['checkin_date'] ?? ''));
+        $checkout = trim((string) ($input['checkout_date'] ?? ''));
+        $adults = max(0, (int) ($input['adults'] ?? 0));
+        $propertyId = (int) ($input['property_id'] ?? 0);
+        $childBreakdown = self::childBreakdownValues($input);
+        $childrenUnder3 = $childBreakdown['under3'];
+        $children3to12 = $childBreakdown['from3to12'];
+
+        if ($clientName === '' || $checkin === '' || $checkout === '' || $adults < 1 || $propertyId <= 0) {
+            return ['ok' => false, 'message' => 'Merci de renseigner le nom, l\'hébergement, les dates et le nombre de voyageurs.'];
+        }
+        if (filter_var($clientEmail, FILTER_VALIDATE_EMAIL) === false) {
+            return ['ok' => false, 'message' => 'Adresse email invalide.'];
+        }
+        try {
+            $checkinDate = new \DateTimeImmutable($checkin);
+            $checkoutDate = new \DateTimeImmutable($checkout);
+        } catch (Throwable $e) {
+            return ['ok' => false, 'message' => 'Dates invalides.'];
+        }
+        if ($checkoutDate <= $checkinDate) {
+            return ['ok' => false, 'message' => 'La date de départ doit être après la date d\'arrivée.'];
+        }
+        if ($childrenUnder3 > self::MAX_BABIES_PER_PROPERTY) {
+            return ['ok' => false, 'message' => 'Ce logement peut accueillir au maximum ' . self::MAX_BABIES_PER_PROPERTY . ' bébé(s) (enfants de moins de 3 ans).'];
+        }
+
+        $property = null;
+        try {
+            $property = (new LodgifyClient())->getProperty($propertyId);
+        } catch (Throwable $e) {
+            error_log('Lodgify: failed to fetch property ' . $propertyId . ' for public update capacity check: ' . $e->getMessage());
+        }
+        $countedGuests = $adults + $children3to12;
+        $totalGuests = $adults + $childrenUnder3 + $children3to12;
+        $maxGuests = (int) ($property['max_guests'] ?? 0);
+        if ($maxGuests > 0 && $countedGuests > $maxGuests) {
+            return ['ok' => false, 'message' => "Ce logement peut accueillir au maximum {$maxGuests} personne(s) (adultes + enfants de 3 ans et plus)."];
+        }
+
+        $guests = is_array($input['guests'] ?? null) ? $input['guests'] : [];
+
+        $pdo = Database::connection();
+        $partner = self::fetchPartner((int) $request['partner_id']);
+        $quoteData = self::computeItemQuote(
+            $propertyId,
+            $property,
+            $checkin,
+            $checkoutDate,
+            $adults,
+            $totalGuests,
+            $countedGuests,
+            $guests
+        );
+        if ($quoteData === null) {
+            return ['ok' => false, 'message' => 'Les tarifs et disponibilités ne sont pas accessibles pour le moment. Merci de réessayer dans quelques instants.'];
+        }
+
+        $quoteBreakdown = self::computeQuoteBreakdown(
+            $quoteData,
+            (float) ($partner['markup_percent'] ?? 0),
+            (float) ($quoteData['vat_rate'] ?? 0),
+            $quoteData['room_base_before_commission'] ?? null,
+            $quoteData['extra_person_base_before_commission'] ?? null
+        );
+
+        $breakdownColumns = self::childrenBreakdownColumns($pdo);
+        $columns = [
+            'property_id', 'property_name', 'client_name', 'client_email', 'client_phone',
+            'checkin_date', 'checkout_date', 'adults', 'children', 'guests', 'message',
+        ];
+        $params = [
+            (string) $propertyId,
+            (string) ($property['name'] ?? (string) $request['property_name']),
+            $clientName,
+            $clientEmail,
+            self::nullableString($input['client_phone'] ?? $request['client_phone'] ?? null),
+            $checkin,
+            $checkout,
+            $adults,
+            $children3to12,
+            json_encode($guests, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            self::nullableString($input['message'] ?? $request['message'] ?? null),
+        ];
+        if ($breakdownColumns !== null) {
+            $columns[] = $breakdownColumns['under3'];
+            $columns[] = $breakdownColumns['from3to12'];
+            $params[] = $childrenUnder3;
+            $params[] = $children3to12;
+        }
+        [$quoteColumns, $quoteParams] = self::quoteInsertColumnsAndParams($pdo, $quoteBreakdown, $quoteData);
+        $columns = [...$columns, ...$quoteColumns];
+        $params = [...$params, ...$quoteParams];
+        $columns[] = 'last_client_update_at';
+        $set = implode(', ', array_map(static fn (string $column): string => "{$column} = ?", $columns));
+
+        try {
+            $pdo->prepare("UPDATE reservation_requests SET {$set}, updated_at = NOW() WHERE id = ?")
+                ->execute([...$params, gmdate('Y-m-d H:i:s'), (int) $request['id']]);
+        } catch (Throwable $e) {
+            error_log((string) $e);
+            return ['ok' => false, 'message' => 'Impossible d\'enregistrer les modifications pour le moment.'];
+        }
+
+        $updated = self::findByToken((string) $request['public_token']);
+
+        // The change is already persisted: a notification-email failure
+        // must not turn an otherwise-successful update into an error for
+        // the client, who would then wrongly believe nothing was saved.
+        try {
+            self::sendClientEditNotificationEmail($partner, $updated ?? $request);
+        } catch (Throwable $e) {
+            error_log('Failed to send client-edited-reservation notification email: ' . $e);
+        }
+
+        return ['ok' => true, 'message' => 'Votre demande modifiée a bien été renvoyée à l\'agence.', 'request' => $updated ?? $request];
+    }
+
+    /**
+     * Cancels a reservation request from the client-facing public link
+     * (PageController::reservationPublicCancel()), mirroring cancelForPartner()
+     * but re-checking the "pending only" rule itself (a confirmed request
+     * can only be cancelled by the partner, via /partner/reservations).
+     *
+     * @return array{ok: bool, message: string}
+     */
+    public static function cancelPublicRequest(array $request): array
+    {
+        if ((string) ($request['status'] ?? '') !== 'pending') {
+            return ['ok' => false, 'message' => 'Cette demande n\'est plus modifiable en ligne : seule l\'agence peut l\'annuler.'];
+        }
+        $partnerId = (int) $request['partner_id'];
+        $id = (int) $request['id'];
+        $result = self::cancelForPartner($partnerId, $id);
+        if ($result === null) {
+            return ['ok' => false, 'message' => 'Demande introuvable.'];
+        }
+        return ['ok' => true, 'message' => 'Votre demande a été annulée.'];
+    }
+
+    /**
+     * Notifies the partner by email that a client has just edited and
+     * resent their reservation request via the public "Partager le lien"
+     * page, so the partner sees the change (dates/guests/property/quote)
+     * without needing to keep checking /partner/reservations manually.
+     * Deliberately a plain, unbranded notification (not a customizable
+     * template) since it's an internal ops alert, not client-facing.
+     */
+    private static function sendClientEditNotificationEmail(array $partner, array $request): void
+    {
+        $partnerEmail = trim((string) ($partner['email'] ?? ''));
+        if ($partnerEmail === '') {
+            return;
+        }
+        $id = (int) ($request['id'] ?? 0);
+        $link = Auth::currentBaseUrl() . '/partner/reservations/' . $id;
+        $html = '<p>' . htmlspecialchars((string) ($request['client_name'] ?? ''), ENT_QUOTES, 'UTF-8')
+            . ' a modifié et renvoyé sa demande de réservation #' . $id . ' pour '
+            . htmlspecialchars((string) ($request['property_name'] ?? ''), ENT_QUOTES, 'UTF-8')
+            . ' du ' . htmlspecialchars((string) ($request['checkin_date'] ?? ''), ENT_QUOTES, 'UTF-8')
+            . ' au ' . htmlspecialchars((string) ($request['checkout_date'] ?? ''), ENT_QUOTES, 'UTF-8')
+            . '.</p><p><a href="' . htmlspecialchars($link, ENT_QUOTES, 'UTF-8') . '">Voir la demande</a></p>';
+        Mailer::sendRawEmail($partner, $partnerEmail, 'Demande de réservation modifiée par le client - #' . $id, $html);
+    }
+
     /**
      * Admin-only: permanently deletes a reservation request (and its
      * confirmed reservation row, cascaded via reservations.request_id's

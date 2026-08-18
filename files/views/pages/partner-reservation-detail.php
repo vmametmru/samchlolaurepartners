@@ -5,6 +5,16 @@
     <h1>Demande #<?= (int) $reservation['id'] ?></h1>
     <span class="badge badge-<?= \App\View::e($reservation['status']) ?>"><?= \App\View::e(\App\View::badgeLabel((string) $reservation['status'])) ?></span>
   </div>
+  <?php if (!empty($reservation['public_url'])): ?>
+    <div class="card card-body stack-sm">
+      <h2 class="section-title">Partager le lien</h2>
+      <p class="muted">Envoyez ce lien au client pour qu'il ouvre une copie en ligne de sa demande, la modifie (dates, voyageurs, nationalité, bien) si besoin, et la renvoie.</p>
+      <div class="button-row">
+        <a class="btn-secondary" target="_blank" rel="noopener noreferrer" href="https://wa.me/?text=<?= urlencode('Voici le lien de votre demande de réservation : ' . $reservation['public_url']) ?>">💬 Partager sur WhatsApp</a>
+        <button type="button" class="btn-secondary" data-copy-link="<?= \App\View::e($reservation['public_url']) ?>">🔗 Copier le lien</button>
+      </div>
+    </div>
+  <?php endif; ?>
   <?php
     $childrenUnder = $reservation['children_under3'] ?? $reservation['children_under5'] ?? null;
     $children3to12 = $reservation['children_3to12'] ?? $reservation['children_5to12'] ?? null;
