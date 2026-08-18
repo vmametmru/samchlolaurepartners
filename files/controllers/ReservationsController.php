@@ -1813,10 +1813,8 @@ final class ReservationsController extends Controller
      * $excludeRequestId (the request currently being edited, so a property
      * already booked by that very request never excludes itself). Used by
      * the "changer d'hébergement" picker on the public reservation page
-     * (publicAvailableProperties() below) as one of two availability checks
-     * — combined with a live Lodgify calendar check there — so a property
-     * that's free locally but blocked on Lodgify by another channel/booking
-     * is never offered as a switch target.
+     * (publicAvailableProperties() below) as its sole availability check —
+     * deliberately local-only, no live Lodgify calendar call here.
      */
     public static function isPropertyLocallyAvailable(int $propertyId, string $checkin, string $checkout, int $excludeRequestId = 0): bool
     {
@@ -1878,10 +1876,8 @@ final class ReservationsController extends Controller
      * reservationPublicAvailableProperties()): visible to the request's
      * partner, able to host the requested party size, available according
      * to this app's own local reservations (isPropertyLocallyAvailable())
-     * AND according to Lodgify's live calendar (LodgifyClient::
-     * isAvailableForRange()) — a property blocked on Lodgify by another
-     * channel/booking (never recorded in this app's own reservations table)
-     * must never be offered as a switch target. Each entry carries the
+     * only — no live Lodgify calendar check is performed here, by design.
+     * Each entry carries the
      * newly computed price for the requested dates/party size (so the modal
      * can show it next to the request's last recorded "avant modif" price)
      * plus its photo/bedrooms/sofa-bed-count so the modal can render a full
@@ -1920,14 +1916,6 @@ final class ReservationsController extends Controller
                 continue;
             }
             if (!self::isPropertyLocallyAvailable($propertyId, $checkin, $checkoutDate->format('Y-m-d'), (int) $request['id'])) {
-                continue;
-            }
-            try {
-                if (!$client->isAvailableForRange($propertyId, $checkin, $checkoutDate->format('Y-m-d'))) {
-                    continue;
-                }
-            } catch (Throwable $e) {
-                error_log('Lodgify: live availability check failed for property ' . $propertyId . ': ' . $e->getMessage());
                 continue;
             }
             $quote = self::quoteTotalForCandidate(

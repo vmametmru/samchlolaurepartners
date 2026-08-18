@@ -1118,13 +1118,15 @@ final class PageController extends Controller
             self::json(['data' => ['images' => []]]);
         }
         $images = [];
+        $description = '';
         try {
             $property = (new LodgifyClient())->getProperty($propertyId);
             $images = $property['images'] ?? [];
+            $description = trim(View::localized($property, 'description'));
         } catch (Throwable $e) {
             error_log('Lodgify: failed to fetch property ' . $propertyId . ' photos for public reservation page: ' . $e->getMessage());
         }
-        self::json(['data' => ['images' => $images]]);
+        self::json(['data' => ['images' => $images, 'description' => $description]]);
     }
 
 
@@ -1135,8 +1137,8 @@ final class PageController extends Controller
      * adults/children_3to12/children_under3, falling back to the request's
      * own values when omitted) — delegates the actual filtering/pricing to
      * ReservationsController::publicAvailableProperties(), which checks
-     * availability against both this app's own local reservations AND
-     * Lodgify's live calendar.
+     * availability against this app's own local reservations only (no
+     * live Lodgify calendar call).
      */
     public static function reservationPublicAvailableProperties(string $token): never
     {

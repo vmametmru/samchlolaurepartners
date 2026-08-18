@@ -1263,6 +1263,7 @@ function initReservationPublicPhotoGallery() {
     // any page reload (see initReservationPublicPropertyPicker()).
     const propertyIdField = document.querySelector('[data-reservation-property-id]');
     const propertyId = propertyIdField?.value || openBtn.dataset.reservationGalleryPropertyId || '';
+    const descriptionEl = modal.querySelector('[data-reservation-gallery-description]');
     try {
       const response = await fetch(`/r/${token}/property-photos?property_id=${encodeURIComponent(propertyId)}`, {
         headers: { 'Accept': 'application/json' },
@@ -1273,12 +1274,17 @@ function initReservationPublicPhotoGallery() {
       const images = data.data?.images || [];
       if (!images.length) {
         gridEl.innerHTML = '<p class="muted">Aucune photo disponible pour ce bien.</p>';
-        return;
+      } else {
+        gridEl.innerHTML = images.map((image) => {
+          const url = escapeHtml(image.url || '');
+          return `<div class="reservation-gallery-item"><img src="${url}" alt="" loading="lazy"></div>`;
+        }).join('');
       }
-      gridEl.innerHTML = images.map((image) => {
-        const url = escapeHtml(image.url || '');
-        return `<div class="reservation-gallery-item"><img src="${url}" alt="" loading="lazy"></div>`;
-      }).join('');
+      if (descriptionEl) {
+        const description = data.data?.description || '';
+        descriptionEl.textContent = description;
+        descriptionEl.hidden = description === '';
+      }
     } catch (error) {
       gridEl.innerHTML = '<p class="muted">Impossible de charger les photos pour le moment.</p>';
     }

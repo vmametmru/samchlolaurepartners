@@ -60,10 +60,12 @@ $needsClientEmail = !empty($needsClientEmail);
       <?php endif; ?>
     </div>
 
-    <!-- Selected property's photo/gallery/description — always visible,
-         whether or not the request is being edited (see the "Voir galerie
-         photo" button, kept usable in read-only mode per its own
-         requirement). Updated in place by initReservationPublicPropertyPicker()
+    <!-- Selected property's photo/gallery — always visible, whether or not
+         the request is being edited (see the "Voir galerie photo" button,
+         kept usable in read-only mode per its own requirement). The
+         description itself is shown inside the gallery modal, under the
+         photos (see initReservationPublicPhotoGallery() in assets/js/app.js),
+         not here. Updated in place by initReservationPublicPropertyPicker()
          in assets/js/app.js whenever a new property is chosen from the
          "Changer d'hébergement" modal. -->
     <div class="reservation-property-photo-block" data-reservation-property-photo-block>
@@ -73,9 +75,6 @@ $needsClientEmail = !empty($needsClientEmail);
       <div class="button-row">
         <button type="button" class="btn-secondary" data-reservation-view-gallery data-reservation-gallery-property-id="<?= (int) $request['property_id'] ?>">Voir galerie photo</button>
       </div>
-      <?php if ($propertyDescription !== ''): ?>
-        <p class="muted reservation-property-description" data-reservation-property-description><?= \App\View::plainText($propertyDescription, 400) ?></p>
-      <?php endif; ?>
     </div>
 
     <!-- Read-only view: always the default, even while the request is still
@@ -167,8 +166,8 @@ $needsClientEmail = !empty($needsClientEmail);
       </form>
 
       <!-- "Changer d'hébergement" modal: lists properties available for the
-           dates/party size currently entered above, filtered both by this
-           app's own local reservations AND by Lodgify's live calendar — see
+           dates/party size currently entered above, filtered by this app's
+           own local reservations only — see
            ReservationsController::publicAvailableProperties(). -->
       <div class="simple-modal-overlay" data-reservation-property-modal hidden>
         <div class="simple-modal-dialog" role="dialog" aria-modal="true" aria-label="Changer d'hébergement">
@@ -199,6 +198,9 @@ $needsClientEmail = !empty($needsClientEmail);
         <div class="reservation-gallery-grid" data-reservation-gallery-grid>
           <p class="muted">Chargement des photos…</p>
         </div>
+        <?php if ($propertyDescription !== ''): ?>
+          <p class="muted reservation-property-description" data-reservation-gallery-description><?= \App\View::plainText($propertyDescription, 400) ?></p>
+        <?php endif; ?>
       </div>
     </div>
   </div>
