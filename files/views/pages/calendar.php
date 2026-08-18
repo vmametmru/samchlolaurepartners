@@ -22,6 +22,9 @@ $countedGuests = $countedGuests ?? ($adults + $children3to12);
 $today = isset($today) && $today !== '' ? (string) $today : date('Y-m-d');
 $frenchDays = \App\I18n::weekdaysShortSundayFirst();
 $frenchMonthsShort = \App\I18n::monthNamesShort();
+$canForcePrice = $canForcePrice ?? false;
+$canOverrideBookingPolicy = $canOverrideBookingPolicy ?? false;
+$bookingPolicies = $bookingPolicies ?? [];
 ?>
 <section class="container section-lg">
   <div class="section-header">
@@ -167,12 +170,32 @@ $frenchMonthsShort = \App\I18n::monthNamesShort();
       </table>
     </div>
 
-    <div class="multi-booking-cart" id="multi-cart-selection" data-multi-cart hidden>
+    <div class="multi-booking-cart" id="multi-cart-selection" data-multi-cart data-can-force-price="<?= $canForcePrice ? '1' : '0' ?>" hidden>
       <div class="multi-cart-header">
         <h2 class="section-title"><?= \App\View::e(\App\I18n::t('calendar.your_selection')) ?></h2>
         <button type="button" class="btn-secondary" data-multi-cart-clear><?= \App\View::e(\App\I18n::t('calendar.clear_selection')) ?></button>
       </div>
       <ul class="multi-cart-list" data-multi-cart-list></ul>
+      <?php if ($canForcePrice): ?>
+      <div class="force-price-dropdown" data-multi-cart-force-price-dropdown hidden>
+        <div class="force-price-dropdown-header"><?= \App\View::e(\App\I18n::t('property.force_nightly_price')) ?></div>
+        <div class="force-price-breakdown">
+          <div class="quote-line"><span><?= sprintf(\App\View::e(\App\I18n::t('property.force_price_current_label')), '<span data-mc-fp-nights></span>') ?></span><span data-mc-fp-current-total></span></div>
+          <div class="quote-line"><span><?= \App\View::e(\App\I18n::t('property.force_price_lodgify_label')) ?></span><span data-mc-fp-lodgify-total></span></div>
+          <div class="quote-line"><span data-mc-fp-vat-label><?= sprintf(\App\View::e(\App\I18n::t('property.force_price_vat_label')), '<span data-mc-fp-vat-rate></span>') ?></span><span data-mc-fp-vat-total></span></div>
+          <div class="quote-line"><span><?= \App\View::e(\App\I18n::t('property.force_price_commission_label')) ?></span><span data-mc-fp-commission-total></span></div>
+        </div>
+        <label>
+          <span><?= \App\View::e(\App\I18n::t('property.force_nightly_price')) ?></span>
+          <input class="input" type="number" min="0" step="0.01" data-mc-fp-input>
+        </label>
+        <p class="muted" data-mc-fp-note hidden><?= \App\View::e(\App\I18n::t('property.force_nightly_price_adjusted')) ?></p>
+        <div class="force-price-dropdown-actions">
+          <button type="button" class="btn-secondary" data-mc-fp-cancel><?= \App\View::e(\App\I18n::t('property.force_price_cancel')) ?></button>
+          <button type="button" class="btn-primary" data-mc-fp-save><?= \App\View::e(\App\I18n::t('property.force_price_save')) ?></button>
+        </div>
+      </div>
+      <?php endif; ?>
       <p class="form-feedback" data-multi-cart-gap-hint></p>
       <p class="form-feedback" data-multi-cart-baby-note hidden></p>
       <div class="multi-cart-summary" data-multi-cart-summary>
@@ -203,6 +226,17 @@ $frenchMonthsShort = \App\I18n::monthNamesShort();
         <?php require BASE_PATH . '/files/views/partials/phone-input.php'; ?>
         <?php require BASE_PATH . '/files/views/partials/nationalities.php'; ?>
         <label><span><?= \App\View::e(\App\I18n::t('calendar.message_optional')) ?></span><textarea class="input" rows="3" name="message"></textarea></label>
+        <?php if ($canOverrideBookingPolicy && $bookingPolicies !== []): ?>
+        <label>
+          <span><?= \App\View::e(\App\I18n::t('property.booking_policy_override')) ?></span>
+          <select class="input" name="booking_policy_id">
+            <?php foreach ($bookingPolicies as $policy): ?>
+              <option value="<?= (int) $policy['id'] ?>"<?= !empty($policy['is_default']) ? ' selected' : '' ?>><?= \App\View::e((string) $policy['label']) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </label>
+        <p class="muted"><?= \App\View::e(\App\I18n::t('property.booking_policy_override_hint')) ?></p>
+        <?php endif; ?>
         <button class="btn-primary" type="submit"><?= \App\View::e(\App\I18n::t('calendar.send_requests')) ?></button>
         <p class="form-feedback" data-form-feedback></p>
       </form>

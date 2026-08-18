@@ -122,6 +122,28 @@ final class Database
     }
 
     /** @var array<string, bool> */
+    private static array $tableExistsCache = [];
+
+    /**
+     * Whether a table already exists, cached per request — same rationale as
+     * columnExists() but for a whole table added by a migration that may not
+     * have applied yet on a given live database (e.g. booking_policies).
+     */
+    public static function tableExists(string $table): bool
+    {
+        if (!array_key_exists($table, self::$tableExistsCache)) {
+            try {
+                $pdo = self::connection();
+                $stmt = $pdo->query('SHOW TABLES LIKE ' . $pdo->quote($table));
+                self::$tableExistsCache[$table] = $stmt !== false && $stmt->fetch() !== false;
+            } catch (Throwable $e) {
+                self::$tableExistsCache[$table] = false;
+            }
+        }
+        return self::$tableExistsCache[$table];
+    }
+
+    /** @var array<string, bool> */
     private static array $columnNullableCache = [];
 
     /**

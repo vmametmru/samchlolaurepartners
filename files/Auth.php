@@ -32,6 +32,17 @@ final class Auth
             return null;
         }
 
+        // A partner user's environment (the "Code Partenaire" cookie, see
+        // Tenant::current()) is always forced back to their OWN partner on
+        // login, regardless of whichever partner's environment the browser
+        // was previously on: e.g. partenaire1 logging in while partenaire2's
+        // code is active is immediately switched back to partenaire1's own
+        // environment. Admins have no partner_id and are left untouched —
+        // they may log in from/stay on any environment.
+        if ((string) $user['role'] === 'partner' && $user['subdomain'] !== null && $user['subdomain'] !== '') {
+            Tenant::setCodeCookie((string) $user['subdomain']);
+        }
+
         $payload = self::userPayload($user);
         $token = self::issueToken($payload);
         self::setAuthCookie($token);
@@ -72,6 +83,21 @@ final class Auth
             self::setAuthCookie(self::issueToken($user));
         }
         return $user;
+    }
+
+    /**
+     * Whether the current visitor is a logged-in partner or admin user
+     * (i.e. NOT an anonymous client browsing the public site). Used to gate
+     * agency/admin-only booking-form features — e.g. the "Forcer le prix
+     * total des nuit(s)" manual price override (PageController::propertyDetail()'s
+     * canForcePrice view flag and ReservationsController's matching
+     * server-side re-check) — so they only ever apply for staff, never for
+     * a visitor who happens to submit the underlying field name directly.
+     */
+    public static function isPartnerOrAdmin(): bool
+    {
+        $user = self::user();
+        return $user !== null && in_array((string) ($user['role'] ?? ''), ['admin', 'partner'], true);
     }
 
     /**

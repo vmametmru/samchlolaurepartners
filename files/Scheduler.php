@@ -69,6 +69,8 @@ SELECT
   rr.quote_currency,
   rr.quote_partner_rate,
   rr.quote_vat_rate,
+  rr.quote_room_base_before_commission,
+  rr.quote_extra_person_base_before_commission,
   p.*
 FROM email_schedules es
 JOIN reservations r ON (es.partner_id IS NULL OR es.partner_id = r.partner_id)
@@ -150,7 +152,7 @@ SQL;
                 'logo_partenaire' => \App\controllers\ReservationsController::partnerLogoVariable((string) ($row['logo_url'] ?? ''), (string) $row['name']),
                 'logo_partenaire_url' => \App\controllers\ReservationsController::partnerLogoUrlValue((string) ($row['logo_url'] ?? '')),
                 'email_partenaire' => (string) ($row['email'] ?? ''),
-                'politique_reservation' => \App\controllers\PageController::formatBookingPolicyHtml(\App\controllers\PageController::bookingPolicyText()),
+                'politique_reservation' => \App\controllers\PageController::formatBookingPolicyHtml(\App\controllers\PageController::bookingPolicyText('fr', $row)),
                 'bouton_reservation' => \App\controllers\ReservationsController::bookingLinkButtonHtml(
                     (int) ($row['property_id'] ?? 0),
                     (string) $row['checkin_date'],
@@ -177,6 +179,13 @@ SQL;
             // template can show the partner their commission/payout for
             // this stay. Skipped when no quote was ever recorded (e.g. old
             // requests created before quote persistence was added).
+            // quote_room_base_before_commission/quote_extra_person_base_
+            // before_commission must be passed through too (same as
+            // sendReservationStatusEmail()'s use of computeQuoteBreakdown()),
+            // otherwise the commission/payout wrongly falls back to the
+            // standard markup% ratio on a manually forced ("Forcer le
+            // prix...") room/extra-person price instead of the actual gap
+            // between the forced price and the Lodgify floor.
             if (($row['quote_room_total'] ?? null) !== null) {
                 $variables += \App\controllers\ReservationsController::buildQuoteVariables(
                     \App\controllers\ReservationsController::computeQuoteBreakdown([
@@ -186,7 +195,11 @@ SQL;
                         'tourist_tax_total' => $row['quote_tourist_tax_total'] ?? 0,
                         'nights' => $row['quote_nights'] ?? 0,
                         'currency' => $row['quote_currency'] ?? 'EUR',
-                    ], (float) ($row['quote_partner_rate'] ?? ($row['markup_percent'] ?? 0)), (float) ($row['quote_vat_rate'] ?? 0))
+                    ], (float) ($row['quote_partner_rate'] ?? ($row['markup_percent'] ?? 0)), (float) ($row['quote_vat_rate'] ?? 0), isset($row['quote_room_base_before_commission'])
+                        ? (float) $row['quote_room_base_before_commission']
+                        : null, isset($row['quote_extra_person_base_before_commission'])
+                        ? (float) $row['quote_extra_person_base_before_commission']
+                        : null)
                 );
             }
 

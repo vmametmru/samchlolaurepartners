@@ -212,6 +212,15 @@ try {
         case route($method, $path, 'GET', '#^/contact$#'):
             PageController::contact();
             break;
+        case route($method, $path, 'GET', '#^/politique-confidentialite$#'):
+            PageController::privacyPolicy();
+            break;
+        case route($method, $path, 'GET', '#^/aide$#'):
+            PageController::help();
+            break;
+        case route($method, $path, 'GET', '#^/aide-partenaire$#'):
+            PageController::partnerHelp();
+            break;
         case route($method, $path, 'POST', '#^/partner-code$#'):
             PageController::submitPartnerCode();
         case route($method, $path, 'GET', '#^/login$#'):
@@ -259,6 +268,14 @@ try {
             break;
         case route($method, $path, 'POST', '#^/partner/settings$#'):
             PageController::partnerSaveSettings();
+        case route($method, $path, 'POST', '#^/partner/settings/policies$#'):
+            PageController::partnerCreatePolicy();
+        case route($method, $path, 'POST', '#^/partner/settings/policies/(\d+)$#', $matches):
+            PageController::partnerUpdatePolicy((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/partner/settings/policies/(\d+)/delete$#', $matches):
+            PageController::partnerDeletePolicy((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/partner/settings/policies/(\d+)/default$#', $matches):
+            PageController::partnerSetDefaultPolicy((int) $matches[1]);
         case route($method, $path, 'GET', '#^/partner/gallery$#'):
             GalleryController::partnerIndex();
             break;
@@ -306,6 +323,16 @@ try {
         case route($method, $path, 'GET', '#^/admin/reservations$#'):
             PageController::adminReservations();
             break;
+        case route($method, $path, 'POST', '#^/admin/reservations/delete-batch$#'):
+            PageController::adminDeleteReservationsBatch();
+        case route($method, $path, 'POST', '#^/admin/reservations/(\d+)/confirm$#', $matches):
+            PageController::adminConfirmReservation((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/admin/reservations/(\d+)/cancel$#', $matches):
+            PageController::adminCancelReservation((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/admin/reservations/(\d+)/reopen$#', $matches):
+            PageController::adminReopenReservation((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/admin/reservations/(\d+)/delete$#', $matches):
+            PageController::adminDeleteReservation((int) $matches[1]);
         case route($method, $path, 'GET', '#^/admin/fees$#'):
             PageController::adminFees();
             break;
