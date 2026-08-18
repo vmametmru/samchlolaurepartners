@@ -1137,6 +1137,21 @@ final class LodgifyClient
         });
     }
 
+    /**
+     * Local-database-only variant of getAvailability(): used by the
+     * "Modifier les Dates" modal (PageController::
+     * reservationDatesAvailabilityFragment()), which must never itself
+     * trigger a live Lodgify call — availability there must only ever come
+     * from whatever the hourly cron (Scheduler::warmLodgifyCache()) already
+     * populated in lodgify_cache. Returns the last cached value even if
+     * expired (stale), or [] if this range was never cached.
+     */
+    public function getAvailabilityFromCache(int $propertyId, string $from, string $to): array
+    {
+        $key = 'lodgify:v2:availability:' . $propertyId . ':' . $from . ':' . $to;
+        return $this->cacheGet($key, true) ?? [];
+    }
+
     private function fetchAvailability(int $propertyId, string $from, string $to): array
     {
         // Lodgify's real v2 endpoint expects "start"/"end" query params (not
@@ -1457,6 +1472,20 @@ final class LodgifyClient
         return $this->remember($key, self::AVAILABILITY_TTL, function () use ($propertyId, $from, $to): array {
             return $this->fetchRates($propertyId, $from, $to);
         });
+    }
+
+    /**
+     * Local-database-only variant of getRates(): used by the "Modifier les
+     * Dates" modal (PageController::reservationDatesAvailabilityFragment()),
+     * same reasoning as getAvailabilityFromCache() above — never itself
+     * triggers a live Lodgify call, only reads whatever the hourly cron
+     * already cached. Returns the last cached value even if expired
+     * (stale), or [] if this range was never cached.
+     */
+    public function getRatesFromCache(int $propertyId, string $from, string $to): array
+    {
+        $key = 'lodgify:v2:rates:' . $propertyId . ':' . $from . ':' . $to;
+        return $this->cacheGet($key, true) ?? [];
     }
 
     private function fetchRates(int $propertyId, string $from, string $to): array

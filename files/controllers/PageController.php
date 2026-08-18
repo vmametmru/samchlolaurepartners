@@ -1470,15 +1470,15 @@ final class PageController extends Controller
         $availability = [];
         $rates = [];
         if ($visibility !== PartnerPropertyVisibility::PARTIAL) {
-            // Same source, same 1h-TTL local cache, as the property-detail
-            // "Tarifs & Disponibilités" tab (propertyDetail() above) — never
-            // a forced/live Lodgify call, just LodgifyClient::
-            // getAvailability()'s cache (AVAILABILITY_TTL), refreshed hourly
-            // by Scheduler::warmLodgifyCache() from the cron job — so the
-            // "Modifier les Dates" modal shows the exact same availability
-            // the partner/client already saw on the property page.
-            $availability = $client->getAvailability($propertyId, $rangeStart, $rangeEnd);
-            $rates = self::publicRates($client, $propertyId, $rangeStart, $rangeEnd, $vatRate);
+            // This modal must NEVER itself trigger a live Lodgify API call
+            // (only the cron job's Scheduler::warmLodgifyCache() and the
+            // email buttons' forced re-check are allowed to do that): read
+            // strictly from whatever is already sitting in the local
+            // lodgify_cache table (LodgifyClient::getAvailabilityFromCache()/
+            // getRatesFromCache()), even if stale/expired, and show nothing
+            // for a range the cron hasn't warmed yet rather than fetching it.
+            $availability = $client->getAvailabilityFromCache($propertyId, $rangeStart, $rangeEnd);
+            $rates = self::publicRates($client, $propertyId, $rangeStart, $rangeEnd, $vatRate, true);
         }
 
         $cleaningFeePerPerson = (float) ($partner['cleaning_fee_per_person_per_night'] ?? 0);
@@ -3643,9 +3643,14 @@ TEXT;
         return 'Mis à jour le ' . $date->format('d/m/Y') . ' à ' . $date->format('H:i') . ' (GMT+4)';
     }
 
-    public static function publicRates(LodgifyClient $client, int $propertyId, string $from, string $to, float $vatRate = 0.0): array
+    public static function publicRates(LodgifyClient $client, int $propertyId, string $from, string $to, float $vatRate = 0.0, bool $cacheOnly = false): array
     {
-        $rawRates = $client->getRates($propertyId, $from, $to, 2);
+        // $cacheOnly is used by reservationDatesAvailabilityFragment() (the
+        // "Modifier les Dates" modal), which must never itself trigger a
+        // live Lodgify call — see LodgifyClient::getRatesFromCache().
+        $rawRates = $cacheOnly
+            ? $client->getRatesFromCache($propertyId, $from, $to)
+            : $client->getRates($propertyId, $from, $to, 2);
         // The public property page must show the tenant's marked-up price, not
         // the raw Lodgify price: markup_percent was previously hardcoded to 0
         // here, so the margin configured for the current partner (resolved from
