@@ -983,6 +983,12 @@ final class PageController extends Controller
                 error_log('Lodgify: failed to fetch property ' . $propertyId . ' for partner reservation detail page: ' . $e->getMessage());
             }
         }
+        // Display the locally-managed name (property_translations override,
+        // or Lodgify's own French text, per View::localized()) rather than
+        // the raw name stored on the request at submission time.
+        if ($property !== null) {
+            $reservation['property_name'] = View::localized($property, 'name');
+        }
 
         View::render('pages/partner-reservation-detail', [
             'pageTitle' => 'Demande #' . $id,
@@ -1134,7 +1140,11 @@ final class PageController extends Controller
             'children_under3' => $childrenUnder3,
             'previous_price' => [
                 'currency' => (string) ($request['quote_currency'] ?? 'EUR'),
-                'total_traveler' => (float) ($request['quote_total_traveler'] ?? 0),
+                // Same "tarif du bien + personne(s) supplémentaire(s)" basis
+                // as ReservationsController::quoteTotalForCandidate() below,
+                // for a fair before/after comparison (excludes the flat
+                // cleaning fee, which doesn't vary by property choice).
+                'total_traveler' => round((float) ($request['quote_room_total'] ?? 0) + (float) ($request['quote_extra_person_total'] ?? 0), 2),
             ],
             'properties' => $properties,
         ]]);
@@ -1222,6 +1232,13 @@ final class PageController extends Controller
             } catch (Throwable $e) {
                 error_log('Lodgify: failed to fetch property ' . $propertyId . ' for public reservation page: ' . $e->getMessage());
             }
+        }
+        // Display the locally-managed name (this app's own property_translations
+        // override, or Lodgify's own French text, per View::localized()) rather
+        // than the raw name stored on the request at submission time — which
+        // may be stale or only ever reflected Lodgify's own (English) name.
+        if ($property !== null) {
+            $request['property_name'] = View::localized($property, 'name');
         }
 
         // A client-facing link must never leak the partner's own email as
@@ -1378,7 +1395,11 @@ final class PageController extends Controller
             'children_under3' => $childrenUnder3,
             'previous_price' => [
                 'currency' => (string) ($request['quote_currency'] ?? 'EUR'),
-                'total_traveler' => (float) ($request['quote_total_traveler'] ?? 0),
+                // Same "tarif du bien + personne(s) supplémentaire(s)" basis
+                // as ReservationsController::quoteTotalForCandidate() below,
+                // for a fair before/after comparison (excludes the flat
+                // cleaning fee, which doesn't vary by property choice).
+                'total_traveler' => round((float) ($request['quote_room_total'] ?? 0) + (float) ($request['quote_extra_person_total'] ?? 0), 2),
             ],
             'properties' => $properties,
         ]]);

@@ -1958,7 +1958,17 @@ final class ReservationsController extends Controller
             $quoteData['room_base_before_commission'] ?? null,
             $quoteData['extra_person_base_before_commission'] ?? null
         );
-        return ['currency' => $breakdown['currency'], 'total_traveler' => $breakdown['total_traveler']];
+        // The "changer d'hébergement" picker must compare "tarif du bien +
+        // personne(s) supplémentaire(s)" only (room_total + extra_person_total,
+        // already commission-inclusive — see computeQuoteBreakdown()'s note
+        // on markup being baked into these two amounts, never added on top),
+        // NOT total_traveler which also folds in the cleaning fee: cleaning
+        // is a flat one-off charge that doesn't vary by property choice and
+        // would otherwise skew the comparison between candidates.
+        return [
+            'currency' => $breakdown['currency'],
+            'total_traveler' => round($breakdown['room_total'] + $breakdown['extra_person_total'], 2),
+        ];
     }
 
     /**
@@ -2000,10 +2010,17 @@ final class ReservationsController extends Controller
             return [];
         }
 
+        $currentPropertyId = (int) ($request['property_id'] ?? 0);
         $results = [];
         foreach ($properties as $property) {
             $propertyId = (int) ($property['id'] ?? 0);
             if ($propertyId <= 0) {
+                continue;
+            }
+            // Only offer alternatives — the property already booked on this
+            // request must not be listed again in its own "changer
+            // d'hébergement" picker.
+            if ($propertyId === $currentPropertyId) {
                 continue;
             }
             $maxGuests = (int) ($property['max_guests'] ?? 0);
@@ -2029,7 +2046,7 @@ final class ReservationsController extends Controller
             );
             $results[] = [
                 'id' => $propertyId,
-                'name' => (string) ($property['name'] ?? ''),
+                'name' => View::localized($property, 'name'),
                 'max_guests' => $maxGuests,
                 'currency' => $quote['currency'] ?? null,
                 'total_traveler' => $quote['total_traveler'] ?? null,
