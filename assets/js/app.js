@@ -987,21 +987,45 @@ function initApiForms() {
  * editable right away, so a client following the WhatsApp link never
  * accidentally starts typing into a field. "Annuler la modification" does
  * the reverse without submitting anything.
+ *
+ * On the partner-only /partner/reservations/{id} page (files/views/pages/
+ * partner-reservation-detail.php) a second "Modifier (Sans toucher aux
+ * Prix)" button ([data-reservation-edit-toggle-lock]) opens the exact same
+ * form but in a price-locked mode: the check-in/check-out dates and the
+ * "Changer d'hébergement" control are disabled (so they can never be
+ * submitted) and the live-quote box is replaced by a static notice, while
+ * name/phone/email/party-size/nationality stay editable. The hidden
+ * "lock_price" field tells ReservationsController::applyRequestEdit() to
+ * always keep the request's own dates/hébergement/price untouched
+ * server-side too, regardless of what's actually submitted.
  */
 function initReservationPublicEditToggle() {
   const toggleBtn = document.querySelector('[data-reservation-edit-toggle]');
+  const toggleLockBtn = document.querySelector('[data-reservation-edit-toggle-lock]');
   const view = document.querySelector('[data-reservation-view]');
   const editForm = document.querySelector('[data-reservation-edit-form]');
-  if (!toggleBtn || !view || !editForm) return;
+  if (!view || !editForm || (!toggleBtn && !toggleLockBtn)) return;
 
-  function setEditing(editing) {
+  const form = editForm.querySelector('form');
+  const lockPriceField = form?.querySelector('[data-reservation-lock-price-field]');
+  const lockPriceNotice = form?.querySelector('[data-reservation-lock-price-notice]');
+  const lockedFields = form ? Array.from(form.querySelectorAll('[data-reservation-price-locked-field]')) : [];
+  const quoteBox = form?.querySelector('[data-reservation-live-quote]');
+
+  function setEditing(editing, lockPrice) {
     view.hidden = editing;
     editForm.hidden = !editing;
-    toggleBtn.hidden = editing;
+    if (toggleBtn) toggleBtn.hidden = editing;
+    if (toggleLockBtn) toggleLockBtn.hidden = editing;
+    if (lockPriceField) lockPriceField.value = editing && lockPrice ? '1' : '0';
+    lockedFields.forEach((field) => { field.disabled = Boolean(editing && lockPrice); });
+    if (lockPriceNotice) lockPriceNotice.hidden = !(editing && lockPrice);
+    if (quoteBox) quoteBox.hidden = Boolean(editing && lockPrice);
   }
 
-  toggleBtn.addEventListener('click', () => setEditing(true));
-  editForm.querySelector('[data-reservation-edit-cancel]')?.addEventListener('click', () => setEditing(false));
+  toggleBtn?.addEventListener('click', () => setEditing(true, false));
+  toggleLockBtn?.addEventListener('click', () => setEditing(true, true));
+  editForm.querySelector('[data-reservation-edit-cancel]')?.addEventListener('click', () => setEditing(false, false));
 
   // The edit form submits natively (full page reload to /r/{token}/update,
   // not a fetch()-intercepted data-api-form) so PageController::
@@ -1010,7 +1034,6 @@ function initReservationPublicEditToggle() {
   // therefore have to be serialized into the hidden "guests_json" field
   // right before the browser actually submits, or the server would only
   // ever see the empty default value.
-  const form = editForm.querySelector('form');
   const guestsJsonField = form?.querySelector('[data-guests-json]');
   form?.addEventListener('submit', () => {
     if (guestsJsonField) guestsJsonField.value = JSON.stringify(collectGuests(form));

@@ -1036,14 +1036,14 @@ final class PageController extends Controller
     }
 
     /**
-     * Handles the "Modifier"/"Renvoyer la demande modifiée" submission on
-     * /partner/reservations/{id} — the partner-facing equivalent of
-     * reservationPublicUpdate(), reusing the same underlying validation/
-     * re-pricing/persistence core (ReservationsController::
-     * updateForPartner()/applyRequestEdit()) so a request edited by the
-     * partner is priced identically to one edited by the client via their
-     * own public link. Scoped to the partner's own tenant via
-     * ReservationsController::findForPartner().
+     * Handles the "Modifier"/"Modifier (Sans toucher aux Prix)"/"Renvoyer la
+     * demande modifiée" submission on /partner/reservations/{id} — the
+     * partner-facing equivalent of reservationPublicUpdate(), reusing the
+     * same underlying validation/re-pricing/persistence core
+     * (ReservationsController::updateForPartner()/applyRequestEdit()) so a
+     * request edited by the partner is priced identically to one edited by
+     * the client via their own public link. Scoped to the partner's own
+     * tenant via ReservationsController::findForPartner().
      */
     public static function partnerUpdateReservation(int $id): never
     {
@@ -1062,8 +1062,11 @@ final class PageController extends Controller
         $guests = json_decode((string) ($input['guests_json'] ?? '[]'), true);
         $input['guests'] = is_array($guests) ? $guests : [];
         $notifyClient = empty($input['skip_client_notification']);
+        // "Modifier (Sans toucher aux Prix)" button — see
+        // ReservationsController::updateForPartner()/applyRequestEdit().
+        $lockPrice = !empty($input['lock_price']);
 
-        $result = ReservationsController::updateForPartner($request, $input, $notifyClient);
+        $result = ReservationsController::updateForPartner($request, $input, $notifyClient, $lockPrice);
         self::redirect(self::partnerReservationsRedirectUrl($id), $result['message'], $result['ok'] ? 'success' : 'error');
     }
 

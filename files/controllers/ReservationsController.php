@@ -903,6 +903,7 @@ final class ReservationsController extends Controller
         // visitor, who would then wrongly believe nothing was recorded.
         try {
             $emailInput = $input;
+            $emailInput['id'] = $id;
             $emailInput['children_under3'] = $childrenUnder3;
             $emailInput['children_3to12'] = $children3to12;
             $emailInput['language'] = $requestLanguage;
@@ -1203,13 +1204,14 @@ final class ReservationsController extends Controller
         // submission into a 500 for the visitor, who would then wrongly
         // believe nothing was recorded.
         $itemCount = count($normalizedItems);
-        foreach ($normalizedItems as $item) {
+        foreach ($normalizedItems as $itemIndex => $item) {
             // computeItemQuote() returns null when Lodgify rates couldn't be
             // fetched for this item; degrade to a zeroed quote (via the ??
             // fallbacks below) instead of accessing array offsets on null.
             $quote = $item['quote'] ?? [];
             try {
                 self::sendRequestEmails($partner, [
+                    'id' => $createdIds[$itemIndex] ?? 0,
                     'property_id' => $item['property_id'],
                     'client_name' => $clientName,
                     'client_email' => $clientEmail,
@@ -1718,14 +1720,19 @@ final class ReservationsController extends Controller
      * their request (sendPartnerEditNotificationEmail()); pass
      * $notifyClient = false (wired to the "Ne pas notifier le client par
      * email" checkbox on /partner/reservations/{id}) to save the change
-     * silently, with no email sent at all.
+     * silently, with no email sent at all. Pass $lockPrice = true (wired to
+     * the partner-only "Modifier (Sans toucher aux Prix)" button, as
+     * opposed to the regular "Modifier" button) to only allow editing
+     * name/phone/email/party-size/nationality: dates, hébergement and the
+     * stored price are then always kept as-is, ignoring anything submitted
+     * for them (see applyRequestEdit()).
      */
-    public static function updateForPartner(array $request, array $input, bool $notifyClient = true): array
+    public static function updateForPartner(array $request, array $input, bool $notifyClient = true, bool $lockPrice = false): array
     {
         if ((string) ($request['status'] ?? '') !== 'pending') {
             return ['ok' => false, 'message' => 'Cette demande n\'est plus modifiable : seule une demande en attente peut être modifiée.'];
         }
-        $result = self::applyRequestEdit($request, $input, false);
+        $result = self::applyRequestEdit($request, $input, false, $lockPrice);
         if (!$result['ok']) {
             return $result;
         }
@@ -1756,14 +1763,20 @@ final class ReservationsController extends Controller
      *
      * @return array{ok: bool, message?: string, request?: array}
      */
-    private static function applyRequestEdit(array $request, array $input, bool $trackClientUpdate = true): array
+    private static function applyRequestEdit(array $request, array $input, bool $trackClientUpdate = true, bool $lockPrice = false): array
     {
         $clientName = trim((string) ($input['client_name'] ?? ''));
         $clientEmail = trim((string) ($input['client_email'] ?? (string) $request['client_email']));
-        $checkin = trim((string) ($input['checkin_date'] ?? ''));
-        $checkout = trim((string) ($input['checkout_date'] ?? ''));
+        // In "lock price" mode (partner's "Modifier (Sans toucher aux Prix)"
+        // button) the dates/hébergement/price are never allowed to change,
+        // no matter what the client submits — always re-use the request's
+        // own stored values here rather than trusting $input, so the
+        // guarantee holds even if the disabled form fields were tampered
+        // with client-side.
+        $checkin = $lockPrice ? (string) $request['checkin_date'] : trim((string) ($input['checkin_date'] ?? ''));
+        $checkout = $lockPrice ? (string) $request['checkout_date'] : trim((string) ($input['checkout_date'] ?? ''));
         $adults = max(0, (int) ($input['adults'] ?? 0));
-        $propertyId = (int) ($input['property_id'] ?? 0);
+        $propertyId = $lockPrice ? (int) $request['property_id'] : (int) ($input['property_id'] ?? 0);
         $childBreakdown = self::childBreakdownValues($input);
         $childrenUnder3 = $childBreakdown['under3'];
         $children3to12 = $childBreakdown['from3to12'];
@@ -1805,27 +1818,35 @@ final class ReservationsController extends Controller
         $guests = is_array($input['guests'] ?? null) ? $input['guests'] : [];
 
         $pdo = Database::connection();
-        $quoteData = self::computeItemQuote(
-            $propertyId,
-            $property,
-            $checkin,
-            $checkoutDate,
-            $adults,
-            $totalGuests,
-            $countedGuests,
-            $guests
-        );
-        if ($quoteData === null) {
-            return ['ok' => false, 'message' => 'Les tarifs et disponibilités ne sont pas accessibles pour le moment. Merci de réessayer dans quelques instants.'];
-        }
+        // In "lock price" mode, the stored quote_* columns must never be
+        // touched — the whole point of the button is to let the partner
+        // fix name/contact/party-size/nationality without triggering a
+        // re-price, even if the party size itself changed.
+        $quoteBreakdown = null;
+        $quoteData = null;
+        if (!$lockPrice) {
+            $quoteData = self::computeItemQuote(
+                $propertyId,
+                $property,
+                $checkin,
+                $checkoutDate,
+                $adults,
+                $totalGuests,
+                $countedGuests,
+                $guests
+            );
+            if ($quoteData === null) {
+                return ['ok' => false, 'message' => 'Les tarifs et disponibilités ne sont pas accessibles pour le moment. Merci de réessayer dans quelques instants.'];
+            }
 
-        $quoteBreakdown = self::computeQuoteBreakdown(
-            $quoteData,
-            (float) ($partner['markup_percent'] ?? 0),
-            (float) ($quoteData['vat_rate'] ?? 0),
-            $quoteData['room_base_before_commission'] ?? null,
-            $quoteData['extra_person_base_before_commission'] ?? null
-        );
+            $quoteBreakdown = self::computeQuoteBreakdown(
+                $quoteData,
+                (float) ($partner['markup_percent'] ?? 0),
+                (float) ($quoteData['vat_rate'] ?? 0),
+                $quoteData['room_base_before_commission'] ?? null,
+                $quoteData['extra_person_base_before_commission'] ?? null
+            );
+        }
 
         $breakdownColumns = self::childrenBreakdownColumns($pdo);
         $columns = [
@@ -1851,9 +1872,11 @@ final class ReservationsController extends Controller
             $params[] = $childrenUnder3;
             $params[] = $children3to12;
         }
-        [$quoteColumns, $quoteParams] = self::quoteInsertColumnsAndParams($pdo, $quoteBreakdown, $quoteData);
-        $columns = [...$columns, ...$quoteColumns];
-        $params = [...$params, ...$quoteParams];
+        if (!$lockPrice) {
+            [$quoteColumns, $quoteParams] = self::quoteInsertColumnsAndParams($pdo, $quoteBreakdown, $quoteData);
+            $columns = [...$columns, ...$quoteColumns];
+            $params = [...$params, ...$quoteParams];
+        }
         // last_client_update_at (see db/migrations/046_...) tracks edits
         // made by the client themselves, so it must never be touched when
         // the partner is the one editing (updateForPartner()).
@@ -2271,6 +2294,8 @@ final class ReservationsController extends Controller
                 $childBreakdown['from3to12']
             ),
             'useful_info' => self::usefulInfoButtonHtml((int) ($input['property_id'] ?? 0), $guestLanguage),
+            'lien_demande_client' => self::clientReservationLink((int) ($input['id'] ?? 0)),
+            'lien_demande_partenaire' => self::partnerReservationLink((int) ($input['id'] ?? 0)),
         ];
         $variables += self::stayVariables($checkin, $checkout, $childBreakdown['under3'], $childBreakdown['from3to12'], (int) ($input['adults'] ?? 0));
         $variables += self::requestQuoteVariables($input, $itemCount, (float) ($partner['markup_percent'] ?? 0));
@@ -2479,6 +2504,8 @@ final class ReservationsController extends Controller
                 $childBreakdown['from3to12']
             ),
             'useful_info' => self::usefulInfoButtonHtml((int) ($request['property_id'] ?? 0), $guestLanguage),
+            'lien_demande_client' => self::clientReservationLink((int) ($request['id'] ?? 0)),
+            'lien_demande_partenaire' => self::partnerReservationLink((int) ($request['id'] ?? 0)),
         ];
         $variables += self::stayVariables(
             (string) $request['checkin_date'],
@@ -3344,6 +3371,47 @@ final class ReservationsController extends Controller
         }
         $baseUrl = Auth::currentBaseUrl();
         return $baseUrl === '' ? '' : $baseUrl . '/#' . $subdomain;
+    }
+
+    /**
+     * Builds the {{lien_demande_client}} email variable: the same
+     * "Partager le lien" public URL (/r/{token}, see ensurePublicToken()/
+     * findByToken()) shown behind the "Copier le lien"/"Partager sur
+     * WhatsApp" buttons on /partner/reservations/{id}, so a client can open
+     * their own request directly from an email instead of only via
+     * WhatsApp. Returns '' if the request id is invalid or migration 046
+     * (public_token column) hasn't applied yet on this install.
+     */
+    public static function clientReservationLink(int $id): string
+    {
+        if ($id <= 0) {
+            return '';
+        }
+        $token = self::ensurePublicToken($id);
+        if ($token === null) {
+            return '';
+        }
+        $baseUrl = Auth::currentBaseUrl();
+        return $baseUrl === '' ? '' : $baseUrl . '/r/' . $token;
+    }
+
+    /**
+     * Builds the {{lien_demande_partenaire}} email variable: a direct link
+     * to /partner/reservations/{id}, the partner-only reservation detail
+     * page (requires the partner to be logged in — see
+     * PageController::requirePartnerUser()), so the partner can jump
+     * straight to a specific request from an email instead of searching for
+     * it on /partner/reservations. Marked partnerOnly in
+     * View::emailTemplateVariableCatalog() so it's always stripped from any
+     * client-facing copy (see redactPartnerOnlyVariables()).
+     */
+    public static function partnerReservationLink(int $id): string
+    {
+        if ($id <= 0) {
+            return '';
+        }
+        $baseUrl = Auth::currentBaseUrl();
+        return $baseUrl === '' ? '' : $baseUrl . '/partner/reservations/' . $id;
     }
 
     /**

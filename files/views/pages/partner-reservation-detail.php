@@ -40,7 +40,10 @@ $propertyDescription = $property ? trim(\App\View::localized($property, 'descrip
     <div class="section-header">
       <h2 class="section-title">Détails du séjour</h2>
       <?php if ($editable): ?>
-        <button type="button" class="btn-secondary" data-reservation-edit-toggle>Modifier</button>
+        <div class="button-row">
+          <button type="button" class="btn-secondary" data-reservation-edit-toggle>Modifier</button>
+          <button type="button" class="btn-secondary" data-reservation-edit-toggle-lock>Modifier (Sans toucher aux Prix)</button>
+        </div>
       <?php endif; ?>
     </div>
 
@@ -95,14 +98,16 @@ $propertyDescription = $property ? trim(\App\View::localized($property, 'descrip
           <input type="hidden" name="guests_json" data-guests-json value="">
           <input type="hidden" name="children" value="<?= $childrenUnder + $children3to12v ?>">
           <input type="hidden" name="property_id" value="<?= (int) $reservation['property_id'] ?>" data-reservation-property-id>
+          <input type="hidden" name="lock_price" value="0" data-reservation-lock-price-field>
+          <p class="muted" data-reservation-lock-price-notice hidden>Mode « Sans toucher aux Prix » : seuls le nom, le téléphone, l'email, le nombre de personnes et la nationalité peuvent être modifiés. Les dates, l'hébergement et le prix restent inchangés.</p>
           <div class="form-grid cols-2">
             <label><span>Nom complet</span><input class="input" type="text" name="client_name" value="<?= \App\View::e($reservation['client_name']) ?>" required></label>
             <label><span>Email</span><input class="input" type="email" name="client_email" value="<?= \App\View::e($reservation['client_email']) ?>" required></label>
             <label><span>Téléphone</span><input class="input" type="tel" name="client_phone" value="<?= \App\View::e((string) ($reservation['client_phone'] ?? '')) ?>"></label>
           </div>
           <div class="form-grid cols-2">
-            <label><span>Date d'arrivée</span><input class="input" type="date" name="checkin_date" value="<?= \App\View::e($reservation['checkin_date']) ?>" required data-reservation-quote-field></label>
-            <label><span>Date de départ</span><input class="input" type="date" name="checkout_date" value="<?= \App\View::e($reservation['checkout_date']) ?>" required data-reservation-quote-field></label>
+            <label><span>Date d'arrivée</span><input class="input" type="date" name="checkin_date" value="<?= \App\View::e($reservation['checkin_date']) ?>" required data-reservation-quote-field data-reservation-price-locked-field></label>
+            <label><span>Date de départ</span><input class="input" type="date" name="checkout_date" value="<?= \App\View::e($reservation['checkout_date']) ?>" required data-reservation-quote-field data-reservation-price-locked-field></label>
           </div>
           <div class="form-grid cols-3">
             <label><span>Adultes</span><input class="input" type="number" min="1" max="20" name="adults" value="<?= (int) $reservation['adults'] ?>" required data-reservation-quote-field></label>
@@ -121,7 +126,7 @@ $propertyDescription = $property ? trim(\App\View::localized($property, 'descrip
               <strong data-reservation-property-name><?= \App\View::e($reservation['property_name'] ?: '—') ?></strong>
               <div class="button-row">
                 <a class="btn-secondary" target="_blank" rel="noopener" data-reservation-view-property-link href="/properties/<?= (int) $reservation['property_id'] ?>#rates-availability">Voir le bien</a>
-                <button type="button" class="btn-secondary" data-reservation-change-property>Changer d'hébergement</button>
+                <button type="button" class="btn-secondary" data-reservation-change-property data-reservation-price-locked-field>Changer d'hébergement</button>
               </div>
             </div>
           </div>
