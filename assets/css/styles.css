@@ -260,6 +260,13 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .calendar-cell.past .calendar-day { text-decoration: none; }
 .calendar-day { font-size: .85rem; }
 .calendar-price { font-size: .7rem; font-weight: 700; opacity: .85; }
+
+/* "Modifier les Dates" modal (reservation-public.php / partner-reservation-
+   detail.php, initReservationDatesModal() in app.js): the request's current
+   dates are shown in orange until the visitor starts picking new ones, at
+   which point the newly selected range takes over in red. */
+.reservation-dates-calendar .calendar-cell.current-dates { background: #fed7aa; color: #9a3412; }
+.reservation-dates-calendar .calendar-cell.new-dates { background: #dc2626; color: white; }
 .calendar-legend-row { margin-top: 1rem; display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
 .calendar-legend { font-size: .85rem; color: var(--muted); display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
 .calendar-legend-note { font-weight: 600; }

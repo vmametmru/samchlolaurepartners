@@ -1429,6 +1429,149 @@ final class PageController extends Controller
     }
 
     /**
+     * Shared by partnerReservationDatesAvailability()/
+     * reservationPublicDatesAvailability() below: builds the same rates/
+     * price-note data as propertyDetail()'s "Tarifs & Disponibilités" tab
+     * (still sourced from Lodgify, since this app has no local pricing
+     * data), but with day-by-day AVAILABILITY read from this app's own
+     * `reservations` table instead of Lodgify's live calendar — per
+     * explicit requirement, the "Modifier les Dates" modal must never call
+     * Lodgify for availability (see ReservationsController::
+     * localAvailabilityForRange()). Rendered as a JSON-friendly HTML
+     * fragment (via calendar-body.php) for a given property and 12-month
+     * range anchored on $anchorDate's month, for the "Modifier les Dates"
+     * modal on /partner/reservations/{id} and the public /r/{token} page.
+     * $excludeRequestId is the reservation request currently being edited,
+     * so its own current dates are never shown as booked.
+     */
+    private static function reservationDatesAvailabilityFragment(array $partner, int $propertyId, ?string $anchorDate, int $excludeRequestId = 0): array
+    {
+        $visibility = PartnerPropertyVisibility::visibilityFor($partner, $propertyId);
+        if ($visibility === PartnerPropertyVisibility::NONE) {
+            throw new HttpException(404, 'Not Found', 'Hébergement introuvable');
+        }
+        $client = new LodgifyClient();
+        $today = date('Y-m-d');
+        $calendarMonths = 12;
+        try {
+            $anchor = ($anchorDate !== null && $anchorDate !== '') ? new \DateTimeImmutable($anchorDate) : new \DateTimeImmutable('today');
+        } catch (Throwable $e) {
+            $anchor = new \DateTimeImmutable('today');
+        }
+        $rangeStart = $anchor->modify('first day of this month')->format('Y-m-d');
+        $rangeEnd = $anchor->modify('first day of this month')->modify('+' . $calendarMonths . ' months')->modify('-1 day')->format('Y-m-d');
+
+        $manualOverrides = self::manualLodgifyColumnsByPropertyId([$propertyId]);
+        $manual = $manualOverrides[$propertyId] ?? ['sofa_bed_count' => null, 'min_people' => null, 'extra_person_fee' => null, 'vat_rate' => null];
+        $vatRate = self::resolveVatRate($client, $propertyId, $manual['vat_rate']);
+
+        $availability = [];
+        $rates = [];
+        if ($visibility !== PartnerPropertyVisibility::PARTIAL) {
+            $availability = ReservationsController::localAvailabilityForRange($propertyId, $rangeStart, $rangeEnd, $excludeRequestId);
+            $rates = self::publicRates($client, $propertyId, $rangeStart, $rangeEnd, $vatRate);
+        }
+
+        $cleaningFeePerPerson = (float) ($partner['cleaning_fee_per_person_per_night'] ?? 0);
+        $extraPersonFeeMarkup = (float) ($partner['markup_percent'] ?? 0);
+        $priceExtraPersonFee = $manual['extra_person_fee'];
+        if ($priceExtraPersonFee !== null) {
+            $priceExtraPersonFee = round((float) $priceExtraPersonFee * (1 + $extraPersonFeeMarkup / 100) * (1 + $vatRate / 100), 2);
+        }
+        $globalTouristTax = (float) (Database::connection()->query('SELECT per_person_per_night FROM tourist_tax LIMIT 1')->fetchColumn() ?: 0);
+        $priceMinPeople = $manual['min_people'];
+        $minRate = $rates !== [] ? min(array_map(static fn (array $r) => (float) $r['price_per_night'], $rates)) : null;
+
+        ob_start(); ?>
+        <p class="muted calendar-price-note">
+          <?= View::e(sprintf(
+              I18n::t('calendar.price_note'),
+              $cleaningFeePerPerson > 0 ? sprintf(I18n::t('calendar.price_note_cleaning_fee'), number_format($cleaningFeePerPerson, 2, ',', ' ')) : ''
+          )) ?>
+          <?php if ($priceMinPeople !== null): ?>
+            <?= View::e(sprintf(I18n::t('property.price_min_people'), (int) $priceMinPeople)) ?>
+            <?php if ($priceExtraPersonFee !== null && $priceExtraPersonFee > 0): ?>
+              <?= View::e(sprintf(I18n::t('property.price_extra_person_fee'), number_format((float) $priceExtraPersonFee, 2, ',', ' '))) ?>
+            <?php endif; ?>
+            <?= View::e(I18n::t('property.price_babies_and_tax')) ?>
+            <?php if ($globalTouristTax > 0): ?>
+              <?= View::e(sprintf(I18n::t('property.tourist_tax_note'), number_format($globalTouristTax, 2, ',', ' '))) ?>
+            <?php endif; ?>
+          <?php endif; ?>
+        </p>
+        <?php
+        $priceNoteHtml = ob_get_clean();
+
+        $calendarStart = $rangeStart;
+        ob_start();
+        require BASE_PATH . '/files/views/partials/calendar-body.php';
+        $calendarHtml = ob_get_clean();
+
+        return [
+            'restricted' => $visibility === PartnerPropertyVisibility::PARTIAL,
+            'rates_available' => $minRate !== null,
+            'anchor' => $rangeStart,
+            'price_note_html' => $priceNoteHtml,
+            'calendar_html' => $calendarHtml,
+        ];
+    }
+
+    /**
+     * JSON availability/pricing fragment for the "Modifier les Dates" modal
+     * on /partner/reservations/{id} — reuses the same calendar-body.php
+     * partial as the "Tarifs & Disponibilités" tab (propertyDetail()), so
+     * the partner sees identical per-night prices/legend while picking new
+     * dates. Excluded when the partner is in "Modifier (Sans toucher aux
+     * Prix)" lock mode client-side (the button carries
+     * data-reservation-price-locked-field), but this endpoint is re-checked
+     * against the request's own "pending" status regardless.
+     */
+    public static function partnerReservationDatesAvailability(int $id): never
+    {
+        $user = self::requirePartnerUser();
+        $partnerId = (int) $user['partner_id'];
+        $request = ReservationsController::findForPartner($partnerId, $id);
+        if (!$request) {
+            self::json(['error' => 'Not Found', 'message' => 'Demande introuvable'], 404);
+        }
+        $partner = PartnersController::formData($partnerId);
+        if (!empty($partner['subdomain'])) {
+            Tenant::setCodeCookie((string) $partner['subdomain']);
+        }
+        $propertyId = (int) ($_GET['property_id'] ?? $request['property_id'] ?? 0);
+        if ($propertyId <= 0) {
+            self::json(['error' => 'Bad Request', 'message' => 'Bien introuvable pour cette demande.'], 400);
+        }
+        $anchor = trim((string) ($_GET['anchor'] ?? '')) ?: (string) $request['checkin_date'];
+        self::json(['data' => self::reservationDatesAvailabilityFragment($partner, $propertyId, $anchor, (int) $request['id'])]);
+    }
+
+    /**
+     * Public-token equivalent of partnerReservationDatesAvailability(),
+     * for the client's own /r/{token} "Modifier les Dates" modal.
+     */
+    public static function reservationPublicDatesAvailability(string $token): never
+    {
+        $request = ReservationsController::findByToken($token);
+        if (!$request) {
+            self::json(['error' => 'Not Found', 'message' => 'Demande introuvable'], 404);
+        }
+        if ((string) $request['status'] !== 'pending') {
+            self::json(['error' => 'Forbidden', 'message' => 'Cette demande n\'est plus modifiable en ligne.'], 403);
+        }
+        $partner = PartnersController::formData((int) $request['partner_id']);
+        if (!empty($partner['subdomain'])) {
+            Tenant::setCodeCookie((string) $partner['subdomain']);
+        }
+        $propertyId = (int) ($_GET['property_id'] ?? $request['property_id'] ?? 0);
+        if ($propertyId <= 0) {
+            self::json(['error' => 'Bad Request', 'message' => 'Bien introuvable pour cette demande.'], 400);
+        }
+        $anchor = trim((string) ($_GET['anchor'] ?? '')) ?: (string) $request['checkin_date'];
+        self::json(['data' => self::reservationDatesAvailabilityFragment($partner, $propertyId, $anchor, (int) $request['id'])]);
+    }
+
+    /**
      * Handles the "Renvoyer la demande modifiée" submission on the public
      * reservation page: decodes the {type, nationality} guests array built
      * client-side (initNationalities()/collectGuests() in assets/js/app.js,

@@ -130,11 +130,14 @@ $needsClientEmail = !empty($needsClientEmail);
             <label><span>Téléphone</span><input class="input" type="tel" name="client_phone" value="<?= \App\View::e((string) ($request['client_phone'] ?? '')) ?>"></label>
           </div>
           <div class="form-grid cols-2">
-            <label><span>Date d'arrivée</span><input class="input" type="date" name="checkin_date" value="<?= \App\View::e($request['checkin_date']) ?>" required data-reservation-quote-field></label>
-            <label><span>Date de départ</span><input class="input" type="date" name="checkout_date" value="<?= \App\View::e($request['checkout_date']) ?>" required data-reservation-quote-field></label>
+            <label><span>Date d'arrivée</span><input class="input" type="date" name="checkin_date" value="<?= \App\View::e($request['checkin_date']) ?>" required readonly data-reservation-quote-field data-reservation-dates-checkin></label>
+            <label><span>Date de départ</span><input class="input" type="date" name="checkout_date" value="<?= \App\View::e($request['checkout_date']) ?>" required readonly data-reservation-quote-field data-reservation-dates-checkout></label>
             <label><span>Adultes</span><input class="input" type="number" min="1" max="20" name="adults" value="<?= (int) $request['adults'] ?>" required data-reservation-quote-field></label>
             <label><span>Enfants (3-12 ans)</span><input class="input" type="number" min="0" max="20" name="children_3to12" value="<?= $children3to12v ?>" data-reservation-quote-field></label>
             <label><span>Bébés (- 3 ans)</span><input class="input" type="number" min="0" max="2" name="children_under3" value="<?= $childrenUnder ?>" data-reservation-quote-field></label>
+          </div>
+          <div class="button-row">
+            <button type="button" class="btn-secondary" data-reservation-change-dates>Modifier les Dates</button>
           </div>
 
           <div class="stack-sm">
@@ -191,6 +194,33 @@ $needsClientEmail = !empty($needsClientEmail);
           <div class="reservation-modal-summary" data-reservation-modal-summary></div>
           <div class="reservation-modal-list" data-reservation-modal-list>
             <p class="muted">Chargement des biens disponibles…</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- "Modifier les Dates" modal: shows this property's availability &
+           rates (same calendar-body.php partial and price note as the
+           "Tarifs & Disponibilités" tab) starting on the current arrival
+           month, current dates highlighted in orange; picking a new
+           arrival/departure highlights them in red instead. -->
+      <div class="simple-modal-overlay" data-reservation-dates-modal hidden>
+        <div class="simple-modal-dialog simple-modal-dialog-wide" role="dialog" aria-modal="true" aria-label="Modifier les dates">
+          <div class="simple-modal-header">
+            <h3>Modifier les dates</h3>
+            <button type="button" class="btn-icon-plain" data-reservation-dates-modal-close aria-label="Fermer">✕</button>
+          </div>
+          <p class="muted">Les dates actuelles apparaissent en orange. Cliquez sur la date d'arrivée puis sur la date de départ pour sélectionner de nouvelles dates (elles apparaîtront en rouge).</p>
+          <div class="button-row">
+            <button type="button" class="btn-secondary" data-reservation-dates-prev-month>← Mois précédent</button>
+            <button type="button" class="btn-secondary" data-reservation-dates-next-month>Mois suivant →</button>
+          </div>
+          <div data-reservation-dates-calendar class="reservation-dates-calendar">
+            <p class="muted">Chargement des disponibilités…</p>
+          </div>
+          <div class="reservation-modal-summary" data-reservation-dates-summary></div>
+          <div class="button-row">
+            <button type="button" class="btn-secondary" data-reservation-dates-cancel>Annuler</button>
+            <button type="button" class="btn-primary" data-reservation-dates-validate disabled>Valider les dates</button>
           </div>
         </div>
       </div>
