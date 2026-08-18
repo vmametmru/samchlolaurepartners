@@ -184,6 +184,31 @@ final class Database
         return self::$columnNullableCache[$cacheKey] = $isNullable;
     }
 
+    /**
+     * Self-heals a missing column with an inline ALTER TABLE ... ADD COLUMN,
+     * mirroring ensureColumnNullable() above but for columns that may not
+     * exist at all yet on a live database where the migration that was
+     * supposed to add them never applied (Migrator::autoRun() logs and
+     * swallows migration errors instead of breaking the page — see
+     * index.php). Returns true if the column exists afterwards (already
+     * existed, or was just added), false if it still doesn't (e.g. no
+     * privileges to ALTER).
+     */
+    public static function ensureColumn(string $table, string $column, string $columnDefinitionSql): bool
+    {
+        if (self::columnExists($table, $column)) {
+            return true;
+        }
+        try {
+            self::connection()->exec('ALTER TABLE ' . $table . ' ADD COLUMN ' . $column . ' ' . $columnDefinitionSql);
+            self::$columnExistsCache[$table . '.' . $column] = true;
+            return true;
+        } catch (Throwable $e) {
+            self::$columnExistsCache[$table . '.' . $column] = false;
+            return false;
+        }
+    }
+
     public static function test(): array
     {
         try {

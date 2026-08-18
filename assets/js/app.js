@@ -54,6 +54,11 @@ document.addEventListener('DOMContentLoaded', () => {
     initCatalogUploadProgress,
     initTranslationSuggestions,
     initPhotoGallerySelectAll,
+    initCopyLinkButton,
+    initReservationPublicEditToggle,
+    initReservationPublicQuote,
+    initReservationPublicPropertyPicker,
+    initReservationPublicPhotoGallery,
   ].forEach(runInit);
 });
 
@@ -394,6 +399,43 @@ function initCalendarNameColumnToggle() {
       // Ignore storage errors (e.g. private browsing): the choice simply
       // won't persist across page loads, which is a harmless degradation.
     }
+  });
+}
+
+// Generic "copy link" button used by the "Partager le lien" action on
+// /partner/reservations and its detail page (public reservation-editing
+// link): copies the URL in data-copy-link (not window.location.href, unlike
+// initShareButton() above) and briefly flips the button label to confirm
+// the copy succeeded.
+function initCopyLinkButton() {
+  document.querySelectorAll('[data-copy-link]').forEach((btn) => {
+    const url = btn.dataset.copyLink || '';
+    if (!url) return;
+    const originalLabel = btn.textContent;
+    let resetTimeout = null;
+    btn.addEventListener('click', async () => {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(url);
+        } else {
+          const textarea = document.createElement('textarea');
+          textarea.value = url;
+          textarea.style.position = 'fixed';
+          textarea.style.opacity = '0';
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textarea);
+        }
+      } catch (error) {
+        return;
+      }
+      btn.textContent = '✅ Lien copié';
+      if (resetTimeout) window.clearTimeout(resetTimeout);
+      resetTimeout = window.setTimeout(() => {
+        btn.textContent = originalLabel;
+      }, 2000);
+    });
   });
 }
 
@@ -937,6 +979,367 @@ function initApiForms() {
   });
 }
 
+/**
+ * "Partager le lien" public reservation page (see files/views/pages/
+ * reservation-public.php): the request's details render read-only by
+ * default, even while still "pending" — clicking "Modifier" reveals the
+ * editable form (and hides the read-only summary) instead of it being
+ * editable right away, so a client following the WhatsApp link never
+ * accidentally starts typing into a field. "Annuler la modification" does
+ * the reverse without submitting anything.
+ *
+ * On the partner-only /partner/reservations/{id} page (files/views/pages/
+ * partner-reservation-detail.php) a second "Modifier (Sans toucher aux
+ * Prix)" button ([data-reservation-edit-toggle-lock]) opens the exact same
+ * form but in a price-locked mode: the check-in/check-out dates and the
+ * "Changer d'hébergement" control are disabled (so they can never be
+ * submitted) and the live-quote box is replaced by a static notice, while
+ * name/phone/email/party-size/nationality stay editable. The hidden
+ * "lock_price" field tells ReservationsController::applyRequestEdit() to
+ * always keep the request's own dates/hébergement/price untouched
+ * server-side too, regardless of what's actually submitted.
+ */
+function initReservationPublicEditToggle() {
+  const toggleBtn = document.querySelector('[data-reservation-edit-toggle]');
+  const toggleLockBtn = document.querySelector('[data-reservation-edit-toggle-lock]');
+  const view = document.querySelector('[data-reservation-view]');
+  const editForm = document.querySelector('[data-reservation-edit-form]');
+  if (!view || !editForm || (!toggleBtn && !toggleLockBtn)) return;
+
+  const form = editForm.querySelector('form');
+  const lockPriceField = form?.querySelector('[data-reservation-lock-price-field]');
+  const lockPriceNotice = form?.querySelector('[data-reservation-lock-price-notice]');
+  const lockedFields = form ? Array.from(form.querySelectorAll('[data-reservation-price-locked-field]')) : [];
+  const quoteBox = form?.querySelector('[data-reservation-live-quote]');
+
+  function setEditing(editing, lockPrice) {
+    view.hidden = editing;
+    editForm.hidden = !editing;
+    if (toggleBtn) toggleBtn.hidden = editing;
+    if (toggleLockBtn) toggleLockBtn.hidden = editing;
+    if (lockPriceField) lockPriceField.value = editing && lockPrice ? '1' : '0';
+    lockedFields.forEach((field) => { field.disabled = Boolean(editing && lockPrice); });
+    if (lockPriceNotice) lockPriceNotice.hidden = !(editing && lockPrice);
+    if (quoteBox) quoteBox.hidden = Boolean(editing && lockPrice);
+  }
+
+  toggleBtn?.addEventListener('click', () => setEditing(true, false));
+  toggleLockBtn?.addEventListener('click', () => setEditing(true, true));
+  editForm.querySelector('[data-reservation-edit-cancel]')?.addEventListener('click', () => setEditing(false, false));
+
+  // The edit form submits natively (full page reload to /r/{token}/update,
+  // not a fetch()-intercepted data-api-form) so PageController::
+  // reservationPublicUpdate() can redirect back with a flash message; the
+  // per-guest nationalities built by initNationalities()/collectGuests()
+  // therefore have to be serialized into the hidden "guests_json" field
+  // right before the browser actually submits, or the server would only
+  // ever see the empty default value.
+  const guestsJsonField = form?.querySelector('[data-guests-json]');
+  form?.addEventListener('submit', () => {
+    if (guestsJsonField) guestsJsonField.value = JSON.stringify(collectGuests(form));
+  });
+}
+
+/**
+ * Live-recomputes and displays the quote in the public reservation edit
+ * form (files/views/pages/reservation-public.php) whenever the dates,
+ * party size or selected property change — reusing the same authoritative
+ * /api/reservations/quote endpoint (and buildFormPayload()/collectGuests())
+ * as the property-detail booking form, so the price shown before
+ * submitting is never stale once the visitor edits anything.
+ */
+function initReservationPublicQuote() {
+  const form = document.querySelector('[data-reservation-edit-quote-form]');
+  if (!form) return;
+  const box = form.querySelector('[data-reservation-live-quote]');
+  const hint = form.querySelector('[data-reservation-quote-hint]');
+  if (!box) return;
+
+  let requestId = 0;
+  let debounceTimer = null;
+
+  function formatMoney(amount, currency) {
+    return `${Number(amount || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+  }
+
+  async function fetchQuote() {
+    const currentRequest = ++requestId;
+    const propertyId = Number(form.querySelector('[data-reservation-property-id]')?.value || 0);
+    const checkin = form.querySelector('[name="checkin_date"]')?.value || '';
+    const checkout = form.querySelector('[name="checkout_date"]')?.value || '';
+    const adults = Number(form.querySelector('[name="adults"]')?.value || 0);
+    if (!propertyId || !checkin || !checkout || adults < 1) return;
+    try {
+      const payload = buildFormPayload(form);
+      payload.property_id = propertyId;
+      const response = await fetch('/api/reservations/quote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify(payload),
+        credentials: 'same-origin'
+      });
+      const data = await response.json();
+      if (currentRequest !== requestId) return;
+      if (!response.ok) throw new Error(data.message || 'Erreur');
+      const quote = data.data;
+      const currency = quote.currency || 'EUR';
+      const lines = [
+        `<div class="quote-line"><span>Hébergement (${quote.nights} nuit(s))</span><span>${formatMoney(quote.room_total, currency)}</span></div>`
+      ];
+      if (Number(quote.extra_person_total) > 0) {
+        lines.push(`<div class="quote-line"><span>Personne(s) supplémentaire(s)</span><span>${formatMoney(quote.extra_person_total, currency)}</span></div>`);
+      }
+      if (Number(quote.cleaning_total) > 0) {
+        lines.push(`<div class="quote-line"><span>Frais de ménage</span><span>${formatMoney(quote.cleaning_total, currency)}</span></div>`);
+      }
+      if (Number(quote.tourist_tax_total) > 0) {
+        lines.push(`<div class="quote-line"><span>Taxe de séjour</span><span>${formatMoney(quote.tourist_tax_total, currency)}</span></div>`);
+      }
+      lines.push(`<div class="quote-line quote-line-total"><span>Nouveau tarif</span><strong>${formatMoney(quote.grand_total, currency)}</strong></div>`);
+      box.innerHTML = lines.join('');
+    } catch (error) {
+      if (currentRequest !== requestId) return;
+      box.innerHTML = '<p class="muted">Impossible de recalculer le tarif pour le moment.</p>';
+    }
+  }
+
+  function scheduleQuote() {
+    if (hint) hint.hidden = true;
+    window.clearTimeout(debounceTimer);
+    debounceTimer = window.setTimeout(fetchQuote, 400);
+  }
+
+  form.querySelectorAll('[data-reservation-quote-field]').forEach((field) => {
+    field.addEventListener('change', scheduleQuote);
+    field.addEventListener('input', scheduleQuote);
+  });
+  // Also re-quote once a new property is chosen from the "Changer
+  // d'hébergement" modal (initReservationPublicPropertyPicker() below
+  // dispatches this custom event after updating the hidden property_id).
+  form.addEventListener('reservation-property-changed', scheduleQuote);
+}
+
+/**
+ * Powers the "Changer d'hébergement" modal on the public reservation page:
+ * on open, fetches the properties available for the currently entered
+ * dates/party size from PageController::reservationPublicAvailableProperties()
+ * (which checks availability against this app's own local reservations,
+ * never Lodgify's live calendar — see ReservationsController::
+ * publicAvailableProperties()), shows a summary of the requested dates/
+ * party size plus each candidate's previous ("avant modif") and newly
+ * computed price, and lets the visitor pick one with a "Choisir" button.
+ */
+function initReservationPublicPropertyPicker() {
+  const form = document.querySelector('[data-reservation-edit-quote-form]');
+  const openBtn = document.querySelector('[data-reservation-change-property]');
+  const modal = document.querySelector('[data-reservation-property-modal]');
+  if (!form || !openBtn || !modal) return;
+  const closeBtn = modal.querySelector('[data-reservation-property-modal-close]');
+  const summaryEl = modal.querySelector('[data-reservation-modal-summary]');
+  const listEl = modal.querySelector('[data-reservation-modal-list]');
+  const baseUrl = form.dataset.reservationBaseUrl || '';
+
+  function formatMoney(amount, currency) {
+    return `${Number(amount || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+  }
+
+  function closeModal() {
+    modal.hidden = true;
+  }
+
+  async function loadProperties() {
+    const checkin = form.querySelector('[name="checkin_date"]')?.value || '';
+    const checkout = form.querySelector('[name="checkout_date"]')?.value || '';
+    const adults = form.querySelector('[name="adults"]')?.value || '1';
+    const childrenUnder3 = form.querySelector('[name="children_under3"]')?.value || '0';
+    const children3to12 = form.querySelector('[name="children_3to12"]')?.value || '0';
+
+    const partyLabel = (() => {
+      const parts = [`${adults} adulte(s)`];
+      if (Number(children3to12) > 0) parts.push(`${children3to12} enfant(s) (3-12 ans)`);
+      if (Number(childrenUnder3) > 0) parts.push(`${childrenUnder3} bébé(s)`);
+      return parts.join(', ');
+    })();
+    if (summaryEl) {
+      summaryEl.innerHTML = `<div class="quote-line"><span>Dates</span><span>${escapeHtml(checkin)} → ${escapeHtml(checkout)}</span></div><div class="quote-line"><span>Voyageurs</span><span>${escapeHtml(partyLabel)}</span></div>`;
+    }
+    listEl.innerHTML = '<p class="muted">Chargement des biens disponibles…</p>';
+
+    const params = new URLSearchParams({
+      checkin_date: checkin,
+      checkout_date: checkout,
+      adults,
+      children_under3: childrenUnder3,
+      children_3to12: children3to12
+    });
+    try {
+      const response = await fetch(`${baseUrl}/available-properties?${params.toString()}`, {
+        headers: { 'Accept': 'application/json' },
+        credentials: 'same-origin'
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Erreur');
+      const previousPrice = data.data.previous_price;
+      const properties = data.data.properties || [];
+      if (!properties.length) {
+        listEl.innerHTML = '<p class="muted">Aucun bien disponible pour ces dates et ce nombre de voyageurs.</p>';
+        return;
+      }
+      listEl.innerHTML = properties.map((property) => {
+        const newPriceHtml = property.total_traveler !== null
+          ? formatMoney(property.total_traveler, property.currency || previousPrice.currency)
+          : 'Indisponible';
+        const safeName = escapeHtml(property.name);
+        const photoUrl = property.image_url ? escapeHtml(property.image_url) : '';
+        const bedrooms = Number(property.bedrooms || 0);
+        const sofaBeds = Number(property.sofa_bed_count || 0);
+        const maxGuests = Number(property.max_guests || 0);
+        return `
+          <div class="reservation-modal-property">
+            ${photoUrl ? `<div class="reservation-modal-property-photo"><img src="${photoUrl}" alt="${safeName}" loading="lazy"></div>` : ''}
+            <div class="reservation-modal-property-body">
+              <div class="reservation-modal-property-name">${safeName}</div>
+              <div class="reservation-modal-property-meta">
+                <span>${bedrooms} lit(s)</span>
+                <span>${sofaBeds} canapé(s)-lit</span>
+                <span>${maxGuests} pers. max</span>
+              </div>
+              <div class="reservation-modal-property-prices">
+                <span class="muted">Prix avant modif : ${formatMoney(previousPrice.total_traveler, previousPrice.currency)}</span>
+                <span>Nouveau prix : <strong>${newPriceHtml}</strong></span>
+              </div>
+              <button type="button" class="btn-primary" data-reservation-choose-property="${property.id}" data-reservation-choose-name="${escapeHtml(property.name)}">Choisir</button>
+            </div>
+          </div>`;
+      }).join('');
+      listEl.querySelectorAll('[data-reservation-choose-property]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const propertyId = btn.dataset.reservationChooseProperty;
+          const propertyName = btn.dataset.reservationChooseName;
+          const propertyIdField = form.querySelector('[data-reservation-property-id]');
+          const propertyNameEl = document.querySelector('[data-reservation-property-name]');
+          if (propertyIdField) propertyIdField.value = propertyId;
+          if (propertyNameEl) propertyNameEl.textContent = propertyName;
+
+          // Keep the "Voir le bien"/"Voir galerie photo" buttons and the
+          // page's own property photo in sync with the newly chosen
+          // property, without waiting for a page reload.
+          const chosen = properties.find((p) => String(p.id) === String(propertyId));
+          const viewLink = document.querySelector('[data-reservation-view-property-link]');
+          if (viewLink) viewLink.href = `/properties/${propertyId}#rates-availability`;
+          const galleryBtn = document.querySelector('[data-reservation-view-gallery]');
+          if (galleryBtn) galleryBtn.dataset.reservationGalleryPropertyId = propertyId;
+          const photoBlock = document.querySelector('[data-reservation-property-photo-block]');
+          if (photoBlock && chosen) {
+            let img = photoBlock.querySelector('[data-reservation-property-photo]');
+            if (chosen.image_url) {
+              if (!img) {
+                img = document.createElement('img');
+                img.className = 'reservation-property-photo';
+                img.setAttribute('data-reservation-property-photo', '');
+                photoBlock.insertBefore(img, photoBlock.firstChild);
+              }
+              img.src = chosen.image_url;
+              img.alt = propertyName || '';
+            } else if (img) {
+              img.remove();
+            }
+          }
+
+          form.dispatchEvent(new CustomEvent('reservation-property-changed'));
+          closeModal();
+        });
+      });
+    } catch (error) {
+      listEl.innerHTML = '<p class="muted">Impossible de charger les biens disponibles pour le moment.</p>';
+    }
+  }
+
+  openBtn.addEventListener('click', () => {
+    modal.hidden = false;
+    loadProperties();
+  });
+  closeBtn?.addEventListener('click', closeModal);
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) closeModal();
+  });
+}
+
+function initReservationPublicPhotoGallery() {
+  const openBtn = document.querySelector('[data-reservation-view-gallery]');
+  const modal = document.querySelector('[data-reservation-gallery-modal]');
+  if (!openBtn || !modal) return;
+  const closeBtn = modal.querySelector('[data-reservation-gallery-modal-close]');
+  const mainImg = modal.querySelector('[data-reservation-gallery-main]');
+  const thumbsEl = modal.querySelector('[data-reservation-gallery-thumbs]');
+  const baseUrl = modal.dataset.reservationBaseUrl || '';
+
+  function closeModal() {
+    modal.hidden = true;
+  }
+
+  // Renders the fetched photos as a "main photo + thumbnails below" gallery,
+  // matching property-detail.php's data-gallery/data-gallery-main/
+  // data-gallery-thumb pattern: clicking a thumbnail swaps the main photo in
+  // place instead of navigating away or opening another overlay.
+  function selectThumb(thumbs, thumb) {
+    thumbs.forEach((item) => item.classList.remove('active'));
+    thumb.classList.add('active');
+    if (mainImg) mainImg.src = thumb.dataset.src || '';
+  }
+
+  async function loadPhotos() {
+    if (!thumbsEl) return;
+    thumbsEl.innerHTML = '<p class="muted">Chargement des photos…</p>';
+    if (mainImg) mainImg.src = '';
+    // Always re-read the current property id: it may have changed via
+    // "Changer d'hébergement" since the gallery was last opened, without
+    // any page reload (see initReservationPublicPropertyPicker()).
+    const propertyIdField = document.querySelector('[data-reservation-property-id]');
+    const propertyId = propertyIdField?.value || openBtn.dataset.reservationGalleryPropertyId || '';
+    const descriptionEl = modal.querySelector('[data-reservation-gallery-description]');
+    try {
+      const response = await fetch(`${baseUrl}/property-photos?property_id=${encodeURIComponent(propertyId)}`, {
+        headers: { 'Accept': 'application/json' },
+        credentials: 'same-origin'
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Erreur');
+      const images = data.data?.images || [];
+      if (!images.length) {
+        thumbsEl.innerHTML = '<p class="muted">Aucune photo disponible pour ce bien.</p>';
+      } else {
+        thumbsEl.innerHTML = images.map((image, index) => {
+          const url = escapeHtml(image.url || '');
+          return `<button type="button" class="gallery-thumb${index === 0 ? ' active' : ''}" data-reservation-gallery-thumb data-src="${url}"><img src="${url}" alt="" loading="${index === 0 ? 'eager' : 'lazy'}"></button>`;
+        }).join('');
+        if (mainImg) mainImg.src = images[0].url || '';
+        const thumbs = [...thumbsEl.querySelectorAll('[data-reservation-gallery-thumb]')];
+        thumbs.forEach((thumb) => {
+          thumb.addEventListener('click', () => selectThumb(thumbs, thumb));
+        });
+      }
+      if (descriptionEl) {
+        const description = data.data?.description || '';
+        descriptionEl.textContent = description;
+        const descriptionBlock = modal.querySelector('[data-reservation-gallery-description-block]');
+        if (descriptionBlock) descriptionBlock.hidden = description === '';
+      }
+    } catch (error) {
+      thumbsEl.innerHTML = '<p class="muted">Impossible de charger les photos pour le moment.</p>';
+    }
+  }
+
+  openBtn.addEventListener('click', () => {
+    modal.hidden = false;
+    loadPhotos();
+  });
+  closeBtn?.addEventListener('click', closeModal);
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) closeModal();
+  });
+}
+
 function buildFormPayload(form) {
   const data = {};
   const formData = new FormData(form);
@@ -1106,6 +1509,17 @@ function initNationalities() {
     // groups (< 3 ans / 3-12 ans) while others (contact form) only have a
     // single "children" field. Both are supported here.
     const hasSplitChildren = Boolean(childrenUnder3Input || children3to12Input);
+    // Pre-fill for an already-submitted set of guests (editing a
+    // reservation request, see files/views/partials/nationalities.php) —
+    // applied once, on the very first render, so later guest-count changes
+    // made by the visitor don't keep overwriting their own selections.
+    let initialGuests = [];
+    try {
+      initialGuests = JSON.parse(wrap.dataset.initialGuests || '[]');
+    } catch (e) {
+      initialGuests = [];
+    }
+    let initialApplied = false;
 
     function render() {
       const adults = Number(adultsInput?.value || 0);
@@ -1117,7 +1531,10 @@ function initNationalities() {
       list.innerHTML = '';
       const same = sameCheckbox?.checked;
       if (uniformBox) uniformBox.classList.toggle('hidden', !same);
-      if (same) return;
+      if (same) {
+        initialApplied = true;
+        return;
+      }
       for (let i = 0; i < total; i += 1) {
         const node = template.content.firstElementChild.cloneNode(true);
         let label;
@@ -1138,8 +1555,12 @@ function initNationalities() {
         node.querySelector('span').textContent = label;
         const select = node.querySelector('[data-nationality-select]');
         select.dataset.type = type;
+        if (!initialApplied && initialGuests[i] && initialGuests[i].nationality) {
+          select.value = initialGuests[i].nationality;
+        }
         list.appendChild(node);
       }
+      initialApplied = true;
     }
 
     [adultsInput, childrenInput, childrenUnder3Input, children3to12Input, sameCheckbox].forEach((input) => {

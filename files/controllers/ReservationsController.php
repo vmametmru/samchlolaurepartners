@@ -174,6 +174,30 @@ final class ReservationsController extends Controller
                     break;
                 }
             }
+            // Neither the modern (children_under3/children_3to12) nor the
+            // legacy migration-018 (children_under5/children_5to12) columns
+            // exist: migration 018 never applied on this database. Without a
+            // breakdown column, every request/update silently collapses the
+            // "< 3 ans"/bébé count into the aggregate "children" column,
+            // which is exactly the "3 enfants + 0 bébé" data-loss bug this
+            // self-heal fixes — ADD the modern columns inline so the split
+            // is persisted going forward, the same self-healing pattern as
+            // Database::ensureColumnNullable() elsewhere in this codebase.
+            if (self::$childrenBreakdownColumns === null) {
+                $under3Added = Database::ensureColumn(
+                    'reservation_requests',
+                    'children_under3',
+                    'TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER children'
+                );
+                $from3to12Added = Database::ensureColumn(
+                    'reservation_requests',
+                    'children_3to12',
+                    'TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER children_under3'
+                );
+                if ($under3Added && $from3to12Added) {
+                    self::$childrenBreakdownColumns = ['under3' => 'children_under3', 'from3to12' => 'children_3to12'];
+                }
+            }
         } catch (Throwable $e) {
             self::$childrenBreakdownColumns = null;
         }
@@ -350,7 +374,7 @@ final class ReservationsController extends Controller
     /**
      * @return array{under3: int, from3to12: int}
      */
-    private static function childBreakdownValues(array $source): array
+    public static function childBreakdownValues(array $source): array
     {
         return [
             'under3' => self::childCount($source, 'children_under3', 'children_under5'),
@@ -879,6 +903,7 @@ final class ReservationsController extends Controller
         // visitor, who would then wrongly believe nothing was recorded.
         try {
             $emailInput = $input;
+            $emailInput['id'] = $id;
             $emailInput['children_under3'] = $childrenUnder3;
             $emailInput['children_3to12'] = $children3to12;
             $emailInput['language'] = $requestLanguage;
@@ -1179,13 +1204,14 @@ final class ReservationsController extends Controller
         // submission into a 500 for the visitor, who would then wrongly
         // believe nothing was recorded.
         $itemCount = count($normalizedItems);
-        foreach ($normalizedItems as $item) {
+        foreach ($normalizedItems as $itemIndex => $item) {
             // computeItemQuote() returns null when Lodgify rates couldn't be
             // fetched for this item; degrade to a zeroed quote (via the ??
             // fallbacks below) instead of accessing array offsets on null.
             $quote = $item['quote'] ?? [];
             try {
                 self::sendRequestEmails($partner, [
+                    'id' => $createdIds[$itemIndex] ?? 0,
                     'property_id' => $item['property_id'],
                     'client_name' => $clientName,
                     'client_email' => $clientEmail,
@@ -1487,6 +1513,625 @@ final class ReservationsController extends Controller
         return $partnerId !== null ? self::reopenForPartner($partnerId, $id) : null;
     }
 
+    private static ?bool $publicTokenColumnExists = null;
+
+    /**
+     * Whether reservation_requests already has the public_token column
+     * added by migration 046. Guarded the same way as hasVatRateColumn()
+     * so nothing 500s if that migration hasn't applied yet on a given
+     * install — the "Partager le lien" feature is simply unavailable until
+     * it does (ensurePublicToken()/findByToken() return null).
+     */
+    private static function hasPublicTokenColumn(PDO $pdo): bool
+    {
+        if (self::$publicTokenColumnExists === null) {
+            try {
+                self::$publicTokenColumnExists = self::reservationRequestColumnExists($pdo, 'public_token');
+            } catch (Throwable $e) {
+                self::$publicTokenColumnExists = false;
+            }
+        }
+        return self::$publicTokenColumnExists;
+    }
+
+    /**
+     * Returns the reservation request's public_token — an unguessable
+     * random identifier used to build the "Partager le lien" URL a partner
+     * can send a client (via WhatsApp or any other channel) so they can
+     * open an online, editable copy of their reservation request (see
+     * PageController::reservationPublic()) — generating and persisting one
+     * lazily if it doesn't already have one (older requests created before
+     * this feature existed). Returns null only if migration 046 hasn't
+     * applied yet on this install, or the request itself doesn't exist.
+     */
+    public static function ensurePublicToken(int $id): ?string
+    {
+        $pdo = Database::connection();
+        if (!self::hasPublicTokenColumn($pdo)) {
+            return null;
+        }
+        $stmt = $pdo->prepare('SELECT public_token FROM reservation_requests WHERE id = ? LIMIT 1');
+        $stmt->execute([$id]);
+        $existing = $stmt->fetchColumn();
+        if ($existing === false) {
+            return null;
+        }
+        if (is_string($existing) && $existing !== '') {
+            return $existing;
+        }
+        // random_bytes(16) is astronomically unlikely to collide with the
+        // UNIQUE KEY added by migration 046, but retry with a fresh
+        // candidate a handful of times just in case rather than failing
+        // the whole request outright.
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $candidate = bin2hex(random_bytes(16));
+            try {
+                $updateStmt = $pdo->prepare(
+                    'UPDATE reservation_requests SET public_token = ? WHERE id = ? AND (public_token IS NULL OR public_token = \'\')'
+                );
+                $updateStmt->execute([$candidate, $id]);
+                if ($updateStmt->rowCount() > 0) {
+                    return $candidate;
+                }
+                // Another request already set the token concurrently.
+                $recheck = $pdo->prepare('SELECT public_token FROM reservation_requests WHERE id = ? LIMIT 1');
+                $recheck->execute([$id]);
+                $token = $recheck->fetchColumn();
+                return is_string($token) && $token !== '' ? $token : null;
+            } catch (Throwable $e) {
+                continue;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Looks up a single reservation request by its public_token (see
+     * ensurePublicToken()), for the client-facing "Partager le lien" pages.
+     * Deliberately never lists/enumerates by token — the only way in is a
+     * single, exact, unguessable token match. Returns null if not found or
+     * if migration 046 hasn't applied yet.
+     */
+    public static function findByToken(string $token): ?array
+    {
+        $token = trim($token);
+        $pdo = Database::connection();
+        if ($token === '' || !self::hasPublicTokenColumn($pdo)) {
+            return null;
+        }
+        $stmt = $pdo->prepare(
+            'SELECT rr.*, r.confirmed_at, r.cancelled_at
+             FROM reservation_requests rr
+             LEFT JOIN reservations r ON r.request_id = rr.id
+             WHERE rr.public_token = ? LIMIT 1'
+        );
+        $stmt->execute([$token]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if ($row) {
+            $row['guests'] = self::decodeGuests($row['guests'] ?? null);
+        }
+        return $row;
+    }
+
+    /**
+     * Whether the public reservation page (PageController::
+     * reservationPublic()) must block the client behind an email-entry gate
+     * before showing anything else: true when the request's client_email is
+     * blank, or when it's still (accidentally) set to the partner's own
+     * email — e.g. a request created internally by the agency on the
+     * client's behalf before the client's real address was known. Compared
+     * case-insensitively/trimmed since emails are not case-sensitive.
+     */
+    public static function publicRequestNeedsClientEmail(array $request, array $partner): bool
+    {
+        $clientEmail = trim((string) ($request['client_email'] ?? ''));
+        if ($clientEmail === '') {
+            return true;
+        }
+        $partnerEmail = trim((string) ($partner['email'] ?? ''));
+        return $partnerEmail !== '' && strcasecmp($clientEmail, $partnerEmail) === 0;
+    }
+
+    /**
+     * Server-side validation shared by the email-gate form (PageController::
+     * reservationPublicSetEmail()) and the main edit/resend form
+     * (updatePublicRequest() below): rejects a blank/invalid address, and
+     * rejects the partner's own email so a client can never end up with
+     * their reservation request's notifications routed to the agency's own
+     * mailbox. Returns an error message, or null when the address is valid.
+     */
+    public static function validateClientEmailAgainstPartner(string $email, array $partner): ?string
+    {
+        $email = trim($email);
+        if ($email === '') {
+            return 'Merci de renseigner votre adresse email.';
+        }
+        if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+            return 'Adresse email invalide.';
+        }
+        $partnerEmail = trim((string) ($partner['email'] ?? ''));
+        if ($partnerEmail !== '' && strcasecmp($email, $partnerEmail) === 0) {
+            return 'Merci de renseigner votre propre adresse email (celle de l\'agence n\'est pas acceptée).';
+        }
+        return null;
+    }
+
+    /**
+     * Persists the client's own email onto a reservation request from the
+     * public email-entry gate (PageController::reservationPublicSetEmail()),
+     * without touching anything else on the request.
+     */
+    public static function setPublicRequestClientEmail(int $requestId, string $email): void
+    {
+        Database::connection()
+            ->prepare('UPDATE reservation_requests SET client_email = ?, updated_at = NOW() WHERE id = ?')
+            ->execute([trim($email), $requestId]);
+    }
+
+    /**
+     * Persists a client-submitted edit to their own reservation request via
+     * the public "Partager le lien" page (PageController::
+     * reservationPublicUpdate()): re-validates capacity and re-computes the
+     * price/availability from the same authoritative Lodgify-backed
+     * computeItemQuote()/computeQuoteBreakdown() logic used everywhere else
+     * on the site (never trusting anything the client submitted for
+     * pricing), then notifies the partner by email. Only ever allowed while
+     * the request is still "pending" — once a partner has confirmed it, the
+     * client can no longer modify it (see PageController::
+     * reservationPublicUpdate(), which checks this before calling here).
+     *
+     * @return array{ok: bool, message: string, request?: array<string, mixed>}
+     */
+    public static function updatePublicRequest(array $request, array $input): array
+    {
+        if ((string) ($request['status'] ?? '') !== 'pending') {
+            return ['ok' => false, 'message' => 'Cette demande n\'est plus modifiable en ligne : seule l\'agence peut la modifier.'];
+        }
+
+        $result = self::applyRequestEdit($request, $input);
+        if (!$result['ok']) {
+            return $result;
+        }
+        $updated = $result['request'];
+
+        // The change is already persisted: a notification-email failure
+        // must not turn an otherwise-successful update into an error for
+        // the client, who would then wrongly believe nothing was saved.
+        try {
+            $partner = self::fetchPartner((int) $request['partner_id']);
+            self::sendClientEditNotificationEmail($partner, $updated);
+        } catch (Throwable $e) {
+            error_log('Failed to send client-edited-reservation notification email: ' . $e);
+        }
+
+        return ['ok' => true, 'message' => 'Votre demande modifiée a bien été renvoyée à l\'agence.', 'request' => $updated];
+    }
+
+    /**
+     * Lets the partner themselves edit a still-pending reservation request
+     * from /partner/reservations/{id} — the same name/dates/party size/
+     * nationality/property fields the client can change via their own
+     * public "Partager le lien" link (updatePublicRequest() above), reusing
+     * the exact same validation/re-pricing/persistence core
+     * (applyRequestEdit()) so the two paths can never drift. Scoped to the
+     * partner's own tenant via ReservationsController::findForPartner() at
+     * the controller layer (PageController::partnerUpdateReservation()).
+     * By default the client is notified by email that the agency modified
+     * their request (sendPartnerEditNotificationEmail()); pass
+     * $notifyClient = false (wired to the "Ne pas notifier le client par
+     * email" checkbox on /partner/reservations/{id}) to save the change
+     * silently, with no email sent at all. Pass $lockPrice = true (wired to
+     * the partner-only "Modifier (Sans toucher aux Prix)" button, as
+     * opposed to the regular "Modifier" button) to only allow editing
+     * name/phone/email/party-size/nationality: dates, hébergement and the
+     * stored price are then always kept as-is, ignoring anything submitted
+     * for them (see applyRequestEdit()).
+     */
+    public static function updateForPartner(array $request, array $input, bool $notifyClient = true, bool $lockPrice = false): array
+    {
+        if ((string) ($request['status'] ?? '') !== 'pending') {
+            return ['ok' => false, 'message' => 'Cette demande n\'est plus modifiable : seule une demande en attente peut être modifiée.'];
+        }
+        $result = self::applyRequestEdit($request, $input, false, $lockPrice);
+        if (!$result['ok']) {
+            return $result;
+        }
+        $updated = $result['request'];
+
+        if ($notifyClient) {
+            // The change is already persisted: a notification-email failure
+            // must not turn an otherwise-successful update into an error for
+            // the partner, who would then wrongly believe nothing was saved.
+            try {
+                $partner = self::fetchPartner((int) $request['partner_id']);
+                self::sendPartnerEditNotificationEmail($partner, $updated);
+            } catch (Throwable $e) {
+                error_log('Failed to send partner-edited-reservation notification email: ' . $e);
+            }
+        }
+
+        return ['ok' => true, 'message' => 'La demande a bien été modifiée.', 'request' => $updated];
+    }
+
+    /**
+     * Core validation/re-pricing/persistence shared by updatePublicRequest()
+     * (client-facing) and updateForPartner() (partner-facing): both must
+     * apply the exact same rules (capacity, dates, pricing) so a request
+     * edited by either party is priced identically. Callers own the
+     * "pending only" guard and whatever success/notification behaviour is
+     * specific to their own audience.
+     *
+     * @return array{ok: bool, message?: string, request?: array}
+     */
+    private static function applyRequestEdit(array $request, array $input, bool $trackClientUpdate = true, bool $lockPrice = false): array
+    {
+        $clientName = trim((string) ($input['client_name'] ?? ''));
+        $clientEmail = trim((string) ($input['client_email'] ?? (string) $request['client_email']));
+        // In "lock price" mode (partner's "Modifier (Sans toucher aux Prix)"
+        // button) the dates/hébergement/price are never allowed to change,
+        // no matter what the client submits — always re-use the request's
+        // own stored values here rather than trusting $input, so the
+        // guarantee holds even if the disabled form fields were tampered
+        // with client-side.
+        $checkin = $lockPrice ? (string) $request['checkin_date'] : trim((string) ($input['checkin_date'] ?? ''));
+        $checkout = $lockPrice ? (string) $request['checkout_date'] : trim((string) ($input['checkout_date'] ?? ''));
+        $adults = max(0, (int) ($input['adults'] ?? 0));
+        $propertyId = $lockPrice ? (int) $request['property_id'] : (int) ($input['property_id'] ?? 0);
+        $childBreakdown = self::childBreakdownValues($input);
+        $childrenUnder3 = $childBreakdown['under3'];
+        $children3to12 = $childBreakdown['from3to12'];
+
+        if ($clientName === '' || $checkin === '' || $checkout === '' || $adults < 1 || $propertyId <= 0) {
+            return ['ok' => false, 'message' => 'Merci de renseigner le nom, l\'hébergement, les dates et le nombre de voyageurs.'];
+        }
+        $partner = self::fetchPartner((int) $request['partner_id']);
+        $emailError = self::validateClientEmailAgainstPartner($clientEmail, $partner);
+        if ($emailError !== null) {
+            return ['ok' => false, 'message' => $emailError];
+        }
+        try {
+            $checkinDate = new \DateTimeImmutable($checkin);
+            $checkoutDate = new \DateTimeImmutable($checkout);
+        } catch (Throwable $e) {
+            return ['ok' => false, 'message' => 'Dates invalides.'];
+        }
+        if ($checkoutDate <= $checkinDate) {
+            return ['ok' => false, 'message' => 'La date de départ doit être après la date d\'arrivée.'];
+        }
+        if ($childrenUnder3 > self::MAX_BABIES_PER_PROPERTY) {
+            return ['ok' => false, 'message' => 'Ce logement peut accueillir au maximum ' . self::MAX_BABIES_PER_PROPERTY . ' bébé(s) (enfants de moins de 3 ans).'];
+        }
+
+        $property = null;
+        try {
+            $property = (new LodgifyClient())->getProperty($propertyId);
+        } catch (Throwable $e) {
+            error_log('Lodgify: failed to fetch property ' . $propertyId . ' for public update capacity check: ' . $e->getMessage());
+        }
+        $countedGuests = $adults + $children3to12;
+        $totalGuests = $adults + $childrenUnder3 + $children3to12;
+        $maxGuests = (int) ($property['max_guests'] ?? 0);
+        if ($maxGuests > 0 && $countedGuests > $maxGuests) {
+            return ['ok' => false, 'message' => "Ce logement peut accueillir au maximum {$maxGuests} personne(s) (adultes + enfants de 3 ans et plus)."];
+        }
+
+        $guests = is_array($input['guests'] ?? null) ? $input['guests'] : [];
+
+        $pdo = Database::connection();
+        // In "lock price" mode, the stored quote_* columns must never be
+        // touched — the whole point of the button is to let the partner
+        // fix name/contact/party-size/nationality without triggering a
+        // re-price, even if the party size itself changed.
+        $quoteBreakdown = null;
+        $quoteData = null;
+        if (!$lockPrice) {
+            $quoteData = self::computeItemQuote(
+                $propertyId,
+                $property,
+                $checkin,
+                $checkoutDate,
+                $adults,
+                $totalGuests,
+                $countedGuests,
+                $guests
+            );
+            if ($quoteData === null) {
+                return ['ok' => false, 'message' => 'Les tarifs et disponibilités ne sont pas accessibles pour le moment. Merci de réessayer dans quelques instants.'];
+            }
+
+            $quoteBreakdown = self::computeQuoteBreakdown(
+                $quoteData,
+                (float) ($partner['markup_percent'] ?? 0),
+                (float) ($quoteData['vat_rate'] ?? 0),
+                $quoteData['room_base_before_commission'] ?? null,
+                $quoteData['extra_person_base_before_commission'] ?? null
+            );
+        }
+
+        $breakdownColumns = self::childrenBreakdownColumns($pdo);
+        $columns = [
+            'property_id', 'property_name', 'client_name', 'client_email', 'client_phone',
+            'checkin_date', 'checkout_date', 'adults', 'children', 'guests', 'message',
+        ];
+        $params = [
+            (string) $propertyId,
+            (string) ($property['name'] ?? (string) $request['property_name']),
+            $clientName,
+            $clientEmail,
+            self::nullableString($input['client_phone'] ?? $request['client_phone'] ?? null),
+            $checkin,
+            $checkout,
+            $adults,
+            $childrenUnder3 + $children3to12,
+            json_encode($guests, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            self::nullableString($input['message'] ?? $request['message'] ?? null),
+        ];
+        if ($breakdownColumns !== null) {
+            $columns[] = $breakdownColumns['under3'];
+            $columns[] = $breakdownColumns['from3to12'];
+            $params[] = $childrenUnder3;
+            $params[] = $children3to12;
+        }
+        if (!$lockPrice) {
+            [$quoteColumns, $quoteParams] = self::quoteInsertColumnsAndParams($pdo, $quoteBreakdown, $quoteData);
+            $columns = [...$columns, ...$quoteColumns];
+            $params = [...$params, ...$quoteParams];
+        }
+        // last_client_update_at (see db/migrations/046_...) tracks edits
+        // made by the client themselves, so it must never be touched when
+        // the partner is the one editing (updateForPartner()).
+        if ($trackClientUpdate) {
+            $columns[] = 'last_client_update_at';
+        }
+        $set = implode(', ', array_map(static fn (string $column): string => "{$column} = ?", $columns));
+
+        try {
+            $pdo->prepare("UPDATE reservation_requests SET {$set}, updated_at = NOW() WHERE id = ?")
+                ->execute([...$params, ...($trackClientUpdate ? [gmdate('Y-m-d H:i:s')] : []), (int) $request['id']]);
+        } catch (Throwable $e) {
+            error_log((string) $e);
+            return ['ok' => false, 'message' => 'Impossible d\'enregistrer les modifications pour le moment.'];
+        }
+
+        $updated = self::findById((int) $request['id']);
+
+        return ['ok' => true, 'request' => $updated ?? $request];
+    }
+
+    /**
+     * Whether $propertyId has no CONFIRMED reservation overlapping
+     * [$checkin, $checkout) in this app's own database, excluding
+     * $excludeRequestId (the request currently being edited, so a property
+     * already booked by that very request never excludes itself). Used by
+     * the "changer d'hébergement" picker on the public reservation page
+     * (publicAvailableProperties() below) as its sole availability check —
+     * deliberately local-only, no live Lodgify calendar call here.
+     */
+    public static function isPropertyLocallyAvailable(int $propertyId, string $checkin, string $checkout, int $excludeRequestId = 0): bool
+    {
+        $stmt = Database::connection()->prepare(
+            'SELECT COUNT(*) FROM reservations res
+             INNER JOIN reservation_requests rr ON rr.id = res.request_id
+             WHERE res.cancelled_at IS NULL
+               AND rr.property_id = ?
+               AND rr.id != ?
+               AND rr.checkin_date < ?
+               AND rr.checkout_date > ?'
+        );
+        $stmt->execute([(string) $propertyId, $excludeRequestId, $checkout, $checkin]);
+        return ((int) $stmt->fetchColumn()) === 0;
+    }
+
+    /**
+     * Computes just the traveler-facing total (currency + total_traveler)
+     * for a candidate property/date/party-size combination, for the
+     * "changer d'hébergement" picker (publicAvailableProperties() below).
+     * Thin public wrapper around the private computeItemQuote()/
+     * computeQuoteBreakdown() pair used everywhere else, so pricing stays
+     * fully authoritative (never trusts anything client-submitted). Returns
+     * null if Lodgify rates aren't available for this property/range,
+     * mirroring computeItemQuote()'s own degrade-gracefully contract.
+     *
+     * @param array<int, array{type?: string, nationality?: string}> $guests
+     * @return array{currency: string, total_traveler: float}|null
+     */
+    public static function quoteTotalForCandidate(
+        int $partnerId,
+        int $propertyId,
+        ?array $property,
+        string $checkin,
+        \DateTimeImmutable $checkoutDate,
+        int $adults,
+        int $totalGuests,
+        int $countedGuests,
+        array $guests
+    ): ?array {
+        $partner = self::fetchPartner($partnerId);
+        $quoteData = self::computeItemQuote($propertyId, $property, $checkin, $checkoutDate, $adults, $totalGuests, $countedGuests, $guests);
+        if ($quoteData === null) {
+            return null;
+        }
+        $breakdown = self::computeQuoteBreakdown(
+            $quoteData,
+            (float) ($partner['markup_percent'] ?? 0),
+            (float) ($quoteData['vat_rate'] ?? 0),
+            $quoteData['room_base_before_commission'] ?? null,
+            $quoteData['extra_person_base_before_commission'] ?? null
+        );
+        // The "changer d'hébergement" picker must compare "tarif du bien +
+        // personne(s) supplémentaire(s)" only (room_total + extra_person_total,
+        // already commission-inclusive — see computeQuoteBreakdown()'s note
+        // on markup being baked into these two amounts, never added on top),
+        // NOT total_traveler which also folds in the cleaning fee: cleaning
+        // is a flat one-off charge that doesn't vary by property choice and
+        // would otherwise skew the comparison between candidates.
+        return [
+            'currency' => $breakdown['currency'],
+            'total_traveler' => round($breakdown['room_total'] + $breakdown['extra_person_total'], 2),
+        ];
+    }
+
+    /**
+     * Lists properties available for the "changer d'hébergement" modal on
+     * the public reservation page (PageController::
+     * reservationPublicAvailableProperties()): visible to the request's
+     * partner, able to host the requested party size (max_guests), free of
+     * conflicting local reservations (isPropertyLocallyAvailable()) AND
+     * actually available on the live Lodgify calendar for the requested
+     * dates (LodgifyClient::isAvailableForRange()) — all three conditions
+     * must hold before a property is offered as a candidate, otherwise the
+     * modal could suggest a property that's really booked (e.g. via another
+     * channel) but has no matching row in this app's own `reservations`
+     * table. Each entry carries the
+     * newly computed price for the requested dates/party size (so the modal
+     * can show it next to the request's last recorded "avant modif" price)
+     * plus its photo/bedrooms/sofa-bed-count so the modal can render a full
+     * property card, not just a name.
+     *
+     * @param array<int, array{type?: string, nationality?: string}> $guests
+     * @return array<int, array{id: int, name: string, max_guests: int, currency: ?string, total_traveler: ?float, image_url: ?string, bedrooms: int, sofa_bed_count: int}>
+     */
+    public static function publicAvailableProperties(
+        array $request,
+        string $checkin,
+        \DateTimeImmutable $checkoutDate,
+        int $adults,
+        int $totalGuests,
+        int $countedGuests,
+        array $guests
+    ): array {
+        $partner = PartnersController::formData((int) $request['partner_id']);
+        $client = new LodgifyClient();
+        $properties = [];
+        try {
+            $properties = PageController::publicVisibleProperties($client->getProperties(), $partner);
+        } catch (Throwable $e) {
+            error_log('Lodgify: failed to list properties for public availability picker: ' . $e->getMessage());
+            return [];
+        }
+
+        $currentPropertyId = (int) ($request['property_id'] ?? 0);
+        $results = [];
+        foreach ($properties as $property) {
+            $propertyId = (int) ($property['id'] ?? 0);
+            if ($propertyId <= 0) {
+                continue;
+            }
+            // Only offer alternatives — the property already booked on this
+            // request must not be listed again in its own "changer
+            // d'hébergement" picker.
+            if ($propertyId === $currentPropertyId) {
+                continue;
+            }
+            $maxGuests = (int) ($property['max_guests'] ?? 0);
+            if ($maxGuests > 0 && $countedGuests > $maxGuests) {
+                continue;
+            }
+            if (!self::isPropertyLocallyAvailable($propertyId, $checkin, $checkoutDate->format('Y-m-d'), (int) $request['id'])) {
+                continue;
+            }
+            if (!$client->isAvailableForRange($propertyId, $checkin, $checkoutDate->format('Y-m-d'))) {
+                continue;
+            }
+            $quote = self::quoteTotalForCandidate(
+                (int) $request['partner_id'],
+                $propertyId,
+                $property,
+                $checkin,
+                $checkoutDate,
+                $adults,
+                $totalGuests,
+                $countedGuests,
+                $guests
+            );
+            $results[] = [
+                'id' => $propertyId,
+                'name' => View::localized($property, 'name'),
+                'max_guests' => $maxGuests,
+                'currency' => $quote['currency'] ?? null,
+                'total_traveler' => $quote['total_traveler'] ?? null,
+                'image_url' => $property['images'][0]['url'] ?? null,
+                'bedrooms' => (int) ($property['bedrooms'] ?? 0),
+                'sofa_bed_count' => (int) ($property['sofa_bed_count'] ?? 0),
+            ];
+        }
+
+        return $results;
+    }
+
+    /**
+     * Cancels a reservation request from the client-facing public link
+     * (PageController::reservationPublicCancel()), mirroring cancelForPartner()
+     * but re-checking the "pending only" rule itself (a confirmed request
+     * can only be cancelled by the partner, via /partner/reservations).
+     *
+     * @return array{ok: bool, message: string}
+     */
+    public static function cancelPublicRequest(array $request): array
+    {
+        if ((string) ($request['status'] ?? '') !== 'pending') {
+            return ['ok' => false, 'message' => 'Cette demande n\'est plus modifiable en ligne : seule l\'agence peut l\'annuler.'];
+        }
+        $partnerId = (int) $request['partner_id'];
+        $id = (int) $request['id'];
+        $result = self::cancelForPartner($partnerId, $id);
+        if ($result === null) {
+            return ['ok' => false, 'message' => 'Demande introuvable.'];
+        }
+        return ['ok' => true, 'message' => 'Votre demande a été annulée.'];
+    }
+
+    /**
+     * Notifies the partner by email that a client has just edited and
+     * resent their reservation request via the public "Partager le lien"
+     * page, so the partner sees the change (dates/guests/property/quote)
+     * without needing to keep checking /partner/reservations manually.
+     * Deliberately a plain, unbranded notification (not a customizable
+     * template) since it's an internal ops alert, not client-facing.
+     */
+    private static function sendClientEditNotificationEmail(array $partner, array $request): void
+    {
+        $partnerEmail = trim((string) ($partner['email'] ?? ''));
+        if ($partnerEmail === '') {
+            return;
+        }
+        $id = (int) ($request['id'] ?? 0);
+        $link = Auth::currentBaseUrl() . '/partner/reservations/' . $id;
+        $html = '<p>' . htmlspecialchars((string) ($request['client_name'] ?? ''), ENT_QUOTES, 'UTF-8')
+            . ' a modifié et renvoyé sa demande de réservation #' . $id . ' pour '
+            . htmlspecialchars((string) ($request['property_name'] ?? ''), ENT_QUOTES, 'UTF-8')
+            . ' du ' . htmlspecialchars((string) ($request['checkin_date'] ?? ''), ENT_QUOTES, 'UTF-8')
+            . ' au ' . htmlspecialchars((string) ($request['checkout_date'] ?? ''), ENT_QUOTES, 'UTF-8')
+            . '.</p><p><a href="' . htmlspecialchars($link, ENT_QUOTES, 'UTF-8') . '">Voir la demande</a></p>';
+        Mailer::sendRawEmail($partner, $partnerEmail, 'Demande de réservation modifiée par le client - #' . $id, $html);
+    }
+
+    /**
+     * Notifies the client by email that the agency (partner) has just
+     * modified their reservation request from /partner/reservations/{id}
+     * (updateForPartner()), so the client isn't left unaware of a changed
+     * date/party size/property/quote. Only sent when the partner leaves
+     * the "Ne pas notifier le client par email" checkbox unchecked.
+     * Deliberately a plain, unbranded notification (not a customizable
+     * template), mirroring sendClientEditNotificationEmail() above.
+     */
+    private static function sendPartnerEditNotificationEmail(array $partner, array $request): void
+    {
+        $clientEmail = trim((string) ($request['client_email'] ?? ''));
+        if ($clientEmail === '') {
+            return;
+        }
+        $id = (int) ($request['id'] ?? 0);
+        $html = '<p>Bonjour ' . htmlspecialchars((string) ($request['client_name'] ?? ''), ENT_QUOTES, 'UTF-8')
+            . ',</p><p>' . htmlspecialchars((string) ($partner['name'] ?? ''), ENT_QUOTES, 'UTF-8')
+            . ' a modifié votre demande de réservation pour '
+            . htmlspecialchars((string) ($request['property_name'] ?? ''), ENT_QUOTES, 'UTF-8')
+            . ' du ' . htmlspecialchars((string) ($request['checkin_date'] ?? ''), ENT_QUOTES, 'UTF-8')
+            . ' au ' . htmlspecialchars((string) ($request['checkout_date'] ?? ''), ENT_QUOTES, 'UTF-8')
+            . '.</p><p>Cordialement,<br>' . htmlspecialchars((string) ($partner['name'] ?? ''), ENT_QUOTES, 'UTF-8') . '</p>';
+        Mailer::sendRawEmail($partner, $clientEmail, 'Votre demande de réservation a été modifiée - #' . $id, $html, [], self::nullableString($partner['email'] ?? null));
+    }
+
     /**
      * Admin-only: permanently deletes a reservation request (and its
      * confirmed reservation row, cascaded via reservations.request_id's
@@ -1590,6 +2235,29 @@ final class ReservationsController extends Controller
         return $row;
     }
 
+    /**
+     * Re-fetches a reservation request by its own id, regardless of
+     * partner/token — used by applyRequestEdit() to read back the freshly
+     * persisted row after an update, since the caller may be either the
+     * client (which only has a public_token, see findByToken()) or the
+     * partner (which only has the numeric id, see findForPartner()).
+     */
+    private static function findById(int $id): ?array
+    {
+        $stmt = Database::connection()->prepare(
+            'SELECT rr.*, r.confirmed_at, r.cancelled_at
+             FROM reservation_requests rr
+             LEFT JOIN reservations r ON r.request_id = rr.id
+             WHERE rr.id = ? LIMIT 1'
+        );
+        $stmt->execute([$id]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if ($row) {
+            $row['guests'] = self::decodeGuests($row['guests'] ?? null);
+        }
+        return $row;
+    }
+
     private static function sendRequestEmails(array $partner, array $input, int $itemCount = 1): void
     {
         $photo = self::propertyPhotoTag(
@@ -1643,6 +2311,8 @@ final class ReservationsController extends Controller
                 $childBreakdown['from3to12']
             ),
             'useful_info' => self::usefulInfoButtonHtml((int) ($input['property_id'] ?? 0), $guestLanguage),
+            'lien_demande_client' => self::clientReservationLink((int) ($input['id'] ?? 0)),
+            'lien_demande_partenaire' => self::partnerReservationLink((int) ($input['id'] ?? 0)),
         ];
         $variables += self::stayVariables($checkin, $checkout, $childBreakdown['under3'], $childBreakdown['from3to12'], (int) ($input['adults'] ?? 0));
         $variables += self::requestQuoteVariables($input, $itemCount, (float) ($partner['markup_percent'] ?? 0));
@@ -1851,6 +2521,8 @@ final class ReservationsController extends Controller
                 $childBreakdown['from3to12']
             ),
             'useful_info' => self::usefulInfoButtonHtml((int) ($request['property_id'] ?? 0), $guestLanguage),
+            'lien_demande_client' => self::clientReservationLink((int) ($request['id'] ?? 0)),
+            'lien_demande_partenaire' => self::partnerReservationLink((int) ($request['id'] ?? 0)),
         ];
         $variables += self::stayVariables(
             (string) $request['checkin_date'],
@@ -1961,6 +2633,33 @@ final class ReservationsController extends Controller
         $monthName = $months[(int) $date->format('n')];
 
         return $dayName . ' ' . $date->format('d') . ' ' . $monthName . ' ' . $date->format('Y');
+    }
+
+    /**
+     * Formats an ISO ("Y-m-d") date as "dd mmm yyyy" in French (e.g.
+     * "18 août 2026"), without the weekday prefix that formatDateFr() adds
+     * — used for the public reservation page's "Arrivée"/"Départ" summary.
+     * Falls back to the original (unformatted) value when it isn't a valid
+     * date, rather than throwing.
+     */
+    public static function formatDateShortFr(string $isoDate): string
+    {
+        $isoDate = trim($isoDate);
+        if ($isoDate === '') {
+            return '';
+        }
+        try {
+            $date = new \DateTimeImmutable($isoDate);
+        } catch (Throwable $e) {
+            return $isoDate;
+        }
+
+        $months = [
+            1 => 'janv.', 2 => 'févr.', 3 => 'mars', 4 => 'avr.', 5 => 'mai', 6 => 'juin',
+            7 => 'juil.', 8 => 'août', 9 => 'sept.', 10 => 'oct.', 11 => 'nov.', 12 => 'déc.',
+        ];
+
+        return $date->format('d') . ' ' . $months[(int) $date->format('n')] . ' ' . $date->format('Y');
     }
 
     /**
@@ -2689,6 +3388,47 @@ final class ReservationsController extends Controller
         }
         $baseUrl = Auth::currentBaseUrl();
         return $baseUrl === '' ? '' : $baseUrl . '/#' . $subdomain;
+    }
+
+    /**
+     * Builds the {{lien_demande_client}} email variable: the same
+     * "Partager le lien" public URL (/r/{token}, see ensurePublicToken()/
+     * findByToken()) shown behind the "Copier le lien"/"Partager sur
+     * WhatsApp" buttons on /partner/reservations/{id}, so a client can open
+     * their own request directly from an email instead of only via
+     * WhatsApp. Returns '' if the request id is invalid or migration 046
+     * (public_token column) hasn't applied yet on this install.
+     */
+    public static function clientReservationLink(int $id): string
+    {
+        if ($id <= 0) {
+            return '';
+        }
+        $token = self::ensurePublicToken($id);
+        if ($token === null) {
+            return '';
+        }
+        $baseUrl = Auth::currentBaseUrl();
+        return $baseUrl === '' ? '' : $baseUrl . '/r/' . $token;
+    }
+
+    /**
+     * Builds the {{lien_demande_partenaire}} email variable: a direct link
+     * to /partner/reservations/{id}, the partner-only reservation detail
+     * page (requires the partner to be logged in — see
+     * PageController::requirePartnerUser()), so the partner can jump
+     * straight to a specific request from an email instead of searching for
+     * it on /partner/reservations. Marked partnerOnly in
+     * View::emailTemplateVariableCatalog() so it's always stripped from any
+     * client-facing copy (see redactPartnerOnlyVariables()).
+     */
+    public static function partnerReservationLink(int $id): string
+    {
+        if ($id <= 0) {
+            return '';
+        }
+        $baseUrl = Auth::currentBaseUrl();
+        return $baseUrl === '' ? '' : $baseUrl . '/partner/reservations/' . $id;
     }
 
     /**

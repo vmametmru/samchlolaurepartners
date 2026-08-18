@@ -245,6 +245,24 @@ try {
             break;
         case route($method, $path, 'POST', '#^/account$#'):
             AccountController::updateProfile();
+        // "Partager le lien" public reservation page: unauthenticated, but
+        // gated by an unguessable token (see ReservationsController::
+        // ensurePublicToken()/findByToken()) rather than by login.
+        case route($method, $path, 'GET', '#^/r/([a-f0-9]{32})$#', $matches):
+            PageController::reservationPublic((string) $matches[1]);
+            break;
+        case route($method, $path, 'GET', '#^/r/([a-f0-9]{32})/available-properties$#', $matches):
+            PageController::reservationPublicAvailableProperties((string) $matches[1]);
+            break;
+        case route($method, $path, 'GET', '#^/r/([a-f0-9]{32})/property-photos$#', $matches):
+            PageController::reservationPublicPropertyPhotos((string) $matches[1]);
+            break;
+        case route($method, $path, 'POST', '#^/r/([a-f0-9]{32})/email$#', $matches):
+            PageController::reservationPublicSetEmail((string) $matches[1]);
+        case route($method, $path, 'POST', '#^/r/([a-f0-9]{32})/update$#', $matches):
+            PageController::reservationPublicUpdate((string) $matches[1]);
+        case route($method, $path, 'POST', '#^/r/([a-f0-9]{32})/cancel$#', $matches):
+            PageController::reservationPublicCancel((string) $matches[1]);
         case route($method, $path, 'GET', '#^/partner/dashboard$#'):
             PageController::partnerDashboard();
             break;
@@ -262,6 +280,15 @@ try {
             break;
         case route($method, $path, 'POST', '#^/partner/reservations/(\d+)/reopen$#', $matches):
             PageController::partnerReopenReservation((int) $matches[1]);
+            break;
+        case route($method, $path, 'POST', '#^/partner/reservations/(\d+)/update$#', $matches):
+            PageController::partnerUpdateReservation((int) $matches[1]);
+            break;
+        case route($method, $path, 'GET', '#^/partner/reservations/(\d+)/available-properties$#', $matches):
+            PageController::partnerReservationAvailableProperties((int) $matches[1]);
+            break;
+        case route($method, $path, 'GET', '#^/partner/reservations/(\d+)/property-photos$#', $matches):
+            PageController::partnerReservationPropertyPhotos((int) $matches[1]);
             break;
         case route($method, $path, 'GET', '#^/partner/settings$#'):
             PageController::partnerSettings();

@@ -11,9 +11,25 @@ $navOtherLang = \App\I18n::other();
 $navLangFlag = $navOtherLang === 'en' ? '🇬🇧' : '🇫🇷';
 $navBackPath = (string) ($currentPath ?? '/');
 $navLangHref = '/lang/' . $navOtherLang . '?back=' . rawurlencode($navBackPath);
+// Client-facing links shared directly over WhatsApp/email (e.g. the public
+// reservation page, /r/{token} — see PageController::reservationPublic())
+// pass 'minimalHeader' => true to View::render() to hide the whole
+// navigation menu, keeping only the brand logo/name (not a link) so the
+// visitor isn't tempted/able to browse away from their reservation.
+$minimalHeader = !empty($minimalHeader);
 ?>
-<nav class="navbar">
+<nav class="navbar<?= $minimalHeader ? ' navbar-minimal' : '' ?>">
   <div class="container navbar-inner">
+    <?php if ($minimalHeader): ?>
+      <span class="brand brand-static">
+        <?php if (!empty($partner['logo_url'])): ?>
+          <img src="<?= \App\View::e($partner['logo_url']) ?>" alt="<?= \App\View::e($partner['name'] ?? 'Partner') ?>" class="brand-logo">
+          <span class="brand-name" style="color: <?= \App\View::e($primaryColor) ?>;"><?= \App\View::e($partner['name'] ?? '') ?></span>
+        <?php else: ?>
+          <span class="brand-name" style="color: <?= \App\View::e($primaryColor) ?>;"><?= \App\View::e($partner['name'] ?? 'Portail Partenaires') ?></span>
+        <?php endif; ?>
+      </span>
+    <?php else: ?>
     <a href="<?= \App\View::e($brandHref) ?>" class="brand">
       <?php if (!empty($partner['logo_url'])): ?>
         <img src="<?= \App\View::e($partner['logo_url']) ?>" alt="<?= \App\View::e($partner['name'] ?? 'Partner') ?>" class="brand-logo">
@@ -91,7 +107,10 @@ $navLangHref = '/lang/' . $navOtherLang . '?back=' . rawurlencode($navBackPath);
         </a>
       <?php endif; ?>
     </div>
+    <?php endif; ?>
   </div>
+  <?php if (!$minimalHeader): ?>
   <button class="navbar-mobile-backdrop" type="button" aria-label="Fermer le menu" data-mobile-nav-backdrop></button>
+  <?php endif; ?>
 </nav>
 

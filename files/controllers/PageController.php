@@ -149,6 +149,21 @@ final class PageController extends Controller
     }
 
     /**
+     * Public wrapper around filterVisibleProperties() (always excluding
+     * "partial" visibility properties), for ReservationsController::
+     * publicAvailableProperties() — the "changer d'hébergement" picker on
+     * the public reservation page — to reuse the same partner-visibility
+     * filtering as reservationPublic() itself without duplicating it.
+     *
+     * @param array<int, array> $properties
+     * @return array<int, array>
+     */
+    public static function publicVisibleProperties(array $properties, ?array $partner): array
+    {
+        return self::filterVisibleProperties($properties, $partner, true);
+    }
+
+    /**
      * Removes properties the active partner isn't allowed to see ("none")
      * from a Lodgify property list. When $excludePartial is true, "partial"
      * properties are dropped too — used for date-based availability search
@@ -772,11 +787,29 @@ final class PageController extends Controller
             $reservations,
             static fn(array $row): bool => in_array((string) $row['status'], $selectedStatuses, true)
         ));
+        foreach ($reservations as &$reservation) {
+            $reservation['public_url'] = self::reservationPublicUrl((int) $reservation['id']);
+        }
+        unset($reservation);
         View::render('pages/partner-reservations', [
             'pageTitle' => 'Réservations',
             'reservations' => $reservations,
             'selectedStatuses' => $selectedStatuses,
         ]);
+    }
+
+    /**
+     * Builds the absolute "Partager le lien" URL for a reservation request
+     * (an online, editable copy of the client's reservation the partner can
+     * send via WhatsApp or any other channel — see
+     * ReservationsController::ensurePublicToken()/findByToken()), lazily
+     * generating the request's public_token if it doesn't have one yet.
+     * Returns null if migration 046 hasn't applied yet on this install.
+     */
+    private static function reservationPublicUrl(int $id): ?string
+    {
+        $token = ReservationsController::ensurePublicToken($id);
+        return $token !== null ? (Auth::currentBaseUrl() . '/r/' . $token) : null;
     }
 
     /**
@@ -911,11 +944,59 @@ final class PageController extends Controller
     public static function partnerReservationDetail(int $id): void
     {
         $user = self::requirePartnerUser();
-        $reservation = ReservationsController::findForPartner((int) $user['partner_id'], $id);
+        $partnerId = (int) $user['partner_id'];
+        $reservation = ReservationsController::findForPartner($partnerId, $id);
         if (!$reservation) {
             throw new HttpException(404, 'Not Found', 'Réservation introuvable');
         }
-        View::render('pages/partner-reservation-detail', ['pageTitle' => 'Demande #' . $id, 'reservation' => $reservation]);
+        $reservation['public_url'] = self::reservationPublicUrl($id);
+
+        // The whole pricing/policy engine (ReservationsController::
+        // computeItemQuote() and friends, the live "/api/reservations/quote"
+        // re-quote used by the edit form below) resolves the active
+        // partner from Tenant::current(), which reads the "partner_code"
+        // cookie — set it to this partner's own tenant so the live re-quote
+        // always uses the correct markup/VAT/booking policy, regardless of
+        // whatever partner (if any) this browser already had active (see
+        // reservationPublic() for the same reasoning on the client side).
+        $partner = PartnersController::formData($partnerId);
+        if (!empty($partner['subdomain'])) {
+            Tenant::setCodeCookie((string) $partner['subdomain']);
+        }
+
+        // Single source of truth for the "< 3 ans"/"3-12 ans" split — see
+        // ReservationsController::childBreakdownValues() (self-heals a
+        // database missing the migration-018 breakdown columns).
+        $childBreakdown = ReservationsController::childBreakdownValues($reservation);
+
+        // The currently booked property's own photo/gallery/description —
+        // shown in the same "Voir galerie photo" modal and edit form as the
+        // client's public link (see reservation-public.php); a live
+        // Lodgify lookup failure must never turn this page into a 500, it
+        // just degrades to no photo.
+        $property = null;
+        $propertyId = (int) ($reservation['property_id'] ?? 0);
+        if ($propertyId > 0) {
+            try {
+                $property = (new LodgifyClient())->getProperty($propertyId);
+            } catch (Throwable $e) {
+                error_log('Lodgify: failed to fetch property ' . $propertyId . ' for partner reservation detail page: ' . $e->getMessage());
+            }
+        }
+        // Display the locally-managed name (property_translations override,
+        // or Lodgify's own French text, per View::localized()) rather than
+        // the raw name stored on the request at submission time.
+        if ($property !== null) {
+            $reservation['property_name'] = View::localized($property, 'name');
+        }
+
+        View::render('pages/partner-reservation-detail', [
+            'pageTitle' => 'Demande #' . $id,
+            'reservation' => $reservation,
+            'childrenUnder3' => $childBreakdown['under3'],
+            'children3to12' => $childBreakdown['from3to12'],
+            'property' => $property,
+        ]);
     }
 
     public static function partnerConfirmReservation(int $id): never
@@ -958,6 +1039,413 @@ final class PageController extends Controller
             throw new HttpException(404, 'Not Found', 'Réservation introuvable');
         }
         self::redirect(self::partnerReservationsRedirectUrl($id), 'Réservation repassée en attente.', 'info');
+    }
+
+    /**
+     * Handles the "Modifier"/"Modifier (Sans toucher aux Prix)"/"Renvoyer la
+     * demande modifiée" submission on /partner/reservations/{id} — the
+     * partner-facing equivalent of reservationPublicUpdate(), reusing the
+     * same underlying validation/re-pricing/persistence core
+     * (ReservationsController::updateForPartner()/applyRequestEdit()) so a
+     * request edited by the partner is priced identically to one edited by
+     * the client via their own public link. Scoped to the partner's own
+     * tenant via ReservationsController::findForPartner().
+     */
+    public static function partnerUpdateReservation(int $id): never
+    {
+        $user = self::requirePartnerUser();
+        $partnerId = (int) $user['partner_id'];
+        $request = ReservationsController::findForPartner($partnerId, $id);
+        if (!$request) {
+            throw new HttpException(404, 'Not Found', 'Réservation introuvable');
+        }
+        $partner = PartnersController::formData($partnerId);
+        if (!empty($partner['subdomain'])) {
+            Tenant::setCodeCookie((string) $partner['subdomain']);
+        }
+
+        $input = $_POST;
+        $guests = json_decode((string) ($input['guests_json'] ?? '[]'), true);
+        $input['guests'] = is_array($guests) ? $guests : [];
+        $notifyClient = empty($input['skip_client_notification']);
+        // "Modifier (Sans toucher aux Prix)" button — see
+        // ReservationsController::updateForPartner()/applyRequestEdit().
+        $lockPrice = !empty($input['lock_price']);
+
+        $result = ReservationsController::updateForPartner($request, $input, $notifyClient, $lockPrice);
+        self::redirect(self::partnerReservationsRedirectUrl($id), $result['message'], $result['ok'] ? 'success' : 'error');
+    }
+
+    /**
+     * JSON candidate list for the "Changer d'hébergement" modal on
+     * /partner/reservations/{id} — the partner-facing equivalent of
+     * reservationPublicAvailableProperties(), scoped to the partner's own
+     * tenant via ReservationsController::findForPartner() instead of a
+     * public token.
+     */
+    public static function partnerReservationAvailableProperties(int $id): never
+    {
+        $user = self::requirePartnerUser();
+        $partnerId = (int) $user['partner_id'];
+        $request = ReservationsController::findForPartner($partnerId, $id);
+        if (!$request) {
+            self::json(['error' => 'Not Found', 'message' => 'Demande introuvable'], 404);
+        }
+        $partner = PartnersController::formData($partnerId);
+        if (!empty($partner['subdomain'])) {
+            Tenant::setCodeCookie((string) $partner['subdomain']);
+        }
+
+        $childBreakdown = ReservationsController::childBreakdownValues($request);
+        $checkin = trim((string) ($_GET['checkin_date'] ?? '')) ?: (string) $request['checkin_date'];
+        $checkout = trim((string) ($_GET['checkout_date'] ?? '')) ?: (string) $request['checkout_date'];
+        $adults = max(1, (int) ($_GET['adults'] ?? $request['adults'] ?? 1));
+        $childrenUnder3 = max(0, (int) ($_GET['children_under3'] ?? $childBreakdown['under3']));
+        $children3to12 = max(0, (int) ($_GET['children_3to12'] ?? $childBreakdown['from3to12']));
+
+        try {
+            $checkinDate = new \DateTimeImmutable($checkin);
+            $checkoutDate = new \DateTimeImmutable($checkout);
+        } catch (Throwable $e) {
+            self::json(['error' => 'Bad Request', 'message' => 'Dates invalides.'], 400);
+        }
+        if ($checkoutDate <= $checkinDate) {
+            self::json(['error' => 'Bad Request', 'message' => 'La date de départ doit être après la date d\'arrivée.'], 400);
+        }
+        // Normalize to the canonical 'Y-m-d' form before it reaches any SQL
+        // comparison against the checkin_date/checkout_date DATE columns
+        // (ReservationsController::isPropertyLocallyAvailable()) — see
+        // reservationPublicAvailableProperties() for why this matters.
+        $checkin = $checkinDate->format('Y-m-d');
+
+        $totalGuests = $adults + $childrenUnder3 + $children3to12;
+        $countedGuests = $adults + $children3to12;
+        $guests = is_array($request['guests'] ?? null) ? $request['guests'] : [];
+
+        $properties = ReservationsController::publicAvailableProperties(
+            $request,
+            $checkin,
+            $checkoutDate,
+            $adults,
+            $totalGuests,
+            $countedGuests,
+            $guests
+        );
+
+        self::json(['data' => [
+            'checkin_date' => $checkin,
+            'checkout_date' => $checkoutDate->format('Y-m-d'),
+            'adults' => $adults,
+            'children_3to12' => $children3to12,
+            'children_under3' => $childrenUnder3,
+            'previous_price' => [
+                'currency' => (string) ($request['quote_currency'] ?? 'EUR'),
+                // Same "tarif du bien + personne(s) supplémentaire(s)" basis
+                // as ReservationsController::quoteTotalForCandidate() below,
+                // for a fair before/after comparison (excludes the flat
+                // cleaning fee, which doesn't vary by property choice).
+                'total_traveler' => round((float) ($request['quote_room_total'] ?? 0) + (float) ($request['quote_extra_person_total'] ?? 0), 2),
+            ],
+            'properties' => $properties,
+        ]]);
+    }
+
+    /**
+     * JSON gallery source for the "Voir galerie photo" modal on
+     * /partner/reservations/{id} — the partner-facing equivalent of
+     * reservationPublicPropertyPhotos(), scoped to the partner's own tenant.
+     */
+    public static function partnerReservationPropertyPhotos(int $id): never
+    {
+        $user = self::requirePartnerUser();
+        $partnerId = (int) $user['partner_id'];
+        $request = ReservationsController::findForPartner($partnerId, $id);
+        if (!$request) {
+            self::json(['error' => 'Not Found', 'message' => 'Demande introuvable'], 404);
+        }
+        $propertyId = (int) ($_GET['property_id'] ?? $request['property_id'] ?? 0);
+        if ($propertyId <= 0) {
+            self::json(['data' => ['images' => []]]);
+        }
+        $images = [];
+        $description = '';
+        try {
+            $property = (new LodgifyClient())->getProperty($propertyId);
+            $images = $property['images'] ?? [];
+            $description = trim(View::localized($property, 'description'));
+        } catch (Throwable $e) {
+            error_log('Lodgify: failed to fetch property ' . $propertyId . ' photos for partner reservation page: ' . $e->getMessage());
+        }
+        self::json(['data' => ['images' => $images, 'description' => $description]]);
+    }
+
+    /**
+     * Renders the client-facing "Partager le lien" page: an online, editable
+     * copy of a reservation request the client can reach via an unguessable
+     * link (see ReservationsController::findByToken()). While the request is
+     * still "pending" the client can adjust their name/dates/party size/
+     * nationality/property and resend it (reservationPublicUpdate()) or
+     * cancel it (reservationPublicCancel()); once the partner has confirmed
+     * it, this renders read-only — only the partner can reopen/modify it
+     * from /partner/reservations from that point on.
+     */
+    public static function reservationPublic(string $token): void
+    {
+        $request = ReservationsController::findByToken($token);
+        if (!$request) {
+            throw new HttpException(404, 'Not Found', 'Demande introuvable');
+        }
+        $partner = PartnersController::formData((int) $request['partner_id']);
+        // The whole pricing/policy engine (ReservationsController::
+        // computeItemQuote() and friends, PageController::
+        // bookingPolicyText()) resolves the active partner from
+        // Tenant::current(), which reads the "partner_code" cookie — set it
+        // to this reservation's own partner so re-quoting on update always
+        // uses the correct markup/VAT/booking policy, regardless of
+        // whatever partner (if any) this browser already had active.
+        if (!empty($partner['subdomain'])) {
+            Tenant::setCodeCookie((string) $partner['subdomain']);
+        }
+        $editable = (string) $request['status'] === 'pending';
+        // The full property list is no longer eagerly fetched here: the
+        // "Changer d'hébergement" picker (see reservation-public.php) now
+        // loads its own candidates on demand from reservationPublicAvailableProperties(),
+        // filtered by capacity and by this app's own local availability.
+        // Single source of truth for the "< 3 ans"/"3-12 ans" split — see
+        // ReservationsController::childBreakdownValues(), which already
+        // self-heals a database that never got the migration-018 breakdown
+        // columns (childrenBreakdownColumns()). Passed to the view instead
+        // of re-deriving the same fallback chain there, which used to read
+        // "children_under3"/"children_3to12" (columns that may not even
+        // exist) before falling back to the aggregate "children" total.
+        $childBreakdown = ReservationsController::childBreakdownValues($request);
+
+        // The currently booked property's own photo/bedrooms/sofa-bed-count
+        // (shown at the top of the page and in the "Voir galerie photo"
+        // modal) — a live Lodgify lookup failure must never turn this
+        // read-mostly page into a 500, so it just degrades to no photo.
+        $property = null;
+        $propertyId = (int) ($request['property_id'] ?? 0);
+        if ($propertyId > 0) {
+            try {
+                $property = (new LodgifyClient())->getProperty($propertyId);
+            } catch (Throwable $e) {
+                error_log('Lodgify: failed to fetch property ' . $propertyId . ' for public reservation page: ' . $e->getMessage());
+            }
+        }
+        // Display the locally-managed name (this app's own property_translations
+        // override, or Lodgify's own French text, per View::localized()) rather
+        // than the raw name stored on the request at submission time — which
+        // may be stale or only ever reflected Lodgify's own (English) name.
+        if ($property !== null) {
+            $request['property_name'] = View::localized($property, 'name');
+        }
+
+        // A client-facing link must never leak the partner's own email as
+        // "the client's email": if the request's client_email is empty or
+        // matches the partner's email (e.g. a request created internally
+        // by the agency on the client's behalf without asking for their
+        // address yet), the client must supply their own real email before
+        // they can view/edit anything else on this page.
+        $needsClientEmail = ReservationsController::publicRequestNeedsClientEmail($request, $partner);
+
+        View::render('pages/reservation-public', [
+            'pageTitle' => 'Ma demande de réservation',
+            'token' => $token,
+            'request' => $request,
+            'partner' => $partner,
+            'editable' => $editable,
+            'childrenUnder3' => $childBreakdown['under3'],
+            'children3to12' => $childBreakdown['from3to12'],
+            'property' => $property,
+            'needsClientEmail' => $needsClientEmail,
+            // Hides the top navigation menu, keeping only the logo/name
+            // (see partials/navbar.php) — this link is shared directly with
+            // clients over WhatsApp/email and must not expose the rest of
+            // the site's navigation.
+            'minimalHeader' => true,
+        ]);
+    }
+
+    /**
+     * Blocking gate for the public reservation page (see reservationPublic()):
+     * lets the client set their own email when the persisted client_email is
+     * missing or still the partner's own address. Re-validates server-side
+     * (never trusting the "needsClientEmail" flag the page last rendered)
+     * that the submitted address is non-empty, a valid email, and distinct
+     * from the partner's email, exactly like ReservationsController::
+     * validateClientEmailAgainstPartner() does for the main edit form.
+     */
+    public static function reservationPublicSetEmail(string $token): never
+    {
+        $request = ReservationsController::findByToken($token);
+        if (!$request) {
+            throw new HttpException(404, 'Not Found', 'Demande introuvable');
+        }
+        $partner = PartnersController::formData((int) $request['partner_id']);
+        $email = trim((string) ($_POST['client_email'] ?? ''));
+        $error = ReservationsController::validateClientEmailAgainstPartner($email, $partner);
+        if ($error !== null) {
+            self::redirect('/r/' . $token, $error, 'error');
+        }
+        ReservationsController::setPublicRequestClientEmail((int) $request['id'], $email);
+        self::redirect('/r/' . $token, 'Merci, votre adresse email a bien été enregistrée.', 'success');
+    }
+
+    /**
+     * JSON gallery source for the "Voir galerie photo" modal on the public
+     * reservation page: returns every photo Lodgify has for whichever
+     * property is currently selected (query param property_id, so it also
+     * works right after picking a new property from the "Changer
+     * d'hébergement" modal, before the page is ever reloaded).
+     */
+    public static function reservationPublicPropertyPhotos(string $token): never
+    {
+        $request = ReservationsController::findByToken($token);
+        if (!$request) {
+            self::json(['error' => 'Not Found', 'message' => 'Demande introuvable'], 404);
+        }
+        $propertyId = (int) ($_GET['property_id'] ?? $request['property_id'] ?? 0);
+        if ($propertyId <= 0) {
+            self::json(['data' => ['images' => []]]);
+        }
+        $images = [];
+        $description = '';
+        try {
+            $property = (new LodgifyClient())->getProperty($propertyId);
+            $images = $property['images'] ?? [];
+            $description = trim(View::localized($property, 'description'));
+        } catch (Throwable $e) {
+            error_log('Lodgify: failed to fetch property ' . $propertyId . ' photos for public reservation page: ' . $e->getMessage());
+        }
+        self::json(['data' => ['images' => $images, 'description' => $description]]);
+    }
+
+
+    /**
+     * Lists properties available for the "changer d'hébergement" modal on
+     * the public reservation page, for the dates/party size currently
+     * entered in the edit form (query params checkin_date/checkout_date/
+     * adults/children_3to12/children_under3, falling back to the request's
+     * own values when omitted) — delegates the actual filtering/pricing to
+     * ReservationsController::publicAvailableProperties(), which checks
+     * availability against this app's own local reservations only (no
+     * live Lodgify calendar call).
+     */
+    public static function reservationPublicAvailableProperties(string $token): never
+    {
+        $request = ReservationsController::findByToken($token);
+        if (!$request) {
+            self::json(['error' => 'Not Found', 'message' => 'Demande introuvable'], 404);
+        }
+        if ((string) $request['status'] !== 'pending') {
+            self::json(['error' => 'Forbidden', 'message' => 'Cette demande n\'est plus modifiable en ligne.'], 403);
+        }
+        $partner = PartnersController::formData((int) $request['partner_id']);
+        if (!empty($partner['subdomain'])) {
+            Tenant::setCodeCookie((string) $partner['subdomain']);
+        }
+
+        $childBreakdown = ReservationsController::childBreakdownValues($request);
+        $checkin = trim((string) ($_GET['checkin_date'] ?? '')) ?: (string) $request['checkin_date'];
+        $checkout = trim((string) ($_GET['checkout_date'] ?? '')) ?: (string) $request['checkout_date'];
+        $adults = max(1, (int) ($_GET['adults'] ?? $request['adults'] ?? 1));
+        $childrenUnder3 = max(0, (int) ($_GET['children_under3'] ?? $childBreakdown['under3']));
+        $children3to12 = max(0, (int) ($_GET['children_3to12'] ?? $childBreakdown['from3to12']));
+
+        try {
+            $checkinDate = new \DateTimeImmutable($checkin);
+            $checkoutDate = new \DateTimeImmutable($checkout);
+        } catch (Throwable $e) {
+            self::json(['error' => 'Bad Request', 'message' => 'Dates invalides.'], 400);
+        }
+        if ($checkoutDate <= $checkinDate) {
+            self::json(['error' => 'Bad Request', 'message' => 'La date de départ doit être après la date d\'arrivée.'], 400);
+        }
+        // Normalize to the canonical 'Y-m-d' form (same as $checkoutDate below)
+        // before it's used in any SQL comparison against the checkin_date/
+        // checkout_date DATE columns (ReservationsController::
+        // isPropertyLocallyAvailable()): $_GET['checkin_date'] can otherwise
+        // reach the query in whatever format the client sent it in (extra
+        // whitespace, single-digit day/month, a non-ISO order, etc.), which
+        // DateTimeImmutable may parse leniently but MySQL's string/DATE
+        // comparison won't, silently treating booked properties as
+        // available.
+        $checkin = $checkinDate->format('Y-m-d');
+
+        $totalGuests = $adults + $childrenUnder3 + $children3to12;
+        $countedGuests = $adults + $children3to12;
+        $guests = is_array($request['guests'] ?? null) ? $request['guests'] : [];
+
+        $properties = ReservationsController::publicAvailableProperties(
+            $request,
+            $checkin,
+            $checkoutDate,
+            $adults,
+            $totalGuests,
+            $countedGuests,
+            $guests
+        );
+
+        self::json(['data' => [
+            'checkin_date' => $checkin,
+            'checkout_date' => $checkoutDate->format('Y-m-d'),
+            'adults' => $adults,
+            'children_3to12' => $children3to12,
+            'children_under3' => $childrenUnder3,
+            'previous_price' => [
+                'currency' => (string) ($request['quote_currency'] ?? 'EUR'),
+                // Same "tarif du bien + personne(s) supplémentaire(s)" basis
+                // as ReservationsController::quoteTotalForCandidate() below,
+                // for a fair before/after comparison (excludes the flat
+                // cleaning fee, which doesn't vary by property choice).
+                'total_traveler' => round((float) ($request['quote_room_total'] ?? 0) + (float) ($request['quote_extra_person_total'] ?? 0), 2),
+            ],
+            'properties' => $properties,
+        ]]);
+    }
+
+    /**
+     * Handles the "Renvoyer la demande modifiée" submission on the public
+     * reservation page: decodes the {type, nationality} guests array built
+     * client-side (initNationalities()/collectGuests() in assets/js/app.js,
+     * posted as the "guests_json" hidden field) before delegating the
+     * actual re-validation/re-pricing/persistence to ReservationsController::
+     * updatePublicRequest(), which re-checks server-side that the request is
+     * still "pending" regardless of what this page last rendered.
+     */
+    public static function reservationPublicUpdate(string $token): never
+    {
+        $request = ReservationsController::findByToken($token);
+        if (!$request) {
+            throw new HttpException(404, 'Not Found', 'Demande introuvable');
+        }
+        $partner = PartnersController::formData((int) $request['partner_id']);
+        if (!empty($partner['subdomain'])) {
+            Tenant::setCodeCookie((string) $partner['subdomain']);
+        }
+
+        $input = $_POST;
+        $guests = json_decode((string) ($input['guests_json'] ?? '[]'), true);
+        $input['guests'] = is_array($guests) ? $guests : [];
+
+        $result = ReservationsController::updatePublicRequest($request, $input);
+        self::redirect('/r/' . $token, $result['message'], $result['ok'] ? 'success' : 'error');
+    }
+
+    /**
+     * Handles the "Annuler la demande" submission on the public reservation
+     * page (see reservationPublic()). Delegates the "pending only" guard to
+     * ReservationsController::cancelPublicRequest().
+     */
+    public static function reservationPublicCancel(string $token): never
+    {
+        $request = ReservationsController::findByToken($token);
+        if (!$request) {
+            throw new HttpException(404, 'Not Found', 'Demande introuvable');
+        }
+        $result = ReservationsController::cancelPublicRequest($request);
+        self::redirect('/r/' . $token, $result['message'], $result['ok'] ? 'info' : 'error');
     }
 
     public static function partnerSettings(): void
