@@ -55,6 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initTranslationSuggestions,
     initPhotoGallerySelectAll,
     initCopyLinkButton,
+    initReservationPublicEditToggle,
   ].forEach(runInit);
 });
 
@@ -973,6 +974,31 @@ function initApiForms() {
       }
     });
   });
+}
+
+/**
+ * "Partager le lien" public reservation page (see files/views/pages/
+ * reservation-public.php): the request's details render read-only by
+ * default, even while still "pending" — clicking "Modifier" reveals the
+ * editable form (and hides the read-only summary) instead of it being
+ * editable right away, so a client following the WhatsApp link never
+ * accidentally starts typing into a field. "Annuler la modification" does
+ * the reverse without submitting anything.
+ */
+function initReservationPublicEditToggle() {
+  const toggleBtn = document.querySelector('[data-reservation-edit-toggle]');
+  const view = document.querySelector('[data-reservation-view]');
+  const editForm = document.querySelector('[data-reservation-edit-form]');
+  if (!toggleBtn || !view || !editForm) return;
+
+  function setEditing(editing) {
+    view.hidden = editing;
+    editForm.hidden = !editing;
+    toggleBtn.hidden = editing;
+  }
+
+  toggleBtn.addEventListener('click', () => setEditing(true));
+  editForm.querySelector('[data-reservation-edit-cancel]')?.addEventListener('click', () => setEditing(false));
 }
 
 function buildFormPayload(form) {
