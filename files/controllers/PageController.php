@@ -1475,8 +1475,10 @@ final class PageController extends Controller
             // email buttons' forced re-check are allowed to do that): read
             // strictly from whatever is already sitting in the local
             // lodgify_cache table (LodgifyClient::getAvailabilityFromCache()/
-            // getRatesFromCache()), even if stale/expired, and show nothing
-            // for a range the cron hasn't warmed yet rather than fetching it.
+            // getRatesFromCache()), even if stale/expired. Those readers
+            // slice the cron's warmed ranges down to this 4-month window,
+            // since the cron only caches a couple of fixed ranges and an
+            // exact-key match would otherwise almost never happen here.
             $availability = $client->getAvailabilityFromCache($propertyId, $rangeStart, $rangeEnd);
             $rates = self::publicRates($client, $propertyId, $rangeStart, $rangeEnd, $vatRate, true);
         }
