@@ -12,12 +12,33 @@ $guests = is_array($request['guests'] ?? null) ? $request['guests'] : [];
 $quoteCurrency = (string) ($request['quote_currency'] ?? 'EUR');
 $hasQuote = ($request['quote_room_total'] ?? null) !== null;
 $nationalitiesSummary = \App\controllers\ReservationsController::guestNationalitiesText($guests);
+$property = $property ?? null;
+$propertyPhotoUrl = $property['images'][0]['url'] ?? '';
+$propertyDescription = $property ? trim(\App\View::localized($property, 'description')) : '';
+$needsClientEmail = !empty($needsClientEmail);
 ?>
 <section class="container section-lg narrow-wide reservation-public-page">
   <div class="section-header">
     <h1>Ma demande de réservation #<?= $rid ?></h1>
     <span class="badge badge-<?= \App\View::e($status) ?>"><?= \App\View::e(\App\View::badgeLabel($status)) ?></span>
   </div>
+
+  <?php if ($needsClientEmail): ?>
+    <!-- Blocking email-entry gate (see ReservationsController::
+         publicRequestNeedsClientEmail()): the request's client_email is
+         either blank or still the partner's own address, so the client
+         must supply their own real email before seeing/editing anything
+         else on this page — the partner's mailbox must never end up as
+         "the client's email" on a reservation request. -->
+    <div class="card card-body stack-md reservation-public-card">
+      <h2 class="section-title">Votre adresse email</h2>
+      <p class="muted">Merci de renseigner votre adresse email pour accéder au détail de votre demande de réservation.</p>
+      <form method="post" action="/r/<?= \App\View::e($token) ?>/email" class="form-grid cols-2">
+        <label><span>Email</span><input class="input" type="email" name="client_email" required autofocus></label>
+        <div class="button-row"><button class="btn-primary" type="submit">Continuer</button></div>
+      </form>
+    </div>
+  <?php else: ?>
 
   <?php if ($status === 'confirmed'): ?>
     <div class="alert alert-success">
@@ -36,6 +57,24 @@ $nationalitiesSummary = \App\controllers\ReservationsController::guestNationalit
       <h2 class="section-title">Détails de la demande</h2>
       <?php if ($editable): ?>
         <button type="button" class="btn-secondary" data-reservation-edit-toggle>Modifier</button>
+      <?php endif; ?>
+    </div>
+
+    <!-- Selected property's photo/gallery/description — always visible,
+         whether or not the request is being edited (see the "Voir galerie
+         photo" button, kept usable in read-only mode per its own
+         requirement). Updated in place by initReservationPublicPropertyPicker()
+         in assets/js/app.js whenever a new property is chosen from the
+         "Changer d'hébergement" modal. -->
+    <div class="reservation-property-photo-block" data-reservation-property-photo-block>
+      <?php if ($propertyPhotoUrl !== ''): ?>
+        <img class="reservation-property-photo" data-reservation-property-photo src="<?= \App\View::e($propertyPhotoUrl) ?>" alt="<?= \App\View::e($request['property_name'] ?: '') ?>">
+      <?php endif; ?>
+      <div class="button-row">
+        <button type="button" class="btn-secondary" data-reservation-view-gallery data-reservation-gallery-property-id="<?= (int) $request['property_id'] ?>">Voir galerie photo</button>
+      </div>
+      <?php if ($propertyDescription !== ''): ?>
+        <p class="muted reservation-property-description" data-reservation-property-description><?= \App\View::plainText($propertyDescription, 400) ?></p>
       <?php endif; ?>
     </div>
 
@@ -103,7 +142,10 @@ $nationalitiesSummary = \App\controllers\ReservationsController::guestNationalit
             <h3 class="reservation-subheading">Hébergement</h3>
             <div class="reservation-property-current">
               <strong data-reservation-property-name><?= \App\View::e($request['property_name'] ?: '—') ?></strong>
-              <button type="button" class="btn-secondary" data-reservation-change-property>Changer d'hébergement</button>
+              <div class="button-row">
+                <a class="btn-secondary" target="_blank" rel="noopener" data-reservation-view-property-link href="/properties/<?= (int) $request['property_id'] ?>#rates-availability">Voir le bien</a>
+                <button type="button" class="btn-secondary" data-reservation-change-property>Changer d'hébergement</button>
+              </div>
             </div>
           </div>
 
@@ -124,10 +166,10 @@ $nationalitiesSummary = \App\controllers\ReservationsController::guestNationalit
         <div class="button-row"><button class="btn-secondary danger" type="submit">Annuler la demande</button></div>
       </form>
 
-      <!-- "Changer d'hébergement" modal: lists only properties available
-           according to this app's own local reservations (not Lodgify's
-           live calendar) for the dates/party size currently entered above —
-           see ReservationsController::publicAvailableProperties(). -->
+      <!-- "Changer d'hébergement" modal: lists properties available for the
+           dates/party size currently entered above, filtered both by this
+           app's own local reservations AND by Lodgify's live calendar — see
+           ReservationsController::publicAvailableProperties(). -->
       <div class="simple-modal-overlay" data-reservation-property-modal hidden>
         <div class="simple-modal-dialog" role="dialog" aria-modal="true" aria-label="Changer d'hébergement">
           <div class="simple-modal-header">
@@ -141,5 +183,24 @@ $nationalitiesSummary = \App\controllers\ReservationsController::guestNationalit
         </div>
       </div>
     <?php endif; ?>
+
+    <!-- "Voir galerie photo" modal: shows every photo Lodgify has for
+         whichever property is currently selected (fetched on demand from
+         PageController::reservationPublicPropertyPhotos(), so it stays
+         correct right after picking a new property above, before any page
+         reload). Kept outside the "$editable" block so it's still usable
+         in read-only mode. -->
+    <div class="simple-modal-overlay" data-reservation-gallery-modal hidden>
+      <div class="simple-modal-dialog" role="dialog" aria-modal="true" aria-label="Galerie photo">
+        <div class="simple-modal-header">
+          <h3>Galerie photo</h3>
+          <button type="button" class="btn-icon-plain" data-reservation-gallery-modal-close aria-label="Fermer">✕</button>
+        </div>
+        <div class="reservation-gallery-grid" data-reservation-gallery-grid>
+          <p class="muted">Chargement des photos…</p>
+        </div>
+      </div>
+    </div>
   </div>
+  <?php endif; ?>
 </section>

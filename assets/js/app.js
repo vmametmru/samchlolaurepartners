@@ -58,6 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initReservationPublicEditToggle,
     initReservationPublicQuote,
     initReservationPublicPropertyPicker,
+    initReservationPublicPhotoGallery,
   ].forEach(runInit);
 });
 
@@ -1166,14 +1167,26 @@ function initReservationPublicPropertyPicker() {
           ? formatMoney(property.total_traveler, property.currency || previousPrice.currency)
           : 'Indisponible';
         const safeName = escapeHtml(property.name);
+        const photoUrl = property.image_url ? escapeHtml(property.image_url) : '';
+        const bedrooms = Number(property.bedrooms || 0);
+        const sofaBeds = Number(property.sofa_bed_count || 0);
+        const maxGuests = Number(property.max_guests || 0);
         return `
           <div class="reservation-modal-property">
-            <div class="reservation-modal-property-name">${safeName}</div>
-            <div class="reservation-modal-property-prices">
-              <span class="muted">Prix avant modif : ${formatMoney(previousPrice.total_traveler, previousPrice.currency)}</span>
-              <span>Nouveau prix : <strong>${newPriceHtml}</strong></span>
+            ${photoUrl ? `<div class="reservation-modal-property-photo"><img src="${photoUrl}" alt="${safeName}" loading="lazy"></div>` : ''}
+            <div class="reservation-modal-property-body">
+              <div class="reservation-modal-property-name">${safeName}</div>
+              <div class="reservation-modal-property-meta">
+                <span>${bedrooms} lit(s)</span>
+                <span>${sofaBeds} canapé(s)-lit</span>
+                <span>${maxGuests} pers. max</span>
+              </div>
+              <div class="reservation-modal-property-prices">
+                <span class="muted">Prix avant modif : ${formatMoney(previousPrice.total_traveler, previousPrice.currency)}</span>
+                <span>Nouveau prix : <strong>${newPriceHtml}</strong></span>
+              </div>
+              <button type="button" class="btn-primary" data-reservation-choose-property="${property.id}" data-reservation-choose-name="${escapeHtml(property.name)}">Choisir</button>
             </div>
-            <button type="button" class="btn-primary" data-reservation-choose-property="${property.id}" data-reservation-choose-name="${escapeHtml(property.name)}">Choisir</button>
           </div>`;
       }).join('');
       listEl.querySelectorAll('[data-reservation-choose-property]').forEach((btn) => {
@@ -1184,6 +1197,32 @@ function initReservationPublicPropertyPicker() {
           const propertyNameEl = document.querySelector('[data-reservation-property-name]');
           if (propertyIdField) propertyIdField.value = propertyId;
           if (propertyNameEl) propertyNameEl.textContent = propertyName;
+
+          // Keep the "Voir le bien"/"Voir galerie photo" buttons and the
+          // page's own property photo in sync with the newly chosen
+          // property, without waiting for a page reload.
+          const chosen = properties.find((p) => String(p.id) === String(propertyId));
+          const viewLink = document.querySelector('[data-reservation-view-property-link]');
+          if (viewLink) viewLink.href = `/properties/${propertyId}#rates-availability`;
+          const galleryBtn = document.querySelector('[data-reservation-view-gallery]');
+          if (galleryBtn) galleryBtn.dataset.reservationGalleryPropertyId = propertyId;
+          const photoBlock = document.querySelector('[data-reservation-property-photo-block]');
+          if (photoBlock && chosen) {
+            let img = photoBlock.querySelector('[data-reservation-property-photo]');
+            if (chosen.image_url) {
+              if (!img) {
+                img = document.createElement('img');
+                img.className = 'reservation-property-photo';
+                img.setAttribute('data-reservation-property-photo', '');
+                photoBlock.insertBefore(img, photoBlock.firstChild);
+              }
+              img.src = chosen.image_url;
+              img.alt = propertyName || '';
+            } else if (img) {
+              img.remove();
+            }
+          }
+
           form.dispatchEvent(new CustomEvent('reservation-property-changed'));
           closeModal();
         });
@@ -1196,6 +1235,58 @@ function initReservationPublicPropertyPicker() {
   openBtn.addEventListener('click', () => {
     modal.hidden = false;
     loadProperties();
+  });
+  closeBtn?.addEventListener('click', closeModal);
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) closeModal();
+  });
+}
+
+function initReservationPublicPhotoGallery() {
+  const openBtn = document.querySelector('[data-reservation-view-gallery]');
+  const modal = document.querySelector('[data-reservation-gallery-modal]');
+  if (!openBtn || !modal) return;
+  const closeBtn = modal.querySelector('[data-reservation-gallery-modal-close]');
+  const gridEl = modal.querySelector('[data-reservation-gallery-grid]');
+  const tokenMatch = window.location.pathname.match(/^\/r\/([a-f0-9]{32})/);
+  const token = tokenMatch ? tokenMatch[1] : '';
+
+  function closeModal() {
+    modal.hidden = true;
+  }
+
+  async function loadPhotos() {
+    if (!gridEl) return;
+    gridEl.innerHTML = '<p class="muted">Chargement des photos…</p>';
+    // Always re-read the current property id: it may have changed via
+    // "Changer d'hébergement" since the gallery was last opened, without
+    // any page reload (see initReservationPublicPropertyPicker()).
+    const propertyIdField = document.querySelector('[data-reservation-property-id]');
+    const propertyId = propertyIdField?.value || openBtn.dataset.reservationGalleryPropertyId || '';
+    try {
+      const response = await fetch(`/r/${token}/property-photos?property_id=${encodeURIComponent(propertyId)}`, {
+        headers: { 'Accept': 'application/json' },
+        credentials: 'same-origin'
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Erreur');
+      const images = data.data?.images || [];
+      if (!images.length) {
+        gridEl.innerHTML = '<p class="muted">Aucune photo disponible pour ce bien.</p>';
+        return;
+      }
+      gridEl.innerHTML = images.map((image) => {
+        const url = escapeHtml(image.url || '');
+        return `<div class="reservation-gallery-item"><img src="${url}" alt="" loading="lazy"></div>`;
+      }).join('');
+    } catch (error) {
+      gridEl.innerHTML = '<p class="muted">Impossible de charger les photos pour le moment.</p>';
+    }
+  }
+
+  openBtn.addEventListener('click', () => {
+    modal.hidden = false;
+    loadPhotos();
   });
   closeBtn?.addEventListener('click', closeModal);
   modal.addEventListener('click', (event) => {

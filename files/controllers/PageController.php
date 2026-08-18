@@ -1034,6 +1034,29 @@ final class PageController extends Controller
         // "children_under3"/"children_3to12" (columns that may not even
         // exist) before falling back to the aggregate "children" total.
         $childBreakdown = ReservationsController::childBreakdownValues($request);
+
+        // The currently booked property's own photo/bedrooms/sofa-bed-count
+        // (shown at the top of the page and in the "Voir galerie photo"
+        // modal) — a live Lodgify lookup failure must never turn this
+        // read-mostly page into a 500, so it just degrades to no photo.
+        $property = null;
+        $propertyId = (int) ($request['property_id'] ?? 0);
+        if ($propertyId > 0) {
+            try {
+                $property = (new LodgifyClient())->getProperty($propertyId);
+            } catch (Throwable $e) {
+                error_log('Lodgify: failed to fetch property ' . $propertyId . ' for public reservation page: ' . $e->getMessage());
+            }
+        }
+
+        // A client-facing link must never leak the partner's own email as
+        // "the client's email": if the request's client_email is empty or
+        // matches the partner's email (e.g. a request created internally
+        // by the agency on the client's behalf without asking for their
+        // address yet), the client must supply their own real email before
+        // they can view/edit anything else on this page.
+        $needsClientEmail = ReservationsController::publicRequestNeedsClientEmail($request, $partner);
+
         View::render('pages/reservation-public', [
             'pageTitle' => 'Ma demande de réservation',
             'token' => $token,
@@ -1042,6 +1065,8 @@ final class PageController extends Controller
             'editable' => $editable,
             'childrenUnder3' => $childBreakdown['under3'],
             'children3to12' => $childBreakdown['from3to12'],
+            'property' => $property,
+            'needsClientEmail' => $needsClientEmail,
             // Hides the top navigation menu, keeping only the logo/name
             // (see partials/navbar.php) — this link is shared directly with
             // clients over WhatsApp/email and must not expose the rest of
@@ -1051,13 +1076,66 @@ final class PageController extends Controller
     }
 
     /**
+     * Blocking gate for the public reservation page (see reservationPublic()):
+     * lets the client set their own email when the persisted client_email is
+     * missing or still the partner's own address. Re-validates server-side
+     * (never trusting the "needsClientEmail" flag the page last rendered)
+     * that the submitted address is non-empty, a valid email, and distinct
+     * from the partner's email, exactly like ReservationsController::
+     * validateClientEmailAgainstPartner() does for the main edit form.
+     */
+    public static function reservationPublicSetEmail(string $token): never
+    {
+        $request = ReservationsController::findByToken($token);
+        if (!$request) {
+            throw new HttpException(404, 'Not Found', 'Demande introuvable');
+        }
+        $partner = PartnersController::formData((int) $request['partner_id']);
+        $email = trim((string) ($_POST['client_email'] ?? ''));
+        $error = ReservationsController::validateClientEmailAgainstPartner($email, $partner);
+        if ($error !== null) {
+            self::redirect('/r/' . $token, $error, 'error');
+        }
+        ReservationsController::setPublicRequestClientEmail((int) $request['id'], $email);
+        self::redirect('/r/' . $token, 'Merci, votre adresse email a bien été enregistrée.', 'success');
+    }
+
+    /**
+     * JSON gallery source for the "Voir galerie photo" modal on the public
+     * reservation page: returns every photo Lodgify has for whichever
+     * property is currently selected (query param property_id, so it also
+     * works right after picking a new property from the "Changer
+     * d'hébergement" modal, before the page is ever reloaded).
+     */
+    public static function reservationPublicPropertyPhotos(string $token): never
+    {
+        $request = ReservationsController::findByToken($token);
+        if (!$request) {
+            self::json(['error' => 'Not Found', 'message' => 'Demande introuvable'], 404);
+        }
+        $propertyId = (int) ($_GET['property_id'] ?? $request['property_id'] ?? 0);
+        if ($propertyId <= 0) {
+            self::json(['data' => ['images' => []]]);
+        }
+        $images = [];
+        try {
+            $property = (new LodgifyClient())->getProperty($propertyId);
+            $images = $property['images'] ?? [];
+        } catch (Throwable $e) {
+            error_log('Lodgify: failed to fetch property ' . $propertyId . ' photos for public reservation page: ' . $e->getMessage());
+        }
+        self::json(['data' => ['images' => $images]]);
+    }
+
+
+    /**
      * Lists properties available for the "changer d'hébergement" modal on
      * the public reservation page, for the dates/party size currently
      * entered in the edit form (query params checkin_date/checkout_date/
      * adults/children_3to12/children_under3, falling back to the request's
      * own values when omitted) — delegates the actual filtering/pricing to
      * ReservationsController::publicAvailableProperties(), which checks
-     * availability against this app's own local reservations rather than
+     * availability against both this app's own local reservations AND
      * Lodgify's live calendar.
      */
     public static function reservationPublicAvailableProperties(string $token): never

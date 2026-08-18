@@ -220,9 +220,19 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .btn-icon-plain { appearance: none; border: 0; background: transparent; cursor: pointer; font: inherit; font-size: 1.1rem; line-height: 1; padding: .25rem; color: var(--muted); }
 .reservation-modal-summary { margin-bottom: 1rem; }
 .reservation-modal-list { display: flex; flex-direction: column; gap: .75rem; }
-.reservation-modal-property { border: 1px solid var(--border); border-radius: .75rem; padding: .75rem 1rem; display: flex; flex-direction: column; gap: .5rem; }
+.reservation-modal-property { border: 1px solid var(--border); border-radius: .75rem; padding: .75rem 1rem; display: flex; gap: .75rem; align-items: flex-start; }
+.reservation-modal-property-photo { flex: 0 0 auto; width: 96px; height: 72px; border-radius: .5rem; overflow: hidden; background: var(--border); }
+.reservation-modal-property-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.reservation-modal-property-body { flex: 1 1 auto; display: flex; flex-direction: column; gap: .5rem; min-width: 0; }
 .reservation-modal-property-name { font-weight: 700; }
+.reservation-modal-property-meta { display: flex; flex-wrap: wrap; gap: .5rem; font-size: .82rem; color: var(--muted); }
 .reservation-modal-property-prices { display: flex; flex-direction: column; gap: .15rem; font-size: .9rem; }
+.reservation-property-photo-block { display: flex; flex-direction: column; gap: .75rem; }
+.reservation-property-photo { width: 100%; max-height: 22rem; object-fit: cover; border-radius: .75rem; display: block; }
+.reservation-property-description { margin: 0; white-space: pre-line; }
+.reservation-gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: .75rem; }
+.reservation-gallery-item { border-radius: .5rem; overflow: hidden; aspect-ratio: 4 / 3; background: var(--border); }
+.reservation-gallery-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .amenities-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
 .spinner { width: 1rem; height: 1rem; border-radius: 999px; border: 2px solid #d1d5db; border-top-color: var(--brand); animation: spinner-spin .7s linear infinite; display: inline-block; }
 @keyframes spinner-spin { to { transform: rotate(360deg); } }

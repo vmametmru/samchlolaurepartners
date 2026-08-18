@@ -1612,6 +1612,61 @@ final class ReservationsController extends Controller
     }
 
     /**
+     * Whether the public reservation page (PageController::
+     * reservationPublic()) must block the client behind an email-entry gate
+     * before showing anything else: true when the request's client_email is
+     * blank, or when it's still (accidentally) set to the partner's own
+     * email — e.g. a request created internally by the agency on the
+     * client's behalf before the client's real address was known. Compared
+     * case-insensitively/trimmed since emails are not case-sensitive.
+     */
+    public static function publicRequestNeedsClientEmail(array $request, array $partner): bool
+    {
+        $clientEmail = trim((string) ($request['client_email'] ?? ''));
+        if ($clientEmail === '') {
+            return true;
+        }
+        $partnerEmail = trim((string) ($partner['email'] ?? ''));
+        return $partnerEmail !== '' && strcasecmp($clientEmail, $partnerEmail) === 0;
+    }
+
+    /**
+     * Server-side validation shared by the email-gate form (PageController::
+     * reservationPublicSetEmail()) and the main edit/resend form
+     * (updatePublicRequest() below): rejects a blank/invalid address, and
+     * rejects the partner's own email so a client can never end up with
+     * their reservation request's notifications routed to the agency's own
+     * mailbox. Returns an error message, or null when the address is valid.
+     */
+    public static function validateClientEmailAgainstPartner(string $email, array $partner): ?string
+    {
+        $email = trim($email);
+        if ($email === '') {
+            return 'Merci de renseigner votre adresse email.';
+        }
+        if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+            return 'Adresse email invalide.';
+        }
+        $partnerEmail = trim((string) ($partner['email'] ?? ''));
+        if ($partnerEmail !== '' && strcasecmp($email, $partnerEmail) === 0) {
+            return 'Merci de renseigner votre propre adresse email (celle de l\'agence n\'est pas acceptée).';
+        }
+        return null;
+    }
+
+    /**
+     * Persists the client's own email onto a reservation request from the
+     * public email-entry gate (PageController::reservationPublicSetEmail()),
+     * without touching anything else on the request.
+     */
+    public static function setPublicRequestClientEmail(int $requestId, string $email): void
+    {
+        Database::connection()
+            ->prepare('UPDATE reservation_requests SET client_email = ?, updated_at = NOW() WHERE id = ?')
+            ->execute([trim($email), $requestId]);
+    }
+
+    /**
      * Persists a client-submitted edit to their own reservation request via
      * the public "Partager le lien" page (PageController::
      * reservationPublicUpdate()): re-validates capacity and re-computes the
@@ -1644,8 +1699,10 @@ final class ReservationsController extends Controller
         if ($clientName === '' || $checkin === '' || $checkout === '' || $adults < 1 || $propertyId <= 0) {
             return ['ok' => false, 'message' => 'Merci de renseigner le nom, l\'hébergement, les dates et le nombre de voyageurs.'];
         }
-        if (filter_var($clientEmail, FILTER_VALIDATE_EMAIL) === false) {
-            return ['ok' => false, 'message' => 'Adresse email invalide.'];
+        $partner = self::fetchPartner((int) $request['partner_id']);
+        $emailError = self::validateClientEmailAgainstPartner($clientEmail, $partner);
+        if ($emailError !== null) {
+            return ['ok' => false, 'message' => $emailError];
         }
         try {
             $checkinDate = new \DateTimeImmutable($checkin);
@@ -1676,7 +1733,6 @@ final class ReservationsController extends Controller
         $guests = is_array($input['guests'] ?? null) ? $input['guests'] : [];
 
         $pdo = Database::connection();
-        $partner = self::fetchPartner((int) $request['partner_id']);
         $quoteData = self::computeItemQuote(
             $propertyId,
             $property,
@@ -1713,7 +1769,7 @@ final class ReservationsController extends Controller
             $checkin,
             $checkout,
             $adults,
-            $children3to12,
+            $childrenUnder3 + $children3to12,
             json_encode($guests, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
             self::nullableString($input['message'] ?? $request['message'] ?? null),
         ];
@@ -1757,10 +1813,10 @@ final class ReservationsController extends Controller
      * $excludeRequestId (the request currently being edited, so a property
      * already booked by that very request never excludes itself). Used by
      * the "changer d'hébergement" picker on the public reservation page
-     * (publicAvailableProperties() below) to check availability against
-     * this site's own bookings rather than Lodgify's live calendar, per
-     * the client's explicit request that the picker only ever reflect
-     * what has actually been confirmed locally.
+     * (publicAvailableProperties() below) as one of two availability checks
+     * — combined with a live Lodgify calendar check there — so a property
+     * that's free locally but blocked on Lodgify by another channel/booking
+     * is never offered as a switch target.
      */
     public static function isPropertyLocallyAvailable(int $propertyId, string $checkin, string $checkout, int $excludeRequestId = 0): bool
     {
@@ -1820,15 +1876,19 @@ final class ReservationsController extends Controller
      * Lists properties available for the "changer d'hébergement" modal on
      * the public reservation page (PageController::
      * reservationPublicAvailableProperties()): visible to the request's
-     * partner, able to host the requested party size, and — per the
-     * client's explicit requirement — available according to this app's own
-     * local reservations (isPropertyLocallyAvailable() above), never
-     * Lodgify's live calendar. Each entry carries the newly computed price
-     * for the requested dates/party size so the modal can show it next to
-     * the request's last recorded ("avant modif") price.
+     * partner, able to host the requested party size, available according
+     * to this app's own local reservations (isPropertyLocallyAvailable())
+     * AND according to Lodgify's live calendar (LodgifyClient::
+     * isAvailableForRange()) — a property blocked on Lodgify by another
+     * channel/booking (never recorded in this app's own reservations table)
+     * must never be offered as a switch target. Each entry carries the
+     * newly computed price for the requested dates/party size (so the modal
+     * can show it next to the request's last recorded "avant modif" price)
+     * plus its photo/bedrooms/sofa-bed-count so the modal can render a full
+     * property card, not just a name.
      *
      * @param array<int, array{type?: string, nationality?: string}> $guests
-     * @return array<int, array{id: int, name: string, max_guests: int, currency: ?string, total_traveler: ?float}>
+     * @return array<int, array{id: int, name: string, max_guests: int, currency: ?string, total_traveler: ?float, image_url: ?string, bedrooms: int, sofa_bed_count: int}>
      */
     public static function publicAvailableProperties(
         array $request,
@@ -1840,9 +1900,10 @@ final class ReservationsController extends Controller
         array $guests
     ): array {
         $partner = PartnersController::formData((int) $request['partner_id']);
+        $client = new LodgifyClient();
         $properties = [];
         try {
-            $properties = PageController::publicVisibleProperties((new LodgifyClient())->getProperties(), $partner);
+            $properties = PageController::publicVisibleProperties($client->getProperties(), $partner);
         } catch (Throwable $e) {
             error_log('Lodgify: failed to list properties for public availability picker: ' . $e->getMessage());
             return [];
@@ -1859,6 +1920,14 @@ final class ReservationsController extends Controller
                 continue;
             }
             if (!self::isPropertyLocallyAvailable($propertyId, $checkin, $checkoutDate->format('Y-m-d'), (int) $request['id'])) {
+                continue;
+            }
+            try {
+                if (!$client->isAvailableForRange($propertyId, $checkin, $checkoutDate->format('Y-m-d'))) {
+                    continue;
+                }
+            } catch (Throwable $e) {
+                error_log('Lodgify: live availability check failed for property ' . $propertyId . ': ' . $e->getMessage());
                 continue;
             }
             $quote = self::quoteTotalForCandidate(
@@ -1878,6 +1947,9 @@ final class ReservationsController extends Controller
                 'max_guests' => $maxGuests,
                 'currency' => $quote['currency'] ?? null,
                 'total_traveler' => $quote['total_traveler'] ?? null,
+                'image_url' => $property['images'][0]['url'] ?? null,
+                'bedrooms' => (int) ($property['bedrooms'] ?? 0),
+                'sofa_bed_count' => (int) ($property['sofa_bed_count'] ?? 0),
             ];
         }
 
