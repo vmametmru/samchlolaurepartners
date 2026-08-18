@@ -1672,7 +1672,12 @@ final class PageController extends Controller
         // longer touches partners.booking_policy_text(_en) at all — those
         // legacy columns are only ever read as a fallback (bookingPolicyText())
         // for a partner who hasn't created any policy yet.
-        Database::connection()->prepare('UPDATE partners SET name = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, logo_url = ?, catalog_pdf_url = ?, primary_color = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, updated_at = NOW() WHERE id = ?')->execute([
+        // "Ne pas envoyer de email quand un client modifie sa demande"
+        // maps to partners.notify_on_client_edit (1 = send, the default),
+        // gating the two client-edit emails sent from ReservationsController::
+        // updatePublicRequest().
+        $notifyOnClientEdit = empty($_POST['skip_client_edit_notification']) ? 1 : 0;
+        Database::connection()->prepare('UPDATE partners SET name = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, logo_url = ?, catalog_pdf_url = ?, primary_color = ?, notify_on_client_edit = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, updated_at = NOW() WHERE id = ?')->execute([
             trim((string) ($_POST['name'] ?? '')),
             trim((string) ($_POST['email'] ?? '')),
             trim((string) ($_POST['phone'] ?? '')) ?: null,
@@ -1682,6 +1687,7 @@ final class PageController extends Controller
             $logoUrl !== '' ? $logoUrl : null,
             $catalogPdfUrl !== '' ? $catalogPdfUrl : null,
             trim((string) ($_POST['primary_color'] ?? '#E61E4D')),
+            $notifyOnClientEdit,
             trim((string) ($_POST['smtp_host'] ?? '')) ?: null,
             ($_POST['smtp_port'] ?? '') !== '' ? (int) $_POST['smtp_port'] : null,
             trim((string) ($_POST['smtp_user'] ?? '')) ?: null,
