@@ -267,8 +267,9 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
    which point the newly selected range takes over in red. Unlike the
    property-detail "Tarifs & Disponibilités" tab's 3-per-row (desktop)
    12-month calendar, this modal only ever renders 4 months at a time
-   (PageController::reservationDatesAvailabilityFragment()), always shown
-   2 per row regardless of viewport width. */
+   (PageController::reservationDatesAvailabilityFragment()), shown 2 per
+   row on tablet/desktop; on phones (see the .calendar-months mobile
+   override below) it drops to 1 per row like the rest of the site. */
 .reservation-dates-calendar .calendar-months { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .reservation-dates-calendar .calendar-cell.current-dates { background: #fed7aa; color: #9a3412; }
 .reservation-dates-calendar .calendar-cell.new-dates { background: #dc2626; color: white; }
@@ -564,6 +565,10 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
   /* Larger, easier-to-tap arrival/departure calendar cells on phones (Apple's
      minimum recommended touch target is ~44px); desktop sizing is untouched. */
   .calendar-months { grid-template-columns: 1fr; gap: 1rem; }
+  /* "Modifier les Dates" modal: drop from 2 to 1 month per row on phones too
+     (this selector must match the .reservation-dates-calendar-scoped rule's
+     specificity above to win here). */
+  .reservation-dates-calendar .calendar-months { grid-template-columns: 1fr; }
   .calendar-grid { gap: .3rem; }
   .calendar-cell { min-height: 44px; padding: .55rem 0 .6rem; border-radius: .6rem; justify-content: center; }
   .calendar-day { font-size: .95rem; }
