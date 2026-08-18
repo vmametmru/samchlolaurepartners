@@ -36,16 +36,16 @@ ALTER TABLE default_email_templates
 
 INSERT INTO default_email_templates (type, language, subject, body_html)
 SELECT 'ADMIN_COMMUNICATION', 'fr',
-  'Information importante',
-  '<h2>Bonjour {{partenaire}},</h2><p>Nous souhaitions vous transmettre l''information suivante :</p><p>{{message}}</p><p>Pour toute question, n''hésitez pas à répondre à cet email.</p><p>Cordialement,<br><strong>{{expediteur}}</strong></p>'
+  '{{sujet}}',
+  '<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;padding:24px;"><p style="margin:0 0 12px;font-size:15px;color:#111827;">Bonjour <strong>{{partenaire}}</strong>,</p><div style="font-size:15px;color:#374151;">{{message}}</div>{{piece_jointe}}<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0;"><p style="margin:0;font-size:13px;color:#6b7280;">Cordialement,<br><strong>{{expediteur}}</strong></p></div>'
 WHERE NOT EXISTS (
   SELECT 1 FROM default_email_templates WHERE type = 'ADMIN_COMMUNICATION' AND language = 'fr'
 );
 
 INSERT INTO default_email_templates (type, language, subject, body_html)
 SELECT 'ADMIN_COMMUNICATION', 'en',
-  'Important information',
-  '<h2>Hello {{partenaire}},</h2><p>We wanted to share the following information with you:</p><p>{{message}}</p><p>If you have any question, simply reply to this email.</p><p>Best regards,<br><strong>{{expediteur}}</strong></p>'
+  '{{sujet}}',
+  '<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;padding:24px;"><p style="margin:0 0 12px;font-size:15px;color:#111827;">Hello <strong>{{partenaire}}</strong>,</p><div style="font-size:15px;color:#374151;">{{message}}</div>{{piece_jointe}}<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0;"><p style="margin:0;font-size:13px;color:#6b7280;">Best regards,<br><strong>{{expediteur}}</strong></p></div>'
 WHERE NOT EXISTS (
   SELECT 1 FROM default_email_templates WHERE type = 'ADMIN_COMMUNICATION' AND language = 'en'
 );
