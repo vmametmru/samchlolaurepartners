@@ -3742,6 +3742,32 @@ TEXT;
         return 'Base de données mise à jour automatiquement par le cron le ' . $date->format('d/m/Y') . ' à ' . $date->format('H:i') . ' (GMT+4)';
     }
 
+    /**
+     * Same underlying LODGIFY_CACHE_WARMED_AT timestamp as
+     * formatLodgifyCacheWarmedAt() (last time the cron's
+     * Scheduler::warmLodgifyCache() — or any other future manual trigger —
+     * refreshed the local availability/rates cache), but phrased for
+     * visitors/partners rather than the admin sync page: shown under every
+     * calendar table (property-detail "Tarifs & Disponibilités" tab,
+     * /calendrier multi-property board, and the "Modifier les Dates"
+     * reservation-edit modal), all of which only ever read this same local
+     * cache (see reservationDatesAvailabilityFragment()'s doc comment).
+     */
+    public static function calendarUpdatedAtLabel(): ?string
+    {
+        $raw = Settings::get('LODGIFY_CACHE_WARMED_AT');
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+        try {
+            $date = new \DateTimeImmutable($raw);
+            $date = $date->setTimezone(new \DateTimeZone('Etc/GMT-4'));
+        } catch (\Throwable $e) {
+            return null;
+        }
+        return 'Disponibilités et Tarifs mis à jour le ' . $date->format('d/m/Y') . ' à ' . $date->format('H:i') . ' (GMT + 4)';
+    }
+
     public static function publicRates(LodgifyClient $client, int $propertyId, string $from, string $to, float $vatRate = 0.0, bool $cacheOnly = false): array
     {
         // $cacheOnly is used by reservationDatesAvailabilityFragment() (the

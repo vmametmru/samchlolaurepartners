@@ -169,6 +169,10 @@ $bookingPolicies = $bookingPolicies ?? [];
         </tbody>
       </table>
     </div>
+    <?php $calendarUpdatedAtLabel = \App\controllers\PageController::calendarUpdatedAtLabel(); ?>
+    <?php if ($calendarUpdatedAtLabel !== null): ?>
+      <p class="muted calendar-updated-note"><?= \App\View::e($calendarUpdatedAtLabel) ?></p>
+    <?php endif; ?>
 
     <div class="multi-booking-cart" id="multi-cart-selection" data-multi-cart data-can-force-price="<?= $canForcePrice ? '1' : '0' ?>" hidden>
       <div class="multi-cart-header">

@@ -78,3 +78,7 @@ $frenchMonths = \App\I18n::monthNames();
   <span class="dot dot-gray"></span> <?= \App\View::e(\App\I18n::t('calendar.legend_not_bookable_full')) ?>
   <span class="calendar-legend-note"><?= \App\View::e(\App\I18n::t('calendar.legend_price_currency')) ?></span>
 </div>
+<?php $calendarUpdatedAtLabel = \App\controllers\PageController::calendarUpdatedAtLabel(); ?>
+<?php if ($calendarUpdatedAtLabel !== null): ?>
+  <p class="muted calendar-updated-note"><?= \App\View::e($calendarUpdatedAtLabel) ?></p>
+<?php endif; ?>

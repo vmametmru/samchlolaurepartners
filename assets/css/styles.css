@@ -372,6 +372,7 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .calendar-loading-message { margin-top: 1rem; display: flex; align-items: center; gap: .5rem; font-size: .85rem; }
 .calendar-loading-message[hidden] { display: none; }
 .calendar-price-note { margin-top: 1rem; font-size: .85rem; }
+.calendar-updated-note { margin-top: .5rem; font-size: .75rem; }
 .booking-policy-block { margin-top: 1.5rem; border: 1px solid var(--border); border-radius: .75rem; padding: 1rem 1.25rem; background: #fafafa; }
 .booking-policy-block .prose { font-size: .9rem; color: var(--muted); }
 .calendar-info-blocks { align-items: start; margin-top: 1.5rem; }
