@@ -13,6 +13,7 @@ use App\HttpException;
 use App\I18n;
 use App\LodgifyApiException;
 use App\LodgifyClient;
+use App\Mailer;
 use App\PartnerPropertyVisibility;
 use App\Scheduler;
 use App\Tenant;
@@ -2090,6 +2091,418 @@ final class PageController extends Controller
         self::redirect('/admin/smtp-settings', 'SMTP par défaut sauvegardé.');
     }
 
+
+    // -------------------------------------------------------------------------
+    // Admin: Communication (emails envoyés aux partenaires)
+    // -------------------------------------------------------------------------
+
+    /** Extensions acceptées pour la pièce jointe d'une communication admin. */
+    private const COMMUNICATION_ATTACHMENT_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'webp', 'gif', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'zip'];
+
+    private const COMMUNICATION_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+
+    /**
+     * Creates the admin_communication_logs table on the fly if it doesn't
+     * exist yet, mirroring
+     * db/migrations/051_create_admin_communication_logs.sql — same reason as
+     * ensureDefaultEmailTemplatesTable(): Migrator::autoRun() is throttled,
+     * so the page must not fail right after a fresh deploy.
+     */
+    private static function ensureAdminCommunicationLogsTable(): void
+    {
+        Database::connection()->exec(
+            "CREATE TABLE IF NOT EXISTS admin_communication_logs (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              partner_id INT DEFAULT NULL,
+              partner_name VARCHAR(255) NOT NULL DEFAULT '',
+              recipient_email VARCHAR(255) NOT NULL,
+              subject VARCHAR(500) NOT NULL,
+              body_html MEDIUMTEXT NOT NULL,
+              attachment_name VARCHAR(255) DEFAULT NULL,
+              status ENUM('SENT', 'FAILED') NOT NULL DEFAULT 'SENT',
+              error_message VARCHAR(500) DEFAULT NULL,
+              sent_by VARCHAR(255) DEFAULT NULL,
+              created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              INDEX idx_created_at (created_at),
+              INDEX idx_partner (partner_id)
+            )"
+        );
+    }
+
+    /**
+     * The admin-only "Communication Admin" template (ADMIN_COMMUNICATION,
+     * see adminTemplateCatalog()'s ADMIN_ONLY_TEMPLATE_TYPES) for the given
+     * language, as saved on /admin/templates/default. Falls back to the
+     * catalog definition when the admin hasn't created it yet, so the page
+     * can always send something.
+     *
+     * @return array{id: int, subject: string, body_html: string, is_saved: bool}
+     */
+    private static function adminCommunicationTemplate(string $language): array
+    {
+        $stmt = Database::connection()->prepare(
+            'SELECT id, subject, body_html FROM default_email_templates WHERE type = ? AND language = ? LIMIT 1'
+        );
+        $stmt->execute(['ADMIN_COMMUNICATION', $language]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if (is_array($row)) {
+            return [
+                'id' => (int) $row['id'],
+                'subject' => (string) $row['subject'],
+                'body_html' => (string) $row['body_html'],
+                'is_saved' => true,
+            ];
+        }
+
+        $definition = self::adminTemplateCatalog($language, true)['ADMIN_COMMUNICATION'];
+
+        return [
+            'id' => 0,
+            'subject' => (string) $definition['subject'],
+            'body_html' => (string) $definition['body_html'],
+            'is_saved' => false,
+        ];
+    }
+
+    /**
+     * Admin "Communication" page (/admin/communication): pick one, several
+     * or every partner, write a subject + a rich-text message, optionally
+     * attach a file, and send it through the "Communication Admin"
+     * template with the default SMTP credentials of /admin/smtp-settings.
+     */
+    public static function adminCommunication(): void
+    {
+        self::requireAdminUser();
+        self::ensureDefaultEmailTemplatesTable();
+        self::ensureAdminCommunicationLogsTable();
+
+        $language = in_array((string) ($_GET['language'] ?? ''), I18n::SUPPORTED, true)
+            ? (string) $_GET['language']
+            : I18n::DEFAULT_LANGUAGE;
+
+        $partners = Database::connection()
+            ->query('SELECT id, name, email, active FROM partners ORDER BY name')
+            ->fetchAll(PDO::FETCH_ASSOC);
+
+        $logs = Database::connection()
+            ->query('SELECT * FROM admin_communication_logs ORDER BY created_at DESC, id DESC LIMIT 100')
+            ->fetchAll(PDO::FETCH_ASSOC);
+
+        View::render('pages/admin-communication', [
+            'pageTitle' => 'Communication',
+            'selectedLanguage' => $language,
+            'partners' => $partners,
+            'template' => self::adminCommunicationTemplate($language),
+            'logs' => $logs,
+        ]);
+    }
+
+    /**
+     * Sends the admin communication: one separate email per selected
+     * partner (10 partners => 10 emails, each addressed to that partner's
+     * own registered email only), always through the default SMTP settings
+     * — never a partner's own SMTP credentials, hence the empty partner
+     * array handed to Mailer (see Mailer::deliver()).
+     */
+    public static function adminSendCommunication(): never
+    {
+        $user = self::requireAdminUser();
+        self::ensureDefaultEmailTemplatesTable();
+        self::ensureAdminCommunicationLogsTable();
+
+        $language = in_array((string) ($_POST['language'] ?? ''), I18n::SUPPORTED, true)
+            ? (string) $_POST['language']
+            : I18n::DEFAULT_LANGUAGE;
+        $redirect = '/admin/communication?language=' . $language;
+
+        $subject = trim(self::stripNewlines((string) ($_POST['subject'] ?? '')));
+        $message = self::sanitizeCommunicationHtml((string) ($_POST['message'] ?? ''));
+        if ($subject === '') {
+            self::redirect($redirect, 'Indiquez un sujet.', 'error');
+        }
+        if (trim(strip_tags($message)) === '' && !str_contains($message, '<img')) {
+            self::redirect($redirect, 'Écrivez un message.', 'error');
+        }
+
+        $partners = self::communicationRecipients();
+        if ($partners === []) {
+            self::redirect($redirect, 'Sélectionnez au moins un partenaire avec une adresse email valide.', 'error');
+        }
+
+        $attachment = self::storeCommunicationAttachment();
+        $template = self::adminCommunicationTemplate($language);
+        $senderName = trim((string) (($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? '')));
+        if ($senderName === '') {
+            $senderName = (string) Settings::get('SMTP_FROM_NAME', 'Grand Baie Maurice');
+        }
+        $replyTo = trim((string) ($user['email'] ?? '')) ?: null;
+
+        $mailAttachments = [];
+        if ($attachment !== null) {
+            $data = @file_get_contents($attachment['path']);
+            if (is_string($data) && $data !== '') {
+                $mailAttachments[] = [
+                    'filename' => $attachment['name'],
+                    'data' => $data,
+                    'mime' => $attachment['mime'],
+                ];
+            }
+        }
+
+        $sent = 0;
+        $failed = 0;
+        foreach ($partners as $partner) {
+            $variables = [
+                'sujet' => $subject,
+                'message' => $message,
+                'partenaire' => (string) $partner['name'],
+                'email_partenaire' => (string) $partner['email'],
+                'telephone_partenaire' => (string) ($partner['phone'] ?? ''),
+                'expediteur' => $senderName,
+                'piece_jointe' => $attachment !== null ? self::communicationAttachmentHtml($attachment, $language) : '',
+                'piece_jointe_url' => $attachment !== null ? self::absoluteUrl($attachment['url']) : '',
+                'piece_jointe_nom' => $attachment !== null ? $attachment['name'] : '',
+            ];
+
+            $body = Mailer::renderTemplate($template['body_html'], $variables);
+            $renderedSubject = trim(Mailer::renderTemplate($template['subject'], $variables));
+            if ($renderedSubject === '' || !str_contains((string) $template['subject'], '{{sujet}}')) {
+                $renderedSubject = $subject;
+            }
+
+            $error = null;
+            try {
+                Mailer::sendRawEmail([], (string) $partner['email'], $renderedSubject, $body, [], $replyTo, $mailAttachments);
+                $sent++;
+            } catch (Throwable $e) {
+                $failed++;
+                $error = $e->getMessage();
+            }
+
+            self::logAdminCommunication(
+                (int) $partner['id'],
+                (string) $partner['name'],
+                (string) $partner['email'],
+                $renderedSubject,
+                $body,
+                $attachment['name'] ?? null,
+                $error,
+                $replyTo ?? $senderName
+            );
+        }
+
+        if ($failed === 0) {
+            self::redirect($redirect, $sent > 1 ? $sent . ' emails envoyés.' : 'Email envoyé.');
+        }
+        self::redirect(
+            $redirect,
+            $sent . ' email(s) envoyé(s), ' . $failed . ' en échec (voir l\'historique ci-dessous).',
+            $sent > 0 ? 'info' : 'error'
+        );
+    }
+
+    /**
+     * Partners actually targeted by a send: either every active partner
+     * ("Tous les partenaires") or exactly the checked ones. Partners
+     * without a usable email address are skipped, since each recipient
+     * gets its own individual email.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private static function communicationRecipients(): array
+    {
+        $sendToAll = (string) ($_POST['send_to_all'] ?? '') === '1';
+        if ($sendToAll) {
+            $rows = Database::connection()
+                ->query('SELECT id, name, email, phone FROM partners WHERE active = 1 ORDER BY name')
+                ->fetchAll(PDO::FETCH_ASSOC);
+        } else {
+            $ids = [];
+            foreach ((array) ($_POST['partner_ids'] ?? []) as $rawId) {
+                $id = (int) $rawId;
+                if ($id > 0) {
+                    $ids[$id] = $id;
+                }
+            }
+            if ($ids === []) {
+                return [];
+            }
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $stmt = Database::connection()->prepare(
+                'SELECT id, name, email, phone FROM partners WHERE id IN (' . $placeholders . ') ORDER BY name'
+            );
+            $stmt->execute(array_values($ids));
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        }
+
+        return array_values(array_filter($rows, static function (array $partner): bool {
+            $email = trim((string) ($partner['email'] ?? ''));
+            return $email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL) !== false;
+        }));
+    }
+
+    private static function logAdminCommunication(
+        int $partnerId,
+        string $partnerName,
+        string $email,
+        string $subject,
+        string $body,
+        ?string $attachmentName,
+        ?string $error,
+        ?string $sentBy
+    ): void {
+        try {
+            Database::connection()->prepare(
+                'INSERT INTO admin_communication_logs
+                    (partner_id, partner_name, recipient_email, subject, body_html, attachment_name, status, error_message, sent_by)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            )->execute([
+                $partnerId > 0 ? $partnerId : null,
+                mb_substr($partnerName, 0, 255),
+                mb_substr($email, 0, 255),
+                mb_substr($subject, 0, 500),
+                $body,
+                $attachmentName !== null ? mb_substr($attachmentName, 0, 255) : null,
+                $error === null ? 'SENT' : 'FAILED',
+                $error !== null ? mb_substr($error, 0, 500) : null,
+                $sentBy !== null ? mb_substr($sentBy, 0, 255) : null,
+            ]);
+        } catch (Throwable $e) {
+            // Never let a logging failure hide an otherwise successful send.
+            error_log('admin communication log failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Rich-text message written in the page's WYSIWYG editor. Same
+     * philosophy as sanitizeBookingPolicyHtml() (tag allow-list, inline
+     * styles limited to harmless formatting declarations) with links
+     * additionally allowed, since an admin announcement commonly points to
+     * a page. Anything else (scripts, event handlers, javascript: URLs...)
+     * is dropped, so admin-authored HTML can never inject active content
+     * into an outgoing email.
+     */
+    public static function sanitizeCommunicationHtml(string $html): string
+    {
+        $allowedTags = '<p><br><b><strong><u><i><em><span><ul><ol><li><div><h2><h3><h4><a><img>';
+        $clean = strip_tags($html, $allowedTags);
+
+        return preg_replace_callback('/<(\w+)([^>]*)>/i', static function (array $match): string {
+            $tag = strtolower($match[1]);
+            $attributes = '';
+            if (preg_match('/\bstyle\s*=\s*"([^"]*)"/i', $match[2], $styleMatch)) {
+                $safeDeclarations = [];
+                foreach (explode(';', $styleMatch[1]) as $declaration) {
+                    $declaration = trim($declaration);
+                    if ($declaration !== '' && preg_match('/^(?:font-weight|font-style|text-align|text-decoration|color)\s*:\s*[#a-zA-Z0-9 ,.%\-()]+$/', $declaration)) {
+                        $safeDeclarations[] = $declaration;
+                    }
+                }
+                if ($safeDeclarations !== []) {
+                    $attributes .= ' style="' . htmlspecialchars(implode(';', $safeDeclarations), ENT_QUOTES, 'UTF-8') . '"';
+                }
+            }
+            if (in_array($tag, ['a', 'img'], true)) {
+                $urlAttribute = $tag === 'a' ? 'href' : 'src';
+                if (preg_match('/\b' . $urlAttribute . '\s*=\s*"([^"]*)"/i', $match[2], $urlMatch)) {
+                    $url = trim(html_entity_decode($urlMatch[1], ENT_QUOTES, 'UTF-8'));
+                    $allowedUrl = $tag === 'a'
+                        ? '#^(?:https?://|mailto:|/)[^\s"\'<>]*$#i'
+                        : '#^(?:https?://|/)[^\s"\'<>]*$#i';
+                    if (preg_match($allowedUrl, $url)) {
+                        $attributes .= ' ' . $urlAttribute . '="' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '"';
+                        if ($tag === 'a') {
+                            $attributes .= ' target="_blank" rel="noopener noreferrer"';
+                        }
+                    }
+                }
+                if ($tag === 'img' && preg_match('/\balt\s*=\s*"([^"]*)"/i', $match[2], $altMatch)) {
+                    $alt = trim(html_entity_decode($altMatch[1], ENT_QUOTES, 'UTF-8'));
+                    $attributes .= ' alt="' . htmlspecialchars($alt, ENT_QUOTES, 'UTF-8') . '"';
+                }
+            }
+
+            return '<' . $tag . $attributes . '>';
+        }, $clean) ?? $clean;
+    }
+
+    private static function stripNewlines(string $value): string
+    {
+        return trim(str_replace(["\r", "\n"], ' ', $value));
+    }
+
+    /**
+     * Stores the optional attachment of an admin communication under
+     * images/communication/ so it can both be attached to the message and
+     * linked from it via the {{piece_jointe}} template variable.
+     *
+     * @return array{name: string, url: string, path: string, mime: string}|null
+     */
+    private static function storeCommunicationAttachment(): ?array
+    {
+        $file = $_FILES['attachment'] ?? null;
+        if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            return null;
+        }
+        if (!is_uploaded_file((string) $file['tmp_name'])) {
+            return null;
+        }
+        if ((int) ($file['size'] ?? 0) > self::COMMUNICATION_ATTACHMENT_MAX_BYTES) {
+            throw new HttpException(400, 'Bad Request', 'La pièce jointe ne doit pas dépasser 10 Mo.');
+        }
+
+        $originalName = basename(str_replace('\\', '/', (string) ($file['name'] ?? '')));
+        $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+        if (!in_array($extension, self::COMMUNICATION_ATTACHMENT_EXTENSIONS, true)) {
+            throw new HttpException(400, 'Bad Request', 'Format de pièce jointe non supporté.');
+        }
+
+        $dir = BASE_PATH . '/images/communication';
+        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+            throw new HttpException(500, 'Internal Server Error', 'Impossible de créer le dossier des pièces jointes.');
+        }
+
+        $filename = date('Ymd-His') . '-' . bin2hex(random_bytes(6)) . '.' . $extension;
+        $destination = $dir . '/' . $filename;
+        if (!move_uploaded_file((string) $file['tmp_name'], $destination)) {
+            throw new HttpException(500, 'Internal Server Error', 'Impossible d\'enregistrer la pièce jointe.');
+        }
+
+        $safeName = preg_replace('/[^A-Za-z0-9 ._-]/', '_', $originalName) ?: ('document.' . $extension);
+
+        return [
+            'name' => mb_substr($safeName, 0, 120),
+            'url' => '/images/communication/' . $filename,
+            'path' => $destination,
+            'mime' => @mime_content_type($destination) ?: 'application/octet-stream',
+        ];
+    }
+
+    /**
+     * HTML rendered by the {{piece_jointe}} variable: a download button for
+     * the attached file (the file itself is also attached to the message,
+     * so recipients whose client blocks attachments still get the link).
+     *
+     * @param array{name: string, url: string, path: string, mime: string} $attachment
+     */
+    private static function communicationAttachmentHtml(array $attachment, string $language): string
+    {
+        $label = $language === 'en' ? 'Download the attachment' : 'Télécharger la pièce jointe';
+
+        return '<p style="margin:20px 0;text-align:center;">'
+            . '<a href="' . htmlspecialchars(self::absoluteUrl($attachment['url']), ENT_QUOTES, 'UTF-8') . '"'
+            . ' style="display:inline-block;padding:10px 18px;background:#E61E4D;color:#ffffff;border-radius:6px;text-decoration:none;font-weight:bold;">'
+            . '📎 ' . htmlspecialchars($label . ' (' . $attachment['name'] . ')', ENT_QUOTES, 'UTF-8')
+            . '</a></p>';
+    }
+
+    private static function absoluteUrl(string $path): string
+    {
+        $baseUrl = Auth::currentBaseUrl();
+
+        return $baseUrl === '' ? $path : rtrim($baseUrl, '/') . $path;
+    }
+
     public static function adminSaveTax(): never
     {
         self::requireAdminUser();
@@ -4028,7 +4441,8 @@ TEXT;
                 'RESERVATION_REOPENED',
                 'REMINDER',
                 'REMINDER_CLIENT',
-                'REMINDER_PARTNER'
+                'REMINDER_PARTNER',
+                'ADMIN_COMMUNICATION'
               ) NOT NULL,
               language VARCHAR(5) NOT NULL DEFAULT 'fr',
               subject VARCHAR(500) NOT NULL,
@@ -4053,7 +4467,7 @@ TEXT;
         $selectedLanguage = in_array((string) ($_GET['language'] ?? ''), I18n::SUPPORTED, true)
             ? (string) $_GET['language']
             : I18n::DEFAULT_LANGUAGE;
-        $templateCatalog = self::adminTemplateCatalog($selectedLanguage);
+        $templateCatalog = self::adminTemplateCatalog($selectedLanguage, true);
 
         $stmt = Database::connection()->prepare('SELECT * FROM default_email_templates WHERE language = ? ORDER BY type');
         $stmt->execute([$selectedLanguage]);
@@ -4098,7 +4512,7 @@ TEXT;
         $language = in_array((string) ($_POST['language'] ?? ''), I18n::SUPPORTED, true)
             ? (string) $_POST['language']
             : I18n::DEFAULT_LANGUAGE;
-        $templateCatalog = self::adminTemplateCatalog($language);
+        $templateCatalog = self::adminTemplateCatalog($language, true);
         if (!isset($templateCatalog[$type])) {
             self::redirect('/admin/templates/default?language=' . $language, 'Template invalide.', 'error');
         }
@@ -4572,11 +4986,28 @@ TEXT;
     }
 
     /**
+     * Template types the admin uses on their own (never sent by a partner,
+     * never proposed on a per-partner template page): only
+     * default_email_templates carries them. ADMIN_COMMUNICATION is the
+     * template behind /admin/communication, where the admin emails one,
+     * several or every partner at once.
+     */
+    private const ADMIN_ONLY_TEMPLATE_TYPES = ['ADMIN_COMMUNICATION'];
+
+    /**
      * @return array<string, array{label: string, subject: string, body_html: string}>
      */
-    private static function adminTemplateCatalog(string $language = 'fr'): array
+    private static function adminTemplateCatalog(string $language = 'fr', bool $includeAdminOnly = false): array
     {
-        return $language === 'en' ? self::adminTemplateCatalogEn() : self::adminTemplateCatalogFr();
+        $catalog = $language === 'en' ? self::adminTemplateCatalogEn() : self::adminTemplateCatalogFr();
+        if ($includeAdminOnly) {
+            return $catalog;
+        }
+        foreach (self::ADMIN_ONLY_TEMPLATE_TYPES as $type) {
+            unset($catalog[$type]);
+        }
+
+        return $catalog;
     }
 
     private static function adminTemplateCatalogFr(): array
@@ -4721,6 +5152,19 @@ HTML,
 {{useful_info}}
 {{tarif_bloc}}
 <p>À bientôt !</p>
+HTML,
+            ],
+            'ADMIN_COMMUNICATION' => [
+                'label' => 'Communication Admin (partenaires)',
+                'subject' => '{{sujet}}',
+                'body_html' => <<<'HTML'
+<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;padding:24px;">
+<p style="margin:0 0 12px;font-size:15px;color:#111827;">Bonjour <strong>{{partenaire}}</strong>,</p>
+<div style="font-size:15px;color:#374151;">{{message}}</div>
+{{piece_jointe}}
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0;">
+<p style="margin:0;font-size:13px;color:#6b7280;">Cordialement,<br><strong>{{expediteur}}</strong></p>
+</div>
 HTML,
             ],
         ];
@@ -4868,6 +5312,19 @@ HTML,
 {{useful_info}}
 {{tarif_bloc}}
 <p>See you soon!</p>
+HTML,
+            ],
+            'ADMIN_COMMUNICATION' => [
+                'label' => 'Admin communication (partners)',
+                'subject' => '{{sujet}}',
+                'body_html' => <<<'HTML'
+<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;padding:24px;">
+<p style="margin:0 0 12px;font-size:15px;color:#111827;">Hello <strong>{{partenaire}}</strong>,</p>
+<div style="font-size:15px;color:#374151;">{{message}}</div>
+{{piece_jointe}}
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0;">
+<p style="margin:0;font-size:13px;color:#6b7280;">Best regards,<br><strong>{{expediteur}}</strong></p>
+</div>
 HTML,
             ],
         ];

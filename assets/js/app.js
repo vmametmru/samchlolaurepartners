@@ -51,6 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initConfirmSubmit,
     initConfirmSubmitButtons,
     initBookingPolicyEditors,
+    initAdminCommunicationRecipients,
     initUpdateProgress,
     initCatalogUploadProgress,
     initTranslationSuggestions,
@@ -4466,6 +4467,36 @@ function initBookingPolicyEditors() {
       });
     }
   });
+}
+
+/**
+ * Admin "Communication" page (/admin/communication): checking "Tous les
+ * partenaires actifs" makes the per-partner checkboxes irrelevant (the
+ * server ignores them, see PageController::communicationRecipients()), so
+ * they are unchecked and disabled to make that obvious.
+ */
+function initAdminCommunicationRecipients() {
+  const all = document.querySelector('[data-communication-all]');
+  const list = document.querySelector('[data-communication-partners]');
+  if (!all || !list) return;
+
+  const boxes = list.querySelectorAll('input[type="checkbox"]');
+  const sync = () => {
+    boxes.forEach((box) => {
+      if (box.dataset.noEmail === '1') return;
+      if (all.checked) {
+        box.checked = false;
+        box.disabled = true;
+      } else {
+        box.disabled = false;
+      }
+    });
+  };
+  boxes.forEach((box) => {
+    if (box.disabled) box.dataset.noEmail = '1';
+  });
+  all.addEventListener('change', sync);
+  sync();
 }
 
 // The admin "Mise à jour" ZIP upload can take a while (large deployment ZIP

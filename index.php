@@ -382,6 +382,11 @@ try {
             break;
         case route($method, $path, 'POST', '#^/admin/smtp-settings$#'):
             PageController::adminSaveSmtpSettings();
+        case route($method, $path, 'GET', '#^/admin/communication$#'):
+            PageController::adminCommunication();
+            break;
+        case route($method, $path, 'POST', '#^/admin/communication/send$#'):
+            PageController::adminSendCommunication();
         case route($method, $path, 'POST', '#^/admin/fees/tourist-tax$#'):
             PageController::adminSaveTax();
         case route($method, $path, 'POST', '#^/admin/fees/cleaning-default$#'):

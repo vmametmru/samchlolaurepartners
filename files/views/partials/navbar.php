@@ -79,6 +79,7 @@ $minimalHeader = !empty($minimalHeader);
               <a href="/admin/fees">Frais &amp; Taxes</a>
               <a href="/admin/politique-reservation">Politique de réservation</a>
               <a href="/admin/smtp-settings">SMTP par défaut</a>
+              <a href="/admin/communication">Communication</a>
               <a href="/admin/versions">Versions</a>
               <a href="/admin/diagnostic">Diagnostic</a>
               <a href="/admin/mise-a-jour">Mise à jour</a>

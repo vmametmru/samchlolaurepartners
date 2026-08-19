@@ -5,10 +5,12 @@ images/logo/*
 images/listings/*
 images/others/*
 images/catalog/*
+images/communication/*
 !images/logo/.gitkeep
 !images/listings/.gitkeep
 !images/others/.gitkeep
 !images/catalog/.gitkeep
+!images/communication/.gitkeep
 files/storage/logs/
 files/storage/cache/
 deployment-package.zip

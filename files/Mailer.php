@@ -175,9 +175,16 @@ final class Mailer
         self::sendWithEmbeds($partner, $to, self::renderTemplate((string) $template['subject'], $variables), $html, $embeds, $replyTo);
     }
 
-    public static function sendRawEmail(array $partner, string $to, string $subject, string $html, array $embeds = [], ?string $replyTo = null): void
+    /**
+     * @param array<int, array{filename: string, data: string, mime: string}> $attachments
+     *        Real file attachments (Content-Disposition: attachment), as
+     *        opposed to $embeds which are inline images referenced from the
+     *        HTML via cid:. Used by the admin "Communication" page to send a
+     *        document (PDF, image, ...) along with the message.
+     */
+    public static function sendRawEmail(array $partner, string $to, string $subject, string $html, array $embeds = [], ?string $replyTo = null, array $attachments = []): void
     {
-        self::sendWithEmbeds($partner, $to, $subject, $html, $embeds, $replyTo);
+        self::sendWithEmbeds($partner, $to, $subject, $html, $embeds, $replyTo, $attachments);
     }
 
     /**
@@ -188,12 +195,12 @@ final class Mailer
      * resizeForEmail()) are always removed once this send attempt is over,
      * whether it succeeded or the underlying deliver() call threw.
      */
-    private static function sendWithEmbeds(array $partner, string $to, string $subject, string $html, array $embeds, ?string $replyTo): void
+    private static function sendWithEmbeds(array $partner, string $to, string $subject, string $html, array $embeds, ?string $replyTo, array $attachments = []): void
     {
         $tempFiles = [];
         try {
             $inlined = self::embedHotlinkedImages($html, $embeds, $tempFiles);
-            self::deliver($partner, $to, $subject, $inlined['html'], $replyTo, self::filterUnusedEmbeds($inlined['html'], $inlined['embeds']));
+            self::deliver($partner, $to, $subject, $inlined['html'], $replyTo, self::filterUnusedEmbeds($inlined['html'], $inlined['embeds']), $attachments);
         } finally {
             self::cleanupTempFiles($tempFiles);
         }
@@ -680,7 +687,7 @@ final class Mailer
      *        <img src="cid:...">), instead of hotlinking an external URL.
      *        When non-empty, the message is sent as multipart/related.
      */
-    private static function deliver(array $partner, string $to, string $subject, string $html, ?string $replyTo = null, array $embeds = []): void
+    private static function deliver(array $partner, string $to, string $subject, string $html, ?string $replyTo = null, array $embeds = [], array $attachments = []): void
     {
         $startedAt = microtime(true);
         // Collects every SMTP command sent and every server response line
@@ -697,6 +704,7 @@ final class Mailer
             'port' => null,
             'security' => null,
             'embeds' => count($embeds),
+            'attachments' => count($attachments),
             'embed_bytes' => array_sum(array_map(static fn (array $e): int => strlen((string) ($e['data'] ?? '')), $embeds)),
         ];
 
@@ -728,9 +736,9 @@ final class Mailer
                 $meta['host'] = $config['host'];
                 $meta['port'] = $config['port'];
                 $meta['security'] = $config['security'];
-                self::sendSmtp($config, $to, $subject, $html, $replyTo, $embeds, $trace);
+                self::sendSmtp($config, $to, $subject, $html, $replyTo, $embeds, $trace, $attachments);
             } else {
-                $mime = self::buildMimeMessage($html, $embeds);
+                $mime = self::buildMimeMessage($html, $embeds, $attachments);
                 $headers = [
                     'MIME-Version: 1.0',
                     'Date: ' . date(DATE_RFC2822),
@@ -849,7 +857,7 @@ final class Mailer
         return $domain !== '' ? $domain : $fallbackHost;
     }
 
-    private static function sendSmtp(array $config, string $to, string $subject, string $html, ?string $replyTo, array $embeds, array &$trace): void
+    private static function sendSmtp(array $config, string $to, string $subject, string $html, ?string $replyTo, array $embeds, array &$trace, array $attachments = []): void
     {
         $host = (string) $config['host'];
         $port = (int) $config['port'];
@@ -918,7 +926,7 @@ final class Mailer
         // never changes what the recipient sees in an HTML-capable client —
         // it just adds a fallback text version they'd only ever see in a
         // plain-text-only reader.
-        $mime = self::buildMimeMessage($html, $embeds);
+        $mime = self::buildMimeMessage($html, $embeds, $attachments);
         $headers[] = $mime['contentType'];
         $body = $mime['body'];
 
@@ -928,7 +936,7 @@ final class Mailer
             $trace[] = 'DKIM-Signature added';
         }
 
-        $trace[] = 'DATA payload: ' . count($embeds) . ' embed(s), ' . strlen($body) . ' bytes body';
+        $trace[] = 'DATA payload: ' . count($embeds) . ' embed(s), ' . count($attachments) . ' attachment(s), ' . strlen($body) . ' bytes body';
         $message = implode("\r\n", $headers) . "\r\n\r\n" . self::dotStuff($body) . "\r\n.";
         fwrite($socket, $message . "\r\n");
         self::expect($socket, [250], $trace);
@@ -984,10 +992,16 @@ final class Mailer
      * Junk. HTML-capable clients still render the exact same HTML as
      * before — only plain-text-only readers ever see the fallback part.
      *
+     * When real file attachments are present (see the admin "Communication"
+     * page), the whole multipart/alternative envelope is in turn wrapped in
+     * a multipart/mixed one, whose remaining parts are the attachments —
+     * the standard layout every mail client understands.
+     *
      * @param array<int, array{cid: string, data: string, mime: string}> $embeds
+     * @param array<int, array{filename: string, data: string, mime: string}> $attachments
      * @return array{contentType: string, body: string}
      */
-    private static function buildMimeMessage(string $html, array $embeds): array
+    private static function buildMimeMessage(string $html, array $embeds, array $attachments = []): array
     {
         $altBoundary = self::boundary();
         $textPart = "--{$altBoundary}\r\n"
@@ -1009,9 +1023,39 @@ final class Mailer
                 . $html;
         }
 
+        $alternativeBody = $textPart . "\r\n" . $htmlPart . "\r\n--{$altBoundary}--";
+        if ($attachments === []) {
+            return [
+                'contentType' => 'Content-Type: multipart/alternative; boundary="' . $altBoundary . '"',
+                'body' => $alternativeBody,
+            ];
+        }
+
+        $mixedBoundary = self::boundary();
+        $parts = [
+            "--{$mixedBoundary}\r\n"
+            . "Content-Type: multipart/alternative; boundary=\"{$altBoundary}\"\r\n\r\n"
+            . $alternativeBody,
+        ];
+        foreach ($attachments as $attachment) {
+            $data = (string) ($attachment['data'] ?? '');
+            if ($data === '') {
+                continue;
+            }
+            $filename = self::stripCrlf((string) ($attachment['filename'] ?? 'document'));
+            $filename = str_replace('"', '', $filename);
+            $mime = self::stripCrlf((string) ($attachment['mime'] ?? 'application/octet-stream'));
+            $parts[] =
+                "--{$mixedBoundary}\r\n"
+                . "Content-Type: {$mime}; name=\"{$filename}\"\r\n"
+                . "Content-Transfer-Encoding: base64\r\n"
+                . "Content-Disposition: attachment; filename=\"{$filename}\"\r\n\r\n"
+                . chunk_split(base64_encode($data));
+        }
+
         return [
-            'contentType' => 'Content-Type: multipart/alternative; boundary="' . $altBoundary . '"',
-            'body' => $textPart . "\r\n" . $htmlPart . "\r\n--{$altBoundary}--",
+            'contentType' => 'Content-Type: multipart/mixed; boundary="' . $mixedBoundary . '"',
+            'body' => implode("\r\n", $parts) . "\r\n--{$mixedBoundary}--",
         ];
     }
 
