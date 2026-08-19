@@ -4439,6 +4439,8 @@ TEXT;
                 'RESERVATION_CONFIRMED',
                 'RESERVATION_CANCELLED',
                 'RESERVATION_REOPENED',
+                'RESERVATION_MODIFIED_PARTNER',
+                'RESERVATION_MODIFIED_CLIENT',
                 'REMINDER',
                 'REMINDER_CLIENT',
                 'REMINDER_PARTNER',
@@ -5118,6 +5120,29 @@ HTML,
 <p>Cordialement,<br><strong>{{partenaire}}</strong></p>
 HTML,
             ],
+            'RESERVATION_MODIFIED_PARTNER' => [
+                'label' => 'Demande modifiée par le client (partenaire)',
+                'subject' => 'Demande de réservation modifiée par le client - {{nom_client}}',
+                'body_html' => <<<'HTML'
+<h2>Demande de réservation modifiée</h2>
+<p>{{nom_client}} a modifié et renvoyé sa demande de réservation pour <strong>{{hebergement}}</strong> ({{dates}}).</p>
+<p><strong>Détail du changement :</strong></p>
+{{detail_modification}}
+<p><a href="{{lien_demande_partenaire}}">Voir la demande</a></p>
+HTML,
+            ],
+            'RESERVATION_MODIFIED_CLIENT' => [
+                'label' => 'Demande modifiée (client)',
+                'subject' => 'Votre demande de réservation a été modifiée',
+                'body_html' => <<<'HTML'
+<h2>Votre demande de réservation a été modifiée</h2>
+<p>Bonjour {{nom_client}},</p>
+<p>Votre demande de réservation pour <strong>{{hebergement}}</strong> a bien été mise à jour avec les dates du {{date_arrivee}} au {{date_depart}}.</p>
+<p><strong>Détail du changement :</strong></p>
+{{detail_modification}}
+<p>Cordialement,<br><strong>{{partenaire}}</strong></p>
+HTML,
+            ],
             'REMINDER_CLIENT' => [
                 'label' => 'Rappel avant arrivée (client)',
                 'subject' => 'Rappel : votre séjour approche ! 🌴',
@@ -5275,6 +5300,29 @@ HTML,
 <p>We are letting you know that your reservation for <strong>{{hebergement}}</strong> ({{dates}}) has been temporarily put back to pending confirmation.</p>
 <img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;">
 <p>We will get back to you shortly.</p>
+<p>Best regards,<br><strong>{{partenaire}}</strong></p>
+HTML,
+            ],
+            'RESERVATION_MODIFIED_PARTNER' => [
+                'label' => 'Request modified by client (partner)',
+                'subject' => 'Booking request modified by the client - {{nom_client}}',
+                'body_html' => <<<'HTML'
+<h2>Booking request modified</h2>
+<p>{{nom_client}} has modified and resent their booking request for <strong>{{hebergement}}</strong> ({{dates}}).</p>
+<p><strong>Change details:</strong></p>
+{{detail_modification}}
+<p><a href="{{lien_demande_partenaire}}">View the request</a></p>
+HTML,
+            ],
+            'RESERVATION_MODIFIED_CLIENT' => [
+                'label' => 'Request modified (client)',
+                'subject' => 'Your booking request has been modified',
+                'body_html' => <<<'HTML'
+<h2>Your booking request has been modified</h2>
+<p>Hello {{nom_client}},</p>
+<p>Your booking request for <strong>{{hebergement}}</strong> has been updated with the dates from {{date_arrivee}} to {{date_depart}}.</p>
+<p><strong>Change details:</strong></p>
+{{detail_modification}}
 <p>Best regards,<br><strong>{{partenaire}}</strong></p>
 HTML,
             ],

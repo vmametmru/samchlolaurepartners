@@ -2270,12 +2270,84 @@ final class ReservationsController extends Controller
     }
 
     /**
+     * Common {{variable}} set shared by the three modification-notification
+     * emails below (RESERVATION_MODIFIED_PARTNER/_CLIENT templates): the
+     * usual guest/stay/property/signature variables (mirroring
+     * sendReservationStatusEmail()) plus {{detail_modification}}, the
+     * already-formatted "what changed" block built by
+     * describeRequestChanges(). Callers redact partner-only variables
+     * themselves (via redactPartnerOnlyVariables()) since one of the three
+     * ($partner-facing) intentionally keeps them.
+     */
+    private static function modificationEmailVariables(array $partner, array $before, array $request): array
+    {
+        $photo = self::propertyPhotoTag(
+            (int) ($request['property_id'] ?? 0),
+            (string) ($request['property_name'] ?? '')
+        );
+        $childBreakdown = self::childBreakdownValues($request);
+        $variables = [
+            'nom_client' => (string) ($request['client_name'] ?? ''),
+            'email_client' => (string) ($request['client_email'] ?? ''),
+            'telephone_client' => (string) ($request['client_phone'] ?? ''),
+            'adultes' => (string) ($request['adults'] ?? 0),
+            'hebergement' => (string) ($request['property_name'] ?? ''),
+            'partenaire' => (string) ($partner['name'] ?? ''),
+            'nationalites' => self::guestNationalitiesText(self::decodeGuests($request['guests'] ?? null)),
+            'photo_bien' => $photo['html'],
+            'photo_bien_url' => self::propertyPhotoUrlValue((int) ($request['property_id'] ?? 0), 1),
+            'photo1' => self::propertyPhotoVariable((int) ($request['property_id'] ?? 0), (string) ($request['property_name'] ?? ''), 1),
+            'photo2' => self::propertyPhotoVariable((int) ($request['property_id'] ?? 0), (string) ($request['property_name'] ?? ''), 2),
+            'photo3' => self::propertyPhotoVariable((int) ($request['property_id'] ?? 0), (string) ($request['property_name'] ?? ''), 3),
+            'photo1_url' => self::propertyPhotoUrlValue((int) ($request['property_id'] ?? 0), 1),
+            'photo2_url' => self::propertyPhotoUrlValue((int) ($request['property_id'] ?? 0), 2),
+            'photo3_url' => self::propertyPhotoUrlValue((int) ($request['property_id'] ?? 0), 3),
+            'email_partenaire' => (string) ($partner['email'] ?? ''),
+            'logo_partenaire' => self::partnerLogoVariable(
+                (string) ($partner['logo_url'] ?? ''),
+                (string) ($partner['name'] ?? '')
+            ),
+            'logo_partenaire_url' => self::partnerLogoUrlValue((string) ($partner['logo_url'] ?? '')),
+            'lien_demande_client' => self::clientReservationLink((int) ($request['id'] ?? 0)),
+            'lien_demande_partenaire' => self::partnerReservationLink((int) ($request['id'] ?? 0)),
+            'detail_modification' => self::describeRequestChanges($before, $request),
+        ];
+        $variables += self::stayVariables(
+            (string) ($request['checkin_date'] ?? ''),
+            (string) ($request['checkout_date'] ?? ''),
+            $childBreakdown['under3'],
+            $childBreakdown['from3to12'],
+            (int) ($request['adults'] ?? 0)
+        );
+        if (($request['quote_room_total'] ?? null) !== null) {
+            $variables += self::buildQuoteVariables(self::computeQuoteBreakdown([
+                'room_total' => $request['quote_room_total'] ?? 0,
+                'extra_person_total' => $request['quote_extra_person_total'] ?? 0,
+                'cleaning_total' => $request['quote_cleaning_total'] ?? 0,
+                'tourist_tax_total' => $request['quote_tourist_tax_total'] ?? 0,
+                'nights' => $request['quote_nights'] ?? 0,
+                'currency' => $request['quote_currency'] ?? 'EUR',
+            ], (float) ($request['quote_partner_rate'] ?? ($partner['markup_percent'] ?? 0)), (float) ($request['quote_vat_rate'] ?? 0), isset($request['quote_room_base_before_commission'])
+                ? (float) $request['quote_room_base_before_commission']
+                : null, isset($request['quote_extra_person_base_before_commission'])
+                ? (float) $request['quote_extra_person_base_before_commission']
+                : null));
+        }
+        $signature = self::signatureVariables((int) ($partner['id'] ?? 0));
+        $variables += $signature['variables'];
+
+        return $variables;
+    }
+
+    /**
      * Notifies the partner by email that a client has just edited and
      * resent their reservation request via the public "Partager le lien"
      * page, so the partner sees the change (dates/guests/property/quote)
      * without needing to keep checking /partner/reservations manually.
-     * Deliberately a plain, unbranded notification (not a customizable
-     * template) since it's an internal ops alert, not client-facing.
+     * Uses the customizable RESERVATION_MODIFIED_PARTNER template (partner
+     * copy always in French, mirroring REQUEST_RECEIVED_PARTNER), falling
+     * back to the previous plain notification when neither the partner nor
+     * the admin default has one configured yet.
      */
     private static function sendClientEditNotificationEmail(array $partner, array $before, array $request): void
     {
@@ -2284,6 +2356,13 @@ final class ReservationsController extends Controller
             return;
         }
         $id = (int) ($request['id'] ?? 0);
+        $template = self::findEmailTemplate(Database::connection(), (int) $partner['id'], 'RESERVATION_MODIFIED_PARTNER', I18n::DEFAULT_LANGUAGE);
+        $variables = self::modificationEmailVariables($partner, $before, $request);
+        $clientReplyTo = self::nullableString($request['client_email'] ?? null);
+        if ($template) {
+            Mailer::sendTemplatedEmail($partner, $template, $partnerEmail, $variables, [], $clientReplyTo);
+            return;
+        }
         $link = Auth::currentBaseUrl() . '/partner/reservations/' . $id;
         $html = '<p>' . htmlspecialchars((string) ($request['client_name'] ?? ''), ENT_QUOTES, 'UTF-8')
             . ' a modifié et renvoyé sa demande de réservation #' . $id . ' pour '
@@ -2292,7 +2371,7 @@ final class ReservationsController extends Controller
             . ' au ' . htmlspecialchars((string) ($request['checkout_date'] ?? ''), ENT_QUOTES, 'UTF-8')
             . '.</p>' . self::describeRequestChanges($before, $request)
             . '<p><a href="' . htmlspecialchars($link, ENT_QUOTES, 'UTF-8') . '">Voir la demande</a></p>';
-        Mailer::sendRawEmail($partner, $partnerEmail, 'Demande de réservation modifiée par le client - #' . $id, $html);
+        Mailer::sendRawEmail($partner, $partnerEmail, 'Demande de réservation modifiée par le client - #' . $id, $html, [], $clientReplyTo);
     }
 
     /**
@@ -2302,6 +2381,11 @@ final class ReservationsController extends Controller
      * partner), so the client also has written proof of exactly what
      * changed (dates/party size/hébergement/price) without needing to
      * re-open the link. Only sent when a real client email is on file.
+     * Uses the customizable RESERVATION_MODIFIED_CLIENT template (same one
+     * used by sendPartnerEditNotificationEmail() below, since both are
+     * client-facing "your request was modified" notifications), falling
+     * back to the previous plain confirmation when neither the partner nor
+     * the admin default has one configured yet.
      */
     private static function sendClientSelfEditConfirmationEmail(array $partner, array $before, array $request): void
     {
@@ -2310,6 +2394,16 @@ final class ReservationsController extends Controller
             return;
         }
         $id = (int) ($request['id'] ?? 0);
+        $guestLanguage = in_array((string) ($request['language'] ?? ''), I18n::SUPPORTED, true)
+            ? (string) $request['language']
+            : I18n::DEFAULT_LANGUAGE;
+        $template = self::findEmailTemplate(Database::connection(), (int) $partner['id'], 'RESERVATION_MODIFIED_CLIENT', $guestLanguage);
+        $partnerReplyTo = self::nullableString($partner['email'] ?? null);
+        if ($template) {
+            $variables = self::redactPartnerOnlyVariables(self::modificationEmailVariables($partner, $before, $request));
+            Mailer::sendTemplatedEmail($partner, $template, $clientEmail, $variables, [], $partnerReplyTo);
+            return;
+        }
         $changesHtml = self::describeRequestChanges($before, $request);
         $html = '<p>Bonjour ' . htmlspecialchars((string) ($request['client_name'] ?? ''), ENT_QUOTES, 'UTF-8')
             . ',</p><p>Votre demande de réservation #' . $id . ' pour '
@@ -2320,7 +2414,7 @@ final class ReservationsController extends Controller
             . ' et renvoyée à l\'agence.</p>'
             . ($changesHtml !== '' ? '<p>Détail du changement :</p>' . $changesHtml : '')
             . '<p>Cordialement,<br>' . htmlspecialchars((string) ($partner['name'] ?? ''), ENT_QUOTES, 'UTF-8') . '</p>';
-        Mailer::sendRawEmail($partner, $clientEmail, 'Confirmation de la modification de votre demande de réservation - #' . $id, $html, [], self::nullableString($partner['email'] ?? null));
+        Mailer::sendRawEmail($partner, $clientEmail, 'Confirmation de la modification de votre demande de réservation - #' . $id, $html, [], $partnerReplyTo);
     }
 
     /**
@@ -2328,9 +2422,11 @@ final class ReservationsController extends Controller
      * modified their reservation request from /partner/reservations/{id}
      * (updateForPartner()), so the client isn't left unaware of a changed
      * date/party size/property/quote. Only sent when the partner leaves
-     * the "Ne pas notifier le client par email" checkbox unchecked.
-     * Deliberately a plain, unbranded notification (not a customizable
-     * template), mirroring sendClientEditNotificationEmail() above.
+     * the "Ne pas notifier le client par email" checkbox unchecked. Uses
+     * the same customizable RESERVATION_MODIFIED_CLIENT template as
+     * sendClientSelfEditConfirmationEmail() above, falling back to the
+     * previous plain notification when neither the partner nor the admin
+     * default has one configured yet.
      */
     private static function sendPartnerEditNotificationEmail(array $partner, array $before, array $request): void
     {
@@ -2339,6 +2435,16 @@ final class ReservationsController extends Controller
             return;
         }
         $id = (int) ($request['id'] ?? 0);
+        $guestLanguage = in_array((string) ($request['language'] ?? ''), I18n::SUPPORTED, true)
+            ? (string) $request['language']
+            : I18n::DEFAULT_LANGUAGE;
+        $template = self::findEmailTemplate(Database::connection(), (int) $partner['id'], 'RESERVATION_MODIFIED_CLIENT', $guestLanguage);
+        $partnerReplyTo = self::nullableString($partner['email'] ?? null);
+        if ($template) {
+            $variables = self::redactPartnerOnlyVariables(self::modificationEmailVariables($partner, $before, $request));
+            Mailer::sendTemplatedEmail($partner, $template, $clientEmail, $variables, [], $partnerReplyTo);
+            return;
+        }
         $html = '<p>Bonjour ' . htmlspecialchars((string) ($request['client_name'] ?? ''), ENT_QUOTES, 'UTF-8')
             . ',</p><p>' . htmlspecialchars((string) ($partner['name'] ?? ''), ENT_QUOTES, 'UTF-8')
             . ' a modifié votre demande de réservation pour '
@@ -2347,7 +2453,7 @@ final class ReservationsController extends Controller
             . ' au ' . htmlspecialchars((string) ($request['checkout_date'] ?? ''), ENT_QUOTES, 'UTF-8')
             . '.</p>' . self::describeRequestChanges($before, $request)
             . '<p>Cordialement,<br>' . htmlspecialchars((string) ($partner['name'] ?? ''), ENT_QUOTES, 'UTF-8') . '</p>';
-        Mailer::sendRawEmail($partner, $clientEmail, 'Votre demande de réservation a été modifiée - #' . $id, $html, [], self::nullableString($partner['email'] ?? null));
+        Mailer::sendRawEmail($partner, $clientEmail, 'Votre demande de réservation a été modifiée - #' . $id, $html, [], $partnerReplyTo);
     }
 
     /**
@@ -2672,6 +2778,9 @@ final class ReservationsController extends Controller
                     'REQUEST_RECEIVED_CLIENT',
                     'RESERVATION_CONFIRMED',
                     'RESERVATION_CANCELLED',
+                    'RESERVATION_REOPENED',
+                    'RESERVATION_MODIFIED_PARTNER',
+                    'RESERVATION_MODIFIED_CLIENT',
                     'REMINDER',
                     'REMINDER_CLIENT',
                     'REMINDER_PARTNER'
