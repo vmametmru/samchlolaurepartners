@@ -21,7 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initPropertyTabs,
     initMaps,
     initApiForms,
-    initNoClientEmailToggle,
+    initNoClientContactToggles,
     initFormStatusPopups,
     initNationalities,
     initTemplateEditor,
@@ -409,37 +409,41 @@ function initCalendarNameColumnToggle() {
 // /partner/reservations and its detail page (public reservation-editing
 // link): copies the URL in data-copy-link (not window.location.href, unlike
 // initShareButton() above) and briefly flips the button label to confirm
-// the copy succeeded.
-function initCopyLinkButton() {
-  document.querySelectorAll('[data-copy-link]').forEach((btn) => {
-    const url = btn.dataset.copyLink || '';
-    if (!url) return;
-    const originalLabel = btn.textContent;
-    let resetTimeout = null;
-    btn.addEventListener('click', async () => {
-      try {
-        if (navigator.clipboard && window.isSecureContext) {
-          await navigator.clipboard.writeText(url);
-        } else {
-          const textarea = document.createElement('textarea');
-          textarea.value = url;
-          textarea.style.position = 'fixed';
-          textarea.style.opacity = '0';
-          document.body.appendChild(textarea);
-          textarea.select();
-          document.execCommand('copy');
-          document.body.removeChild(textarea);
-        }
-      } catch (error) {
-        return;
+// the copy succeeded. Extracted from initCopyLinkButton() so buttons
+// created at runtime (the confirmation popup's share row, see
+// renderFormStatusPopupShares()) get the exact same behaviour.
+function wireCopyLinkButton(btn, copiedLabel = '✅ Lien copié') {
+  const url = btn.dataset.copyLink || '';
+  if (!url) return;
+  const originalLabel = btn.textContent;
+  let resetTimeout = null;
+  btn.addEventListener('click', async () => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = url;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
       }
-      btn.textContent = '✅ Lien copié';
-      if (resetTimeout) window.clearTimeout(resetTimeout);
-      resetTimeout = window.setTimeout(() => {
-        btn.textContent = originalLabel;
-      }, 2000);
-    });
+    } catch (error) {
+      return;
+    }
+    btn.textContent = copiedLabel;
+    if (resetTimeout) window.clearTimeout(resetTimeout);
+    resetTimeout = window.setTimeout(() => {
+      btn.textContent = originalLabel;
+    }, 2000);
   });
+}
+
+function initCopyLinkButton() {
+  document.querySelectorAll('[data-copy-link]').forEach((btn) => wireCopyLinkButton(btn));
 }
 
 function initShareButton() {
@@ -856,7 +860,7 @@ function initMaps() {
 // control), so a success message that disappears on its own before the
 // visitor has read the "check your spam folder" note is actively unhelpful.
 // The popup now stays open until the visitor explicitly clicks "Fermer".
-function showTransientFormPopup(form, message, state = 'success') {
+function showTransientFormPopup(form, message, state = 'success', options = {}) {
   const popupId = form.dataset.feedbackPopupId || '';
   if (!popupId) return;
   const popup = document.getElementById(popupId);
@@ -870,7 +874,11 @@ function showTransientFormPopup(form, message, state = 'success') {
     box.classList.toggle('error', state === 'error');
   }
   const spamNote = popup.querySelector('[data-form-status-popup-spam-note]');
-  if (spamNote) spamNote.hidden = state !== 'success';
+  // The "check your spam folder" note only makes sense when a confirmation
+  // email was actually sent: a request created with "Pas de Email" never
+  // triggers one (options.emailSent === false).
+  if (spamNote) spamNote.hidden = state !== 'success' || options.emailSent === false;
+  renderFormStatusPopupShares(popup, state === 'success' ? (options.shares || []) : []);
 
   if (popup._hideTimer) window.clearTimeout(popup._hideTimer);
   if (popup._hideTransitionTimer) window.clearTimeout(popup._hideTransitionTimer);
@@ -879,6 +887,62 @@ function showTransientFormPopup(form, message, state = 'success') {
   requestAnimationFrame(() => {
     popup.classList.add('visible');
   });
+}
+
+/**
+ * Fills the confirmation popup's [data-form-status-popup-shares] block with
+ * one "Partager sur WhatsApp" + "Copier le lien" pair per request just
+ * created — the same two actions as the "Partager le lien" card on
+ * /partner/reservations/{id}. The links come from the API response's
+ * data.shares, which ReservationsController only returns to a logged-in
+ * partner/admin, so an anonymous visitor never sees these buttons.
+ * Labels are read from the block's own data-i18n-* attributes so they stay
+ * translated (FR/EN) server-side.
+ */
+function renderFormStatusPopupShares(popup, shares) {
+  const wrap = popup.querySelector('[data-form-status-popup-shares]');
+  if (!wrap) return;
+  wrap.textContent = '';
+  if (!Array.isArray(shares) || !shares.length) {
+    wrap.hidden = true;
+    return;
+  }
+  const whatsappLabel = wrap.dataset.i18nWhatsapp || 'Partager sur WhatsApp';
+  const copyLabel = wrap.dataset.i18nCopyLink || 'Copier le lien';
+  const copiedLabel = wrap.dataset.i18nLinkCopied || '✅ Lien copié';
+  const whatsappMessage = wrap.dataset.i18nWhatsappMessage || '';
+  const requestLabel = wrap.dataset.i18nRequestLabel || '';
+
+  shares.forEach((share) => {
+    const url = typeof share === 'string' ? share : (share && share.url) || '';
+    if (!url) return;
+    const row = document.createElement('div');
+    row.className = 'booking-status-popup-share-row';
+    if (shares.length > 1 && requestLabel && share && share.id) {
+      const label = document.createElement('span');
+      label.className = 'booking-status-popup-share-label';
+      label.textContent = requestLabel.replace('%s', String(share.id));
+      row.appendChild(label);
+    }
+    const whatsapp = document.createElement('a');
+    whatsapp.className = 'btn-secondary';
+    whatsapp.target = '_blank';
+    whatsapp.rel = 'noopener noreferrer';
+    whatsapp.href = `https://wa.me/?text=${encodeURIComponent(whatsappMessage + url)}`;
+    whatsapp.textContent = whatsappLabel;
+    row.appendChild(whatsapp);
+
+    const copy = document.createElement('button');
+    copy.type = 'button';
+    copy.className = 'btn-secondary';
+    copy.dataset.copyLink = url;
+    copy.textContent = copyLabel;
+    wireCopyLinkButton(copy, copiedLabel);
+    row.appendChild(copy);
+
+    wrap.appendChild(row);
+  });
+  wrap.hidden = !wrap.childElementCount;
 }
 
 function hideFormStatusPopup(popup) {
@@ -906,27 +970,71 @@ function initFormStatusPopups() {
 }
 
 /**
- * "Pas de Email" checkbox (property-detail.php / calendar.php booking
- * forms, partner/admin only — see ReservationsController::canForcePrice()
- * for the matching server-side re-check): lets the agency create a
- * request with just a phone number when the client has no email. Toggling
- * it clears/relaxes the email field's native `required` attribute and
- * flags the form (via `form.dataset.noClientEmail`) so the extra JS
- * validation below (initApiForms()/initBookingQuote()) also stops
- * requiring an email. An anonymous client never sees this checkbox, so
- * `noClientEmail` can only ever be '1' for a logged-in partner/admin.
+ * "Pas de Email" / "Pas de Téléphone" checkboxes (property-detail.php /
+ * calendar.php booking forms and the partner "Modifier la demande" form,
+ * partner/admin only — see ReservationsController::canForcePrice() for the
+ * matching server-side re-check): let the agency create/edit a request for
+ * a client who has no email address, or no phone number. Ticking one hides
+ * and clears the matching field, drops its native `required` attribute and
+ * flags the form (via `form.dataset.noClientEmail` /
+ * `form.dataset.noClientPhone`) so the extra JS validation below
+ * (initApiForms()/initBookingQuote()) also stops requiring it. An anonymous
+ * client never sees these checkboxes, so the flags can only ever be '1' for
+ * a logged-in partner/admin. Both can be ticked at the same time: a partner
+ * can create a request for a client with neither email nor phone — no email
+ * is then sent and the request is shared through its client link (WhatsApp /
+ * "Copier le lien" buttons on the confirmation popup).
  */
-function initNoClientEmailToggle() {
+function initNoClientContactToggles() {
   document.querySelectorAll('[data-no-client-email-toggle]').forEach((checkbox) => {
     const form = checkbox.closest('form');
     const emailInput = form ? form.querySelector('[name="client_email"]') : null;
     if (!form || !emailInput) return;
+    const emailField = emailInput.closest('[data-client-email-field]') || emailInput.closest('label');
+
+    // Without a client email nothing is emailed to anyone: the submit
+    // button stops promising a "send" and simply creates the request
+    // ("Créer la demande"). Both labels come from the form's data-send-label
+    // / data-create-label attributes so they stay translated (FR/EN).
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const sendLabel = form.dataset.sendLabel || (submitBtn ? submitBtn.textContent : '');
+    const createLabel = form.dataset.createLabel || '';
 
     function apply() {
       const skip = checkbox.checked;
       form.dataset.noClientEmail = skip ? '1' : '0';
       emailInput.required = !skip;
       if (skip) emailInput.value = '';
+      if (emailField) emailField.hidden = skip;
+      if (submitBtn && createLabel) submitBtn.textContent = skip ? createLabel : sendLabel;
+      emailInput.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    checkbox.addEventListener('change', apply);
+    apply();
+  });
+
+  document.querySelectorAll('[data-no-client-phone-toggle]').forEach((checkbox) => {
+    const form = checkbox.closest('form');
+    const wrap = form ? form.querySelector('[data-phone-input]') : null;
+    if (!form || !wrap) return;
+    const dialCode = wrap.querySelector('[data-phone-dial-code]');
+    const number = wrap.querySelector('[data-phone-number]');
+    const combined = wrap.querySelector('[data-phone-combined]');
+
+    function apply() {
+      const skip = checkbox.checked;
+      form.dataset.noClientPhone = skip ? '1' : '0';
+      if (number) number.required = !skip;
+      if (skip) {
+        if (dialCode) dialCode.value = '';
+        if (number) number.value = '';
+        if (combined) {
+          combined.value = '';
+          combined.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      }
+      wrap.hidden = skip;
     }
 
     checkbox.addEventListener('change', apply);
@@ -995,14 +1103,31 @@ function initApiForms() {
         });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.message || 'Erreur');
+        // A request created by a partner with "Pas de Email" ticked sends no
+        // confirmation email at all, so the usual "email sent" wording would
+        // be wrong: confirm instead that the request now exists in their
+        // dashboard. Read before form.reset(), which unticks the checkbox.
+        const createdWithoutEmail = form.dataset.noClientEmail === '1';
         form.reset();
         const quoteBox = form.querySelector('[data-quote-box]');
         if (quoteBox) quoteBox.hidden = true;
+        const successMessage = (createdWithoutEmail && form.dataset.createdMessage)
+          || form.dataset.successMessage
+          || payload.message
+          || 'Succès';
         if (feedback) {
-          feedback.textContent = form.dataset.successMessage || payload.message || 'Succès';
+          feedback.textContent = successMessage;
           feedback.classList.add('success');
         }
-        showTransientFormPopup(form, form.dataset.successMessage || payload.message || 'Succès', 'success');
+        // data.shares is only returned to a logged-in partner/admin: it
+        // carries the client-facing /r/{token} link (the one the partner
+        // sends to the client over WhatsApp), shown as share buttons next
+        // to the popup's "Fermer" button in every case — with or without a
+        // client email.
+        showTransientFormPopup(form, successMessage, 'success', {
+          shares: (payload.data && payload.data.shares) || [],
+          emailSent: !createdWithoutEmail
+        });
       } catch (error) {
         if (feedback) feedback.textContent = error.message || 'Une erreur est survenue.';
         showTransientFormPopup(form, error.message || 'Une erreur est survenue.', 'error');
@@ -1885,15 +2010,26 @@ function initTemplateEditor() {
     email_partenaire: 'contact@grandbaie-escapes.com',
     lien_partenaire: 'https://exemple-partenaire.grand-baie-maurice.com/espace',
     telephone_partenaire: '+230 5698 7412',
-    politique_reservation: 'Annulation gratuite jusqu\u2019à 30 jours avant l\u2019arrivée. Merci de vous référer aux conditions complètes fournies par l\u2019hébergeur.'
+    politique_reservation: 'Annulation gratuite jusqu\u2019à 30 jours avant l\u2019arrivée. Merci de vous référer aux conditions complètes fournies par l\u2019hébergeur.',
+    tva_totale: '128,00 €',
+    tarif_ttc: '1 340,00 €',
+    tarif_ht: '1 212,00 €',
+    lien_demande_client: 'https://exemple-partenaire.grand-baie-maurice.com/r/2f8c1d4b9a',
+    copier_le_lien: 'https://exemple-partenaire.grand-baie-maurice.com/r/2f8c1d4b9a',
+    lien_demande_partenaire: 'https://exemple-partenaire.grand-baie-maurice.com/partner/reservations/128',
+    detail_modification: 'Dates : du 12 juil. 2026 au 19 juil. 2026 (au lieu du 10 juil. 2026 au 17 juil. 2026)'
   };
 
   // These tokens are rendered as real <img> elements (or a dedicated block,
   // for tarif_bloc) earlier in decoratePreviewHtml/substituteVariablesInPreview,
   // so the generic text-variable substitution must ignore them.
   const nonTextVariableNames = new Set([
-    'photo1', 'photo2', 'photo3', 'logo_partenaire', 'signature_photo', 'photo_bien', 'tarif_bloc', 'bouton_reservation', 'useful_info'
+    'photo1', 'photo2', 'photo3', 'logo_partenaire', 'signature_photo', 'photo_bien', 'tarif_bloc', 'bouton_reservation', 'bouton_verifier_disponibilites', 'useful_info'
   ]);
+
+  // Variables rendered as a computed HTML block server-side: the preview must
+  // mirror that markup instead of falling back to a plain-text chip.
+  const blockVariableNames = new Set(['tarif_bloc', 'bouton_reservation', 'bouton_verifier_disponibilites', 'useful_info']);
 
   function buildSampleBoutonReservationHtml() {
     return '<div data-template-var="bouton_reservation" contenteditable="false" style="text-align:center;margin:20px 0;" title="Bouton généré automatiquement (aperçu avec données temporaires)">'
@@ -1910,6 +2046,15 @@ function initTemplateEditor() {
   function buildSampleUsefulInfoHtml() {
     return '<div data-template-var="useful_info" contenteditable="false" style="text-align:center;margin:20px 0;" title="Bouton généré automatiquement (aperçu avec données temporaires) — pointe vers l’URL Renseignements utiles configurée pour ce bien">'
       + '<a href="#" style="display:inline-block;background:#3b82f6;color:#ffffff;text-decoration:none;font-weight:bold;font-size:14px;padding:12px 28px;border-radius:6px;">Renseignements utiles à l\'enregistrement</a>'
+      + '</div>';
+  }
+
+  // {{bouton_verifier_disponibilites}} is the outlined companion button of
+  // {{bouton_reservation}} (see
+  // ReservationsController::availabilityCheckButtonHtml()).
+  function buildSampleAvailabilityButtonHtml() {
+    return '<div data-template-var="bouton_verifier_disponibilites" contenteditable="false" style="text-align:center;margin:20px 0;" title="Bouton généré automatiquement (aperçu avec données temporaires)">'
+      + '<a href="#" style="display:inline-block;background:#ffffff;color:#3b82f6;text-decoration:none;font-weight:bold;font-size:14px;padding:11px 27px;border-radius:6px;border:2px solid #3b82f6;">Vérifier les disponibilités</a>'
       + '</div>';
   }
 
@@ -2144,7 +2289,10 @@ function initTemplateEditor() {
   }
 
   function variableChipHtml(name) {
-    const sampleValue = Object.prototype.hasOwnProperty.call(sampleTextValues, name) ? sampleTextValues[name] : `« ${name} »`;
+    // Without a sample value the chip shows the raw {{name}} token itself:
+    // a bare "« name »" placeholder looked like the variable had been
+    // written as plain text and would never be parsed.
+    const sampleValue = Object.prototype.hasOwnProperty.call(sampleTextValues, name) ? sampleTextValues[name] : `{{${name}}}`;
     return `<span data-template-var="${name}" contenteditable="false" style="background:#fce7f3;color:#9d174d;border-radius:4px;padding:0 3px;" title="Variable {{${name}}} — donnée temporaire pour l’aperçu">${escapeHtmlText(sampleValue)}</span>`;
   }
 
@@ -2209,7 +2357,7 @@ function initTemplateEditor() {
         const name = match[1].trim();
         // Image tokens are already converted to real <img> elements earlier
         // (in decoratePreviewHtml); leave any leftover occurrence untouched.
-        if (nonTextVariableNames.has(name) && name !== 'tarif_bloc' && name !== 'bouton_reservation' && name !== 'useful_info') continue;
+        if (nonTextVariableNames.has(name) && !blockVariableNames.has(name)) continue;
         matched = true;
         if (match.index > lastIndex) {
           fragment.appendChild(doc.createTextNode(text.slice(lastIndex, match.index)));
@@ -2222,6 +2370,10 @@ function initTemplateEditor() {
         } else if (name === 'bouton_reservation') {
           const wrapper = doc.createElement('div');
           wrapper.innerHTML = buildSampleBoutonReservationHtml();
+          fragment.appendChild(wrapper.firstElementChild);
+        } else if (name === 'bouton_verifier_disponibilites') {
+          const wrapper = doc.createElement('div');
+          wrapper.innerHTML = buildSampleAvailabilityButtonHtml();
           fragment.appendChild(wrapper.firstElementChild);
         } else if (name === 'useful_info') {
           const wrapper = doc.createElement('div');
@@ -2694,6 +2846,7 @@ function initTemplateEditor() {
     function blockOrChipVariableHtml(name) {
       if (name === 'bouton_reservation') return buildSampleBoutonReservationHtml();
       if (name === 'tarif_bloc') return buildSampleTarifBlocHtml();
+      if (name === 'bouton_verifier_disponibilites') return buildSampleAvailabilityButtonHtml();
       if (name === 'useful_info') return buildSampleUsefulInfoHtml();
       return variableChipHtml(name);
     }
@@ -3003,7 +3156,10 @@ function initPhoneInputs() {
     function update() {
       const code = normalizedCode();
       const value = number.value.trim();
-      combined.value = code && value ? `${code} ${value}` : '';
+      // A number typed without a dial code is still kept as-is (rather than
+      // silently dropped), so prefilled values that carry no "+xx" prefix —
+      // e.g. on the partner "Modifier la demande" form — survive a save.
+      combined.value = code && value ? `${code} ${value}` : (value || '');
       combined.dispatchEvent(new Event('change', { bubbles: true }));
     }
     dialCode.addEventListener('change', update);

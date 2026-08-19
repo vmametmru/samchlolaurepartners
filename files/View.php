@@ -419,7 +419,7 @@ final class View
      */
     public static function clientFacingTemplateTypes(): array
     {
-        return ['REQUEST_RECEIVED_CLIENT', 'RESERVATION_CONFIRMED', 'RESERVATION_CANCELLED', 'RESERVATION_REOPENED', 'REMINDER_CLIENT'];
+        return ['REQUEST_RECEIVED_CLIENT', 'RESERVATION_CONFIRMED', 'RESERVATION_CANCELLED', 'RESERVATION_REOPENED', 'RESERVATION_MODIFIED_CLIENT', 'REMINDER_CLIENT'];
     }
 
     public static function isClientFacingTemplateType(string $type): bool
@@ -483,7 +483,9 @@ final class View
             ['key' => 'tarif_ht', 'description' => 'Identique à {{tarif_ttc}} mais sans la TVA (montant de {{tva_totale}} déduit)', 'partnerOnly' => false],
             ['key' => 'useful_info', 'description' => 'Bouton "Renseignements utiles à l\'enregistrement" (ou "Useful check-in informations" en anglais) prêt à l\'emploi, pointant vers l\'URL FR/EN configurée pour ce bien dans l\'admin "Biens Lodgify" selon la langue de l\'email. Absent de l\'email si aucune URL n\'est configurée pour ce bien', 'partnerOnly' => false],
             ['key' => 'lien_demande_client', 'description' => 'Lien "Partager le lien" (/r/{token}) permettant au client d\'ouvrir directement sa demande de réservation en ligne pour la consulter ou la modifier', 'partnerOnly' => false],
+            ['key' => 'copier_le_lien', 'description' => 'Copier le Lien / Copy link : identique à {{lien_demande_client}}, le même lien (/r/{token}) que celui copié par le bouton "🔗 Copier le lien"/"🔗 Copy link" affiché au client et au partenaire. Utilisable dans les templates client comme partenaire', 'partnerOnly' => false],
             ['key' => 'lien_demande_partenaire', 'description' => 'Lien direct vers la fiche de la demande de réservation dans l\'espace partenaire (/partner/reservations/{id}) ; nécessite d\'être connecté en tant que partenaire', 'partnerOnly' => true],
+            ['key' => 'detail_modification', 'description' => 'Liste (déjà mise en forme) de ce qui a changé lors de la modification de la demande : dates, voyageurs, hébergement et tarif total (vide si rien de tout cela n\'a changé)', 'partnerOnly' => false],
         ];
     }
 

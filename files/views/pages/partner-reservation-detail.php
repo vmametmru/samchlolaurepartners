@@ -103,9 +103,25 @@ $propertyDescription = $property ? trim(\App\View::localized($property, 'descrip
           <p class="muted" data-reservation-lock-price-notice hidden>Mode « Sans toucher aux Prix » : seuls le nom, le téléphone, l'email, le nombre de personnes et la nationalité peuvent être modifiés. Les dates, l'hébergement et le prix restent inchangés.</p>
           <div class="form-grid cols-2">
             <label><span>Nom complet</span><input class="input" type="text" name="client_name" value="<?= \App\View::e($reservation['client_name']) ?>" required></label>
-            <label><span>Email</span><input class="input" type="email" name="client_email" value="<?= \App\View::e($reservation['client_email']) ?>" required></label>
-            <label><span>Téléphone</span><input class="input" type="tel" name="client_phone" value="<?= \App\View::e((string) ($reservation['client_phone'] ?? '')) ?>"></label>
+            <label data-client-email-field><span>Email</span><input class="input" type="email" name="client_email" value="<?= \App\View::e($reservation['client_email']) ?>" required></label>
           </div>
+          <!-- Same partner-only "Pas de Email"/"Pas de Téléphone" escape
+               hatches as the booking forms (property-detail.php /
+               calendar.php, see initNoClientContactToggles() in app.js):
+               ticking one drops the field's mandatory flag, hides it and
+               clears it. Both can be ticked at once (client with neither
+               email nor phone); ReservationsController::applyRequestEdit()
+               re-checks server-side that only a partner/admin may do so. -->
+          <?php
+            // A request created with "Pas de Email"/"Pas de Téléphone" has no
+            // stored email/phone: pre-tick the matching box so the edit form
+            // doesn't demand a value the partner never had.
+            $storedEmail = trim((string) ($reservation['client_email'] ?? ''));
+            $storedPhone = trim((string) ($reservation['client_phone'] ?? ''));
+          ?>
+          <label class="inline-check"><input type="checkbox" name="no_client_email" value="1" data-no-client-email-toggle<?= $storedEmail === '' ? ' checked' : '' ?>> Pas de Email</label>
+          <?php $phoneValue = $storedPhone; require BASE_PATH . '/files/views/partials/phone-input.php'; ?>
+          <label class="inline-check"><input type="checkbox" name="no_client_phone" value="1" data-no-client-phone-toggle<?= $storedPhone === '' ? ' checked' : '' ?>> Pas de Téléphone</label>
           <div class="form-grid cols-2">
             <label><span>Date d'arrivée</span><input class="input" type="date" name="checkin_date" value="<?= \App\View::e($reservation['checkin_date']) ?>" required readonly data-reservation-quote-field data-reservation-dates-checkin></label>
             <label><span>Date de départ</span><input class="input" type="date" name="checkout_date" value="<?= \App\View::e($reservation['checkout_date']) ?>" required readonly data-reservation-quote-field data-reservation-dates-checkout></label>
@@ -137,13 +153,23 @@ $propertyDescription = $property ? trim(\App\View::localized($property, 'descrip
                        default (migration 047, client_can_change_property);
                        this tick lets the partner re-enable it for this
                        request without opening the full "Modifier" form —
-                       submits on change, no separate save button needed. -->
-                  <form method="post" action="/partner/reservations/<?= $rid ?>/client-property-change" class="inline-check-form">
-                    <label class="inline-check">
-                      <input type="checkbox" name="allow" value="1" onchange="this.form.submit()" <?= !empty($reservation['client_can_change_property']) ? 'checked' : '' ?>>
-                      Autoriser le client à changer d'hébergement
-                    </label>
-                  </form>
+                       submits on change, no separate save button needed.
+                       This checkbox lives inside the main "Modifier" <form>
+                       above (visually, under "Hébergement"), so it can't be
+                       wrapped in its own nested <form>: HTML forbids nested
+                       forms, and browsers silently close the *outer* form
+                       early when they hit one, leaving "Enregistrer les
+                       modifications" outside any form and unable to submit
+                       at all. Instead it's tied to the standalone
+                       #client-property-change-form-<?= $rid ?> form rendered
+                       after the main form closes (see below) via the
+                       `form` attribute, which associates a field with a
+                       form anywhere in the document without needing to be
+                       its descendant. -->
+                  <label class="inline-check">
+                    <input type="checkbox" name="allow" value="1" form="client-property-change-form-<?= $rid ?>" onchange="this.form.submit()" <?= !empty($reservation['client_can_change_property']) ? 'checked' : '' ?>>
+                    Autoriser le client à changer d'hébergement
+                  </label>
                 <?php endif; ?>
               </div>
             </div>
@@ -162,6 +188,13 @@ $propertyDescription = $property ? trim(\App\View::localized($property, 'descrip
             <button class="btn-primary" type="submit">Enregistrer les modifications</button>
           </div>
         </form>
+        <?php if ($hasQuote): ?>
+          <!-- Standalone form for the "Autoriser le client à changer
+               d'hébergement" checkbox rendered above, inside the main
+               "Modifier" form — see the comment next to that checkbox for
+               why it can't be a nested <form> instead. -->
+          <form method="post" action="/partner/reservations/<?= $rid ?>/client-property-change" id="client-property-change-form-<?= $rid ?>" class="inline-check-form"></form>
+        <?php endif; ?>
       </div>
 
       <!-- "Changer d'hébergement" modal — see reservation-public.php for

@@ -23,6 +23,20 @@ $currentUrl = $_SERVER['REQUEST_URI'] ?? '/admin/reservations';
     </label>
     <div class="button-row"><button class="btn-primary" type="submit">Filtrer</button></div>
   </form>
+  <?php foreach ($reservations as $reservation): $rid = (int) $reservation['id']; ?>
+    <form method="post" action="/admin/reservations/<?= $rid ?>/reopen" id="admin-reservation-reopen-form-<?= $rid ?>" class="inline-form">
+      <input type="hidden" name="redirect_to" value="<?= \App\View::e($currentUrl) ?>">
+    </form>
+    <form method="post" action="/admin/reservations/<?= $rid ?>/cancel" id="admin-reservation-cancel-form-<?= $rid ?>" class="inline-form">
+      <input type="hidden" name="redirect_to" value="<?= \App\View::e($currentUrl) ?>">
+    </form>
+    <form method="post" action="/admin/reservations/<?= $rid ?>/confirm" id="admin-reservation-confirm-form-<?= $rid ?>" class="inline-form">
+      <input type="hidden" name="redirect_to" value="<?= \App\View::e($currentUrl) ?>">
+    </form>
+    <form method="post" action="/admin/reservations/<?= $rid ?>/delete" id="admin-reservation-delete-form-<?= $rid ?>" class="inline-form" onsubmit="return confirm('Effacer définitivement cette réservation ?');">
+      <input type="hidden" name="redirect_to" value="<?= \App\View::e($currentUrl) ?>">
+    </form>
+  <?php endforeach; ?>
   <form method="post" action="/admin/reservations/delete-batch" id="admin-reservations-batch-form" onsubmit="return confirm('Effacer définitivement les réservations sélectionnées ?');">
     <input type="hidden" name="redirect_to" value="<?= \App\View::e($currentUrl) ?>">
     <div class="card overflow-hidden">
@@ -47,37 +61,16 @@ $currentUrl = $_SERVER['REQUEST_URI'] ?? '/admin/reservations';
             <td><span class="badge badge-<?= \App\View::e($status2) ?>"><?= \App\View::e(\App\View::badgeLabel($status2)) ?></span></td>
             <td class="reservation-actions">
               <?php if ($status2 === 'confirmed'): ?>
-                <form method="post" action="/admin/reservations/<?= $rid ?>/reopen" class="inline-form">
-                  <input type="hidden" name="redirect_to" value="<?= \App\View::e($currentUrl) ?>">
-                  <button type="submit" class="icon-btn" title="En attente">⏸️</button>
-                </form>
-                <form method="post" action="/admin/reservations/<?= $rid ?>/cancel" class="inline-form">
-                  <input type="hidden" name="redirect_to" value="<?= \App\View::e($currentUrl) ?>">
-                  <button type="submit" class="icon-btn icon-btn-danger" title="Annuler">❌</button>
-                </form>
+                <button type="submit" form="admin-reservation-reopen-form-<?= $rid ?>" class="icon-btn" title="En attente">⏸️</button>
+                <button type="submit" form="admin-reservation-cancel-form-<?= $rid ?>" class="icon-btn icon-btn-danger" title="Annuler">❌</button>
               <?php elseif ($status2 === 'pending'): ?>
-                <form method="post" action="/admin/reservations/<?= $rid ?>/confirm" class="inline-form">
-                  <input type="hidden" name="redirect_to" value="<?= \App\View::e($currentUrl) ?>">
-                  <button type="submit" class="icon-btn" title="Confirmer">▶️</button>
-                </form>
-                <form method="post" action="/admin/reservations/<?= $rid ?>/cancel" class="inline-form">
-                  <input type="hidden" name="redirect_to" value="<?= \App\View::e($currentUrl) ?>">
-                  <button type="submit" class="icon-btn icon-btn-danger" title="Annuler">❌</button>
-                </form>
+                <button type="submit" form="admin-reservation-confirm-form-<?= $rid ?>" class="icon-btn" title="Confirmer">▶️</button>
+                <button type="submit" form="admin-reservation-cancel-form-<?= $rid ?>" class="icon-btn icon-btn-danger" title="Annuler">❌</button>
               <?php else: ?>
-                <form method="post" action="/admin/reservations/<?= $rid ?>/confirm" class="inline-form">
-                  <input type="hidden" name="redirect_to" value="<?= \App\View::e($currentUrl) ?>">
-                  <button type="submit" class="icon-btn" title="Confirmer">▶️</button>
-                </form>
-                <form method="post" action="/admin/reservations/<?= $rid ?>/reopen" class="inline-form">
-                  <input type="hidden" name="redirect_to" value="<?= \App\View::e($currentUrl) ?>">
-                  <button type="submit" class="icon-btn" title="En attente">⏸️</button>
-                </form>
+                <button type="submit" form="admin-reservation-confirm-form-<?= $rid ?>" class="icon-btn" title="Confirmer">▶️</button>
+                <button type="submit" form="admin-reservation-reopen-form-<?= $rid ?>" class="icon-btn" title="En attente">⏸️</button>
               <?php endif; ?>
-              <form method="post" action="/admin/reservations/<?= $rid ?>/delete" class="inline-form" onsubmit="return confirm('Effacer définitivement cette réservation ?');">
-                <input type="hidden" name="redirect_to" value="<?= \App\View::e($currentUrl) ?>">
-                <button type="submit" class="icon-btn icon-btn-danger" title="Effacer">🗑️</button>
-              </form>
+              <button type="submit" form="admin-reservation-delete-form-<?= $rid ?>" class="icon-btn icon-btn-danger" title="Effacer">🗑️</button>
             </td>
           </tr>
         <?php endforeach; endif; ?>

@@ -111,6 +111,11 @@ img { max-width: 100%; display: block; }
 .input, textarea, select { width: 100%; border: 1px solid #d1d5db; border-radius: .8rem; padding: .72rem .85rem; font: inherit; background: white; color: var(--text); }
 .input:focus, textarea:focus, select:focus { outline: 2px solid rgba(230,30,77,.18); border-color: var(--brand); }
 label { display: block; }
+/* `label { display: block }` beats the browser's default
+   `[hidden] { display: none }`, so the "Pas de Email"/"Pas de Téléphone"
+   toggles (initNoClientContactToggles() in app.js) need these explicit
+   rules to actually hide the email label / phone block they clear. */
+label[hidden], [data-phone-input][hidden] { display: none; }
 label span, .label-inline { display: block; font-size: .92rem; font-weight: 600; color: var(--muted); margin-bottom: .35rem; }
 .form-grid { display: grid; gap: 1rem; }
 .cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -607,6 +612,16 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .booking-status-popup-box.error { background: #fee2e2; border-color: #fecaca; color: #991b1b; }
 .booking-status-popup-message { margin: 0; font-weight: 700; }
 .booking-status-popup-note { margin: .5rem 0 0; font-size: .85rem; font-weight: 400; opacity: .85; }
+/* Share row ("Partager sur WhatsApp" / "Copier le lien") rendered inside the
+   confirmation popup by renderFormStatusPopupShares() in app.js, sitting
+   just above the "Fermer" button. */
+.booking-status-popup-shares { margin-top: 1rem; display: flex; flex-direction: column; gap: .5rem; }
+.booking-status-popup-shares[hidden] { display: none; }
+.booking-status-popup-share-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .5rem; }
+.booking-status-popup-share-label { width: 100%; font-size: .85rem; font-weight: 700; }
+.booking-status-popup-shares .btn-secondary { background: #fff; }
+/* Keep the share buttons visually grouped with the "Fermer" button. */
+.booking-status-popup-shares:not([hidden]) + .booking-status-popup-close { margin-top: .5rem; }
 .booking-status-popup-close { margin-top: 1rem; border: 1px solid currentColor; background: transparent; color: inherit; border-radius: .5rem; padding: .5rem 1.25rem; font: inherit; font-weight: 700; cursor: pointer; }
 .booking-status-popup-close:hover { background: rgba(0,0,0,.06); }
 @media (max-width: 480px) {

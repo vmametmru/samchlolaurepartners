@@ -5,6 +5,8 @@ $labels = [
   'RESERVATION_CONFIRMED' => 'Réservation confirmée (client)',
   'RESERVATION_CANCELLED' => 'Réservation annulée (client)',
   'RESERVATION_REOPENED' => 'Changement de statut : repassée en attente (client)',
+  'RESERVATION_MODIFIED_PARTNER' => 'Demande modifiée par le client (partenaire)',
+  'RESERVATION_MODIFIED_CLIENT' => 'Demande modifiée (client)',
   'REMINDER_CLIENT' => 'Rappel avant arrivée (client)',
   'REMINDER_PARTNER' => 'Rappel avant arrivée (partenaire)',
 ];
