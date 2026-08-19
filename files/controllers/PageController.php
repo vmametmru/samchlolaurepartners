@@ -2406,12 +2406,19 @@ final class PageController extends Controller
                 $urlAttribute = $tag === 'a' ? 'href' : 'src';
                 if (preg_match('/\b' . $urlAttribute . '\s*=\s*"([^"]*)"/i', $match[2], $urlMatch)) {
                     $url = trim(html_entity_decode($urlMatch[1], ENT_QUOTES, 'UTF-8'));
-                    if (preg_match('#^(?:https?://|mailto:|/)[^\s"\'<>]*$#i', $url)) {
+                    $allowedUrl = $tag === 'a'
+                        ? '#^(?:https?://|mailto:|/)[^\s"\'<>]*$#i'
+                        : '#^(?:https?://|/)[^\s"\'<>]*$#i';
+                    if (preg_match($allowedUrl, $url)) {
                         $attributes .= ' ' . $urlAttribute . '="' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '"';
                         if ($tag === 'a') {
                             $attributes .= ' target="_blank" rel="noopener noreferrer"';
                         }
                     }
+                }
+                if ($tag === 'img' && preg_match('/\balt\s*=\s*"([^"]*)"/i', $match[2], $altMatch)) {
+                    $alt = trim(html_entity_decode($altMatch[1], ENT_QUOTES, 'UTF-8'));
+                    $attributes .= ' alt="' . htmlspecialchars($alt, ENT_QUOTES, 'UTF-8') . '"';
                 }
             }
 
