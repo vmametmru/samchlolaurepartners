@@ -21,7 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initPropertyTabs,
     initMaps,
     initApiForms,
-    initNoClientEmailToggle,
+    initNoClientContactToggles,
     initFormStatusPopups,
     initNationalities,
     initTemplateEditor,
@@ -906,27 +906,60 @@ function initFormStatusPopups() {
 }
 
 /**
- * "Pas de Email" checkbox (property-detail.php / calendar.php booking
- * forms, partner/admin only — see ReservationsController::canForcePrice()
- * for the matching server-side re-check): lets the agency create a
- * request with just a phone number when the client has no email. Toggling
- * it clears/relaxes the email field's native `required` attribute and
- * flags the form (via `form.dataset.noClientEmail`) so the extra JS
- * validation below (initApiForms()/initBookingQuote()) also stops
- * requiring an email. An anonymous client never sees this checkbox, so
- * `noClientEmail` can only ever be '1' for a logged-in partner/admin.
+ * "Pas de Email" / "Pas de Téléphone" checkboxes (property-detail.php /
+ * calendar.php booking forms and the partner "Modifier la demande" form,
+ * partner/admin only — see ReservationsController::canForcePrice() for the
+ * matching server-side re-check): let the agency create/edit a request for
+ * a client who has no email address, or no phone number. Ticking one hides
+ * and clears the matching field, drops its native `required` attribute and
+ * flags the form (via `form.dataset.noClientEmail` /
+ * `form.dataset.noClientPhone`) so the extra JS validation below
+ * (initApiForms()/initBookingQuote()) also stops requiring it. An anonymous
+ * client never sees these checkboxes, so the flags can only ever be '1' for
+ * a logged-in partner/admin. The server still requires at least one of the
+ * two (email or phone) to be provided.
  */
-function initNoClientEmailToggle() {
+function initNoClientContactToggles() {
   document.querySelectorAll('[data-no-client-email-toggle]').forEach((checkbox) => {
     const form = checkbox.closest('form');
     const emailInput = form ? form.querySelector('[name="client_email"]') : null;
     if (!form || !emailInput) return;
+    const emailField = emailInput.closest('[data-client-email-field]') || emailInput.closest('label');
 
     function apply() {
       const skip = checkbox.checked;
       form.dataset.noClientEmail = skip ? '1' : '0';
       emailInput.required = !skip;
       if (skip) emailInput.value = '';
+      if (emailField) emailField.hidden = skip;
+      emailInput.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    checkbox.addEventListener('change', apply);
+    apply();
+  });
+
+  document.querySelectorAll('[data-no-client-phone-toggle]').forEach((checkbox) => {
+    const form = checkbox.closest('form');
+    const wrap = form ? form.querySelector('[data-phone-input]') : null;
+    if (!form || !wrap) return;
+    const dialCode = wrap.querySelector('[data-phone-dial-code]');
+    const number = wrap.querySelector('[data-phone-number]');
+    const combined = wrap.querySelector('[data-phone-combined]');
+
+    function apply() {
+      const skip = checkbox.checked;
+      form.dataset.noClientPhone = skip ? '1' : '0';
+      if (number) number.required = !skip;
+      if (skip) {
+        if (dialCode) dialCode.value = '';
+        if (number) number.value = '';
+        if (combined) {
+          combined.value = '';
+          combined.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      }
+      wrap.hidden = skip;
     }
 
     checkbox.addEventListener('change', apply);
@@ -3003,7 +3036,10 @@ function initPhoneInputs() {
     function update() {
       const code = normalizedCode();
       const value = number.value.trim();
-      combined.value = code && value ? `${code} ${value}` : '';
+      // A number typed without a dial code is still kept as-is (rather than
+      // silently dropped), so prefilled values that carry no "+xx" prefix —
+      // e.g. on the partner "Modifier la demande" form — survive a save.
+      combined.value = code && value ? `${code} ${value}` : (value || '');
       combined.dispatchEvent(new Event('change', { bubbles: true }));
     }
     dialCode.addEventListener('change', update);

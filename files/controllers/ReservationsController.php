@@ -761,13 +761,16 @@ final class ReservationsController extends Controller
         $children3to12 = $childBreakdown['from3to12'];
 
         $clientPhone = trim((string) ($input['client_phone'] ?? ''));
-        // "Pas de Email" checkbox (property-detail.php/calendar.php, see
-        // initNoClientEmailToggle() in app.js): only a partner/admin can
-        // submit a request without an email, and only when a phone number
-        // is provided instead — an anonymous client's request must always
-        // include a valid email, re-checked here server-side since the
-        // checkbox is never rendered for them and client input alone can't
-        // be trusted.
+        // "Pas de Email"/"Pas de Téléphone" checkboxes (property-detail.php/
+        // calendar.php, see initNoClientContactToggles() in app.js): only a
+        // partner/admin can submit a request without an email (and only when
+        // a phone number is provided instead) or without a phone number — an
+        // anonymous client's request must always include a valid email,
+        // re-checked here server-side since the checkboxes are never
+        // rendered for them and client input alone can't be trusted.
+        if (self::canForcePrice() && (string) ($input['no_client_phone'] ?? '') === '1') {
+            $clientPhone = '';
+        }
         $skipEmail = self::canForcePrice() && (string) ($input['no_client_email'] ?? '') === '1' && $clientPhone !== '';
 
         if ($clientName === '' || $checkin === '' || $checkout === '' || $adults === 0) {
@@ -824,7 +827,7 @@ final class ReservationsController extends Controller
             (string) ($input['property_name'] ?? ''),
             $clientName,
             $clientEmail,
-            self::nullableString($input['client_phone'] ?? null),
+            $clientPhone !== '' ? $clientPhone : null,
             $checkin,
             $checkout,
             $adults,
@@ -918,6 +921,11 @@ final class ReservationsController extends Controller
         try {
             $emailInput = $input;
             $emailInput['id'] = $id;
+            // Mirror the values actually persisted above, so a request
+            // created with "Pas de Email"/"Pas de Téléphone" never emails
+            // (or prints) a contact the partner explicitly skipped.
+            $emailInput['client_email'] = $clientEmail;
+            $emailInput['client_phone'] = $clientPhone;
             $emailInput['children_under3'] = $childrenUnder3;
             $emailInput['children_3to12'] = $children3to12;
             $emailInput['language'] = $requestLanguage;
@@ -979,8 +987,11 @@ final class ReservationsController extends Controller
         }
         $guests = is_array($input['guests'] ?? null) ? $input['guests'] : [];
         $clientPhone = trim((string) ($input['client_phone'] ?? ''));
-        // "Pas de Email" checkbox — see the matching check in
-        // requestReservation() for the full rationale.
+        // "Pas de Email"/"Pas de Téléphone" checkboxes — see the matching
+        // checks in requestReservation() for the full rationale.
+        if (self::canForcePrice() && (string) ($input['no_client_phone'] ?? '') === '1') {
+            $clientPhone = '';
+        }
         $skipEmail = self::canForcePrice() && (string) ($input['no_client_email'] ?? '') === '1' && $clientPhone !== '';
 
         if ($clientName === '' || $adults < 1 || $items === []) {
@@ -1125,7 +1136,9 @@ final class ReservationsController extends Controller
         $pdo = Database::connection();
         $createdIds = [];
         $guestsJson = json_encode($input['guests'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        $clientPhone = self::nullableString($input['client_phone'] ?? null);
+        // $clientPhone was already normalized above (and cleared when the
+        // partner ticked "Pas de Téléphone").
+        $clientPhone = $clientPhone !== '' ? $clientPhone : null;
         $message = self::nullableString($input['message'] ?? null);
 
         try {
@@ -1794,7 +1807,10 @@ final class ReservationsController extends Controller
         if ((string) ($request['status'] ?? '') !== 'pending') {
             return ['ok' => false, 'message' => 'Cette demande n\'est plus modifiable : seule une demande en attente peut être modifiée.'];
         }
-        $result = self::applyRequestEdit($request, $input, false, $lockPrice);
+        // Only the partner-facing edit form carries the "Pas de Email"/
+        // "Pas de Téléphone" checkboxes, hence $allowContactSkip = true here
+        // and never on the client-facing updatePublicRequest() path.
+        $result = self::applyRequestEdit($request, $input, false, $lockPrice, true);
         if (!$result['ok']) {
             return $result;
         }
@@ -1825,10 +1841,20 @@ final class ReservationsController extends Controller
      *
      * @return array{ok: bool, message?: string, request?: array}
      */
-    private static function applyRequestEdit(array $request, array $input, bool $trackClientUpdate = true, bool $lockPrice = false): array
+    private static function applyRequestEdit(array $request, array $input, bool $trackClientUpdate = true, bool $lockPrice = false, bool $allowContactSkip = false): array
     {
         $clientName = trim((string) ($input['client_name'] ?? ''));
         $clientEmail = trim((string) ($input['client_email'] ?? (string) $request['client_email']));
+        // "Pas de Email"/"Pas de Téléphone" checkboxes on the partner edit
+        // form (partner-reservation-detail.php) — same rules as at creation
+        // time (requestReservation()): the email can only be dropped when a
+        // phone number remains, and a client editing their own request via
+        // their public link can never drop either.
+        $skipEmail = $allowContactSkip && (string) ($input['no_client_email'] ?? '') === '1';
+        $skipPhone = $allowContactSkip && (string) ($input['no_client_phone'] ?? '') === '1';
+        $clientPhone = $skipPhone
+            ? null
+            : self::nullableString($input['client_phone'] ?? $request['client_phone'] ?? null);
         // In "lock price" mode (partner's "Modifier (Sans toucher aux Prix)"
         // button) the dates/hébergement/price are never allowed to change,
         // no matter what the client submits — always re-use the request's
@@ -1847,9 +1873,16 @@ final class ReservationsController extends Controller
             return ['ok' => false, 'message' => 'Merci de renseigner le nom, l\'hébergement, les dates et le nombre de voyageurs.'];
         }
         $partner = self::fetchPartner((int) $request['partner_id']);
-        $emailError = self::validateClientEmailAgainstPartner($clientEmail, $partner);
-        if ($emailError !== null) {
-            return ['ok' => false, 'message' => $emailError];
+        if ($skipEmail) {
+            if ($clientPhone === null) {
+                return ['ok' => false, 'message' => 'Merci de renseigner un numéro de téléphone lorsque le client n\'a pas d\'adresse email.'];
+            }
+            $clientEmail = '';
+        } else {
+            $emailError = self::validateClientEmailAgainstPartner($clientEmail, $partner);
+            if ($emailError !== null) {
+                return ['ok' => false, 'message' => $emailError];
+            }
         }
         try {
             $checkinDate = new \DateTimeImmutable($checkin);
@@ -1920,7 +1953,7 @@ final class ReservationsController extends Controller
             (string) ($property['name'] ?? (string) $request['property_name']),
             $clientName,
             $clientEmail,
-            self::nullableString($input['client_phone'] ?? $request['client_phone'] ?? null),
+            $clientPhone,
             $checkin,
             $checkout,
             $adults,

@@ -111,6 +111,11 @@ img { max-width: 100%; display: block; }
 .input, textarea, select { width: 100%; border: 1px solid #d1d5db; border-radius: .8rem; padding: .72rem .85rem; font: inherit; background: white; color: var(--text); }
 .input:focus, textarea:focus, select:focus { outline: 2px solid rgba(230,30,77,.18); border-color: var(--brand); }
 label { display: block; }
+/* `label { display: block }` beats the browser's default
+   `[hidden] { display: none }`, so the "Pas de Email"/"Pas de Téléphone"
+   toggles (initNoClientContactToggles() in app.js) need these explicit
+   rules to actually hide the email label / phone block they clear. */
+label[hidden], [data-phone-input][hidden] { display: none; }
 label span, .label-inline { display: block; font-size: .92rem; font-weight: 600; color: var(--muted); margin-bottom: .35rem; }
 .form-grid { display: grid; gap: 1rem; }
 .cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }

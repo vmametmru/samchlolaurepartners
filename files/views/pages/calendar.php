@@ -225,7 +225,7 @@ $bookingPolicies = $bookingPolicies ?? [];
         <input type="hidden" name="items" data-multi-cart-items>
         <div class="form-grid cols-2">
           <label><span><?= \App\View::e(\App\I18n::t('calendar.full_name')) ?></span><input class="input" type="text" name="client_name" required></label>
-          <label><span><?= \App\View::e(\App\I18n::t('calendar.email')) ?></span><input class="input" type="email" name="client_email" required></label>
+          <label data-client-email-field><span><?= \App\View::e(\App\I18n::t('calendar.email')) ?></span><input class="input" type="email" name="client_email" required></label>
         </div>
         <?php if ($canForcePrice): ?>
           <!-- Partner/admin only (see ReservationsController::canForcePrice()
@@ -236,6 +236,14 @@ $bookingPolicies = $bookingPolicies ?? [];
           <label class="inline-check"><input type="checkbox" name="no_client_email" value="1" data-no-client-email-toggle> <?= \App\View::e(\App\I18n::t('calendar.no_client_email')) ?></label>
         <?php endif; ?>
         <?php require BASE_PATH . '/files/views/partials/phone-input.php'; ?>
+        <?php if ($canForcePrice): ?>
+          <!-- Same partner/admin-only escape hatch as "Pas de Email" above,
+               for a client who has no phone number: drops the phone field's
+               mandatory flag (and hides it), re-checked server-side in
+               ReservationsController. At least one of email/phone must
+               always remain. -->
+          <label class="inline-check"><input type="checkbox" name="no_client_phone" value="1" data-no-client-phone-toggle> <?= \App\View::e(\App\I18n::t('calendar.no_client_phone')) ?></label>
+        <?php endif; ?>
         <?php require BASE_PATH . '/files/views/partials/nationalities.php'; ?>
         <label><span><?= \App\View::e(\App\I18n::t('calendar.message_optional')) ?></span><textarea class="input" rows="3" name="message"></textarea></label>
         <?php if ($canOverrideBookingPolicy && $bookingPolicies !== []): ?>
