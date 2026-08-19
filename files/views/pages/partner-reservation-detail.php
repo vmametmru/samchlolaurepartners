@@ -153,13 +153,23 @@ $propertyDescription = $property ? trim(\App\View::localized($property, 'descrip
                        default (migration 047, client_can_change_property);
                        this tick lets the partner re-enable it for this
                        request without opening the full "Modifier" form —
-                       submits on change, no separate save button needed. -->
-                  <form method="post" action="/partner/reservations/<?= $rid ?>/client-property-change" class="inline-check-form">
-                    <label class="inline-check">
-                      <input type="checkbox" name="allow" value="1" onchange="this.form.submit()" <?= !empty($reservation['client_can_change_property']) ? 'checked' : '' ?>>
-                      Autoriser le client à changer d'hébergement
-                    </label>
-                  </form>
+                       submits on change, no separate save button needed.
+                       This checkbox lives inside the main "Modifier" <form>
+                       above (visually, under "Hébergement"), so it can't be
+                       wrapped in its own nested <form>: HTML forbids nested
+                       forms, and browsers silently close the *outer* form
+                       early when they hit one, leaving "Enregistrer les
+                       modifications" outside any form and unable to submit
+                       at all. Instead it's tied to the standalone
+                       #client-property-change-form-<?= $rid ?> form rendered
+                       after the main form closes (see below) via the
+                       `form` attribute, which associates a field with a
+                       form anywhere in the document without needing to be
+                       its descendant. -->
+                  <label class="inline-check">
+                    <input type="checkbox" name="allow" value="1" form="client-property-change-form-<?= $rid ?>" onchange="this.form.submit()" <?= !empty($reservation['client_can_change_property']) ? 'checked' : '' ?>>
+                    Autoriser le client à changer d'hébergement
+                  </label>
                 <?php endif; ?>
               </div>
             </div>
@@ -178,6 +188,13 @@ $propertyDescription = $property ? trim(\App\View::localized($property, 'descrip
             <button class="btn-primary" type="submit">Enregistrer les modifications</button>
           </div>
         </form>
+        <?php if ($hasQuote): ?>
+          <!-- Standalone form for the "Autoriser le client à changer
+               d'hébergement" checkbox rendered above, inside the main
+               "Modifier" form — see the comment next to that checkbox for
+               why it can't be a nested <form> instead. -->
+          <form method="post" action="/partner/reservations/<?= $rid ?>/client-property-change" id="client-property-change-form-<?= $rid ?>" class="inline-check-form"></form>
+        <?php endif; ?>
       </div>
 
       <!-- "Changer d'hébergement" modal — see reservation-public.php for
