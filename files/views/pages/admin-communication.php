@@ -15,10 +15,10 @@ $template = $template ?? ['subject' => '', 'body_html' => '', 'is_saved' => fals
     <code>{{piece_jointe}}</code>.
   </p>
 
-  <div class="tabs" role="tablist" style="display:flex;gap:.5rem;margin:0 0 1rem;">
-    <a href="/admin/communication?language=fr" class="btn-sm <?= $selectedLanguage === 'fr' ? 'btn-primary' : 'btn-secondary' ?>">🇫🇷 Français</a>
-    <a href="/admin/communication?language=en" class="btn-sm <?= $selectedLanguage === 'en' ? 'btn-primary' : 'btn-secondary' ?>">🇬🇧 English</a>
-  </div>
+  <nav class="tabs" aria-label="Langue" style="display:flex;gap:.5rem;margin:0 0 1rem;">
+    <a href="/admin/communication?language=fr" class="btn-sm <?= $selectedLanguage === 'fr' ? 'btn-primary' : 'btn-secondary' ?>" <?= $selectedLanguage === 'fr' ? 'aria-current="page"' : '' ?>>🇫🇷 Français</a>
+    <a href="/admin/communication?language=en" class="btn-sm <?= $selectedLanguage === 'en' ? 'btn-primary' : 'btn-secondary' ?>" <?= $selectedLanguage === 'en' ? 'aria-current="page"' : '' ?>>🇬🇧 English</a>
+  </nav>
 
   <?php if (empty($template['is_saved'])): ?>
     <p class="empty-state">Le template « Communication Admin » n'a pas encore été créé pour cette langue : le modèle par défaut sera utilisé. <a href="/admin/templates/default?language=<?= \App\View::e($selectedLanguage) ?>">Créer / modifier le template</a></p>
