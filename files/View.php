@@ -482,8 +482,8 @@ final class View
             ['key' => 'tarif_ttc', 'description' => 'Identique à {{total_voyageur}}/{{tarif_total}} : tarif hébergement + ménage + personnes supplémentaires, TVA comprise (hors taxe touristique)', 'partnerOnly' => false],
             ['key' => 'tarif_ht', 'description' => 'Identique à {{tarif_ttc}} mais sans la TVA (montant de {{tva_totale}} déduit)', 'partnerOnly' => false],
             ['key' => 'useful_info', 'description' => 'Bouton "Renseignements utiles à l\'enregistrement" (ou "Useful check-in informations" en anglais) prêt à l\'emploi, pointant vers l\'URL FR/EN configurée pour ce bien dans l\'admin "Biens Lodgify" selon la langue de l\'email. Absent de l\'email si aucune URL n\'est configurée pour ce bien', 'partnerOnly' => false],
-            ['key' => 'lien_demande_client', 'description' => 'Lien "Partager le lien" (/r/{token}) permettant au client d\'ouvrir directement sa demande de réservation en ligne pour la consulter ou la modifier', 'partnerOnly' => false],
-            ['key' => 'lien_demande_partenaire', 'description' => 'Lien direct vers la fiche de la demande de réservation dans l\'espace partenaire (/partner/reservations/{id}) ; nécessite d\'être connecté en tant que partenaire', 'partnerOnly' => true],
+            ['key' => 'lien_demande_client', 'description' => 'Lien "Copier le Lien" / "Copy link" (/r/{token}, identique au bouton "Copier le Lien"/"Copier le lien" affiché au client) permettant d\'ouvrir directement la demande de réservation en ligne pour la consulter ou la modifier', 'partnerOnly' => false],
+            ['key' => 'lien_demande_partenaire', 'description' => 'Lien "Copier le Lien" / "Copy link" direct vers la fiche de la demande de réservation dans l\'espace partenaire (/partner/reservations/{id}) ; nécessite d\'être connecté en tant que partenaire', 'partnerOnly' => true],
             ['key' => 'detail_modification', 'description' => 'Liste (déjà mise en forme) de ce qui a changé lors de la modification de la demande : dates, voyageurs, hébergement et tarif total (vide si rien de tout cela n\'a changé)', 'partnerOnly' => false],
         ];
     }
