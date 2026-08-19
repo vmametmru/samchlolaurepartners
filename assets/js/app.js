@@ -1000,6 +1000,13 @@ function initNoClientContactToggles() {
 
     function apply() {
       const skip = checkbox.checked;
+      if (skip) {
+        const phoneToggle = form.querySelector('[data-no-client-phone-toggle]');
+        if (phoneToggle && phoneToggle.checked) {
+          phoneToggle.checked = false;
+          phoneToggle.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      }
       form.dataset.noClientEmail = skip ? '1' : '0';
       emailInput.required = !skip;
       if (skip) emailInput.value = '';
