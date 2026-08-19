@@ -768,12 +768,16 @@ final class ReservationsController extends Controller
         // anonymous client's request must always include a valid email,
         // re-checked here server-side since the checkboxes are never
         // rendered for them and client input alone can't be trusted.
-        if (self::canForcePrice() && (string) ($input['no_client_phone'] ?? '') === '1') {
+        $skipPhone = self::canForcePrice() && (string) ($input['no_client_phone'] ?? '') === '1';
+        if ($skipPhone) {
             $clientPhone = '';
         }
         $skipEmail = self::canForcePrice() && (string) ($input['no_client_email'] ?? '') === '1' && $clientPhone !== '';
 
         if ($clientName === '' || $checkin === '' || $checkout === '' || $adults === 0) {
+            self::json(['error' => 'Bad Request', 'message' => 'Required fields missing'], 400);
+        }
+        if (!$skipPhone && $clientPhone === '') {
             self::json(['error' => 'Bad Request', 'message' => 'Required fields missing'], 400);
         }
         if ($skipEmail) {
@@ -1003,12 +1007,16 @@ final class ReservationsController extends Controller
         $clientPhone = trim((string) ($input['client_phone'] ?? ''));
         // "Pas de Email"/"Pas de Téléphone" checkboxes — see the matching
         // checks in requestReservation() for the full rationale.
-        if (self::canForcePrice() && (string) ($input['no_client_phone'] ?? '') === '1') {
+        $skipPhone = self::canForcePrice() && (string) ($input['no_client_phone'] ?? '') === '1';
+        if ($skipPhone) {
             $clientPhone = '';
         }
         $skipEmail = self::canForcePrice() && (string) ($input['no_client_email'] ?? '') === '1' && $clientPhone !== '';
 
         if ($clientName === '' || $adults < 1 || $items === []) {
+            self::json(['error' => 'Bad Request', 'message' => 'Required fields missing'], 400);
+        }
+        if (!$skipPhone && $clientPhone === '') {
             self::json(['error' => 'Bad Request', 'message' => 'Required fields missing'], 400);
         }
         if ($skipEmail) {
