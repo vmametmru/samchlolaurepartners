@@ -155,7 +155,7 @@ $policyText = $policyText ?? \App\controllers\PageController::bookingPolicyText(
   <div class="booking-modal-overlay" data-booking-modal-overlay style="display:none">
   <div class="booking-modal-panel" data-booking-modal-panel>
     <button type="button" class="booking-modal-hide-btn" data-booking-modal-hide><?= \App\View::e(\App\I18n::t('property.hide')) ?></button>
-    <form class="booking-modal-form" data-api-form data-booking-form data-property-id="<?= (int) $property['id'] ?>" data-currency="<?= \App\View::e($currency) ?>" data-max-guests="<?= (int) $property['max_guests'] ?>" data-success-message="<?= \App\View::e(\App\I18n::t('property.request_sent')) ?>" data-feedback-popup-id="booking-status-popup-<?= (int) $property['id'] ?>" data-i18n-checkin="<?= \App\View::e(\App\I18n::t('property.checkin')) ?>" data-i18n-checkout="<?= \App\View::e(\App\I18n::t('property.checkout')) ?>" data-i18n-nights="<?= \App\View::e(\App\I18n::t('property.nights_count')) ?>" data-i18n-click-other-date="<?= \App\View::e(\App\I18n::t('property.click_other_date_for_checkout')) ?>" data-i18n-min-stay-hint="<?= \App\View::e(\App\I18n::t('property.min_stay_hint')) ?>" data-i18n-select-dates="<?= \App\View::e(\App\I18n::t('property.select_dates_in_calendar')) ?>" data-i18n-name-required="<?= \App\View::e(\App\I18n::t('property.name_required')) ?>" data-i18n-email-required="<?= \App\View::e(\App\I18n::t('property.email_required')) ?>" data-i18n-nationality-required="<?= \App\View::e(\App\I18n::t('property.nationality_required')) ?>" method="post" action="/api/reservations/request">
+    <form class="booking-modal-form" data-api-form data-booking-form data-property-id="<?= (int) $property['id'] ?>" data-currency="<?= \App\View::e($currency) ?>" data-max-guests="<?= (int) $property['max_guests'] ?>" data-success-message="<?= \App\View::e(\App\I18n::t('property.request_sent')) ?>" data-created-message="<?= \App\View::e(\App\I18n::t('property.request_created')) ?>" data-send-label="<?= \App\View::e(\App\I18n::t('property.send_request')) ?>" data-create-label="<?= \App\View::e(\App\I18n::t('property.create_request')) ?>" data-feedback-popup-id="booking-status-popup-<?= (int) $property['id'] ?>" data-i18n-checkin="<?= \App\View::e(\App\I18n::t('property.checkin')) ?>" data-i18n-checkout="<?= \App\View::e(\App\I18n::t('property.checkout')) ?>" data-i18n-nights="<?= \App\View::e(\App\I18n::t('property.nights_count')) ?>" data-i18n-click-other-date="<?= \App\View::e(\App\I18n::t('property.click_other_date_for_checkout')) ?>" data-i18n-min-stay-hint="<?= \App\View::e(\App\I18n::t('property.min_stay_hint')) ?>" data-i18n-select-dates="<?= \App\View::e(\App\I18n::t('property.select_dates_in_calendar')) ?>" data-i18n-name-required="<?= \App\View::e(\App\I18n::t('property.name_required')) ?>" data-i18n-email-required="<?= \App\View::e(\App\I18n::t('property.email_required')) ?>" data-i18n-nationality-required="<?= \App\View::e(\App\I18n::t('property.nationality_required')) ?>" method="post" action="/api/reservations/request">
       <input type="hidden" name="property_id" value="<?= (int) $property['id'] ?>">
       <input type="hidden" name="property_name" value="<?= \App\View::e($propertyName) ?>">
 
@@ -322,6 +322,16 @@ $policyText = $policyText ?? \App\controllers\PageController::bookingPolicyText(
   <div class="booking-status-popup-box" data-form-status-popup-box>
     <p class="booking-status-popup-message" data-form-status-popup-message></p>
     <p class="booking-status-popup-note" data-form-status-popup-spam-note hidden><?= \App\View::e(\App\I18n::t('property.spam_note')) ?></p>
+    <!-- Share buttons for the request just created, filled in by
+         renderFormStatusPopupShares() in app.js from the API response's
+         data.shares (partner/admin only — see
+         ReservationsController::requestReservation()). -->
+    <div class="booking-status-popup-shares" data-form-status-popup-shares hidden
+         data-i18n-whatsapp="<?= \App\View::e(\App\I18n::t('share.whatsapp')) ?>"
+         data-i18n-copy-link="<?= \App\View::e(\App\I18n::t('share.copy_link')) ?>"
+         data-i18n-link-copied="<?= \App\View::e(\App\I18n::t('share.link_copied')) ?>"
+         data-i18n-whatsapp-message="<?= \App\View::e(\App\I18n::t('share.whatsapp_message')) ?>"
+         data-i18n-request-label="<?= \App\View::e(\App\I18n::t('share.request_label')) ?>"></div>
     <button type="button" class="booking-status-popup-close" data-form-status-popup-close><?= \App\View::e(\App\I18n::t('property.close')) ?></button>
   </div>
 </div>

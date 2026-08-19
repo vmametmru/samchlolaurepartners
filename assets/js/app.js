@@ -409,37 +409,41 @@ function initCalendarNameColumnToggle() {
 // /partner/reservations and its detail page (public reservation-editing
 // link): copies the URL in data-copy-link (not window.location.href, unlike
 // initShareButton() above) and briefly flips the button label to confirm
-// the copy succeeded.
-function initCopyLinkButton() {
-  document.querySelectorAll('[data-copy-link]').forEach((btn) => {
-    const url = btn.dataset.copyLink || '';
-    if (!url) return;
-    const originalLabel = btn.textContent;
-    let resetTimeout = null;
-    btn.addEventListener('click', async () => {
-      try {
-        if (navigator.clipboard && window.isSecureContext) {
-          await navigator.clipboard.writeText(url);
-        } else {
-          const textarea = document.createElement('textarea');
-          textarea.value = url;
-          textarea.style.position = 'fixed';
-          textarea.style.opacity = '0';
-          document.body.appendChild(textarea);
-          textarea.select();
-          document.execCommand('copy');
-          document.body.removeChild(textarea);
-        }
-      } catch (error) {
-        return;
+// the copy succeeded. Extracted from initCopyLinkButton() so buttons
+// created at runtime (the confirmation popup's share row, see
+// renderFormStatusPopupShares()) get the exact same behaviour.
+function wireCopyLinkButton(btn, copiedLabel = '✅ Lien copié') {
+  const url = btn.dataset.copyLink || '';
+  if (!url) return;
+  const originalLabel = btn.textContent;
+  let resetTimeout = null;
+  btn.addEventListener('click', async () => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = url;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
       }
-      btn.textContent = '✅ Lien copié';
-      if (resetTimeout) window.clearTimeout(resetTimeout);
-      resetTimeout = window.setTimeout(() => {
-        btn.textContent = originalLabel;
-      }, 2000);
-    });
+    } catch (error) {
+      return;
+    }
+    btn.textContent = copiedLabel;
+    if (resetTimeout) window.clearTimeout(resetTimeout);
+    resetTimeout = window.setTimeout(() => {
+      btn.textContent = originalLabel;
+    }, 2000);
   });
+}
+
+function initCopyLinkButton() {
+  document.querySelectorAll('[data-copy-link]').forEach((btn) => wireCopyLinkButton(btn));
 }
 
 function initShareButton() {
@@ -856,7 +860,7 @@ function initMaps() {
 // control), so a success message that disappears on its own before the
 // visitor has read the "check your spam folder" note is actively unhelpful.
 // The popup now stays open until the visitor explicitly clicks "Fermer".
-function showTransientFormPopup(form, message, state = 'success') {
+function showTransientFormPopup(form, message, state = 'success', options = {}) {
   const popupId = form.dataset.feedbackPopupId || '';
   if (!popupId) return;
   const popup = document.getElementById(popupId);
@@ -870,7 +874,11 @@ function showTransientFormPopup(form, message, state = 'success') {
     box.classList.toggle('error', state === 'error');
   }
   const spamNote = popup.querySelector('[data-form-status-popup-spam-note]');
-  if (spamNote) spamNote.hidden = state !== 'success';
+  // The "check your spam folder" note only makes sense when a confirmation
+  // email was actually sent: a request created with "Pas de Email" never
+  // triggers one (options.emailSent === false).
+  if (spamNote) spamNote.hidden = state !== 'success' || options.emailSent === false;
+  renderFormStatusPopupShares(popup, state === 'success' ? (options.shares || []) : []);
 
   if (popup._hideTimer) window.clearTimeout(popup._hideTimer);
   if (popup._hideTransitionTimer) window.clearTimeout(popup._hideTransitionTimer);
@@ -879,6 +887,62 @@ function showTransientFormPopup(form, message, state = 'success') {
   requestAnimationFrame(() => {
     popup.classList.add('visible');
   });
+}
+
+/**
+ * Fills the confirmation popup's [data-form-status-popup-shares] block with
+ * one "Partager sur WhatsApp" + "Copier le lien" pair per request just
+ * created — the same two actions as the "Partager le lien" card on
+ * /partner/reservations/{id}. The links come from the API response's
+ * data.shares, which ReservationsController only returns to a logged-in
+ * partner/admin, so an anonymous visitor never sees these buttons.
+ * Labels are read from the block's own data-i18n-* attributes so they stay
+ * translated (FR/EN) server-side.
+ */
+function renderFormStatusPopupShares(popup, shares) {
+  const wrap = popup.querySelector('[data-form-status-popup-shares]');
+  if (!wrap) return;
+  wrap.textContent = '';
+  if (!Array.isArray(shares) || !shares.length) {
+    wrap.hidden = true;
+    return;
+  }
+  const whatsappLabel = wrap.dataset.i18nWhatsapp || 'Partager sur WhatsApp';
+  const copyLabel = wrap.dataset.i18nCopyLink || 'Copier le lien';
+  const copiedLabel = wrap.dataset.i18nLinkCopied || '✅ Lien copié';
+  const whatsappMessage = wrap.dataset.i18nWhatsappMessage || '';
+  const requestLabel = wrap.dataset.i18nRequestLabel || '';
+
+  shares.forEach((share) => {
+    const url = typeof share === 'string' ? share : (share && share.url) || '';
+    if (!url) return;
+    const row = document.createElement('div');
+    row.className = 'booking-status-popup-share-row';
+    if (shares.length > 1 && requestLabel && share && share.id) {
+      const label = document.createElement('span');
+      label.className = 'booking-status-popup-share-label';
+      label.textContent = requestLabel.replace('%s', String(share.id));
+      row.appendChild(label);
+    }
+    const whatsapp = document.createElement('a');
+    whatsapp.className = 'btn-secondary';
+    whatsapp.target = '_blank';
+    whatsapp.rel = 'noopener noreferrer';
+    whatsapp.href = `https://wa.me/?text=${encodeURIComponent(whatsappMessage + url)}`;
+    whatsapp.textContent = whatsappLabel;
+    row.appendChild(whatsapp);
+
+    const copy = document.createElement('button');
+    copy.type = 'button';
+    copy.className = 'btn-secondary';
+    copy.dataset.copyLink = url;
+    copy.textContent = copyLabel;
+    wireCopyLinkButton(copy, copiedLabel);
+    row.appendChild(copy);
+
+    wrap.appendChild(row);
+  });
+  wrap.hidden = !wrap.childElementCount;
 }
 
 function hideFormStatusPopup(popup) {
@@ -926,12 +990,21 @@ function initNoClientContactToggles() {
     if (!form || !emailInput) return;
     const emailField = emailInput.closest('[data-client-email-field]') || emailInput.closest('label');
 
+    // Without a client email nothing is emailed to anyone: the submit
+    // button stops promising a "send" and simply creates the request
+    // ("Créer la demande"). Both labels come from the form's data-send-label
+    // / data-create-label attributes so they stay translated (FR/EN).
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const sendLabel = form.dataset.sendLabel || (submitBtn ? submitBtn.textContent : '');
+    const createLabel = form.dataset.createLabel || '';
+
     function apply() {
       const skip = checkbox.checked;
       form.dataset.noClientEmail = skip ? '1' : '0';
       emailInput.required = !skip;
       if (skip) emailInput.value = '';
       if (emailField) emailField.hidden = skip;
+      if (submitBtn && createLabel) submitBtn.textContent = skip ? createLabel : sendLabel;
       emailInput.dispatchEvent(new Event('input', { bubbles: true }));
     }
 
@@ -1028,14 +1101,31 @@ function initApiForms() {
         });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.message || 'Erreur');
+        // A request created by a partner with "Pas de Email" ticked sends no
+        // confirmation email at all, so the usual "email sent" wording would
+        // be wrong: confirm instead that the request now exists in their
+        // dashboard. Read before form.reset(), which unticks the checkbox.
+        const createdWithoutEmail = form.dataset.noClientEmail === '1';
         form.reset();
         const quoteBox = form.querySelector('[data-quote-box]');
         if (quoteBox) quoteBox.hidden = true;
+        const successMessage = (createdWithoutEmail && form.dataset.createdMessage)
+          || form.dataset.successMessage
+          || payload.message
+          || 'Succès';
         if (feedback) {
-          feedback.textContent = form.dataset.successMessage || payload.message || 'Succès';
+          feedback.textContent = successMessage;
           feedback.classList.add('success');
         }
-        showTransientFormPopup(form, form.dataset.successMessage || payload.message || 'Succès', 'success');
+        // data.shares is only returned to a logged-in partner/admin: it
+        // carries the client-facing /r/{token} link (the one the partner
+        // sends to the client over WhatsApp), shown as share buttons next
+        // to the popup's "Fermer" button in every case — with or without a
+        // client email.
+        showTransientFormPopup(form, successMessage, 'success', {
+          shares: (payload.data && payload.data.shares) || [],
+          emailSent: !createdWithoutEmail
+        });
       } catch (error) {
         if (feedback) feedback.textContent = error.message || 'Une erreur est survenue.';
         showTransientFormPopup(form, error.message || 'Une erreur est survenue.', 'error');

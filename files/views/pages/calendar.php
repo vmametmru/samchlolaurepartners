@@ -217,7 +217,7 @@ $bookingPolicies = $bookingPolicies ?? [];
         </div>
       </div>
       <p class="form-feedback" data-multi-cart-feedback></p>
-      <form class="stack-md multi-cart-checkout" data-multi-cart-form data-api-form data-success-message="<?= \App\View::e(\App\I18n::t('calendar.request_sent')) ?>" data-feedback-popup-id="multi-cart-status-popup" method="post" action="/api/reservations/request-multiple" hidden>
+      <form class="stack-md multi-cart-checkout" data-multi-cart-form data-api-form data-success-message="<?= \App\View::e(\App\I18n::t('calendar.request_sent')) ?>" data-created-message="<?= \App\View::e(\App\I18n::t('calendar.requests_created')) ?>" data-send-label="<?= \App\View::e(\App\I18n::t('calendar.send_requests')) ?>" data-create-label="<?= \App\View::e(\App\I18n::t('calendar.create_requests')) ?>" data-feedback-popup-id="multi-cart-status-popup" method="post" action="/api/reservations/request-multiple" hidden>
         <input type="hidden" name="adults" value="<?= (int) $adults ?>">
         <input type="hidden" name="children" value="<?= (int) ($childrenUnder3 + $children3to12) ?>">
         <input type="hidden" name="children_under3" value="<?= (int) $childrenUnder3 ?>">
@@ -265,6 +265,13 @@ $bookingPolicies = $bookingPolicies ?? [];
       <div class="booking-status-popup-box" data-form-status-popup-box>
         <p class="booking-status-popup-message" data-form-status-popup-message></p>
         <p class="booking-status-popup-note" data-form-status-popup-spam-note hidden><?= \App\View::e(\App\I18n::t('calendar.spam_note')) ?></p>
+        <!-- See property-detail.php for the same share-buttons block. -->
+        <div class="booking-status-popup-shares" data-form-status-popup-shares hidden
+             data-i18n-whatsapp="<?= \App\View::e(\App\I18n::t('share.whatsapp')) ?>"
+             data-i18n-copy-link="<?= \App\View::e(\App\I18n::t('share.copy_link')) ?>"
+             data-i18n-link-copied="<?= \App\View::e(\App\I18n::t('share.link_copied')) ?>"
+             data-i18n-whatsapp-message="<?= \App\View::e(\App\I18n::t('share.whatsapp_message')) ?>"
+             data-i18n-request-label="<?= \App\View::e(\App\I18n::t('share.request_label')) ?>"></div>
         <button type="button" class="booking-status-popup-close" data-form-status-popup-close><?= \App\View::e(\App\I18n::t('calendar.close')) ?></button>
       </div>
     </div>

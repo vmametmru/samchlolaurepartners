@@ -950,7 +950,21 @@ final class ReservationsController extends Controller
             error_log('Failed to send reservation request emails: ' . $e);
         }
 
-        self::json(['data' => ['id' => $id], 'message' => 'Reservation request submitted'], 201);
+        // Partner/admin only: hand back the request's public "Partager le
+        // lien" URL (the same /r/{token} link as the WhatsApp/"Copier le
+        // lien" buttons on /partner/reservations/{id}) so the confirmation
+        // popup can offer those two share buttons right after creation —
+        // especially useful for a request created without a client email
+        // ("Pas de Email"), where no link was emailed to anyone. Never
+        // exposed to an anonymous visitor.
+        $responseData = ['id' => $id];
+        if (self::canForcePrice()) {
+            $publicUrl = self::clientReservationLink($id);
+            if ($publicUrl !== '') {
+                $responseData['shares'] = [['id' => $id, 'url' => $publicUrl]];
+            }
+        }
+        self::json(['data' => $responseData, 'message' => 'Reservation request submitted'], 201);
     }
 
     /**
@@ -1285,7 +1299,22 @@ final class ReservationsController extends Controller
             }
         }
 
-        self::json(['data' => ['ids' => $createdIds], 'message' => 'Reservation requests submitted'], 201);
+        // See requestReservation() for why the public share links are only
+        // handed back to a logged-in partner/admin.
+        $responseData = ['ids' => $createdIds];
+        if (self::canForcePrice()) {
+            $shares = [];
+            foreach ($createdIds as $createdId) {
+                $publicUrl = self::clientReservationLink((int) $createdId);
+                if ($publicUrl !== '') {
+                    $shares[] = ['id' => (int) $createdId, 'url' => $publicUrl];
+                }
+            }
+            if ($shares !== []) {
+                $responseData['shares'] = $shares;
+            }
+        }
+        self::json(['data' => $responseData, 'message' => 'Reservation requests submitted'], 201);
     }
 
     public static function index(): never
