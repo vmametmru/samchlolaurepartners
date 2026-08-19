@@ -2309,6 +2309,7 @@ final class ReservationsController extends Controller
             ),
             'logo_partenaire_url' => self::partnerLogoUrlValue((string) ($partner['logo_url'] ?? '')),
             'lien_demande_client' => self::clientReservationLink((int) ($request['id'] ?? 0)),
+            'copier_le_lien' => self::clientReservationLink((int) ($request['id'] ?? 0)),
             'lien_demande_partenaire' => self::partnerReservationLink((int) ($request['id'] ?? 0)),
             'detail_modification' => self::describeRequestChanges($before, $request),
         ];
@@ -2636,6 +2637,7 @@ final class ReservationsController extends Controller
             ),
             'useful_info' => self::usefulInfoButtonHtml((int) ($input['property_id'] ?? 0), $guestLanguage),
             'lien_demande_client' => self::clientReservationLink((int) ($input['id'] ?? 0)),
+            'copier_le_lien' => self::clientReservationLink((int) ($input['id'] ?? 0)),
             'lien_demande_partenaire' => self::partnerReservationLink((int) ($input['id'] ?? 0)),
         ];
         $variables += self::stayVariables($checkin, $checkout, $childBreakdown['under3'], $childBreakdown['from3to12'], (int) ($input['adults'] ?? 0));
@@ -2855,6 +2857,7 @@ final class ReservationsController extends Controller
             ),
             'useful_info' => self::usefulInfoButtonHtml((int) ($request['property_id'] ?? 0), $guestLanguage),
             'lien_demande_client' => self::clientReservationLink((int) ($request['id'] ?? 0)),
+            'copier_le_lien' => self::clientReservationLink((int) ($request['id'] ?? 0)),
             'lien_demande_partenaire' => self::partnerReservationLink((int) ($request['id'] ?? 0)),
         ];
         $variables += self::stayVariables(
