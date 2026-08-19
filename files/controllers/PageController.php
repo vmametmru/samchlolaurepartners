@@ -2266,7 +2266,7 @@ final class PageController extends Controller
 
             $body = Mailer::renderTemplate($template['body_html'], $variables);
             $renderedSubject = trim(Mailer::renderTemplate($template['subject'], $variables));
-            if ($renderedSubject === '') {
+            if ($renderedSubject === '' || !str_contains((string) $template['subject'], '{{sujet}}')) {
                 $renderedSubject = $subject;
             }
 
