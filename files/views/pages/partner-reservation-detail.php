@@ -109,8 +109,9 @@ $propertyDescription = $property ? trim(\App\View::localized($property, 'descrip
                hatches as the booking forms (property-detail.php /
                calendar.php, see initNoClientContactToggles() in app.js):
                ticking one drops the field's mandatory flag, hides it and
-               clears it. ReservationsController::applyRequestEdit() re-checks
-               server-side that at least one of email/phone remains. -->
+               clears it. Both can be ticked at once (client with neither
+               email nor phone); ReservationsController::applyRequestEdit()
+               re-checks server-side that only a partner/admin may do so. -->
           <?php
             // A request created with "Pas de Email"/"Pas de Téléphone" has no
             // stored email/phone: pre-tick the matching box so the edit form

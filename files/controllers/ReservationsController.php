@@ -763,16 +763,17 @@ final class ReservationsController extends Controller
         $clientPhone = trim((string) ($input['client_phone'] ?? ''));
         // "Pas de Email"/"Pas de Téléphone" checkboxes (property-detail.php/
         // calendar.php, see initNoClientContactToggles() in app.js): only a
-        // partner/admin can submit a request without an email (and only when
-        // a phone number is provided instead) or without a phone number — an
-        // anonymous client's request must always include a valid email,
+        // partner/admin can submit a request without an email, without a
+        // phone number, or without either (the request is then shared with
+        // the client through its /r/{token} link). An anonymous client's
+        // request must always include a valid email and phone number,
         // re-checked here server-side since the checkboxes are never
         // rendered for them and client input alone can't be trusted.
         $skipPhone = self::canForcePrice() && (string) ($input['no_client_phone'] ?? '') === '1';
         if ($skipPhone) {
             $clientPhone = '';
         }
-        $skipEmail = self::canForcePrice() && (string) ($input['no_client_email'] ?? '') === '1' && $clientPhone !== '';
+        $skipEmail = self::canForcePrice() && (string) ($input['no_client_email'] ?? '') === '1';
 
         if ($clientName === '' || $checkin === '' || $checkout === '' || $adults === 0) {
             self::json(['error' => 'Bad Request', 'message' => 'Required fields missing'], 400);
@@ -1011,7 +1012,7 @@ final class ReservationsController extends Controller
         if ($skipPhone) {
             $clientPhone = '';
         }
-        $skipEmail = self::canForcePrice() && (string) ($input['no_client_email'] ?? '') === '1' && $clientPhone !== '';
+        $skipEmail = self::canForcePrice() && (string) ($input['no_client_email'] ?? '') === '1';
 
         if ($clientName === '' || $adults < 1 || $items === []) {
             self::json(['error' => 'Bad Request', 'message' => 'Required fields missing'], 400);
@@ -1884,9 +1885,9 @@ final class ReservationsController extends Controller
         $clientEmail = trim((string) ($input['client_email'] ?? (string) $request['client_email']));
         // "Pas de Email"/"Pas de Téléphone" checkboxes on the partner edit
         // form (partner-reservation-detail.php) — same rules as at creation
-        // time (requestReservation()): the email can only be dropped when a
-        // phone number remains, and a client editing their own request via
-        // their public link can never drop either.
+        // time (requestReservation()): a partner can drop the email, the
+        // phone, or both, while a client editing their own request via their
+        // public link can never drop either.
         $skipEmail = $allowContactSkip && (string) ($input['no_client_email'] ?? '') === '1';
         $skipPhone = $allowContactSkip && (string) ($input['no_client_phone'] ?? '') === '1';
         $clientPhone = $skipPhone
@@ -1911,9 +1912,6 @@ final class ReservationsController extends Controller
         }
         $partner = self::fetchPartner((int) $request['partner_id']);
         if ($skipEmail) {
-            if ($clientPhone === null) {
-                return ['ok' => false, 'message' => 'Merci de renseigner un numéro de téléphone lorsque le client n\'a pas d\'adresse email.'];
-            }
             $clientEmail = '';
         } else {
             $emailError = self::validateClientEmailAgainstPartner($clientEmail, $partner);
@@ -2585,6 +2583,12 @@ final class ReservationsController extends Controller
         // guest hitting "Reply" writes straight back to the partner instead
         // of to the shared sending mailbox.
         $partnerReplyTo = (string) ($partner['email'] ?? '');
+        // A request created with "Pas de Email" has no client address at all:
+        // only the partner-facing copy above is sent, and the partner shares
+        // the request with their client through its /r/{token} link instead.
+        if (trim((string) ($input['client_email'] ?? '')) === '') {
+            return;
+        }
         try {
             if ($clientTemplate) {
                 Mailer::sendTemplatedEmail($partner, $clientTemplate, (string) $input['client_email'], $clientVariables, $embeds, $partnerReplyTo);

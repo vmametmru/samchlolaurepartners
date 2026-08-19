@@ -980,8 +980,10 @@ function initFormStatusPopups() {
  * `form.dataset.noClientPhone`) so the extra JS validation below
  * (initApiForms()/initBookingQuote()) also stops requiring it. An anonymous
  * client never sees these checkboxes, so the flags can only ever be '1' for
- * a logged-in partner/admin. The server still requires at least one of the
- * two (email or phone) to be provided.
+ * a logged-in partner/admin. Both can be ticked at the same time: a partner
+ * can create a request for a client with neither email nor phone — no email
+ * is then sent and the request is shared through its client link (WhatsApp /
+ * "Copier le lien" buttons on the confirmation popup).
  */
 function initNoClientContactToggles() {
   document.querySelectorAll('[data-no-client-email-toggle]').forEach((checkbox) => {
@@ -1000,13 +1002,6 @@ function initNoClientContactToggles() {
 
     function apply() {
       const skip = checkbox.checked;
-      if (skip) {
-        const phoneToggle = form.querySelector('[data-no-client-phone-toggle]');
-        if (phoneToggle && phoneToggle.checked) {
-          phoneToggle.checked = false;
-          phoneToggle.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-      }
       form.dataset.noClientEmail = skip ? '1' : '0';
       emailInput.required = !skip;
       if (skip) emailInput.value = '';

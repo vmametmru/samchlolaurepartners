@@ -284,8 +284,8 @@ $policyText = $policyText ?? \App\controllers\PageController::bookingPolicyText(
             <!-- Same partner/admin-only escape hatch as "Pas de Email" above,
                  for a client who has no phone number: drops the phone field's
                  mandatory flag (and hides it), re-checked server-side in
-                 ReservationsController. At least one of email/phone must
-                 always remain. -->
+                 ReservationsController. Both boxes can be ticked at once, for
+                 a client with neither email nor phone. -->
             <label class="inline-check"><input type="checkbox" name="no_client_phone" value="1" data-no-client-phone-toggle> <?= \App\View::e(\App\I18n::t('property.no_client_phone')) ?></label>
           <?php endif; ?>
           <label><span><?= \App\View::e(\App\I18n::t('property.message_optional')) ?></span><textarea class="input" rows="3" name="message"></textarea></label>
