@@ -2010,15 +2010,26 @@ function initTemplateEditor() {
     email_partenaire: 'contact@grandbaie-escapes.com',
     lien_partenaire: 'https://exemple-partenaire.grand-baie-maurice.com/espace',
     telephone_partenaire: '+230 5698 7412',
-    politique_reservation: 'Annulation gratuite jusqu\u2019à 30 jours avant l\u2019arrivée. Merci de vous référer aux conditions complètes fournies par l\u2019hébergeur.'
+    politique_reservation: 'Annulation gratuite jusqu\u2019à 30 jours avant l\u2019arrivée. Merci de vous référer aux conditions complètes fournies par l\u2019hébergeur.',
+    tva_totale: '128,00 €',
+    tarif_ttc: '1 340,00 €',
+    tarif_ht: '1 212,00 €',
+    lien_demande_client: 'https://exemple-partenaire.grand-baie-maurice.com/r/2f8c1d4b9a',
+    copier_le_lien: 'https://exemple-partenaire.grand-baie-maurice.com/r/2f8c1d4b9a',
+    lien_demande_partenaire: 'https://exemple-partenaire.grand-baie-maurice.com/partner/reservations/128',
+    detail_modification: 'Dates : du 12 juil. 2026 au 19 juil. 2026 (au lieu du 10 juil. 2026 au 17 juil. 2026)'
   };
 
   // These tokens are rendered as real <img> elements (or a dedicated block,
   // for tarif_bloc) earlier in decoratePreviewHtml/substituteVariablesInPreview,
   // so the generic text-variable substitution must ignore them.
   const nonTextVariableNames = new Set([
-    'photo1', 'photo2', 'photo3', 'logo_partenaire', 'signature_photo', 'photo_bien', 'tarif_bloc', 'bouton_reservation', 'useful_info'
+    'photo1', 'photo2', 'photo3', 'logo_partenaire', 'signature_photo', 'photo_bien', 'tarif_bloc', 'bouton_reservation', 'bouton_verifier_disponibilites', 'useful_info'
   ]);
+
+  // Variables rendered as a computed HTML block server-side: the preview must
+  // mirror that markup instead of falling back to a plain-text chip.
+  const blockVariableNames = new Set(['tarif_bloc', 'bouton_reservation', 'bouton_verifier_disponibilites', 'useful_info']);
 
   function buildSampleBoutonReservationHtml() {
     return '<div data-template-var="bouton_reservation" contenteditable="false" style="text-align:center;margin:20px 0;" title="Bouton généré automatiquement (aperçu avec données temporaires)">'
@@ -2035,6 +2046,15 @@ function initTemplateEditor() {
   function buildSampleUsefulInfoHtml() {
     return '<div data-template-var="useful_info" contenteditable="false" style="text-align:center;margin:20px 0;" title="Bouton généré automatiquement (aperçu avec données temporaires) — pointe vers l’URL Renseignements utiles configurée pour ce bien">'
       + '<a href="#" style="display:inline-block;background:#3b82f6;color:#ffffff;text-decoration:none;font-weight:bold;font-size:14px;padding:12px 28px;border-radius:6px;">Renseignements utiles à l\'enregistrement</a>'
+      + '</div>';
+  }
+
+  // {{bouton_verifier_disponibilites}} is the outlined companion button of
+  // {{bouton_reservation}} (see
+  // ReservationsController::availabilityCheckButtonHtml()).
+  function buildSampleAvailabilityButtonHtml() {
+    return '<div data-template-var="bouton_verifier_disponibilites" contenteditable="false" style="text-align:center;margin:20px 0;" title="Bouton généré automatiquement (aperçu avec données temporaires)">'
+      + '<a href="#" style="display:inline-block;background:#ffffff;color:#3b82f6;text-decoration:none;font-weight:bold;font-size:14px;padding:11px 27px;border-radius:6px;border:2px solid #3b82f6;">Vérifier les disponibilités</a>'
       + '</div>';
   }
 
@@ -2269,7 +2289,10 @@ function initTemplateEditor() {
   }
 
   function variableChipHtml(name) {
-    const sampleValue = Object.prototype.hasOwnProperty.call(sampleTextValues, name) ? sampleTextValues[name] : `« ${name} »`;
+    // Without a sample value the chip shows the raw {{name}} token itself:
+    // a bare "« name »" placeholder looked like the variable had been
+    // written as plain text and would never be parsed.
+    const sampleValue = Object.prototype.hasOwnProperty.call(sampleTextValues, name) ? sampleTextValues[name] : `{{${name}}}`;
     return `<span data-template-var="${name}" contenteditable="false" style="background:#fce7f3;color:#9d174d;border-radius:4px;padding:0 3px;" title="Variable {{${name}}} — donnée temporaire pour l’aperçu">${escapeHtmlText(sampleValue)}</span>`;
   }
 
@@ -2334,7 +2357,7 @@ function initTemplateEditor() {
         const name = match[1].trim();
         // Image tokens are already converted to real <img> elements earlier
         // (in decoratePreviewHtml); leave any leftover occurrence untouched.
-        if (nonTextVariableNames.has(name) && name !== 'tarif_bloc' && name !== 'bouton_reservation' && name !== 'useful_info') continue;
+        if (nonTextVariableNames.has(name) && !blockVariableNames.has(name)) continue;
         matched = true;
         if (match.index > lastIndex) {
           fragment.appendChild(doc.createTextNode(text.slice(lastIndex, match.index)));
@@ -2347,6 +2370,10 @@ function initTemplateEditor() {
         } else if (name === 'bouton_reservation') {
           const wrapper = doc.createElement('div');
           wrapper.innerHTML = buildSampleBoutonReservationHtml();
+          fragment.appendChild(wrapper.firstElementChild);
+        } else if (name === 'bouton_verifier_disponibilites') {
+          const wrapper = doc.createElement('div');
+          wrapper.innerHTML = buildSampleAvailabilityButtonHtml();
           fragment.appendChild(wrapper.firstElementChild);
         } else if (name === 'useful_info') {
           const wrapper = doc.createElement('div');
@@ -2819,6 +2846,7 @@ function initTemplateEditor() {
     function blockOrChipVariableHtml(name) {
       if (name === 'bouton_reservation') return buildSampleBoutonReservationHtml();
       if (name === 'tarif_bloc') return buildSampleTarifBlocHtml();
+      if (name === 'bouton_verifier_disponibilites') return buildSampleAvailabilityButtonHtml();
       if (name === 'useful_info') return buildSampleUsefulInfoHtml();
       return variableChipHtml(name);
     }
