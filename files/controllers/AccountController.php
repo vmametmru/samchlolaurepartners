@@ -104,12 +104,16 @@ final class AccountController extends Controller
                 if (!filter_var($submittedEmail, FILTER_VALIDATE_EMAIL)) {
                     self::redirect('/account', 'Adresse email invalide : email non modifié (les autres informations ont bien été enregistrées).', 'error');
                 }
-                $currentPassword = (string) ($_POST['current_password'] ?? '');
-                $stmt = $pdo->prepare('SELECT password_hash FROM users WHERE id = ? LIMIT 1');
-                $stmt->execute([$userId]);
-                $row = $stmt->fetch(PDO::FETCH_ASSOC);
-                if (!$row || !password_verify($currentPassword, (string) $row['password_hash'])) {
-                    self::redirect('/account', 'Mot de passe actuel incorrect : email non modifié (les autres informations ont bien été enregistrées).', 'error');
+                // Si un changement de mot de passe a été demandé plus haut, current_password a déjà été
+                // vérifié avant Auth::resetPassword(). Ne pas re-vérifier ici contre le hash désormais modifié.
+                if ($newPassword === '') {
+                    $currentPassword = (string) ($_POST['current_password'] ?? '');
+                    $stmt = $pdo->prepare('SELECT password_hash FROM users WHERE id = ? LIMIT 1');
+                    $stmt->execute([$userId]);
+                    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+                    if (!$row || !password_verify($currentPassword, (string) $row['password_hash'])) {
+                        self::redirect('/account', 'Mot de passe actuel incorrect : email non modifié (les autres informations ont bien été enregistrées).', 'error');
+                    }
                 }
                 $stmt = $pdo->prepare('SELECT id FROM users WHERE email = ? AND id != ? LIMIT 1');
                 $stmt->execute([$submittedEmail, $userId]);
