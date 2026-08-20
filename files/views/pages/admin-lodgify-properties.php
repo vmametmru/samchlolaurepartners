@@ -123,7 +123,7 @@ $statusBadge = static function (?\DateTimeImmutable $updatedAt, bool $fresh): st
                   placeholder="https://...">
               </td>
               <td class="manual-col">
-                <input class="input" type="text"
+                <input class="input" type="text" maxlength="255"
                   name="manual[<?= $propertyId ?>][location]"
                   value="<?= \App\View::e($locationVal) ?>"
                   placeholder="ex : Grand Baie">
