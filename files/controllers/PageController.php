@@ -1820,10 +1820,6 @@ final class PageController extends Controller
             $linkedIdsByPartner[$partnerId] = PartnerLinks::linkedPartnerIds($partnerId);
         }
         $sessionsOverview = UserSessions::overview();
-        $sessionHistoryByUser = [];
-        foreach ($sessionsOverview as $sessionUser) {
-            $sessionHistoryByUser[(int) $sessionUser['id']] = UserSessions::historyForUser((int) $sessionUser['id']);
-        }
         View::render('pages/admin-partners', [
             'pageTitle' => 'Partenaires',
             'partners' => $partners,
@@ -1833,8 +1829,20 @@ final class PageController extends Controller
             'usersByPartner' => $usersByPartner,
             'linkedIdsByPartner' => $linkedIdsByPartner,
             'sessionsOverview' => $sessionsOverview,
-            'sessionHistoryByUser' => $sessionHistoryByUser,
         ]);
+    }
+
+    /**
+     * Returns the session history for a single user as JSON, for the
+     * lazy-loading history dialog on /admin/partners.
+     */
+    public static function adminUserSessions(int $userId): never
+    {
+        self::requireAdminUser();
+        $history = UserSessions::historyForUser($userId);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode($history, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
     }
 
     /**

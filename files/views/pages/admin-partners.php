@@ -4,20 +4,13 @@
 /** @var array<int, array<int, array>> $usersByPartner */
 /** @var array<int, array<int, int>> $linkedIdsByPartner */
 /** @var array<int, array> $sessionsOverview */
-/** @var array<int, array<int, array>> $sessionHistoryByUser */
 $properties = $properties ?? [];
 $visibilityByPartner = $visibilityByPartner ?? [];
 $usersByPartner = $usersByPartner ?? [];
 $linkedIdsByPartner = $linkedIdsByPartner ?? [];
 $sessionsOverview = $sessionsOverview ?? [];
-$sessionHistoryByUser = $sessionHistoryByUser ?? [];
 $globalTouristTax = (float) ($globalTouristTax ?? 0);
 $formatFee = static fn (float $value): string => rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.');
-$formatDuration = static function (int $seconds): string {
-    $hours = intdiv($seconds, 3600);
-    $minutes = intdiv($seconds % 3600, 60);
-    return ($hours > 0 ? $hours . 'h ' : '') . $minutes . 'min';
-};
 ?>
 <section class="container section-lg">
   <div class="section-header"><h1>Qui est connecté</h1></div>
@@ -51,36 +44,12 @@ $formatDuration = static function (int $seconds): string {
   <?php foreach ($sessionsOverview as $sessionUser):
     $sessionUserId = (int) $sessionUser['id'];
     $displayName = trim(($sessionUser['first_name'] ?? '') . ' ' . ($sessionUser['last_name'] ?? '')) ?: (string) $sessionUser['email'];
-    $history = $sessionHistoryByUser[$sessionUserId] ?? [];
   ?>
-    <dialog class="help-dialog session-history-dialog" data-help-dialog="session-history-<?= $sessionUserId ?>">
+    <dialog class="help-dialog session-history-dialog" data-help-dialog="session-history-<?= $sessionUserId ?>"
+            data-session-history-url="/admin/users/<?= $sessionUserId ?>/sessions">
       <form method="dialog"><button type="submit" class="help-dialog-close" aria-label="Fermer">×</button></form>
       <h2 class="section-title">Historique de connexion · <?= \App\View::e($displayName) ?></h2>
-      <?php if ($history === []): ?>
-        <p class="muted">Aucune connexion enregistrée pour le moment.</p>
-      <?php else: ?>
-        <table class="table">
-          <thead><tr><th>Connexion</th><th>Fin</th><th>Durée</th><th>IP</th></tr></thead>
-          <tbody>
-          <?php foreach ($history as $entry): ?>
-            <tr>
-              <td><?= \App\View::e(date('d/m/Y H:i', (int) strtotime((string) $entry['started_at']))) ?></td>
-              <td>
-                <?php if (!empty($entry['online'])): ?>
-                  <span class="badge badge-confirmed">En cours</span>
-                <?php elseif ($entry['ended_at'] !== null): ?>
-                  <?= \App\View::e(date('d/m/Y H:i', (int) strtotime((string) $entry['ended_at']))) ?>
-                <?php else: ?>
-                  —
-                <?php endif; ?>
-              </td>
-              <td><?= \App\View::e($formatDuration((int) $entry['duration_seconds'])) ?></td>
-              <td><?= \App\View::e((string) ($entry['ip_address'] ?? '—')) ?></td>
-            </tr>
-          <?php endforeach; ?>
-          </tbody>
-        </table>
-      <?php endif; ?>
+      <div class="session-history-body"><p class="muted">Chargement…</p></div>
     </dialog>
   <?php endforeach; ?>
 </section>
