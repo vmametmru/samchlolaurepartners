@@ -175,7 +175,7 @@ final class ImapManager
 
         $key = self::deriveKey($appSecret);
         $iv = openssl_random_pseudo_bytes(16);
-        $encrypted = openssl_encrypt($password, 'AES-256-CBC', $key, true, $iv);
+        $encrypted = openssl_encrypt($password, 'AES-256-CBC', $key, OPENSSL_RAW_DATA, $iv);
 
         if ($encrypted === false) {
             throw new \Exception('Failed to encrypt password');
@@ -204,7 +204,7 @@ final class ImapManager
             $key = self::deriveKey($appSecret);
             $iv = substr($data, 0, 16);
             $encryptedData = substr($data, 16);
-            $decrypted = openssl_decrypt($encryptedData, 'AES-256-CBC', $key, true, $iv);
+            $decrypted = openssl_decrypt($encryptedData, 'AES-256-CBC', $key, OPENSSL_RAW_DATA, $iv);
             return $decrypted ?: '';
         } catch (\Throwable $e) {
             error_log('[ImapManager] Decryption failed: ' . $e->getMessage());
