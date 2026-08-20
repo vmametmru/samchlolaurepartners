@@ -15,6 +15,7 @@ use App\LodgifyApiException;
 use App\LodgifyClient;
 use App\Mailer;
 use App\PartnerPropertyVisibility;
+use App\PartnerLinks;
 use App\Scheduler;
 use App\Tenant;
 use App\View;
@@ -1810,10 +1811,12 @@ final class PageController extends Controller
         }
         $visibilityByPartner = [];
         $usersByPartner = [];
+        $linkedIdsByPartner = [];
         foreach ($partners as $partnerRow) {
             $partnerId = (int) $partnerRow['id'];
             $visibilityByPartner[$partnerId] = PartnerPropertyVisibility::allForPartner($partnerId);
             $usersByPartner[$partnerId] = self::usersForPartner($partnerId);
+            $linkedIdsByPartner[$partnerId] = PartnerLinks::linkedPartnerIds($partnerId);
         }
         View::render('pages/admin-partners', [
             'pageTitle' => 'Partenaires',
@@ -1822,7 +1825,22 @@ final class PageController extends Controller
             'properties' => $properties,
             'visibilityByPartner' => $visibilityByPartner,
             'usersByPartner' => $usersByPartner,
+            'linkedIdsByPartner' => $linkedIdsByPartner,
         ]);
+    }
+
+    /**
+     * Saves which OTHER partners the given partner is linked to (see
+     * PartnerLinks) — the "Lier" dialog on /admin/partners always submits
+     * the full desired checkbox set, so PartnerLinks::setLinks() replaces
+     * all of this partner's links in one go.
+     */
+    public static function adminSavePartnerLinks(int $id): never
+    {
+        self::requireAdminUser();
+        $linkedIds = is_array($_POST['linked_partner_ids'] ?? null) ? $_POST['linked_partner_ids'] : [];
+        PartnerLinks::setLinks($id, array_map('intval', $linkedIds));
+        self::redirect('/admin/partners', 'Liaisons entre partenaires mises à jour.');
     }
 
     public static function adminSavePartnerProperties(int $id): never
@@ -1855,6 +1873,14 @@ final class PageController extends Controller
         $partner = PartnersController::formData($partnerId);
         if ($partner === []) {
             throw new HttpException(404, 'Not Found', 'Partenaire introuvable.');
+        }
+
+        // Exactly one user account per partner: the partner-account "linking"
+        // feature (PartnerLinks / partnerSwitchAccount()) always switches
+        // into the SAME single user for a given partner with no ambiguity
+        // over which of several logins to use.
+        if (self::usersForPartner($partnerId) !== []) {
+            self::redirect('/admin/partners', 'Ce partenaire a déjà un compte utilisateur (un seul est autorisé par partenaire). Supprimez-le avant d\'en créer un autre.', 'error');
         }
 
         $email = trim((string) ($_POST['email'] ?? ''));
@@ -1893,6 +1919,32 @@ final class PageController extends Controller
             ->prepare("DELETE FROM users WHERE id = ? AND partner_id = ? AND role = 'partner'")
             ->execute([$userId, $partnerId]);
         self::redirect('/admin/partners', 'Utilisateur supprimé.');
+    }
+
+    /**
+     * Switches the current partner user's browser session into a LINKED
+     * partner's own account (a kind of automatic logout/login, no separate
+     * credentials needed) — see PartnerLinks. Only ever succeeds when the
+     * two partners were explicitly linked by an admin, and lands on the
+     * target partner's own dashboard (partner_id-scoped, unrelated to the
+     * public "Code Partenaire" deep-linking cookie/URL fragment mechanism).
+     */
+    public static function partnerSwitchAccount(int $targetPartnerId): never
+    {
+        $user = self::requirePartnerUser();
+        $currentPartnerId = (int) $user['partner_id'];
+
+        if (!PartnerLinks::areLinked($currentPartnerId, $targetPartnerId)) {
+            self::redirect('/partner/dashboard', "Ce compte n'est pas lié au vôtre.", 'error');
+        }
+
+        $targetUsers = self::usersForPartner($targetPartnerId);
+        if ($targetUsers === []) {
+            self::redirect('/partner/dashboard', "Ce partenaire lié n'a pas encore de compte utilisateur.", 'error');
+        }
+
+        Auth::switchToUser((int) $targetUsers[0]['id']);
+        self::redirect('/partner/dashboard');
     }
 
     public static function adminPartnerTemplates(int $partnerId): void

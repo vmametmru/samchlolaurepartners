@@ -32,22 +32,61 @@ final class Auth
             return null;
         }
 
-        // A partner user's environment (the "Code Partenaire" cookie, see
-        // Tenant::current()) is always forced back to their OWN partner on
-        // login, regardless of whichever partner's environment the browser
-        // was previously on: e.g. partenaire1 logging in while partenaire2's
-        // code is active is immediately switched back to partenaire1's own
-        // environment. Admins have no partner_id and are left untouched —
-        // they may log in from/stay on any environment.
+        $payload = self::establishSession($user);
+
+        return ['token' => $_COOKIE[self::COOKIE_NAME], 'user' => $payload];
+    }
+
+    /**
+     * Silently swaps the current browser session to a DIFFERENT user, with
+     * no password re-entry — used only by the partner-account "linking"
+     * feature (see PartnerLinks / PageController::partnerSwitchAccount()),
+     * which authorizes the switch separately by checking the two partners
+     * were explicitly linked by an admin. From the browser's point of view
+     * this is a normal logout + login into the other account, just
+     * automatic. Returns the new session's user payload, or null if
+     * $userId doesn't exist.
+     */
+    public static function switchToUser(int $userId): ?array
+    {
+        $stmt = Database::connection()->prepare(
+            'SELECT u.*, p.id AS partner_id_val, p.name AS partner_name,
+                    p.subdomain, p.logo_url, p.primary_color, p.email AS partner_email,
+                    p.markup_percent, p.active AS partner_active
+             FROM users u
+             LEFT JOIN partners p ON p.id = u.partner_id
+             WHERE u.id = ?
+             LIMIT 1'
+        );
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch();
+        if (!$user) {
+            return null;
+        }
+
+        return self::establishSession($user);
+    }
+
+    /**
+     * Shared by login() and switchToUser(): forces the "Code Partenaire"
+     * cookie (see Tenant::current()) back to the target user's OWN partner
+     * — regardless of whichever partner's environment the browser was
+     * previously on, e.g. partenaire1 logging in (or being switched into)
+     * while partenaire2's code is active is immediately switched back to
+     * partenaire1's own environment. Admins have no partner_id and are left
+     * untouched — they may log in from/stay on any environment. Then
+     * issues and sets a fresh auth cookie for the given user row.
+     */
+    private static function establishSession(array $user): array
+    {
         if ((string) $user['role'] === 'partner' && $user['subdomain'] !== null && $user['subdomain'] !== '') {
             Tenant::setCodeCookie((string) $user['subdomain']);
         }
 
         $payload = self::userPayload($user);
-        $token = self::issueToken($payload);
-        self::setAuthCookie($token);
+        self::setAuthCookie(self::issueToken($payload));
 
-        return ['token' => $token, 'user' => $payload];
+        return $payload;
     }
 
     public static function logout(): void
