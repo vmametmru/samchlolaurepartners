@@ -70,7 +70,8 @@ final class UserSessions
     {
         $stmt = Database::connection()->query(
             "SELECT u.id, u.email, u.first_name, u.last_name, u.role, p.name AS partner_name,
-                    MAX(s.last_seen_at) AS last_seen_at
+                    MAX(s.last_seen_at) AS last_seen_at,
+                    MAX(CASE WHEN s.ended_at IS NULL THEN s.last_seen_at ELSE NULL END) AS active_last_seen_at
              FROM users u
              LEFT JOIN partners p ON p.id = u.partner_id
              LEFT JOIN user_sessions s ON s.user_id = u.id
@@ -80,8 +81,9 @@ final class UserSessions
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
         $cutoff = time() - self::ONLINE_WINDOW_SECONDS;
         foreach ($rows as &$row) {
-            $lastSeen = $row['last_seen_at'] !== null ? strtotime((string) $row['last_seen_at']) : null;
-            $row['online'] = $lastSeen !== null && $lastSeen >= $cutoff;
+            $activeLastSeen = $row['active_last_seen_at'] !== null ? strtotime((string) $row['active_last_seen_at']) : null;
+            $row['online'] = $activeLastSeen !== null && $activeLastSeen >= $cutoff;
+            unset($row['active_last_seen_at']);
         }
         unset($row);
         return $rows;
