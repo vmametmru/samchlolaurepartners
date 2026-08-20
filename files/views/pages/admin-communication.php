@@ -9,7 +9,7 @@ $template = $template ?? ['subject' => '', 'body_html' => '', 'is_saved' => fals
   <p class="text-muted">
     Envoyez un email aux partenaires (un seul, plusieurs ou tous). Chaque partenaire reçoit un email
     individuel, à l'adresse email enregistrée dans sa fiche. L'envoi utilise les identifiants
-    <a href="/admin/smtp-settings">SMTP par défaut</a> et le template
+    <a href="/admin/email-server-settings">SMTP par défaut</a> et le template
     <a href="/admin/templates/default?language=<?= \App\View::e($selectedLanguage) ?>">« Communication Admin »</a>,
     dans lequel vous placez les variables <code>{{sujet}}</code>, <code>{{message}}</code> et
     <code>{{piece_jointe}}</code>.

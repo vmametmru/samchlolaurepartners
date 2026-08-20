@@ -10,6 +10,7 @@ use App\Tenant;
 use App\controllers\AccountController;
 use App\controllers\AuthController;
 use App\controllers\DiagnosticController;
+use App\controllers\EmailController;
 use App\controllers\EmailSchedulesController;
 use App\controllers\EmailTemplatesController;
 use App\controllers\FeesController;
@@ -245,6 +246,15 @@ try {
             break;
         case route($method, $path, 'POST', '#^/account$#'):
             AccountController::updateProfile();
+        // Webmail entry point (partners and admins only) — opens the
+        // hosting's cPanel Webmail/Roundcube portal (SSO'd when configured,
+        // see WebmailSso), plus the AJAX endpoint powering the navbar
+        // unread-count badge.
+        case route($method, $path, 'GET', '#^/email$#'):
+            EmailController::openWebmail();
+        case route($method, $path, 'GET', '#^/api/email/unread-count$#'):
+            EmailController::unreadCount();
+            break;
         // "Partager le lien" public reservation page: unauthenticated, but
         // gated by an unguessable token (see ReservationsController::
         // ensurePublicToken()/findByToken()) rather than by login.
@@ -377,10 +387,10 @@ try {
             break;
         case route($method, $path, 'POST', '#^/admin/politique-reservation$#'):
             PageController::adminSaveBookingPolicy();
-        case route($method, $path, 'GET', '#^/admin/smtp-settings$#'):
+        case route($method, $path, 'GET', '#^/admin/email-server-settings$#'):
             PageController::adminSmtpSettings();
             break;
-        case route($method, $path, 'POST', '#^/admin/smtp-settings$#'):
+        case route($method, $path, 'POST', '#^/admin/email-server-settings$#'):
             PageController::adminSaveSmtpSettings();
         case route($method, $path, 'GET', '#^/admin/communication$#'):
             PageController::adminCommunication();

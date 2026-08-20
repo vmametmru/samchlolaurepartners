@@ -1638,7 +1638,11 @@ final class PageController extends Controller
             'smtp_pass' => Settings::get('SMTP_PASS', ''),
             'smtp_security' => Settings::get('SMTP_SECURITY', 'ssl'),
             'smtp_from_email' => Settings::get('SMTP_FROM_EMAIL', 'infos@grand-baie-maurice.com'),
+            'imap_host' => Settings::get('IMAP_HOST', 'mail.grand-baie-maurice.com'),
+            'imap_port' => Settings::get('IMAP_PORT', '993'),
         ];
+        $partner['user_email'] = $user['email'];
+        
         View::render('pages/partner-settings', [
             'pageTitle' => 'Paramètres partenaire',
             'partnerData' => $partner,
@@ -2056,8 +2060,8 @@ final class PageController extends Controller
     public static function adminSmtpSettings(): void
     {
         self::requireAdminUser();
-        View::render('pages/admin-smtp-settings', [
-            'pageTitle' => 'SMTP par défaut',
+        View::render('pages/admin-email-server-settings', [
+            'pageTitle' => 'Configuration du serveur de messagerie',
             'smtpDefaults' => [
                 'SMTP_HOST' => Settings::get('SMTP_HOST', 'mail.grand-baie-maurice.com'),
                 'SMTP_PORT' => Settings::get('SMTP_PORT', '465'),
@@ -2065,9 +2069,15 @@ final class PageController extends Controller
                 'SMTP_PASS' => Settings::get('SMTP_PASS', ''),
                 'SMTP_FROM_EMAIL' => Settings::get('SMTP_FROM_EMAIL', 'infos@grand-baie-maurice.com'),
                 'SMTP_FROM_NAME' => Settings::get('SMTP_FROM_NAME', 'Grand Baie Maurice'),
+                'IMAP_HOST' => Settings::get('IMAP_HOST', 'mail.grand-baie-maurice.com'),
+                'IMAP_PORT' => Settings::get('IMAP_PORT', '993'),
+                'EMAIL_DOMAIN' => Settings::get('EMAIL_DOMAIN', 'grand-baie-maurice.com'),
                 'DKIM_DOMAIN' => Settings::get('DKIM_DOMAIN', ''),
                 'DKIM_SELECTOR' => Settings::get('DKIM_SELECTOR', ''),
                 'DKIM_PRIVATE_KEY' => Settings::get('DKIM_PRIVATE_KEY', ''),
+                'CPANEL_HOST' => Settings::get('CPANEL_HOST', ''),
+                'CPANEL_USERNAME' => Settings::get('CPANEL_USERNAME', ''),
+                'CPANEL_API_TOKEN' => Settings::get('CPANEL_API_TOKEN', ''),
             ],
         ]);
     }
@@ -2082,14 +2092,34 @@ final class PageController extends Controller
         Settings::set('SMTP_FROM_EMAIL', trim((string) ($_POST['smtp_from_email'] ?? '')) ?: 'infos@grand-baie-maurice.com');
         Settings::set('SMTP_FROM_NAME', trim((string) ($_POST['smtp_from_name'] ?? '')) ?: 'Grand Baie Maurice');
         Settings::set('SMTP_SECURITY', 'ssl');
+        
+        // IMAP server (évolutif: peut changer de domaine à l'avenir). Chaque
+        // admin/partenaire utilise son propre email + mot de passe (profil),
+        // voir ImapManager::getConnectionParams() — pas d'identifiants
+        // globaux à configurer ici.
+        Settings::set('IMAP_HOST', trim((string) ($_POST['imap_host'] ?? '')) ?: 'mail.grand-baie-maurice.com');
+        Settings::set('IMAP_PORT', trim((string) ($_POST['imap_port'] ?? '')) ?: '993');
+        Settings::set('EMAIL_DOMAIN', trim((string) ($_POST['email_domain'] ?? '')) ?: 'grand-baie-maurice.com');
+        
         // DKIM signing (see Mailer::dkimSignatureHeader()): all three must be
         // set for the app to sign outgoing mail itself, rather than relying
         // on the host's mail server to do it opportunistically.
         Settings::set('DKIM_DOMAIN', trim((string) ($_POST['dkim_domain'] ?? '')));
         Settings::set('DKIM_SELECTOR', trim((string) ($_POST['dkim_selector'] ?? '')));
         Settings::set('DKIM_PRIVATE_KEY', (string) ($_POST['dkim_private_key'] ?? ''));
+
+        // cPanel Webmail SSO (see WebmailSso::createSessionUrl()): lets
+        // admins/partners open the hosting's Webmail (Roundcube) already
+        // signed in, via cPanel's official UAPI Email::create_user_session.
+        // CPANEL_API_TOKEN is an account-level secret (Security > Manage
+        // API Tokens in cPanel) — distinct from any individual mailbox's
+        // IMAP password above. Leave blank to disable SSO (falls back to
+        // the plain webmail login page).
+        Settings::set('CPANEL_HOST', trim((string) ($_POST['cpanel_host'] ?? '')));
+        Settings::set('CPANEL_USERNAME', trim((string) ($_POST['cpanel_username'] ?? '')));
+        Settings::set('CPANEL_API_TOKEN', (string) ($_POST['cpanel_api_token'] ?? ''));
         Settings::reload();
-        self::redirect('/admin/smtp-settings', 'SMTP par défaut sauvegardé.');
+        self::redirect('/admin/email-server-settings', 'Configuration du serveur de messagerie sauvegardée.');
     }
 
 
@@ -2169,7 +2199,7 @@ final class PageController extends Controller
      * Admin "Communication" page (/admin/communication): pick one, several
      * or every partner, write a subject + a rich-text message, optionally
      * attach a file, and send it through the "Communication Admin"
-     * template with the default SMTP credentials of /admin/smtp-settings.
+     * template with the default SMTP credentials of /admin/email-server-settings.
      */
     public static function adminCommunication(): void
     {
@@ -5419,7 +5449,31 @@ HTML,
         View::render('pages/admin-update', [
             'pageTitle' => 'Mise à jour',
             'backups' => $backups,
+            'buildVersion' => self::currentBuildVersion(),
         ]);
+    }
+
+    /**
+     * Read the build-version.php file generated automatically by CI (see
+     * .github/workflows/build.yml, "Write build version info" step) and
+     * bundled inside every deployment ZIP. Lets an admin confirm, right on
+     * the "Mise à jour" page, exactly which commit/branch is currently
+     * live — instead of guessing from the ZIP filename, which is easy to
+     * lose track of across several fixes.
+     *
+     * Returns null if the file is missing (e.g. an older deployment from
+     * before this feature existed, or a manually-assembled ZIP).
+     *
+     * @return array{sha: string, ref: string, built_at: string}|null
+     */
+    private static function currentBuildVersion(): ?array
+    {
+        $path = BASE_PATH . '/files/build-version.php';
+        if (!is_file($path)) {
+            return null;
+        }
+        $data = include $path;
+        return is_array($data) ? $data : null;
     }
 
     public static function adminApplyUpdate(): never

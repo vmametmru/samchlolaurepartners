@@ -57,6 +57,23 @@ jobs:
           mkdir -p artifact-package/files/storage/cache
           mkdir -p artifact-package/files/storage/updates
 
+      - name: Write build version info
+        run: |
+          # Generated fresh at build time (never committed to the repo) so
+          # the admin "Mise à jour" page can display exactly which commit
+          # and branch is currently deployed — lets an admin confirm a
+          # specific fix has actually reached production instead of
+          # guessing from the ZIP filename alone.
+          short_sha="${GITHUB_SHA:0:7}"
+          cat > artifact-package/files/build-version.php <<PHP
+          <?php
+          return [
+              'sha' => '${short_sha}',
+              'ref' => '${GITHUB_REF_NAME}',
+              'built_at' => '$(date -u +%Y-%m-%dT%H:%M:%SZ)',
+          ];
+          PHP
+
       - name: Verify package completeness
         run: |
           echo "=== Package contents ==="

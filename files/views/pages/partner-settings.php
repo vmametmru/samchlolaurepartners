@@ -44,7 +44,10 @@
     </div>
     <label><span>Couleur principale</span><div class="color-row"><input type="color" name="primary_color" value="<?= \App\View::e($partnerData['primary_color'] ?? '#E61E4D') ?>"><input class="input" type="text" name="primary_color_text" value="<?= \App\View::e($partnerData['primary_color'] ?? '#E61E4D') ?>" data-sync-color></div></label>
     <h2 class="section-title">Configuration SMTP</h2>
-    <p class="muted">Sécurité: SSL/TLS (obligatoire). Si vous laissez vide, les paramètres admin seront utilisés.</p>
+    <p class="muted">
+      Sécurité: SSL/TLS (obligatoire). Si vous laissez vide, les paramètres admin seront utilisés.
+      <br>Votre identifiant email SMTP: <strong><?= \App\View::e($partnerData['user_email'] ?? '') ?></strong>
+    </p>
     <div class="form-grid cols-2">
       <label><span>Hôte SMTP</span><input class="input" type="text" name="smtp_host" value="<?= \App\View::e($partnerData['smtp_host'] ?? ($smtpDefaults['smtp_host'] ?? 'mail.grand-baie-maurice.com')) ?>"></label>
       <label><span>Port SMTP</span><input class="input" type="number" name="smtp_port" value="<?= \App\View::e((string) ($partnerData['smtp_port'] ?? ($smtpDefaults['smtp_port'] ?? '465'))) ?>"></label>
@@ -52,6 +55,13 @@
       <label><span>Mot de passe SMTP</span><input class="input" type="password" name="smtp_pass" value="<?= \App\View::e($partnerData['smtp_pass'] ?? '') ?>"></label>
     </div>
     <p class="muted">Email d'envoi par défaut (admin): <?= \App\View::e($smtpDefaults['smtp_from_email'] ?? 'infos@grand-baie-maurice.com') ?></p>
+
+    <h2 class="section-title">Accès Webmail (IMAP)</h2>
+    <p class="muted">
+      Le webmail utilise votre identifiant email: <strong><?= \App\View::e($partnerData['user_email'] ?? '') ?></strong>
+      (serveur <?= \App\View::e($smtpDefaults['imap_host'] ?? 'mail.grand-baie-maurice.com') ?>).
+      Configurez votre mot de passe email depuis <a href="/account">votre profil</a>.
+    </p>
     <button class="btn-primary" type="submit">Sauvegarder</button>
   </form>
 
