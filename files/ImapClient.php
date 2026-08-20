@@ -39,8 +39,8 @@ final class ImapClient
             return true;
         }
 
-        // Build IMAP connection string
-        $ssl = $this->port == 993 ? '/ssl/novalidate-cert' : '/notls';
+        // Build IMAP connection string with proper SSL/TLS validation
+        $ssl = $this->port == 993 ? '/ssl' : '/tls';
         $mailbox = '{' . $this->server . ':' . $this->port . $ssl . '}INBOX';
 
         try {
@@ -110,9 +110,10 @@ final class ImapClient
                 $structure = @imap_fetchstructure($this->mailbox, $i);
 
                 $emails[] = [
-                    'uid' => (int) $header->Msgno,
+                    'uid' => isset($header->Uid) ? (int) $header->Uid : $i,
+                    'msgno' => (int) $header->Msgno,
                     'subject' => $this->decodeHeader($header->subject ?? ''),
-                    'from_email' => $header->from[0]->mailbox . '@' . $header->from[0]->host ?? '',
+                    'from_email' => $this->extractFromEmail($header->from ?? []),
                     'from_name' => $header->from[0]->personal ?? '',
                     'to_emails' => $this->getRecipients($header->to ?? []),
                     'cc_emails' => $this->getRecipients($header->cc ?? []),
@@ -149,9 +150,10 @@ final class ImapClient
             $structure = @imap_fetchstructure($this->mailbox, $uid);
 
             return [
-                'uid' => (int) $header->Msgno,
+                'uid' => isset($header->Uid) ? (int) $header->Uid : $uid,
+                'msgno' => (int) $header->Msgno,
                 'subject' => $this->decodeHeader($header->subject ?? ''),
-                'from_email' => $header->from[0]->mailbox . '@' . $header->from[0]->host ?? '',
+                'from_email' => $this->extractFromEmail($header->from ?? []),
                 'from_name' => $header->from[0]->personal ?? '',
                 'to_emails' => $this->getRecipients($header->to ?? []),
                 'cc_emails' => $this->getRecipients($header->cc ?? []),
@@ -214,6 +216,21 @@ final class ImapClient
             $result .= $part->text;
         }
         return $result ?: $header;
+    }
+
+    /**
+     * Extract email from header->from array
+     */
+    private function extractFromEmail(array $fromArray): string
+    {
+        if (empty($fromArray) || !isset($fromArray[0])) {
+            return '';
+        }
+        $from = $fromArray[0];
+        if (!isset($from->mailbox, $from->host)) {
+            return '';
+        }
+        return $from->mailbox . '@' . $from->host;
     }
 
     /**

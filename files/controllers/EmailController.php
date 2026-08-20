@@ -71,6 +71,26 @@ final class EmailController extends Controller
     }
 
     /**
+     * Delete email
+     */
+    public static function delete(int $emailId): never
+    {
+        $user = Auth::requireUser();
+        
+        if (!self::isEmailAllowed($user)) {
+            self::redirect('/email', 'Accès non autorisé.', 'error');
+        }
+
+        $email = ImapManager::getEmail((int) $user['id'], $emailId);
+        if (!$email) {
+            self::redirect('/email', 'Email non trouvé.', 'error');
+        }
+
+        ImapManager::deleteEmail((int) $user['id'], $emailId);
+        self::redirect('/email', 'Email supprimé.');
+    }
+
+    /**
      * Show email composition form
      */
     public static function compose(): void
@@ -152,6 +172,11 @@ final class EmailController extends Controller
         }
 
         $account = ImapManager::getAccount((int) $user['id']);
+        
+        // Don't expose the decrypted password to the view
+        if ($account) {
+            unset($account['imap_password']);
+        }
 
         View::render('pages/email/settings', [
             'pageTitle' => 'Paramètres Email',
@@ -176,8 +201,17 @@ final class EmailController extends Controller
         $username = trim((string) ($_POST['username'] ?? ''));
         $password = (string) ($_POST['password'] ?? '');
 
-        if (empty($email) || empty($server) || empty($username) || empty($password)) {
-            self::redirect('/email/settings', 'Tous les champs sont requis.', 'error');
+        if (empty($email) || empty($server) || empty($username)) {
+            self::redirect('/email/settings', 'Email, serveur et nom d\'utilisateur sont requis.', 'error');
+        }
+
+        // If password is empty, use existing password
+        if (empty($password)) {
+            $account = ImapManager::getAccount((int) $user['id']);
+            if (!$account) {
+                self::redirect('/email/settings', 'Un mot de passe est requis pour la première configuration.', 'error');
+            }
+            $password = (string) $account['imap_password'];
         }
 
         // Test connection

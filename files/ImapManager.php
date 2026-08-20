@@ -54,10 +54,17 @@ final class ImapManager
      */
     public static function saveEmail(int $userId, array $emailData): ?int
     {
+        $imap_message_id = $emailData['imap_message_id'] ?? hash('sha256', 
+            ($emailData['from_email'] ?? '') . 
+            ($emailData['received_at'] ?? '') . 
+            ($emailData['subject'] ?? ''), 
+            false
+        );
+
         $stmt = Database::connection()->prepare(
             'INSERT INTO imap_emails 
-             (user_id, subject, from_email, from_name, to_emails, cc_emails, body_html, body_text, received_at, is_read, folder)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             (user_id, subject, from_email, from_name, to_emails, cc_emails, body_html, body_text, received_at, is_read, folder, imap_message_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
                 is_read = VALUES(is_read),
                 updated_at = NOW()'
@@ -75,21 +82,28 @@ final class ImapManager
             $emailData['received_at'] ?? null,
             (int) ($emailData['is_read'] ?? 0),
             substr((string) ($emailData['folder'] ?? 'INBOX'), 0, 255),
+            $imap_message_id,
         ]);
 
         return $success ? (int) Database::connection()->lastInsertId() : null;
     }
 
     /**
-     * Get emails for user
+     * Get emails for user (with proper pagination)
      */
     public static function getEmails(int $userId, string $folder = 'INBOX', int $limit = 50, int $offset = 0): array
     {
         $stmt = Database::connection()->prepare(
             'SELECT * FROM imap_emails WHERE user_id = ? AND folder = ? ORDER BY received_at DESC LIMIT ? OFFSET ?'
         );
-        $stmt->execute([$userId, $folder, $limit, $offset]);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        // For LIMIT/OFFSET, use direct values instead of parameterized placeholders (MySQL PDO limitation)
+        $pdo = Database::connection();
+        $result = $pdo->query(
+            'SELECT * FROM imap_emails WHERE user_id = ' . $pdo->quote($userId) . 
+            ' AND folder = ' . $pdo->quote($folder) . 
+            ' ORDER BY received_at DESC LIMIT ' . (int)$limit . ' OFFSET ' . (int)$offset
+        );
+        return $result !== false ? $result->fetchAll(\PDO::FETCH_ASSOC) : [];
     }
 
     /**
@@ -145,9 +159,19 @@ final class ImapManager
      */
     private static function encryptPassword(string $password): string
     {
-        $key = hash('sha256', (string) Settings::get('APP_SECRET', 'default-secret'), true);
+        $appSecret = Settings::get('APP_SECRET', '');
+        if (empty($appSecret)) {
+            throw new \Exception('APP_SECRET is not configured. Cannot encrypt IMAP password.');
+        }
+
+        $key = hash('sha256', $appSecret, true);
         $iv = openssl_random_pseudo_bytes(16);
         $encrypted = openssl_encrypt($password, 'AES-256-CBC', $key, true, $iv);
+        
+        if ($encrypted === false) {
+            throw new \Exception('Failed to encrypt password');
+        }
+        
         return base64_encode($iv . $encrypted);
     }
 
@@ -157,12 +181,18 @@ final class ImapManager
     private static function decryptPassword(string $encrypted): string
     {
         try {
+            $appSecret = Settings::get('APP_SECRET', '');
+            if (empty($appSecret)) {
+                error_log('[ImapManager] APP_SECRET not configured for decryption');
+                return '';
+            }
+
             $data = base64_decode($encrypted, true);
             if ($data === false || strlen($data) < 16) {
                 return '';
             }
 
-            $key = hash('sha256', (string) Settings::get('APP_SECRET', 'default-secret'), true);
+            $key = hash('sha256', $appSecret, true);
             $iv = substr($data, 0, 16);
             $encrypted = substr($data, 16);
             $decrypted = openssl_decrypt($encrypted, 'AES-256-CBC', $key, true, $iv);

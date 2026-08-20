@@ -25,7 +25,9 @@ $unreadCount = $unreadCount ?? 0;
       <div class="email-header">
         <p class="muted">Compte: <strong><?= \App\View::e($account['email']) ?></strong></p>
         <p class="muted">Emails non lus: <strong><?= $unreadCount ?></strong></p>
-        <a href="<?= \App\View::e('/email/sync') ?>" class="btn-secondary">Synchroniser</a>
+        <form method="post" action="/email/sync" style="display: inline;">
+          <button type="submit" class="btn-secondary">Synchroniser</button>
+        </form>
       </div>
 
       <?php if (empty($emails)): ?>

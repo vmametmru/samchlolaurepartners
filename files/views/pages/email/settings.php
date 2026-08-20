@@ -45,12 +45,14 @@ $account = $account ?? null;
 
       <label>
         <span>Mot de passe IMAP</span>
-        <input class="input" type="password" name="password" placeholder="<?= $account ? '••••••••' : 'Votre mot de passe' ?>" required>
+        <input class="input" type="password" name="password" placeholder="<?= $account ? '••••••••' : 'Votre mot de passe' ?>">
         <small class="muted">
           <?php if ($account): ?>
             Laissez vide pour conserver le mot de passe actuel.
+          <?php else: ?>
+            Requis pour la première configuration.
           <?php endif; ?>
-          Pour Gmail, utilisez un <a href="https://support.google.com/accounts/answer/185833" target="_blank">mot de passe d'application</a>.
+          Pour Gmail, utilisez un <a href="https://support.google.com/accounts/answer/185833" target="_blank" rel="noopener noreferrer">mot de passe d'application</a>.
         </small>
       </label>
 
@@ -72,7 +74,7 @@ $account = $account ?? null;
         <li>Serveur: imap.gmail.com</li>
         <li>Port: 993</li>
         <li>Utilisateur: votreemail@gmail.com</li>
-        <li>Mot de passe: <a href="https://support.google.com/accounts/answer/185833" target="_blank">Générez un mot de passe d'application</a></li>
+        <li>Mot de passe: <a href="https://support.google.com/accounts/answer/185833" target="_blank" rel="noopener noreferrer">Générez un mot de passe d'application</a></li>
       </ul>
 
       <h4>Outlook / Hotmail</h4>

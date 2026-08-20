@@ -1,6 +1,44 @@
 <?php declare(strict_types=1);
 /** @var array $email */
 $email = $email ?? [];
+
+// Helper function for safe HTML sanitization
+function sanitizeEmailHtml(string $html): string {
+    $dom = new DOMDocument();
+    $dom->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_HTML_NOEMPTY);
+    
+    $xpath = new DOMXPath($dom);
+    
+    // Remove dangerous elements
+    foreach ($xpath->query('//*[@onclick or @onerror or @onload or @onmouseover]') as $node) {
+        $node->parentNode->removeChild($node);
+    }
+    
+    // Remove script tags and style tags
+    foreach ($xpath->query('//script | //style') as $node) {
+        $node->parentNode->removeChild($node);
+    }
+    
+    // Remove javascript: protocol from href/src
+    foreach ($xpath->query('//*[@href or @src]') as $node) {
+        foreach (['href', 'src'] as $attr) {
+            if ($node->hasAttribute($attr)) {
+                $value = $node->getAttribute($attr);
+                if (stripos($value, 'javascript:') === 0) {
+                    $node->removeAttribute($attr);
+                }
+            }
+        }
+    }
+    
+    // Export and clean up
+    $html = $dom->saveHTML();
+    $html = preg_replace('/<\?xml[^>]*\?>/', '', $html);
+    $html = preg_replace('/^<!DOCTYPE[^>]*>/', '', $html);
+    $html = str_replace(['<html>', '</html>', '<body>', '</body>'], '', $html);
+    
+    return $html;
+}
 ?>
 <section class="container section-lg">
   <div class="card card-body stack-md">
@@ -20,7 +58,7 @@ $email = $email ?? [];
           <p class="muted"><?= date('d/m/Y H:i', strtotime($email['received_at'])) ?></p>
         </div>
         <div class="email-actions">
-          <a href="/email/<?= (int) $email['id'] ?>/reply" class="btn-primary">Répondre</a>
+          <a href="/email/compose?reply_to=<?= (int) $email['id'] ?>" class="btn-primary">Répondre</a>
           <form method="post" action="/email/<?= (int) $email['id'] ?>/delete" style="display: inline;">
             <button type="submit" class="btn-danger" onclick="return confirm('Êtes-vous sûr?')">Supprimer</button>
           </form>
@@ -33,8 +71,7 @@ $email = $email ?? [];
         <?php
         // Display HTML if available, otherwise plain text
         if (!empty($email['body_html'])) {
-          // Sanitize HTML to prevent XSS while preserving formatting
-          echo strip_tags($email['body_html'], '<p><br><strong><em><u><h1><h2><h3><h4><h5><h6><ul><ol><li><a><img><table><tr><td><th>');
+          echo sanitizeEmailHtml($email['body_html']);
         } else {
           echo '<pre>' . \App\View::e($email['body_text']) . '</pre>';
         }

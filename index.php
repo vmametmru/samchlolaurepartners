@@ -263,8 +263,13 @@ try {
             break;
         case route($method, $path, 'POST', '#^/email/settings$#'):
             EmailController::updateSettings();
+        case route($method, $path, 'GET', '#^/email/sync$#'):
+            EmailController::sync();
+            break;
         case route($method, $path, 'POST', '#^/email/sync$#'):
             EmailController::sync();
+        case route($method, $path, 'POST', '#^/email/(\d+)/delete$#', $matches):
+            EmailController::delete((int) $matches[1]);
         case route($method, $path, 'GET', '#^/api/email/unread-count$#'):
             EmailController::unreadCount();
             break;
