@@ -25,8 +25,14 @@ final class EmailController extends Controller
 {
     /**
      * Open the hosting's webmail portal, single-signed-on when possible.
+     *
+     * cPanel's webmail SSO isn't a simple redirect: the browser itself must
+     * POST the session token to the login endpoint so the resulting session
+     * cookie is set for the user's own browser (see WebmailSso). This
+     * renders a tiny auto-submitting HTML form to do that; on any failure
+     * it falls back to a plain redirect to the manual webmail login page.
      */
-    public static function openWebmail(): never
+    public static function openWebmail(): void
     {
         $user = Auth::requireUser();
 
@@ -35,10 +41,11 @@ final class EmailController extends Controller
         }
 
         $email = (string) ($user['email'] ?? '');
-        $ssoUrl = $email !== '' ? WebmailSso::createSessionUrl($email) : null;
+        $session = $email !== '' ? WebmailSso::createSession($email) : null;
 
-        if ($ssoUrl !== null) {
-            self::redirect($ssoUrl);
+        if ($session !== null) {
+            self::renderAutoSubmit($session['post_url'], $session['session']);
+            return;
         }
 
         $domain = trim((string) Settings::get('EMAIL_DOMAIN', 'grand-baie-maurice.com'));
@@ -47,6 +54,31 @@ final class EmailController extends Controller
             'Connexion automatique indisponible : connectez-vous avec votre email et le mot de passe configuré dans votre profil.',
             'info'
         );
+    }
+
+    /**
+     * Render a minimal HTML page that auto-submits the cPanel webmail
+     * session token via POST, landing the browser directly in Roundcube
+     * (goto_uri) once cPanel accepts the session.
+     */
+    private static function renderAutoSubmit(string $postUrl, string $session): void
+    {
+        header('Content-Type: text/html; charset=utf-8');
+        ?>
+<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="utf-8"><title>Connexion au Webmail…</title></head>
+<body>
+  <p>Connexion au Webmail en cours…</p>
+  <form id="webmail-sso-form" method="post" action="<?= htmlspecialchars($postUrl, ENT_QUOTES, 'UTF-8') ?>">
+    <input type="hidden" name="session" value="<?= htmlspecialchars($session, ENT_QUOTES, 'UTF-8') ?>">
+    <input type="hidden" name="goto_uri" value="/3rdparty/roundcube/index.php">
+  </form>
+  <script>document.getElementById('webmail-sso-form').submit();</script>
+</body>
+</html>
+        <?php
+        exit;
     }
 
     /**
