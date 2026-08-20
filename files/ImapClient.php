@@ -106,8 +106,8 @@ final class ImapClient
                 $header = @imap_headerinfo($this->mailbox, $i);
                 if (!$header) continue;
 
-                $body = @imap_body($this->mailbox, $i);
                 $structure = @imap_fetchstructure($this->mailbox, $i);
+                $bodies = $this->extractBodies($this->mailbox, $i, $structure);
 
                 $emails[] = [
                     'uid' => isset($header->Uid) ? (int) $header->Uid : $i,
@@ -118,8 +118,8 @@ final class ImapClient
                     'to_emails' => $this->getRecipients($header->to ?? []),
                     'cc_emails' => $this->getRecipients($header->cc ?? []),
                     'received_at' => gmdate('Y-m-d H:i:s', strtotime($header->date ?? 'now')),
-                    'body_text' => $body ?: '',
-                    'body_html' => $this->extractHtmlBody($this->mailbox, $i, $structure) ?: '',
+                    'body_text' => $bodies['text'],
+                    'body_html' => $bodies['html'],
                     'is_read' => isset($header->Recent) && $header->Recent == 'R' ? 1 : 0,
                 ];
             }
@@ -146,8 +146,8 @@ final class ImapClient
                 return null;
             }
 
-            $body = @imap_body($this->mailbox, $uid);
             $structure = @imap_fetchstructure($this->mailbox, $uid);
+            $bodies = $this->extractBodies($this->mailbox, $uid, $structure);
 
             return [
                 'uid' => isset($header->Uid) ? (int) $header->Uid : $uid,
@@ -158,8 +158,8 @@ final class ImapClient
                 'to_emails' => $this->getRecipients($header->to ?? []),
                 'cc_emails' => $this->getRecipients($header->cc ?? []),
                 'received_at' => gmdate('Y-m-d H:i:s', strtotime($header->date ?? 'now')),
-                'body_text' => $body ?: '',
-                'body_html' => $this->extractHtmlBody($this->mailbox, $uid, $structure) ?: '',
+                'body_text' => $bodies['text'],
+                'body_html' => $bodies['html'],
                 'is_read' => isset($header->Recent) && $header->Recent == 'R' ? 1 : 0,
             ];
         } catch (\Throwable $e) {
@@ -248,25 +248,164 @@ final class ImapClient
     }
 
     /**
-     * Extract HTML body from multipart message
+     * Walk the full MIME structure (recursing into nested multipart/* such
+     * as multipart/related inside multipart/mixed) and extract decoded
+     * text/plain and text/html bodies, embedding any inline (cid:) images
+     * referenced by the HTML as data URIs so they display without needing
+     * separate attachment storage/routes.
+     *
+     * @return array{text: string, html: string}
      */
-    private function extractHtmlBody($mailbox, int $msgnum, ?object $structure): ?string
+    private function extractBodies($mailbox, int $msgnum, ?object $structure): array
     {
-        if (!$structure) {
+        $parts = ['html' => null, 'text' => null, 'images' => []];
+
+        if ($structure) {
+            $this->walkStructure($mailbox, $msgnum, $structure, '', $parts);
+        }
+
+        $html = $parts['html'];
+        if ($html !== null && !empty($parts['images'])) {
+            $html = $this->embedInlineImages($html, $parts['images']);
+        }
+
+        return [
+            'text' => $parts['text'] ?? '',
+            'html' => $html ?? '',
+        ];
+    }
+
+    /**
+     * Recursively visit every leaf part of a (possibly nested) MIME
+     * structure, using IMAP's dotted part-number scheme (e.g. "2.1") so
+     * imap_fetchbody() can address parts inside a nested multipart.
+     */
+    private function walkStructure($mailbox, int $msgnum, object $structure, string $prefix, array &$parts): void
+    {
+        if ((int) $structure->type === TYPEMULTIPART && !empty($structure->parts)) {
+            foreach ($structure->parts as $index => $part) {
+                $partNum = $prefix === '' ? (string) ($index + 1) : $prefix . '.' . ($index + 1);
+                $this->walkStructure($mailbox, $msgnum, $part, $partNum, $parts);
+            }
+            return;
+        }
+
+        // Leaf (non-multipart) part. For a non-multipart message, IMAP
+        // addresses the whole body as part "1".
+        $partNum = $prefix === '' ? '1' : $prefix;
+        $type = (int) $structure->type;
+        $subtype = strtolower($structure->subtype ?? '');
+
+        if ($type === TYPETEXT && $subtype === 'html' && $parts['html'] === null) {
+            $parts['html'] = $this->fetchDecodedTextPart($mailbox, $msgnum, $partNum, $structure);
+            return;
+        }
+
+        if ($type === TYPETEXT && $subtype === 'plain' && $parts['text'] === null) {
+            $parts['text'] = $this->fetchDecodedTextPart($mailbox, $msgnum, $partNum, $structure);
+            return;
+        }
+
+        if ($type === TYPEIMAGE) {
+            $cid = $this->partContentId($structure);
+            if ($cid !== null) {
+                $raw = $this->fetchRawPart($mailbox, $msgnum, $partNum, $structure);
+                $parts['images'][$cid] = 'data:image/' . $subtype . ';base64,' . base64_encode($raw);
+            }
+        }
+    }
+
+    /**
+     * Fetch a part's raw content, decoding its Content-Transfer-Encoding
+     * (base64/quoted-printable/etc.) so callers get the real bytes instead
+     * of the still-encoded wire format.
+     */
+    private function fetchRawPart($mailbox, int $msgnum, string $partNum, object $structure): string
+    {
+        $data = @imap_fetchbody($mailbox, $msgnum, $partNum);
+        if ($data === false) {
+            return '';
+        }
+
+        switch ((int) ($structure->encoding ?? ENC7BIT)) {
+            case ENCBASE64:
+                $decoded = base64_decode($data, true);
+                return $decoded !== false ? $decoded : $data;
+            case ENCQUOTEDPRINTABLE:
+                return quoted_printable_decode($data);
+            default:
+                return $data;
+        }
+    }
+
+    /**
+     * Like fetchRawPart(), but additionally converts the part's declared
+     * charset to UTF-8 so text/html and text/plain bodies render correctly
+     * regardless of the sender's original encoding.
+     */
+    private function fetchDecodedTextPart($mailbox, int $msgnum, string $partNum, object $structure): string
+    {
+        $data = $this->fetchRawPart($mailbox, $msgnum, $partNum, $structure);
+
+        $charset = $this->partCharset($structure);
+        if ($charset !== null && strcasecmp($charset, 'UTF-8') !== 0 && strcasecmp($charset, 'US-ASCII') !== 0) {
+            $converted = @iconv($charset, 'UTF-8//IGNORE', $data);
+            if ($converted !== false) {
+                $data = $converted;
+            }
+        }
+
+        return $data;
+    }
+
+    /**
+     * Read the CHARSET parameter from a part's structure, if present.
+     */
+    private function partCharset(object $structure): ?string
+    {
+        if (empty($structure->parameters)) {
             return null;
         }
-
-        if ($structure->type == 1) { // multipart
-            foreach ($structure->parts as $i => $part) {
-                if ($part->type == 0 && $part->subtype == 'html') {
-                    return @imap_fetchbody($mailbox, $msgnum, (string) ($i + 1));
-                }
+        foreach ($structure->parameters as $param) {
+            if (isset($param->attribute) && strcasecmp($param->attribute, 'CHARSET') === 0) {
+                return (string) $param->value;
             }
-        } elseif ($structure->type == 0 && $structure->subtype == 'html') {
-            return @imap_fetchbody($mailbox, $msgnum, '1');
         }
-
         return null;
+    }
+
+    /**
+     * Read a part's Content-ID (used to match inline images referenced by
+     * "cid:" URLs in an HTML body), stripped of angle brackets.
+     */
+    private function partContentId(object $structure): ?string
+    {
+        if (!empty($structure->id)) {
+            return trim((string) $structure->id, '<>');
+        }
+        return null;
+    }
+
+    /**
+     * Replace cid: image references in HTML with inline data URIs so
+     * images embedded via multipart/related display without needing a
+     * separate attachment-serving route.
+     *
+     * @param array<string, string> $images Map of Content-ID => data URI
+     */
+    private function embedInlineImages(string $html, array $images): string
+    {
+        return preg_replace_callback(
+            '/\bsrc\s*=\s*(["\'])cid:([^"\']+)\1/i',
+            function (array $matches) use ($images): string {
+                $cid = $matches[2];
+                if (isset($images[$cid])) {
+                    return 'src="' . $images[$cid] . '"';
+                }
+                return $matches[0];
+            },
+            $html
+        ) ?? $html;
     }
 
     /**
