@@ -165,12 +165,15 @@ final class ImapManager
      */
     private static function encryptPassword(string $password): string
     {
-        $appSecret = Settings::get('APP_SECRET', '');
+        $appSecret = self::encryptionSecret();
         if (empty($appSecret)) {
-            throw new \Exception('APP_SECRET is not configured. Cannot encrypt password.');
+            throw new \Exception(
+                'No encryption secret is configured (APP_SECRET/JWT_SECRET/AUTH_SECRET). ' .
+                'Cannot encrypt password.'
+            );
         }
 
-        $key = hash('sha256', $appSecret, true);
+        $key = self::deriveKey($appSecret);
         $iv = openssl_random_pseudo_bytes(16);
         $encrypted = openssl_encrypt($password, 'AES-256-CBC', $key, true, $iv);
 
@@ -187,9 +190,9 @@ final class ImapManager
     private static function decryptPassword(string $encrypted): string
     {
         try {
-            $appSecret = Settings::get('APP_SECRET', '');
+            $appSecret = self::encryptionSecret();
             if (empty($appSecret)) {
-                error_log('[ImapManager] APP_SECRET not configured for decryption');
+                error_log('[ImapManager] No encryption secret configured for decryption');
                 return '';
             }
 
@@ -198,7 +201,7 @@ final class ImapManager
                 return '';
             }
 
-            $key = hash('sha256', $appSecret, true);
+            $key = self::deriveKey($appSecret);
             $iv = substr($data, 0, 16);
             $encryptedData = substr($data, 16);
             $decrypted = openssl_decrypt($encryptedData, 'AES-256-CBC', $key, true, $iv);
@@ -207,6 +210,31 @@ final class ImapManager
             error_log('[ImapManager] Decryption failed: ' . $e->getMessage());
             return '';
         }
+    }
+
+    /**
+     * Resolve the secret used to derive the password encryption key.
+     *
+     * A dedicated APP_SECRET setting is preferred when present, but this
+     * install already generates and stores a JWT_SECRET at install time
+     * (see install/install.php), so we fall back to it (then AUTH_SECRET)
+     * rather than requiring admins to manually configure a brand new
+     * setting just for the webmail feature.
+     */
+    private static function encryptionSecret(): string
+    {
+        $secret = Settings::get('APP_SECRET', Settings::get('JWT_SECRET', Settings::get('AUTH_SECRET', '')));
+        return $secret ?? '';
+    }
+
+    /**
+     * Derive an AES-256 key from the configured secret, with domain
+     * separation so this key is distinct from the one used to sign auth
+     * tokens even when both fall back to the same underlying JWT_SECRET.
+     */
+    private static function deriveKey(string $appSecret): string
+    {
+        return hash('sha256', $appSecret . '|imap-password-encryption-v1', true);
     }
 }
 
