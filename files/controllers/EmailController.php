@@ -49,11 +49,18 @@ final class EmailController extends Controller
         }
 
         $domain = trim((string) Settings::get('EMAIL_DOMAIN', 'grand-baie-maurice.com'));
-        self::redirect(
-            'https://webmail.' . $domain,
-            'Connexion automatique indisponible : connectez-vous avec votre email et le mot de passe configuré dans votre profil.',
-            'info'
-        );
+        $message = 'Connexion automatique indisponible : connectez-vous avec votre email et le mot de passe configuré dans votre profil.';
+        // Surface the technical reason to admins only (never to partners),
+        // so a misconfiguration (missing/invalid CPANEL_* settings, wrong
+        // API token, etc.) can be diagnosed directly from the browser
+        // without needing hosting-level error log access.
+        if (($user['role'] ?? '') === 'admin') {
+            $reason = WebmailSso::getLastError();
+            if ($reason !== '') {
+                $message .= ' [admin] ' . $reason;
+            }
+        }
+        self::redirect('https://webmail.' . $domain, $message, 'info');
     }
 
     /**

@@ -31,6 +31,20 @@ namespace App;
 final class WebmailSso
 {
     /**
+     * Human-readable reason the last createSession() call failed/returned
+     * null, e.g. "CPANEL_HOST/CPANEL_USERNAME/CPANEL_API_TOKEN non
+     * configurés" or the raw cPanel API error. Surfaced to admins only
+     * (see EmailController::openWebmail()) so a misconfiguration can be
+     * diagnosed without needing hosting-level log access.
+     */
+    private static string $lastError = '';
+
+    public static function getLastError(): string
+    {
+        return self::$lastError;
+    }
+
+    /**
      * Request a one-time webmail login session for the given mailbox.
      * Returns ['post_url' => string, 'session' => string] on success, or
      * null if SSO isn't configured or the API call fails — callers must
@@ -40,18 +54,26 @@ final class WebmailSso
      */
     public static function createSession(string $email): ?array
     {
+        self::$lastError = '';
+
         $host = trim((string) Settings::get('CPANEL_HOST', ''));
         $username = trim((string) Settings::get('CPANEL_USERNAME', ''));
         $apiToken = trim((string) Settings::get('CPANEL_API_TOKEN', ''));
 
         $atPos = strrpos($email, '@');
-        if ($host === '' || $username === '' || $apiToken === '' || $atPos === false) {
+        if ($host === '' || $username === '' || $apiToken === '') {
+            self::$lastError = 'CPANEL_HOST/CPANEL_USERNAME/CPANEL_API_TOKEN non configurés (page Configuration du serveur de messagerie).';
+            return null;
+        }
+        if ($atPos === false) {
+            self::$lastError = 'Adresse email utilisateur invalide : "' . $email . '".';
             return null;
         }
 
         $login = substr($email, 0, $atPos);
         $domain = substr($email, $atPos + 1);
         if ($login === '' || $domain === '') {
+            self::$lastError = 'Adresse email utilisateur invalide : "' . $email . '".';
             return null;
         }
 
@@ -72,11 +94,13 @@ final class WebmailSso
         curl_close($ch);
 
         if ($response === false) {
+            self::$lastError = 'Requête cURL vers ' . $host . ' échouée : ' . $curlError;
             error_log('[WebmailSso] cPanel API request failed: ' . $curlError);
             return null;
         }
 
         if ($httpCode !== 200) {
+            self::$lastError = 'cPanel a répondu HTTP ' . $httpCode . ' (vérifiez CPANEL_HOST/CPANEL_USERNAME/CPANEL_API_TOKEN) : ' . substr((string) $response, 0, 300);
             error_log('[WebmailSso] cPanel API returned HTTP ' . $httpCode . ': ' . substr((string) $response, 0, 500));
             return null;
         }
@@ -84,6 +108,7 @@ final class WebmailSso
         $data = json_decode((string) $response, true);
         if (!is_array($data) || empty($data['status'])) {
             $errorDetail = is_array($data) ? ($data['errors'][0] ?? json_encode($data)) : (string) $response;
+            self::$lastError = 'Appel API cPanel refusé : ' . (is_string($errorDetail) ? $errorDetail : json_encode($errorDetail));
             error_log('[WebmailSso] cPanel API call unsuccessful: ' . $errorDetail);
             return null;
         }
@@ -100,6 +125,7 @@ final class WebmailSso
         }
 
         if (!is_string($session) || $session === '' || !is_string($sessionToken) || $sessionToken === '') {
+            self::$lastError = 'Réponse cPanel inattendue (session/token manquant) : ' . substr((string) $response, 0, 300);
             return null;
         }
 
