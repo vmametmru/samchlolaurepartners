@@ -343,6 +343,21 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .calendar-board.cal-name-hidden { --cal-name-w: 0px; }
 .calendar-board.cal-name-hidden .cal-col-name { display: none; }
 
+/* The "Emplacement" (location) column is hidden by default (see the
+   data-calendar-location-toggle checkbox, unchecked by default) for the same
+   reason as the property-name column above: it leaves more horizontal room
+   for the date columns on narrow/portrait phone screens. */
+.calendar-board.cal-location-hidden { --cal-location-w: 0px; }
+.calendar-board.cal-location-hidden .cal-col-location { display: none; }
+
+/* Legend for the "Nombre de personnes"/"Lit"/"Canapé-lit"/"Emplacement" cell
+   background colours (see $locationColors in calendar.php): each distinct
+   "Emplacement" gets its own pale colour swatch shown here with its name. */
+.calendar-location-legend { margin-top: .75rem; display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; font-size: .85rem; color: var(--muted); }
+.calendar-location-legend-title { font-weight: 600; }
+.calendar-location-legend-item { display: inline-flex; align-items: center; gap: .35rem; }
+.calendar-location-legend-swatch { width: .9rem; height: .9rem; border-radius: .25rem; border: 1px solid var(--border, #e5e7eb); display: inline-block; }
+
 /* /admin/sync "Disponibilités des 3 prochains mois" table: local-cache-only
    read-only availability grid, one row per property (stacked, no
    side-by-side columns), reusing the calendar-board-table/cal-cell/

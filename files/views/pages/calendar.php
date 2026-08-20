@@ -76,6 +76,20 @@ $bookingPolicies = $bookingPolicies ?? [];
       }
       $locations = array_keys($locations);
       sort($locations, SORT_NATURAL | SORT_FLAG_CASE);
+
+      // Every distinct "Emplacement" gets its own pale background colour,
+      // shared by the "Nombre de personnes"/"Lit"/"Canapé-lit"/"Emplacement"
+      // cells of every row at that location, so properties in the same
+      // physical location are visually grouped at a glance. Cycles through a
+      // fixed palette if there are more locations than swatches.
+      $locationColorPalette = [
+        '#FCE7F3', '#DBEAFE', '#D1FAE5', '#FEF3C7', '#E0E7FF',
+        '#FFE4E6', '#ECFCCB', '#CFFAFE', '#FDE68A', '#E9D5FF',
+      ];
+      $locationColors = [];
+      foreach ($locations as $locIndex => $loc) {
+        $locationColors[$loc] = $locationColorPalette[$locIndex % count($locationColorPalette)];
+      }
     ?>
     <div class="calendar-toolbar">
       <label class="calendar-name-toggle">
@@ -83,6 +97,10 @@ $bookingPolicies = $bookingPolicies ?? [];
         <?= \App\View::e(\App\I18n::t('calendar.show_property_name')) ?>
       </label>
       <?php if ($locations !== []): ?>
+        <label class="calendar-name-toggle">
+          <input type="checkbox" data-calendar-location-toggle>
+          <?= \App\View::e(\App\I18n::t('calendar.show_location')) ?>
+        </label>
         <label class="calendar-location-toggle">
           <span class="cal-icon" aria-hidden="true">📍</span>
           <span><?= \App\View::e(\App\I18n::t('calendar.col_location')) ?></span>
@@ -107,7 +125,7 @@ $bookingPolicies = $bookingPolicies ?? [];
       <button type="button" class="btn-primary calendar-view-selection-btn" data-multi-cart-view-btn hidden><?= \App\View::e(\App\I18n::t('calendar.view_selection')) ?></button>
     </div>
 
-    <div class="calendar-board cal-name-hidden" data-calendar-board data-multi-calendar-board data-total-guests="<?= (int) $countedGuests ?>" data-babies="<?= (int) $childrenUnder3 ?>" style="--cal-visible-days: <?= (int) $visibleDays ?>;">
+    <div class="calendar-board cal-name-hidden cal-location-hidden" data-calendar-board data-multi-calendar-board data-total-guests="<?= (int) $countedGuests ?>" data-babies="<?= (int) $childrenUnder3 ?>" style="--cal-visible-days: <?= (int) $visibleDays ?>;">
       <table class="calendar-board-table">
         <thead>
           <tr>
@@ -153,6 +171,8 @@ $bookingPolicies = $bookingPolicies ?? [];
             $propertyName = (string) ($property['name'] ?? '');
             $maxGuests = (int) ($property['max_guests'] ?? 0);
             $propertyLocation = trim((string) ($row['location'] ?? ''));
+            $rowLocationColor = $propertyLocation !== '' ? ($locationColors[$propertyLocation] ?? null) : null;
+            $rowLocationStyle = $rowLocationColor !== null ? 'background-color:' . \App\View::e($rowLocationColor) . ';' : '';
           ?>
             <tr data-property-row data-property-id="<?= $propertyId ?>" data-property-name="<?= \App\View::e($propertyName) ?>" data-property-photo="<?= \App\View::e($photo) ?>" data-max-guests="<?= $maxGuests ?>" data-capacity-ok="<?= $capacityOk ? '1' : '0' ?>" data-property-location="<?= \App\View::e($propertyLocation) ?>">
               <td class="cal-fixed cal-col-photo">
@@ -164,10 +184,10 @@ $bookingPolicies = $bookingPolicies ?? [];
                   <p class="muted cal-capacity-note"><span class="cal-warning-icon" aria-hidden="true">⚠️</span><?= \App\View::e(\App\I18n::t('calendar.load_failed')) ?></p>
                 <?php endif; ?>
               </td>
-              <td class="cal-fixed cal-col-num cal-col-capacity"><?= (int) ($property['max_guests'] ?? 0) ?></td>
-              <td class="cal-fixed cal-col-num cal-col-rooms"><?= (int) ($property['bedrooms'] ?? 0) ?></td>
-              <td class="cal-fixed cal-col-num cal-col-sofa"><?= $row['sofa_bed_count'] !== null ? (int) $row['sofa_bed_count'] : '—' ?></td>
-              <td class="cal-fixed cal-col-location"><?= $propertyLocation !== '' ? \App\View::e($propertyLocation) : '—' ?></td>
+              <td class="cal-fixed cal-col-num cal-col-capacity" style="<?= $rowLocationStyle ?>"><?= (int) ($property['max_guests'] ?? 0) ?></td>
+              <td class="cal-fixed cal-col-num cal-col-rooms" style="<?= $rowLocationStyle ?>"><?= (int) ($property['bedrooms'] ?? 0) ?></td>
+              <td class="cal-fixed cal-col-num cal-col-sofa" style="<?= $rowLocationStyle ?>"><?= $row['sofa_bed_count'] !== null ? (int) $row['sofa_bed_count'] : '—' ?></td>
+              <td class="cal-fixed cal-col-location" style="<?= $rowLocationStyle ?>"><?= $propertyLocation !== '' ? \App\View::e($propertyLocation) : '—' ?></td>
               <?php if (!empty($row['restricted'])): ?>
                 <td class="cal-cell cal-restricted" colspan="<?= count($dates) ?>">
                   <p class="muted cal-restricted-note"><?= \App\View::e(\App\I18n::t('calendar.restricted_note')) ?></p>
@@ -207,6 +227,17 @@ $bookingPolicies = $bookingPolicies ?? [];
         </tbody>
       </table>
     </div>
+    <?php if ($locationColors !== []): ?>
+      <div class="calendar-location-legend" data-calendar-location-legend>
+        <span class="calendar-location-legend-title"><?= \App\View::e(\App\I18n::t('calendar.location_legend_title')) ?></span>
+        <?php foreach ($locationColors as $loc => $color): ?>
+          <span class="calendar-location-legend-item">
+            <span class="calendar-location-legend-swatch" style="background-color:<?= \App\View::e($color) ?>;"></span>
+            <?= \App\View::e($loc) ?>
+          </span>
+        <?php endforeach; ?>
+      </div>
+    <?php endif; ?>
     <?php $calendarUpdatedAtLabel = \App\controllers\PageController::calendarUpdatedAtLabel(); ?>
     <?php if ($calendarUpdatedAtLabel !== null): ?>
       <p class="muted calendar-updated-note"><?= \App\View::e($calendarUpdatedAtLabel) ?></p>

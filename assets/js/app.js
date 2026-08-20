@@ -40,6 +40,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initCalendarFilterLoading,
     initCalendarFilterSubmitState,
     initCalendarNameColumnToggle,
+    initCalendarLocationColumnToggle,
     initCalendarLocationFilter,
     initCalendarGuestSlider,
     initHelpDialogs,
@@ -397,6 +398,40 @@ function initCalendarNameColumnToggle() {
 
   toggle.addEventListener('change', () => {
     board.classList.toggle('cal-name-hidden', !toggle.checked);
+    try {
+      window.localStorage.setItem(storageKey, toggle.checked ? '1' : '0');
+    } catch (error) {
+      // Ignore storage errors (e.g. private browsing): the choice simply
+      // won't persist across page loads, which is a harmless degradation.
+    }
+  });
+}
+
+/**
+ * Same behaviour as initCalendarNameColumnToggle() above, but for the
+ * "Emplacement" (location) column: hidden by default (see the
+ * "cal-location-hidden" class rendered server-side in calendar.php) to save
+ * width, revealed via the "Afficher l'Emplacement" checkbox and remembered
+ * in localStorage across page loads.
+ */
+function initCalendarLocationColumnToggle() {
+  const board = document.querySelector('[data-calendar-board]');
+  const toggle = document.querySelector('[data-calendar-location-toggle]');
+  if (!board || !toggle) return;
+
+  const storageKey = 'calendarLocationColumnVisible';
+  let stored = null;
+  try {
+    stored = window.localStorage.getItem(storageKey);
+  } catch (error) {
+    stored = null;
+  }
+  const visible = stored === '1';
+  toggle.checked = visible;
+  board.classList.toggle('cal-location-hidden', !visible);
+
+  toggle.addEventListener('change', () => {
+    board.classList.toggle('cal-location-hidden', !toggle.checked);
     try {
       window.localStorage.setItem(storageKey, toggle.checked ? '1' : '0');
     } catch (error) {
