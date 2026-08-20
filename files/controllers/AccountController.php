@@ -41,7 +41,11 @@ final class AccountController extends Controller
         $stmt = Database::connection()->prepare('SELECT * FROM users WHERE id = ? LIMIT 1');
         $stmt->execute([$user['id']]);
         $userData = $stmt->fetch(PDO::FETCH_ASSOC) ?: $user;
-        View::render('pages/account', ['pageTitle' => 'Mon profil', 'userData' => $userData]);
+        View::render('pages/account', [
+            'pageTitle' => 'Mon profil',
+            'userData' => $userData,
+            'showEmailPassword' => in_array($user['role'] ?? '', ['admin', 'partner'], true),
+        ]);
     }
 
     public static function updateProfile(): never
@@ -82,6 +86,17 @@ final class AccountController extends Controller
                 self::redirect('/account', 'Le nouveau mot de passe doit contenir au moins 8 caractères.', 'error');
             }
             Auth::resetPassword($userId, $newPassword);
+        }
+
+        // Email (webmail/IMAP) password: only admins and partners have
+        // access to the webmail feature (see EmailController), and the
+        // centralized IMAP server (grand-baie-maurice.com) authenticates
+        // each user with their own mailbox password.
+        if (($user['role'] ?? '') === 'admin' || ($user['role'] ?? '') === 'partner') {
+            $emailPassword = trim((string) ($_POST['email_password'] ?? ''));
+            if ($emailPassword !== '') {
+                \App\ImapManager::setEmailPassword($userId, $emailPassword);
+            }
         }
 
         Auth::refreshSession($userId);

@@ -28,10 +28,10 @@ final class EmailController extends Controller
             self::redirect('/account', 'Accès non autorisé.', 'error');
         }
 
-        $account = ImapManager::getAccount((int) $user['id']);
+        $params = ImapManager::getConnectionParams((int) $user['id']);
         $emails = [];
 
-        if ($account) {
+        if ($params) {
             $emails = ImapManager::getEmails((int) $user['id'], 'INBOX', 50, 0);
         }
 
@@ -39,7 +39,7 @@ final class EmailController extends Controller
 
         View::render('pages/email/inbox', [
             'pageTitle' => 'Email',
-            'account' => $account,
+            'account' => $params,
             'emails' => $emails,
             'unreadCount' => $unreadCount,
         ]);
@@ -132,9 +132,9 @@ final class EmailController extends Controller
             self::redirect('/email/compose', 'Tous les champs sont requis.', 'error');
         }
 
-        $account = ImapManager::getAccount((int) $user['id']);
-        if (!$account) {
-            self::redirect('/email/compose', 'Compte IMAP non configuré.', 'error');
+        $params = ImapManager::getConnectionParams((int) $user['id']);
+        if (!$params) {
+            self::redirect('/email/compose', 'Configurez votre mot de passe email dans votre profil avant d\'envoyer un message.', 'error');
         }
 
         // Send via partner's email if configured
@@ -147,7 +147,7 @@ final class EmailController extends Controller
         }
 
         if (!$partner) {
-            $partner = ['email' => $account['email'], 'name' => 'Support'];
+            $partner = ['email' => $params['email'], 'name' => 'Support'];
         }
 
         try {
@@ -161,74 +161,6 @@ final class EmailController extends Controller
     }
 
     /**
-     * Show IMAP configuration page
-     */
-    public static function settings(): void
-    {
-        $user = Auth::requireUser();
-        
-        if (!self::isEmailAllowed($user)) {
-            self::redirect('/account', 'Accès non autorisé.', 'error');
-        }
-
-        $account = ImapManager::getAccount((int) $user['id']);
-        
-        // Don't expose the decrypted password to the view
-        if ($account) {
-            unset($account['imap_password']);
-        }
-
-        View::render('pages/email/settings', [
-            'pageTitle' => 'Paramètres Email',
-            'account' => $account,
-        ]);
-    }
-
-    /**
-     * Save IMAP configuration
-     */
-    public static function updateSettings(): never
-    {
-        $user = Auth::requireUser();
-        
-        if (!self::isEmailAllowed($user)) {
-            self::redirect('/email/settings', 'Accès non autorisé.', 'error');
-        }
-
-        $email = trim((string) ($_POST['email'] ?? ''));
-        $server = trim((string) ($_POST['server'] ?? ''));
-        $port = (int) ($_POST['port'] ?? 993);
-        $username = trim((string) ($_POST['username'] ?? ''));
-        $password = (string) ($_POST['password'] ?? '');
-
-        if (empty($email) || empty($server) || empty($username)) {
-            self::redirect('/email/settings', 'Email, serveur et nom d\'utilisateur sont requis.', 'error');
-        }
-
-        // If password is empty, use existing password
-        if (empty($password)) {
-            $account = ImapManager::getAccount((int) $user['id']);
-            if (!$account) {
-                self::redirect('/email/settings', 'Un mot de passe est requis pour la première configuration.', 'error');
-            }
-            $password = (string) $account['imap_password'];
-        }
-
-        // Test connection
-        $client = new ImapClient($server, $port, $username, $password, $email);
-        if (!$client->connect()) {
-            self::redirect('/email/settings', 'Impossible de se connecter au serveur IMAP.', 'error');
-        }
-        $client->disconnect();
-
-        // Save configuration
-        ImapManager::saveAccount((int) $user['id'], $email, $server, $port, $username, $password);
-
-        // Sync emails
-        self::sync();
-    }
-
-    /**
      * Synchronize emails with IMAP server
      */
     public static function sync(): never
@@ -239,18 +171,18 @@ final class EmailController extends Controller
             self::redirect('/email', 'Accès non autorisé.', 'error');
         }
 
-        $account = ImapManager::getAccount((int) $user['id']);
-        if (!$account) {
-            self::redirect('/email/settings', 'Compte IMAP non configuré.', 'error');
+        $params = ImapManager::getConnectionParams((int) $user['id']);
+        if (!$params) {
+            self::redirect('/account', 'Configurez votre mot de passe email dans votre profil avant de synchroniser.', 'error');
         }
 
         try {
             $client = new ImapClient(
-                (string) $account['imap_server'],
-                (int) $account['imap_port'],
-                (string) $account['imap_username'],
-                (string) $account['imap_password'],
-                (string) $account['email']
+                (string) $params['imap_host'],
+                (int) $params['imap_port'],
+                (string) $params['email'],
+                (string) $params['password'],
+                (string) $params['email']
             );
 
             if (!$client->connect()) {
@@ -267,7 +199,7 @@ final class EmailController extends Controller
             self::redirect('/email', 'Emails synchronisés avec succès (' . count($emails) . ' emails).');
         } catch (\Throwable $e) {
             error_log('[EmailController] Sync failed: ' . $e->getMessage());
-            self::redirect('/email', 'Erreur lors de la synchronisation des emails.', 'error');
+            self::redirect('/email', 'Erreur lors de la synchronisation des emails. Vérifiez votre mot de passe email dans votre profil.', 'error');
         }
     }
 

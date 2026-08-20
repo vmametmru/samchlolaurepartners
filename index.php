@@ -258,11 +258,6 @@ try {
             break;
         case route($method, $path, 'POST', '#^/email/send$#'):
             EmailController::send();
-        case route($method, $path, 'GET', '#^/email/settings$#'):
-            EmailController::settings();
-            break;
-        case route($method, $path, 'POST', '#^/email/settings$#'):
-            EmailController::updateSettings();
         case route($method, $path, 'GET', '#^/email/sync$#'):
             EmailController::sync();
             break;

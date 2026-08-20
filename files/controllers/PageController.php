@@ -1706,13 +1706,6 @@ final class PageController extends Controller
             trim((string) ($_POST['smtp_pass'] ?? '')) ?: null,
             $partnerId,
         ]);
-        
-        // Save email password if provided
-        $emailPassword = trim((string) ($_POST['email_password'] ?? ''));
-        if (!empty($emailPassword)) {
-            ImapManager::setEmailPassword((int) $user['id'], $emailPassword);
-        }
-        
         self::redirect('/partner/settings', 'Paramètres sauvegardés.');
     }
 
@@ -2194,7 +2187,7 @@ final class PageController extends Controller
      * Admin "Communication" page (/admin/communication): pick one, several
      * or every partner, write a subject + a rich-text message, optionally
      * attach a file, and send it through the "Communication Admin"
-     * template with the default SMTP credentials of /admin/smtp-settings.
+     * template with the default SMTP credentials of /admin/email-server-settings.
      */
     public static function adminCommunication(): void
     {

@@ -12,14 +12,14 @@ $unreadCount = $unreadCount ?? 0;
       <h1>Email</h1>
       <div class="section-actions">
         <a href="/email/compose" class="btn-primary">Nouvel email</a>
-        <a href="/email/settings" class="btn">Paramètres</a>
+        <a href="/account" class="btn">Paramètres</a>
       </div>
     </div>
 
     <?php if (!$account): ?>
       <div class="alert alert-warning">
-        <p>Vous n'avez pas encore configuré votre compte email IMAP.</p>
-        <p><a href="/email/settings">Configurer mon compte email →</a></p>
+        <p>Vous n'avez pas encore configuré votre mot de passe email.</p>
+        <p><a href="/account">Configurer mon mot de passe email →</a></p>
       </div>
     <?php else: ?>
       <div class="email-header">

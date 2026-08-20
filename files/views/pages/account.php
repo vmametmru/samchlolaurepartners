@@ -1,6 +1,8 @@
 <?php declare(strict_types=1);
 /** @var array $userData */
+/** @var bool $showEmailPassword */
 $userData = $userData ?? [];
+$showEmailPassword = $showEmailPassword ?? false;
 ?>
 <section class="container section-lg narrow">
   <div class="card card-body stack-md">
@@ -19,6 +21,16 @@ $userData = $userData ?? [];
       <p class="muted">Laissez les champs suivants vides pour conserver votre mot de passe actuel.</p>
       <label><span>Mot de passe actuel</span><input class="input" type="password" name="current_password" autocomplete="current-password"></label>
       <label><span>Nouveau mot de passe</span><input class="input" type="password" name="new_password" minlength="8" autocomplete="new-password"></label>
+
+      <?php if ($showEmailPassword): ?>
+        <hr>
+        <h2 class="section-title">Accès Webmail</h2>
+        <p class="muted">
+          Mot de passe utilisé pour accéder à vos emails (<?= \App\View::e($userData['email'] ?? '') ?>) via le webmail intégré.
+          Laissez vide pour conserver le mot de passe actuel.
+        </p>
+        <label><span>Mot de passe email</span><input class="input" type="password" name="email_password" autocomplete="new-password"></label>
+      <?php endif; ?>
 
       <button class="btn-primary" type="submit">Enregistrer</button>
     </form>

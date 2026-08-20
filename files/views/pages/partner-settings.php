@@ -58,13 +58,10 @@
 
     <h2 class="section-title">Accès Webmail (IMAP)</h2>
     <p class="muted">
-      Configurez votre mot de passe pour accéder à vos emails via le webmail intégré.
-      <br>Votre identifiant email: <strong><?= \App\View::e($partnerData['user_email'] ?? '') ?></strong>
-      <br>Serveur IMAP: <strong><?= \App\View::e($smtpDefaults['imap_host'] ?? 'mail.grand-baie-maurice.com') ?></strong>
-      <br>Port IMAP: <strong><?= \App\View::e($smtpDefaults['imap_port'] ?? '993') ?></strong>
+      Le webmail utilise votre identifiant email: <strong><?= \App\View::e($partnerData['user_email'] ?? '') ?></strong>
+      (serveur <?= \App\View::e($smtpDefaults['imap_host'] ?? 'mail.grand-baie-maurice.com') ?>).
+      Configurez votre mot de passe email depuis <a href="/account">votre profil</a>.
     </p>
-    <label><span>Mot de passe email</span><input class="input" type="password" name="email_password" placeholder="Laissez vide pour ne pas modifier"></label>
-    
     <button class="btn-primary" type="submit">Sauvegarder</button>
   </form>
 
