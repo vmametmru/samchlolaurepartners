@@ -429,6 +429,12 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .links-dialog { max-width: 30rem; max-height: 85vh; overflow-y: auto; }
 .links-partner-list { display: flex; flex-direction: column; gap: .4rem; max-height: 50vh; overflow-y: auto; }
 .links-partner-row { display: flex; align-items: center; gap: .6rem; padding: .5rem; border: 1px solid var(--border, #e5e7eb); border-radius: .6rem; cursor: pointer; font-size: .9rem; }
+.session-status-dot { display: inline-block; width: .65rem; height: .65rem; border-radius: 50%; background: #9ca3af; }
+.session-status-dot.online { background: var(--green); box-shadow: 0 0 0 3px rgba(22, 163, 74, .15); }
+.session-status-dot.offline { background: #d1d5db; }
+.session-user-trigger { appearance: none; border: 0; background: transparent; padding: 0; cursor: pointer; font: inherit; color: var(--brand); text-decoration: underline; }
+.session-user-trigger:hover { color: var(--brand-dark, var(--brand)); }
+.session-history-dialog { max-width: 36rem; max-height: 85vh; overflow-y: auto; }
 
 .multi-booking-cart { margin-top: 1.25rem; border: 1px solid var(--border, #e5e7eb); border-radius: .9rem; padding: 1rem; background: #f9fafb; }
 .multi-cart-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .75rem; }

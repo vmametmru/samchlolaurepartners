@@ -3,13 +3,88 @@
 /** @var array<int, array<string, string>> $visibilityByPartner */
 /** @var array<int, array<int, array>> $usersByPartner */
 /** @var array<int, array<int, int>> $linkedIdsByPartner */
+/** @var array<int, array> $sessionsOverview */
+/** @var array<int, array<int, array>> $sessionHistoryByUser */
 $properties = $properties ?? [];
 $visibilityByPartner = $visibilityByPartner ?? [];
 $usersByPartner = $usersByPartner ?? [];
 $linkedIdsByPartner = $linkedIdsByPartner ?? [];
+$sessionsOverview = $sessionsOverview ?? [];
+$sessionHistoryByUser = $sessionHistoryByUser ?? [];
 $globalTouristTax = (float) ($globalTouristTax ?? 0);
 $formatFee = static fn (float $value): string => rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.');
+$formatDuration = static function (int $seconds): string {
+    $hours = intdiv($seconds, 3600);
+    $minutes = intdiv($seconds % 3600, 60);
+    return ($hours > 0 ? $hours . 'h ' : '') . $minutes . 'min';
+};
 ?>
+<section class="container section-lg">
+  <div class="section-header"><h1>Qui est connecté</h1></div>
+  <div class="card overflow-hidden">
+    <table class="table sessions-table">
+      <thead><tr><th></th><th>Utilisateur</th><th>Rôle</th><th>Statut</th><th>Dernière activité</th></tr></thead>
+      <tbody>
+      <?php if ($sessionsOverview === []): ?>
+        <tr><td colspan="5" class="muted">Aucun utilisateur pour le moment.</td></tr>
+      <?php endif; ?>
+      <?php foreach ($sessionsOverview as $sessionUser):
+        $sessionUserId = (int) $sessionUser['id'];
+        $displayName = trim(($sessionUser['first_name'] ?? '') . ' ' . ($sessionUser['last_name'] ?? '')) ?: (string) $sessionUser['email'];
+        $isOnline = !empty($sessionUser['online']);
+      ?>
+        <tr>
+          <td><span class="session-status-dot <?= $isOnline ? 'online' : 'offline' ?>" title="<?= $isOnline ? 'En ligne' : 'Hors ligne' ?>" aria-hidden="true"></span></td>
+          <td>
+            <button type="button" class="session-user-trigger" data-help-trigger="session-history-<?= $sessionUserId ?>"><?= \App\View::e($displayName) ?></button>
+            <div class="muted small"><?= \App\View::e((string) $sessionUser['email']) ?></div>
+          </td>
+          <td><?= $sessionUser['role'] === 'admin' ? 'Admin' : \App\View::e((string) ($sessionUser['partner_name'] ?? 'Partenaire')) ?></td>
+          <td><?= $isOnline ? '<span class="badge badge-confirmed">En ligne</span>' : '<span class="badge badge-cancelled">Hors ligne</span>' ?></td>
+          <td><?= $sessionUser['last_seen_at'] !== null ? \App\View::e(date('d/m/Y H:i', (int) strtotime((string) $sessionUser['last_seen_at']))) : '—' ?></td>
+        </tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table>
+  </div>
+
+  <?php foreach ($sessionsOverview as $sessionUser):
+    $sessionUserId = (int) $sessionUser['id'];
+    $displayName = trim(($sessionUser['first_name'] ?? '') . ' ' . ($sessionUser['last_name'] ?? '')) ?: (string) $sessionUser['email'];
+    $history = $sessionHistoryByUser[$sessionUserId] ?? [];
+  ?>
+    <dialog class="help-dialog session-history-dialog" data-help-dialog="session-history-<?= $sessionUserId ?>">
+      <form method="dialog"><button type="submit" class="help-dialog-close" aria-label="Fermer">×</button></form>
+      <h2 class="section-title">Historique de connexion · <?= \App\View::e($displayName) ?></h2>
+      <?php if ($history === []): ?>
+        <p class="muted">Aucune connexion enregistrée pour le moment.</p>
+      <?php else: ?>
+        <table class="table">
+          <thead><tr><th>Connexion</th><th>Fin</th><th>Durée</th><th>IP</th></tr></thead>
+          <tbody>
+          <?php foreach ($history as $entry): ?>
+            <tr>
+              <td><?= \App\View::e(date('d/m/Y H:i', (int) strtotime((string) $entry['started_at']))) ?></td>
+              <td>
+                <?php if (!empty($entry['online'])): ?>
+                  <span class="badge badge-confirmed">En cours</span>
+                <?php elseif ($entry['ended_at'] !== null): ?>
+                  <?= \App\View::e(date('d/m/Y H:i', (int) strtotime((string) $entry['ended_at']))) ?>
+                <?php else: ?>
+                  —
+                <?php endif; ?>
+              </td>
+              <td><?= \App\View::e($formatDuration((int) $entry['duration_seconds'])) ?></td>
+              <td><?= \App\View::e((string) ($entry['ip_address'] ?? '—')) ?></td>
+            </tr>
+          <?php endforeach; ?>
+          </tbody>
+        </table>
+      <?php endif; ?>
+    </dialog>
+  <?php endforeach; ?>
+</section>
+
 <section class="container section-lg">
   <div class="section-header"><h1>Gestion des partenaires</h1><div class="stack-actions"><a class="btn-secondary" href="/admin/gallery">🖼️ Galerie photo</a><a class="btn-primary" href="/admin/partners/new">+ Nouveau partenaire</a></div></div>
   <div class="card overflow-hidden">

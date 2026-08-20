@@ -18,6 +18,7 @@ use App\PartnerPropertyVisibility;
 use App\PartnerLinks;
 use App\Scheduler;
 use App\Tenant;
+use App\UserSessions;
 use App\View;
 use PDO;
 use Throwable;
@@ -1818,6 +1819,11 @@ final class PageController extends Controller
             $usersByPartner[$partnerId] = self::usersForPartner($partnerId);
             $linkedIdsByPartner[$partnerId] = PartnerLinks::linkedPartnerIds($partnerId);
         }
+        $sessionsOverview = UserSessions::overview();
+        $sessionHistoryByUser = [];
+        foreach ($sessionsOverview as $sessionUser) {
+            $sessionHistoryByUser[(int) $sessionUser['id']] = UserSessions::historyForUser((int) $sessionUser['id']);
+        }
         View::render('pages/admin-partners', [
             'pageTitle' => 'Partenaires',
             'partners' => $partners,
@@ -1826,6 +1832,8 @@ final class PageController extends Controller
             'visibilityByPartner' => $visibilityByPartner,
             'usersByPartner' => $usersByPartner,
             'linkedIdsByPartner' => $linkedIdsByPartner,
+            'sessionsOverview' => $sessionsOverview,
+            'sessionHistoryByUser' => $sessionHistoryByUser,
         ]);
     }
 

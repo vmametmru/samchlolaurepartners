@@ -64,7 +64,7 @@ final class Auth
             return null;
         }
 
-        return self::establishSession($user);
+        return self::establishSession($user, 'switched');
     }
 
     /**
@@ -75,22 +75,45 @@ final class Auth
      * while partenaire2's code is active is immediately switched back to
      * partenaire1's own environment. Admins have no partner_id and are left
      * untouched — they may log in from/stay on any environment. Then
-     * issues and sets a fresh auth cookie for the given user row.
+     * issues and sets a fresh auth cookie for the given user row, and
+     * records a new row in UserSessions (see files/UserSessions.php) for
+     * the admin "qui est connecté" dashboard panel. $endPriorSessionReason,
+     * when given, first ends whatever session the CURRENT cookie belonged
+     * to (used by switchToUser() to close the old partner's session with
+     * reason "switched" rather than leaving it dangling).
      */
-    private static function establishSession(array $user): array
+    private static function establishSession(array $user, ?string $endPriorSessionReason = null): array
     {
+        if ($endPriorSessionReason !== null) {
+            $priorSid = self::currentSessionId();
+            if ($priorSid !== null) {
+                UserSessions::end($priorSid, $endPriorSessionReason);
+            }
+        }
+
         if ((string) $user['role'] === 'partner' && $user['subdomain'] !== null && $user['subdomain'] !== '') {
             Tenant::setCodeCookie((string) $user['subdomain']);
         }
 
+        $sessionId = bin2hex(random_bytes(16));
         $payload = self::userPayload($user);
+        $payload['sid'] = $sessionId;
         self::setAuthCookie(self::issueToken($payload));
+        UserSessions::start((int) $user['id'], $sessionId, self::clientIp(), self::clientUserAgent());
 
         return $payload;
     }
 
     public static function logout(): void
     {
+        $token = self::tokenFromRequest();
+        if ($token !== null) {
+            $sid = self::sidFromToken($token);
+            if ($sid !== null) {
+                UserSessions::end($sid, 'logout');
+            }
+        }
+
         self::expireCookie(null);
         foreach (self::logoutCookieDomains() as $domain) {
             self::expireCookie($domain);
@@ -118,8 +141,8 @@ final class Auth
             return null;
         }
         $user = self::verifyToken($token);
-        if ($user && self::isCookieToken($token)) {
-            self::setAuthCookie(self::issueToken($user));
+        if ($user) {
+            self::refreshCookieAndTouch($user, $token);
         }
         return $user;
     }
@@ -169,13 +192,69 @@ final class Auth
         if ($adminOnly && ($user['role'] ?? null) !== 'admin') {
             throw new HttpException(403, 'Forbidden', 'Admin access required');
         }
-        if (self::isCookieToken($token)) {
-            self::setAuthCookie(self::issueToken($user));
-        }
+        self::refreshCookieAndTouch($user, $token);
         return $user;
     }
 
+    /**
+     * Shared by user() and requireUser(): only for a cookie-based request
+     * (never a Bearer API call, which has no browsing "session" to track),
+     * reissues the auth cookie with a fresh expiry/last-activity claim, and
+     * records a UserSessions heartbeat (see files/UserSessions.php) so the
+     * admin "qui est connecté" dashboard panel reflects ongoing activity.
+     */
+    private static function refreshCookieAndTouch(array $user, string $token): void
+    {
+        if (!self::isCookieToken($token)) {
+            return;
+        }
+        self::setAuthCookie(self::issueToken($user));
+        if (isset($user['sid'])) {
+            UserSessions::touch((string) $user['sid']);
+        }
+    }
+
     public static function verifyToken(string $token): ?array
+    {
+        $payload = self::decodeSignedPayload($token);
+        if ($payload === null || !isset($payload['exp']) || (int) $payload['exp'] < time()) {
+            return null;
+        }
+        $lastActivity = isset($payload['lat']) ? (int) $payload['lat'] : (isset($payload['iat']) ? (int) $payload['iat'] : 0);
+        if ($lastActivity > 0 && $lastActivity + self::INACTIVITY_SECONDS < time()) {
+            return null;
+        }
+
+        unset($payload['iat'], $payload['lat'], $payload['exp']);
+        return $payload;
+    }
+
+    /**
+     * Extracts the session id ("sid" claim) from a token regardless of
+     * whether it has expired — used by logout()/switchToUser() to close out
+     * the UserSessions row for whatever session the browser was just on,
+     * even if that session's inactivity window had technically already
+     * lapsed (harmless: ending an already-inactive session is idempotent).
+     */
+    private static function sidFromToken(string $token): ?string
+    {
+        $payload = self::decodeSignedPayload($token);
+        return $payload !== null && isset($payload['sid']) ? (string) $payload['sid'] : null;
+    }
+
+    private static function currentSessionId(): ?string
+    {
+        $token = self::tokenFromRequest();
+        return $token !== null ? self::sidFromToken($token) : null;
+    }
+
+    /**
+     * Signature-verified JWT payload with NO expiry/inactivity check —
+     * shared by verifyToken() (which adds those checks) and sidFromToken()
+     * (which deliberately skips them). Returns null for a malformed token
+     * or a bad/forged signature.
+     */
+    private static function decodeSignedPayload(string $token): ?array
     {
         $parts = explode('.', $token);
         if (count($parts) !== 3) {
@@ -189,16 +268,19 @@ final class Auth
         }
 
         $payload = json_decode(self::base64UrlDecode($body), true);
-        if (!is_array($payload) || !isset($payload['exp']) || (int) $payload['exp'] < time()) {
-            return null;
-        }
-        $lastActivity = isset($payload['lat']) ? (int) $payload['lat'] : (isset($payload['iat']) ? (int) $payload['iat'] : 0);
-        if ($lastActivity > 0 && $lastActivity + self::INACTIVITY_SECONDS < time()) {
-            return null;
-        }
+        return is_array($payload) ? $payload : null;
+    }
 
-        unset($payload['iat'], $payload['lat'], $payload['exp']);
-        return $payload;
+    private static function clientIp(): ?string
+    {
+        $ip = trim((string) ($_SERVER['REMOTE_ADDR'] ?? ''));
+        return $ip !== '' ? substr($ip, 0, 45) : null;
+    }
+
+    private static function clientUserAgent(): ?string
+    {
+        $userAgent = trim((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''));
+        return $userAgent !== '' ? $userAgent : null;
     }
 
     public static function setAuthCookie(string $token): void
