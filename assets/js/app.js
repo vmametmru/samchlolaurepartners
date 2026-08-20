@@ -40,6 +40,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initCalendarFilterLoading,
     initCalendarFilterSubmitState,
     initCalendarNameColumnToggle,
+    initCalendarLocationFilter,
     initCalendarGuestSlider,
     initHelpDialogs,
     initMultiPropertyCart,
@@ -402,6 +403,27 @@ function initCalendarNameColumnToggle() {
       // Ignore storage errors (e.g. private browsing): the choice simply
       // won't persist across page loads, which is a harmless degradation.
     }
+  });
+}
+
+/**
+ * Rendered outside the "Calendrier" board (next to the "Afficher le nom du
+ * bien" toggle, see calendar.php) rather than as an in-table header filter,
+ * so it stays put while the board scrolls horizontally. Filters the board's
+ * rows client-side (no reload) by matching data-property-location, set from
+ * the property's manual "Emplacement" override.
+ */
+function initCalendarLocationFilter() {
+  const board = document.querySelector('[data-calendar-board]');
+  const select = document.querySelector('[data-calendar-location-filter]');
+  if (!board || !select) return;
+
+  select.addEventListener('change', () => {
+    const wanted = select.value;
+    board.querySelectorAll('[data-property-row]').forEach((row) => {
+      const matches = wanted === '' || row.dataset.propertyLocation === wanted;
+      row.hidden = !matches;
+    });
   });
 }
 

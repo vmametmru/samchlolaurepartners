@@ -290,7 +290,7 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .dot-gray { background: #f3f4f6; border: 1px solid #d1d5db; }
 
 /* Calendrier board: one row per property, dates scroll horizontally. */
-.calendar-board { --cal-day-w: 46px; --cal-photo-w: 56px; --cal-name-w: 200px; --cal-num-w: 70px; overflow-x: auto; overflow-y: hidden; margin-top: 1.25rem; border: 1px solid var(--border, #e5e7eb); border-radius: .8rem; max-width: 100%; width: calc(var(--cal-photo-w) + var(--cal-name-w) + (3 * var(--cal-num-w)) + (var(--cal-visible-days, 31) * var(--cal-day-w))); }
+.calendar-board { --cal-day-w: 46px; --cal-photo-w: 56px; --cal-name-w: 200px; --cal-num-w: 70px; --cal-location-w: 110px; overflow-x: auto; overflow-y: hidden; margin-top: 1.25rem; border: 1px solid var(--border, #e5e7eb); border-radius: .8rem; max-width: 100%; width: calc(var(--cal-photo-w) + var(--cal-name-w) + (3 * var(--cal-num-w)) + var(--cal-location-w) + (var(--cal-visible-days, 31) * var(--cal-day-w))); }
 .calendar-board-table { border-collapse: separate; border-spacing: 0; table-layout: fixed; font-size: .8rem; font-weight: 600; line-height: 1.15; }
 .calendar-board-table th, .calendar-board-table td { border-bottom: 1px solid var(--border, #e5e7eb); border-right: 1px solid var(--border, #e5e7eb); font-size: inherit; font-weight: inherit; }
 .calendar-board-table thead th { position: sticky; top: 0; z-index: 3; background: #f9fafb; }
@@ -302,6 +302,7 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .cal-col-capacity { left: calc(var(--cal-photo-w) + var(--cal-name-w)); }
 .cal-col-rooms { left: calc(var(--cal-photo-w) + var(--cal-name-w) + var(--cal-num-w)); }
 .cal-col-sofa { left: calc(var(--cal-photo-w) + var(--cal-name-w) + (2 * var(--cal-num-w))); }
+.cal-col-location { left: calc(var(--cal-photo-w) + var(--cal-name-w) + (3 * var(--cal-num-w))); width: var(--cal-location-w); min-width: var(--cal-location-w); text-align: center; }
 .cal-icon { font-size: 1.1rem; line-height: 1; }
 .cal-col-name.cal-fixed { left: var(--cal-photo-w); }
 .calendar-board-table tbody tr { height: 40px; }
@@ -335,7 +336,10 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
    both the column itself and the left offsets of the columns sticky after
    it (capacity, rooms) collapse accordingly; the property thumbnail (with
    its link to the property page) stays visible either way. */
-.calendar-name-toggle { display: inline-flex; align-items: center; gap: .4rem; font-size: .9rem; margin-top: 1rem; cursor: pointer; }
+.calendar-name-toggle { display: inline-flex; align-items: center; gap: .4rem; font-size: .9rem; cursor: pointer; }
+.calendar-toolbar { display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; margin-top: 1rem; }
+.calendar-location-toggle { display: inline-flex; align-items: center; gap: .4rem; font-size: .9rem; }
+.calendar-location-toggle .cal-location-filter { width: auto; min-width: 160px; }
 .calendar-board.cal-name-hidden { --cal-name-w: 0px; }
 .calendar-board.cal-name-hidden .cal-col-name { display: none; }
 
