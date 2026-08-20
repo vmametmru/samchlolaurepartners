@@ -92,9 +92,9 @@ $minimalHeader = !empty($minimalHeader);
             && \App\ImapManager::isEmailDomainAllowed((string) ($user['email'] ?? ''));
         ?>
         <?php if ($emailAllowed): ?>
-          <a href="/email" target="_blank" rel="noopener" class="navbar-email-icon" id="navbar-email-icon" title="Email" aria-label="Email" hidden>
+          <a href="/email" target="_blank" rel="noopener" class="navbar-email-icon" id="navbar-email-icon" title="Email" aria-label="Email">
             <span class="navbar-email-icon-symbol" aria-hidden="true">✉️</span>
-            <span class="navbar-email-icon-count" id="navbar-email-count"></span>
+            <span class="navbar-email-icon-count" id="navbar-email-count" hidden></span>
           </a>
         <?php endif; ?>
         <details class="navbar-dropdown navbar-user-menu">
@@ -107,9 +107,6 @@ $minimalHeader = !empty($minimalHeader);
           </summary>
           <div class="navbar-dropdown-menu navbar-user-dropdown">
             <a href="/account"><?= \App\View::e(\App\I18n::t('nav.view_profile')) ?></a>
-            <?php if ($emailAllowed): ?>
-              <a href="/email" target="_blank" rel="noopener">Email</a>
-            <?php endif; ?>
             <a href="/logout"><?= \App\View::e(\App\I18n::t('nav.logout')) ?></a>
           </div>
         </details>
@@ -121,17 +118,16 @@ $minimalHeader = !empty($minimalHeader);
                   .then(function (res) { return res.ok ? res.json() : null; })
                   .then(function (data) {
                     var count = data && data.unread_count ? parseInt(data.unread_count, 10) : 0;
-                    var icon = document.getElementById('navbar-email-icon');
                     var countEl = document.getElementById('navbar-email-count');
-                    if (!icon || !countEl) return;
+                    if (!countEl) return;
                     if (count > 0) {
                       countEl.textContent = count > 99 ? '99+' : String(count);
-                      icon.hidden = false;
+                      countEl.hidden = false;
                     } else {
-                      icon.hidden = true;
+                      countEl.hidden = true;
                     }
                   })
-                  .catch(function () { /* silently ignore — leave icon as-is */ });
+                  .catch(function () { /* silently ignore — leave badge as-is, icon stays visible */ });
               }
               refreshUnreadCount();
               // Keep the badge in sync in the background, without ever

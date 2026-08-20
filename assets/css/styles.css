@@ -751,6 +751,10 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
   border: 2px solid #fff;
 }
 
+.navbar-email-icon-count[hidden] {
+  display: none;
+}
+
 .badge {
   display: inline-block;
   background: #ef4444;
