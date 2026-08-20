@@ -5449,7 +5449,31 @@ HTML,
         View::render('pages/admin-update', [
             'pageTitle' => 'Mise à jour',
             'backups' => $backups,
+            'buildVersion' => self::currentBuildVersion(),
         ]);
+    }
+
+    /**
+     * Read the build-version.php file generated automatically by CI (see
+     * .github/workflows/build.yml, "Write build version info" step) and
+     * bundled inside every deployment ZIP. Lets an admin confirm, right on
+     * the "Mise à jour" page, exactly which commit/branch is currently
+     * live — instead of guessing from the ZIP filename, which is easy to
+     * lose track of across several fixes.
+     *
+     * Returns null if the file is missing (e.g. an older deployment from
+     * before this feature existed, or a manually-assembled ZIP).
+     *
+     * @return array{sha: string, ref: string, built_at: string}|null
+     */
+    private static function currentBuildVersion(): ?array
+    {
+        $path = BASE_PATH . '/files/build-version.php';
+        if (!is_file($path)) {
+            return null;
+        }
+        $data = include $path;
+        return is_array($data) ? $data : null;
     }
 
     public static function adminApplyUpdate(): never

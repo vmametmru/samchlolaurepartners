@@ -2,6 +2,19 @@
 <section class="container section-lg narrow-wide">
   <h1><?= \App\View::e(\App\I18n::t('update.title')) ?></h1>
 
+  <div class="card card-body">
+    <h2 class="section-title">Version actuellement installée</h2>
+    <?php if ($buildVersion): ?>
+      <p class="text-muted">
+        Commit <code><?= \App\View::e($buildVersion['sha'] ?? '?') ?></code>
+        (branche <code><?= \App\View::e($buildVersion['ref'] ?? '?') ?></code>),
+        déployé le <?= \App\View::e($buildVersion['built_at'] ?? '?') ?>.
+      </p>
+    <?php else: ?>
+      <p class="text-muted">Aucune information de version disponible (déploiement antérieur à cette fonctionnalité, ou ZIP assemblé manuellement).</p>
+    <?php endif; ?>
+  </div>
+
   <div class="card card-body stack-md">
     <h2 class="section-title"><?= \App\View::e(\App\I18n::t('update.deploy_title')) ?></h2>
     <p class="text-muted"><?= \App\View::e(\App\I18n::t('update.deploy_desc')) ?> <code>images/</code>, <code>files/storage/</code>, <code>.env</code></p>
