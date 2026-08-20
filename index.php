@@ -246,25 +246,12 @@ try {
             break;
         case route($method, $path, 'POST', '#^/account$#'):
             AccountController::updateProfile();
-        // Email/Webmail routes (partners and admins only)
+        // Webmail entry point (partners and admins only) — opens the
+        // hosting's cPanel Webmail/Roundcube portal (SSO'd when configured,
+        // see WebmailSso), plus the AJAX endpoint powering the navbar
+        // unread-count badge.
         case route($method, $path, 'GET', '#^/email$#'):
-            EmailController::inbox();
-            break;
-        case route($method, $path, 'GET', '#^/email/(\d+)$#', $matches):
-            EmailController::show((int) $matches[1]);
-            break;
-        case route($method, $path, 'GET', '#^/email/compose$#'):
-            EmailController::compose();
-            break;
-        case route($method, $path, 'POST', '#^/email/send$#'):
-            EmailController::send();
-        case route($method, $path, 'GET', '#^/email/sync$#'):
-            EmailController::sync();
-            break;
-        case route($method, $path, 'POST', '#^/email/sync$#'):
-            EmailController::sync();
-        case route($method, $path, 'POST', '#^/email/(\d+)/delete$#', $matches):
-            EmailController::delete((int) $matches[1]);
+            EmailController::openWebmail();
         case route($method, $path, 'GET', '#^/api/email/unread-count$#'):
             EmailController::unreadCount();
             break;

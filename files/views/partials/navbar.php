@@ -86,6 +86,13 @@ $minimalHeader = !empty($minimalHeader);
             </div>
           </details>
         <?php endif; ?>
+        <?php $emailAllowed = (is_array($user) && (($user['role'] ?? '') === 'admin' || ($user['role'] ?? '') === 'partner')); ?>
+        <?php if ($emailAllowed): ?>
+          <a href="/email" target="_blank" rel="noopener" class="navbar-email-icon" id="navbar-email-icon" title="Email" aria-label="Email" hidden>
+            <span class="navbar-email-icon-symbol" aria-hidden="true">✉️</span>
+            <span class="navbar-email-icon-count" id="navbar-email-count"></span>
+          </a>
+        <?php endif; ?>
         <details class="navbar-dropdown navbar-user-menu">
           <summary class="navbar-avatar-trigger" title="<?= \App\View::e(\App\I18n::t('nav.account')) ?>" aria-label="<?= \App\View::e(\App\I18n::t('nav.account')) ?>">
             <?php if (!empty($user['photo_url'])): ?>
@@ -93,23 +100,34 @@ $minimalHeader = !empty($minimalHeader);
             <?php else: ?>
               <span class="navbar-avatar-fallback"><?= \App\View::e($avatarInitial) ?></span>
             <?php endif; ?>
-            <?php
-            $unreadEmailCount = 0;
-            if (($user['role'] ?? '') === 'admin' || ($user['role'] ?? '') === 'partner') {
-              $unreadEmailCount = \App\ImapManager::getUnreadCount((int) $user['id']);
-            }
-            if ($unreadEmailCount > 0): ?>
-              <span class="navbar-badge"><?= min($unreadEmailCount, 99) ?></span>
-            <?php endif; ?>
           </summary>
           <div class="navbar-dropdown-menu navbar-user-dropdown">
             <a href="/account"><?= \App\View::e(\App\I18n::t('nav.view_profile')) ?></a>
-            <?php if (($user['role'] ?? '') === 'admin' || ($user['role'] ?? '') === 'partner'): ?>
-              <a href="/email">Email <?php if ($unreadEmailCount > 0): ?><span class="badge"><?= $unreadEmailCount ?></span><?php endif; ?></a>
+            <?php if ($emailAllowed): ?>
+              <a href="/email" target="_blank" rel="noopener">Email</a>
             <?php endif; ?>
             <a href="/logout"><?= \App\View::e(\App\I18n::t('nav.logout')) ?></a>
           </div>
         </details>
+        <?php if ($emailAllowed): ?>
+          <script>
+            (function () {
+              fetch('/api/email/unread-count', { credentials: 'same-origin' })
+                .then(function (res) { return res.ok ? res.json() : null; })
+                .then(function (data) {
+                  var count = data && data.unread_count ? parseInt(data.unread_count, 10) : 0;
+                  if (!count) return;
+                  var icon = document.getElementById('navbar-email-icon');
+                  var countEl = document.getElementById('navbar-email-count');
+                  if (icon && countEl) {
+                    countEl.textContent = count > 99 ? '99+' : String(count);
+                    icon.hidden = false;
+                  }
+                })
+                .catch(function () { /* silently ignore — icon just stays hidden */ });
+            })();
+          </script>
+        <?php endif; ?>
       <?php else: ?>
         <?php if (!empty($authDebug['cookie_present']) && empty($authDebug['valid'])): ?>
           <span class="navbar-user-info"><?= \App\View::e(\App\I18n::t('nav.session_invalid')) ?></span>

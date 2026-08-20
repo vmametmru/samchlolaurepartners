@@ -49,108 +49,31 @@ final class ImapManager
     }
 
     /**
-     * Save email to database for user
-     */
-    public static function saveEmail(int $userId, array $emailData): ?int
-    {
-        // Generate unique ID for deduplication (IMAP Message-ID or SHA256 hash)
-        $imap_message_id = $emailData['imap_message_id'] ?? hash('sha256',
-            ($emailData['from_email'] ?? '') .
-            ($emailData['received_at'] ?? '') .
-            ($emailData['subject'] ?? ''),
-            false
-        );
-
-        $stmt = Database::connection()->prepare(
-            'INSERT INTO imap_emails
-             (user_id, subject, from_email, from_name, to_emails, cc_emails, body_html, body_text, received_at, is_read, folder, imap_message_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE
-                is_read = VALUES(is_read),
-                updated_at = NOW()'
-        );
-
-        $success = $stmt->execute([
-            $userId,
-            substr((string) ($emailData['subject'] ?? ''), 0, 500),
-            substr((string) ($emailData['from_email'] ?? ''), 0, 255),
-            substr((string) ($emailData['from_name'] ?? ''), 0, 255),
-            (string) ($emailData['to_emails'] ?? ''),
-            (string) ($emailData['cc_emails'] ?? ''),
-            (string) ($emailData['body_html'] ?? ''),
-            (string) ($emailData['body_text'] ?? ''),
-            $emailData['received_at'] ?? null,
-            (int) ($emailData['is_read'] ?? 0),
-            substr((string) ($emailData['folder'] ?? 'INBOX'), 0, 255),
-            $imap_message_id,
-        ]);
-
-        return $success ? (int) Database::connection()->lastInsertId() : null;
-    }
-
-    /**
-     * Get emails for user (with pagination)
-     */
-    public static function getEmails(int $userId, string $folder = 'INBOX', int $limit = 50, int $offset = 0): array
-    {
-        $pdo = Database::connection();
-        // LIMIT/OFFSET can't be bound as params in MySQL's native prepared
-        // statements, so they're inlined directly here — safe because both
-        // are cast to int above. user_id/folder stay parameterized.
-        $stmt = $pdo->prepare(
-            'SELECT * FROM imap_emails WHERE user_id = ? AND folder = ? ' .
-            'ORDER BY received_at DESC LIMIT ' . (int) $limit . ' OFFSET ' . (int) $offset
-        );
-        $stmt->execute([$userId, $folder]);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    }
-
-    /**
-     * Get unread email count for user
+     * Get unread email count for user (live IMAP check).
+     *
+     * The custom in-house inbox/read UI has been replaced by SSO into the
+     * hosting's own cPanel Webmail (Roundcube) — see WebmailSso — so emails
+     * are no longer synced/stored locally. This connects live to check the
+     * INBOX unread count.
      */
     public static function getUnreadCount(int $userId): int
     {
-        $stmt = Database::connection()->prepare('SELECT COUNT(*) as count FROM imap_emails WHERE user_id = ? AND is_read = 0');
-        $stmt->execute([$userId]);
-        $result = $stmt->fetch(PDO::FETCH_ASSOC);
-        return (int) ($result['count'] ?? 0);
-    }
+        $params = self::getConnectionParams($userId);
+        if (!$params) {
+            return 0;
+        }
 
-    /**
-     * Get single email
-     */
-    public static function getEmail(int $userId, int $emailId): ?array
-    {
-        $stmt = Database::connection()->prepare('SELECT * FROM imap_emails WHERE id = ? AND user_id = ? LIMIT 1');
-        $stmt->execute([$emailId, $userId]);
-        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
-    }
+        $client = new ImapClient(
+            (string) $params['imap_host'],
+            (int) $params['imap_port'],
+            (string) $params['email'],
+            (string) $params['password'],
+            (string) $params['email']
+        );
 
-    /**
-     * Mark email as read
-     */
-    public static function markAsRead(int $userId, int $emailId): bool
-    {
-        $stmt = Database::connection()->prepare('UPDATE imap_emails SET is_read = 1 WHERE id = ? AND user_id = ?');
-        return $stmt->execute([$emailId, $userId]);
-    }
-
-    /**
-     * Delete email
-     */
-    public static function deleteEmail(int $userId, int $emailId): bool
-    {
-        $stmt = Database::connection()->prepare('DELETE FROM imap_emails WHERE id = ? AND user_id = ?');
-        return $stmt->execute([$emailId, $userId]);
-    }
-
-    /**
-     * Clear emails for user
-     */
-    public static function clearEmails(int $userId): bool
-    {
-        $stmt = Database::connection()->prepare('DELETE FROM imap_emails WHERE user_id = ?');
-        return $stmt->execute([$userId]);
+        $count = $client->getUnreadCount();
+        $client->disconnect();
+        return $count;
     }
 
     /**
