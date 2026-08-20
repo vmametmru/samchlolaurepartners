@@ -1638,7 +1638,12 @@ final class PageController extends Controller
             'smtp_pass' => Settings::get('SMTP_PASS', ''),
             'smtp_security' => Settings::get('SMTP_SECURITY', 'ssl'),
             'smtp_from_email' => Settings::get('SMTP_FROM_EMAIL', 'infos@grand-baie-maurice.com'),
+            'imap_host' => Settings::get('IMAP_HOST', 'mail.grand-baie-maurice.com'),
+            'imap_port' => Settings::get('IMAP_PORT', '993'),
+            'imap_user' => Settings::get('IMAP_USER', 'infos@grand-baie-maurice.com'),
         ];
+        $partner['user_email'] = $user['email'];
+        
         View::render('pages/partner-settings', [
             'pageTitle' => 'Paramètres partenaire',
             'partnerData' => $partner,
@@ -1701,6 +1706,13 @@ final class PageController extends Controller
             trim((string) ($_POST['smtp_pass'] ?? '')) ?: null,
             $partnerId,
         ]);
+        
+        // Save email password if provided
+        $emailPassword = trim((string) ($_POST['email_password'] ?? ''));
+        if (!empty($emailPassword)) {
+            ImapManager::setEmailPassword((int) $user['id'], $emailPassword);
+        }
+        
         self::redirect('/partner/settings', 'Paramètres sauvegardés.');
     }
 
@@ -2056,8 +2068,8 @@ final class PageController extends Controller
     public static function adminSmtpSettings(): void
     {
         self::requireAdminUser();
-        View::render('pages/admin-smtp-settings', [
-            'pageTitle' => 'SMTP par défaut',
+        View::render('pages/admin-email-server-settings', [
+            'pageTitle' => 'Configuration du serveur de messagerie',
             'smtpDefaults' => [
                 'SMTP_HOST' => Settings::get('SMTP_HOST', 'mail.grand-baie-maurice.com'),
                 'SMTP_PORT' => Settings::get('SMTP_PORT', '465'),
@@ -2065,6 +2077,11 @@ final class PageController extends Controller
                 'SMTP_PASS' => Settings::get('SMTP_PASS', ''),
                 'SMTP_FROM_EMAIL' => Settings::get('SMTP_FROM_EMAIL', 'infos@grand-baie-maurice.com'),
                 'SMTP_FROM_NAME' => Settings::get('SMTP_FROM_NAME', 'Grand Baie Maurice'),
+                'IMAP_HOST' => Settings::get('IMAP_HOST', 'mail.grand-baie-maurice.com'),
+                'IMAP_PORT' => Settings::get('IMAP_PORT', '993'),
+                'IMAP_USER' => Settings::get('IMAP_USER', 'infos@grand-baie-maurice.com'),
+                'IMAP_PASS' => Settings::get('IMAP_PASS', ''),
+                'EMAIL_DOMAIN' => Settings::get('EMAIL_DOMAIN', 'grand-baie-maurice.com'),
                 'DKIM_DOMAIN' => Settings::get('DKIM_DOMAIN', ''),
                 'DKIM_SELECTOR' => Settings::get('DKIM_SELECTOR', ''),
                 'DKIM_PRIVATE_KEY' => Settings::get('DKIM_PRIVATE_KEY', ''),
@@ -2082,6 +2099,14 @@ final class PageController extends Controller
         Settings::set('SMTP_FROM_EMAIL', trim((string) ($_POST['smtp_from_email'] ?? '')) ?: 'infos@grand-baie-maurice.com');
         Settings::set('SMTP_FROM_NAME', trim((string) ($_POST['smtp_from_name'] ?? '')) ?: 'Grand Baie Maurice');
         Settings::set('SMTP_SECURITY', 'ssl');
+        
+        // IMAP settings (évolutif: peut changer de domaine à l'avenir)
+        Settings::set('IMAP_HOST', trim((string) ($_POST['imap_host'] ?? '')) ?: 'mail.grand-baie-maurice.com');
+        Settings::set('IMAP_PORT', trim((string) ($_POST['imap_port'] ?? '')) ?: '993');
+        Settings::set('IMAP_USER', trim((string) ($_POST['imap_user'] ?? '')) ?: 'infos@grand-baie-maurice.com');
+        Settings::set('IMAP_PASS', (string) ($_POST['imap_pass'] ?? ''));
+        Settings::set('EMAIL_DOMAIN', trim((string) ($_POST['email_domain'] ?? '')) ?: 'grand-baie-maurice.com');
+        
         // DKIM signing (see Mailer::dkimSignatureHeader()): all three must be
         // set for the app to sign outgoing mail itself, rather than relying
         // on the host's mail server to do it opportunistically.
@@ -2089,7 +2114,7 @@ final class PageController extends Controller
         Settings::set('DKIM_SELECTOR', trim((string) ($_POST['dkim_selector'] ?? '')));
         Settings::set('DKIM_PRIVATE_KEY', (string) ($_POST['dkim_private_key'] ?? ''));
         Settings::reload();
-        self::redirect('/admin/smtp-settings', 'SMTP par défaut sauvegardé.');
+        self::redirect('/admin/email-server-settings', 'Configuration du serveur de messagerie sauvegardée.');
     }
 
 

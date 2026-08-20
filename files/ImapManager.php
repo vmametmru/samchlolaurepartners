@@ -7,62 +7,62 @@ namespace App;
 use PDO;
 
 /**
- * Manager for IMAP account configuration and email storage
+ * Manager for centralized IMAP email storage and encryption
+ * Uses global IMAP server settings + per-user email/password
  */
 final class ImapManager
 {
     /**
-     * Save IMAP account configuration
+     * Get IMAP connection parameters for a user
+     * Returns array with imap_host, imap_port, email, password
      */
-    public static function saveAccount(int $userId, string $email, string $server, int $port, string $username, string $password): bool
+    public static function getConnectionParams(int $userId): ?array
     {
-        $encryptedPassword = self::encryptPassword($password);
-        
-        $stmt = Database::connection()->prepare(
-            'INSERT INTO user_imap_accounts (user_id, email, imap_server, imap_port, imap_username, imap_password_encrypted)
-             VALUES (?, ?, ?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE
-                email = VALUES(email),
-                imap_server = VALUES(imap_server),
-                imap_port = VALUES(imap_port),
-                imap_username = VALUES(imap_username),
-                imap_password_encrypted = VALUES(imap_password_encrypted),
-                updated_at = NOW()'
-        );
-
-        return $stmt->execute([$userId, $email, $server, $port, $username, $encryptedPassword]);
-    }
-
-    /**
-     * Get IMAP account for user
-     */
-    public static function getAccount(int $userId): ?array
-    {
-        $stmt = Database::connection()->prepare('SELECT * FROM user_imap_accounts WHERE user_id = ? LIMIT 1');
+        // Fetch user email and encrypted password
+        $stmt = Database::connection()->prepare('SELECT email, email_password FROM users WHERE id = ? LIMIT 1');
         $stmt->execute([$userId]);
-        $account = $stmt->fetch(PDO::FETCH_ASSOC);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if ($account) {
-            $account['imap_password'] = self::decryptPassword((string) $account['imap_password_encrypted']);
+        if (!$user) {
+            return null;
         }
 
-        return $account ?: null;
+        $email = (string) $user['email'];
+        $encryptedPassword = (string) ($user['email_password'] ?? '');
+
+        // If user hasn't configured email password, cannot access IMAP
+        if (empty($encryptedPassword)) {
+            return null;
+        }
+
+        $password = self::decryptPassword($encryptedPassword);
+        if (empty($password)) {
+            return null;
+        }
+
+        return [
+            'imap_host' => Settings::get('IMAP_HOST', 'mail.grand-baie-maurice.com'),
+            'imap_port' => (int) Settings::get('IMAP_PORT', '993'),
+            'email' => $email,
+            'password' => $password,
+        ];
     }
 
     /**
-     * Save email to database
+     * Save email to database for user
      */
     public static function saveEmail(int $userId, array $emailData): ?int
     {
-        $imap_message_id = $emailData['imap_message_id'] ?? hash('sha256', 
-            ($emailData['from_email'] ?? '') . 
-            ($emailData['received_at'] ?? '') . 
-            ($emailData['subject'] ?? ''), 
+        // Generate unique ID for deduplication (IMAP Message-ID or SHA256 hash)
+        $imap_message_id = $emailData['imap_message_id'] ?? hash('sha256',
+            ($emailData['from_email'] ?? '') .
+            ($emailData['received_at'] ?? '') .
+            ($emailData['subject'] ?? ''),
             false
         );
 
         $stmt = Database::connection()->prepare(
-            'INSERT INTO imap_emails 
+            'INSERT INTO imap_emails
              (user_id, subject, from_email, from_name, to_emails, cc_emails, body_html, body_text, received_at, is_read, folder, imap_message_id)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
@@ -89,21 +89,17 @@ final class ImapManager
     }
 
     /**
-     * Get emails for user (with proper pagination)
+     * Get emails for user (with pagination)
      */
     public static function getEmails(int $userId, string $folder = 'INBOX', int $limit = 50, int $offset = 0): array
     {
-        $stmt = Database::connection()->prepare(
-            'SELECT * FROM imap_emails WHERE user_id = ? AND folder = ? ORDER BY received_at DESC LIMIT ? OFFSET ?'
-        );
-        // For LIMIT/OFFSET, use direct values instead of parameterized placeholders (MySQL PDO limitation)
         $pdo = Database::connection();
         $result = $pdo->query(
-            'SELECT * FROM imap_emails WHERE user_id = ' . $pdo->quote($userId) . 
-            ' AND folder = ' . $pdo->quote($folder) . 
+            'SELECT * FROM imap_emails WHERE user_id = ' . $pdo->quote($userId) .
+            ' AND folder = ' . $pdo->quote($folder) .
             ' ORDER BY received_at DESC LIMIT ' . (int)$limit . ' OFFSET ' . (int)$offset
         );
-        return $result !== false ? $result->fetchAll(\PDO::FETCH_ASSOC) : [];
+        return $result !== false ? $result->fetchAll(PDO::FETCH_ASSOC) : [];
     }
 
     /**
@@ -146,12 +142,22 @@ final class ImapManager
     }
 
     /**
-     * Clear emails for user (e.g., when reconfiguring IMAP)
+     * Clear emails for user
      */
     public static function clearEmails(int $userId): bool
     {
         $stmt = Database::connection()->prepare('DELETE FROM imap_emails WHERE user_id = ?');
         return $stmt->execute([$userId]);
+    }
+
+    /**
+     * Save encrypted email password for user
+     */
+    public static function setEmailPassword(int $userId, string $password): bool
+    {
+        $encryptedPassword = self::encryptPassword($password);
+        $stmt = Database::connection()->prepare('UPDATE users SET email_password = ? WHERE id = ?');
+        return $stmt->execute([$encryptedPassword, $userId]);
     }
 
     /**
@@ -161,17 +167,17 @@ final class ImapManager
     {
         $appSecret = Settings::get('APP_SECRET', '');
         if (empty($appSecret)) {
-            throw new \Exception('APP_SECRET is not configured. Cannot encrypt IMAP password.');
+            throw new \Exception('APP_SECRET is not configured. Cannot encrypt password.');
         }
 
         $key = hash('sha256', $appSecret, true);
         $iv = openssl_random_pseudo_bytes(16);
         $encrypted = openssl_encrypt($password, 'AES-256-CBC', $key, true, $iv);
-        
+
         if ($encrypted === false) {
             throw new \Exception('Failed to encrypt password');
         }
-        
+
         return base64_encode($iv . $encrypted);
     }
 
@@ -194,8 +200,8 @@ final class ImapManager
 
             $key = hash('sha256', $appSecret, true);
             $iv = substr($data, 0, 16);
-            $encrypted = substr($data, 16);
-            $decrypted = openssl_decrypt($encrypted, 'AES-256-CBC', $key, true, $iv);
+            $encryptedData = substr($data, 16);
+            $decrypted = openssl_decrypt($encryptedData, 'AES-256-CBC', $key, true, $iv);
             return $decrypted ?: '';
         } catch (\Throwable $e) {
             error_log('[ImapManager] Decryption failed: ' . $e->getMessage());
@@ -203,3 +209,4 @@ final class ImapManager
         }
     }
 }
+

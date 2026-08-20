@@ -405,10 +405,10 @@ try {
             break;
         case route($method, $path, 'POST', '#^/admin/politique-reservation$#'):
             PageController::adminSaveBookingPolicy();
-        case route($method, $path, 'GET', '#^/admin/smtp-settings$#'):
+        case route($method, $path, 'GET', '#^/admin/email-server-settings$#'):
             PageController::adminSmtpSettings();
             break;
-        case route($method, $path, 'POST', '#^/admin/smtp-settings$#'):
+        case route($method, $path, 'POST', '#^/admin/email-server-settings$#'):
             PageController::adminSaveSmtpSettings();
         case route($method, $path, 'GET', '#^/admin/communication$#'):
             PageController::adminCommunication();
