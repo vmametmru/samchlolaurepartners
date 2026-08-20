@@ -10,6 +10,7 @@ use App\Tenant;
 use App\controllers\AccountController;
 use App\controllers\AuthController;
 use App\controllers\DiagnosticController;
+use App\controllers\EmailController;
 use App\controllers\EmailSchedulesController;
 use App\controllers\EmailTemplatesController;
 use App\controllers\FeesController;
@@ -245,6 +246,28 @@ try {
             break;
         case route($method, $path, 'POST', '#^/account$#'):
             AccountController::updateProfile();
+        // Email/Webmail routes (partners and admins only)
+        case route($method, $path, 'GET', '#^/email$#'):
+            EmailController::inbox();
+            break;
+        case route($method, $path, 'GET', '#^/email/(\d+)$#', $matches):
+            EmailController::show((int) $matches[1]);
+            break;
+        case route($method, $path, 'GET', '#^/email/compose$#'):
+            EmailController::compose();
+            break;
+        case route($method, $path, 'POST', '#^/email/send$#'):
+            EmailController::send();
+        case route($method, $path, 'GET', '#^/email/settings$#'):
+            EmailController::settings();
+            break;
+        case route($method, $path, 'POST', '#^/email/settings$#'):
+            EmailController::updateSettings();
+        case route($method, $path, 'POST', '#^/email/sync$#'):
+            EmailController::sync();
+        case route($method, $path, 'GET', '#^/api/email/unread-count$#'):
+            EmailController::unreadCount();
+            break;
         // "Partager le lien" public reservation page: unauthenticated, but
         // gated by an unguessable token (see ReservationsController::
         // ensurePublicToken()/findByToken()) rather than by login.
