@@ -198,7 +198,7 @@ final class Auth
 
     /**
      * Shared by user() and requireUser(): only for a cookie-based request
-     * (never a Bearer API call, which has no browsing "session" to track),
+     * (never an Authorization: Bearer API call, which has no browsing "session" to track),
      * reissues the auth cookie with a fresh expiry/last-activity claim, and
      * records a UserSessions heartbeat (see files/UserSessions.php) so the
      * admin "qui est connecté" dashboard panel reflects ongoing activity.
