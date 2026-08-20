@@ -86,7 +86,11 @@ $minimalHeader = !empty($minimalHeader);
             </div>
           </details>
         <?php endif; ?>
-        <?php $emailAllowed = (is_array($user) && (($user['role'] ?? '') === 'admin' || ($user['role'] ?? '') === 'partner')); ?>
+        <?php
+        $emailAllowed = is_array($user)
+            && (($user['role'] ?? '') === 'admin' || ($user['role'] ?? '') === 'partner')
+            && \App\ImapManager::isEmailDomainAllowed((string) ($user['email'] ?? ''));
+        ?>
         <?php if ($emailAllowed): ?>
           <a href="/email" target="_blank" rel="noopener" class="navbar-email-icon" id="navbar-email-icon" title="Email" aria-label="Email" hidden>
             <span class="navbar-email-icon-symbol" aria-hidden="true">✉️</span>

@@ -1640,7 +1640,6 @@ final class PageController extends Controller
             'smtp_from_email' => Settings::get('SMTP_FROM_EMAIL', 'infos@grand-baie-maurice.com'),
             'imap_host' => Settings::get('IMAP_HOST', 'mail.grand-baie-maurice.com'),
             'imap_port' => Settings::get('IMAP_PORT', '993'),
-            'imap_user' => Settings::get('IMAP_USER', 'infos@grand-baie-maurice.com'),
         ];
         $partner['user_email'] = $user['email'];
         
@@ -2072,8 +2071,6 @@ final class PageController extends Controller
                 'SMTP_FROM_NAME' => Settings::get('SMTP_FROM_NAME', 'Grand Baie Maurice'),
                 'IMAP_HOST' => Settings::get('IMAP_HOST', 'mail.grand-baie-maurice.com'),
                 'IMAP_PORT' => Settings::get('IMAP_PORT', '993'),
-                'IMAP_USER' => Settings::get('IMAP_USER', 'infos@grand-baie-maurice.com'),
-                'IMAP_PASS' => Settings::get('IMAP_PASS', ''),
                 'EMAIL_DOMAIN' => Settings::get('EMAIL_DOMAIN', 'grand-baie-maurice.com'),
                 'DKIM_DOMAIN' => Settings::get('DKIM_DOMAIN', ''),
                 'DKIM_SELECTOR' => Settings::get('DKIM_SELECTOR', ''),
@@ -2096,11 +2093,12 @@ final class PageController extends Controller
         Settings::set('SMTP_FROM_NAME', trim((string) ($_POST['smtp_from_name'] ?? '')) ?: 'Grand Baie Maurice');
         Settings::set('SMTP_SECURITY', 'ssl');
         
-        // IMAP settings (évolutif: peut changer de domaine à l'avenir)
+        // IMAP server (évolutif: peut changer de domaine à l'avenir). Chaque
+        // admin/partenaire utilise son propre email + mot de passe (profil),
+        // voir ImapManager::getConnectionParams() — pas d'identifiants
+        // globaux à configurer ici.
         Settings::set('IMAP_HOST', trim((string) ($_POST['imap_host'] ?? '')) ?: 'mail.grand-baie-maurice.com');
         Settings::set('IMAP_PORT', trim((string) ($_POST['imap_port'] ?? '')) ?: '993');
-        Settings::set('IMAP_USER', trim((string) ($_POST['imap_user'] ?? '')) ?: 'infos@grand-baie-maurice.com');
-        Settings::set('IMAP_PASS', (string) ($_POST['imap_pass'] ?? ''));
         Settings::set('EMAIL_DOMAIN', trim((string) ($_POST['email_domain'] ?? '')) ?: 'grand-baie-maurice.com');
         
         // DKIM signing (see Mailer::dkimSignatureHeader()): all three must be

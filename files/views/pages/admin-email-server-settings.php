@@ -16,17 +16,17 @@
 
   <h2>IMAP (compteur d'emails non lus)</h2>
   <p class="text-muted">
-    Ce compte IMAP sert uniquement à afficher le nombre d'emails non lus (icône dans le menu).
-    La lecture et l'envoi des emails se font désormais directement dans le Webmail de l'hébergeur
-    (voir section "Connexion automatique au Webmail" ci-dessous).
+    Le nombre d'emails non lus affiché (icône dans le menu) est calculé pour chaque
+    admin/partenaire individuellement, à partir de son propre email et du mot de passe qu'il
+    a renseigné dans son profil ("Accès Webmail") — pas d'identifiants globaux à saisir ici.
+    L'icône et le menu "Email" ne s'affichent que pour les comptes dont l'email appartient au
+    domaine ci-dessous.
   </p>
   <form class="card card-body stack-md" method="post" action="/admin/email-server-settings">
     <label><span>Serveur IMAP</span><input class="input" type="text" name="imap_host" required value="<?= \App\View::e($smtpDefaults['IMAP_HOST'] ?? 'mail.grand-baie-maurice.com') ?>"></label>
     <label><span>Port IMAP</span><input class="input" type="number" name="imap_port" required value="<?= \App\View::e((string) ($smtpDefaults['IMAP_PORT'] ?? '993')) ?>"></label>
-    <label><span>Utilisateur IMAP</span><input class="input" type="email" name="imap_user" required value="<?= \App\View::e($smtpDefaults['IMAP_USER'] ?? 'infos@grand-baie-maurice.com') ?>"></label>
-    <label><span>Mot de passe IMAP</span><input class="input" type="password" name="imap_pass" value="<?= \App\View::e($smtpDefaults['IMAP_PASS'] ?? '') ?>"></label>
     <label><span>Domaine email (pour webmail)</span><input class="input" type="text" name="email_domain" required value="<?= \App\View::e($smtpDefaults['EMAIL_DOMAIN'] ?? 'grand-baie-maurice.com') ?>"></label>
-    <small class="muted">Domaine utilisé pour le webmail (ex: grand-baie-maurice.com)</small>
+    <small class="muted">Seuls les comptes dont l'email se termine par @ce domaine voient l'icône/menu Email (ex: grand-baie-maurice.com)</small>
     <button class="btn-primary" type="submit">Sauvegarder</button>
   </form>
 

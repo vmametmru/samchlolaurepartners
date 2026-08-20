@@ -13,6 +13,30 @@ use PDO;
 final class ImapManager
 {
     /**
+     * Whether an email address belongs to the configured domain (EMAIL_DOMAIN
+     * setting) — i.e. whether it's actually hosted on this mail server and
+     * therefore eligible for IMAP unread-count checks / cPanel Webmail SSO.
+     * Users whose account email is on a different domain (e.g. a personal
+     * gmail.com address) have no mailbox here, so the feature must stay
+     * hidden for them.
+     */
+    public static function isEmailDomainAllowed(string $email): bool
+    {
+        $configuredDomain = strtolower(trim((string) Settings::get('EMAIL_DOMAIN', '')));
+        if ($configuredDomain === '') {
+            return false;
+        }
+
+        $atPos = strrpos($email, '@');
+        if ($atPos === false) {
+            return false;
+        }
+
+        $emailDomain = strtolower(trim(substr($email, $atPos + 1)));
+        return $emailDomain !== '' && $emailDomain === $configuredDomain;
+    }
+
+    /**
      * Get IMAP connection parameters for a user
      * Returns array with imap_host, imap_port, email, password
      */

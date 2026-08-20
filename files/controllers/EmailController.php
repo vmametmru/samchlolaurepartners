@@ -68,10 +68,15 @@ final class EmailController extends Controller
     }
 
     /**
-     * Check if user is allowed to access the email feature
+     * Check if user is allowed to access the email feature: must be an
+     * admin/partner AND have a mailbox on the configured domain (see
+     * ImapManager::isEmailDomainAllowed()) — a partner with, say, a Gmail
+     * address has no mailbox on this mail server, so the feature must stay
+     * unavailable to them even though their role would otherwise qualify.
      */
     private static function isEmailAllowed(array $user): bool
     {
-        return ($user['role'] ?? '') === 'admin' || ($user['role'] ?? '') === 'partner';
+        $roleOk = ($user['role'] ?? '') === 'admin' || ($user['role'] ?? '') === 'partner';
+        return $roleOk && ImapManager::isEmailDomainAllowed((string) ($user['email'] ?? ''));
     }
 }
