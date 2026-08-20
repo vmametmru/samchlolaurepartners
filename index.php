@@ -351,6 +351,10 @@ try {
             PageController::adminCreatePartnerUser((int) $matches[1]);
         case route($method, $path, 'POST', '#^/admin/partners/(\d+)/users/(\d+)/delete$#', $matches):
             PageController::adminDeletePartnerUser((int) $matches[1], (int) $matches[2]);
+        case route($method, $path, 'POST', '#^/admin/partners/(\d+)/links$#', $matches):
+            PageController::adminSavePartnerLinks((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/partner/switch/(\d+)$#', $matches):
+            PageController::partnerSwitchAccount((int) $matches[1]);
         case route($method, $path, 'GET', '#^/admin/partners/(\d+)/templates$#', $matches):
             PageController::adminPartnerTemplates((int) $matches[1]);
             break;

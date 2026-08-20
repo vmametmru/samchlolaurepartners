@@ -97,6 +97,26 @@ $minimalHeader = !empty($minimalHeader);
             <span class="navbar-email-icon-count" id="navbar-email-count" hidden></span>
           </a>
         <?php endif; ?>
+        <?php
+        $linkedPartners = [];
+        if (is_array($user) && ($user['role'] ?? '') === 'partner' && !empty($user['partner_id'])) {
+            $linkedPartners = \App\PartnerLinks::linkedPartners((int) $user['partner_id']);
+        }
+        ?>
+        <?php if ($linkedPartners !== []): ?>
+          <details class="navbar-dropdown navbar-link-menu">
+            <summary class="navbar-link-trigger" title="Comptes liés" aria-label="Comptes liés">
+              <span aria-hidden="true">🔗</span>
+            </summary>
+            <div class="navbar-dropdown-menu navbar-link-dropdown">
+              <?php foreach ($linkedPartners as $linkedPartner): ?>
+                <form method="post" action="/partner/switch/<?= (int) $linkedPartner['id'] ?>">
+                  <button type="submit" class="navbar-link-item"><?= \App\View::e((string) $linkedPartner['name']) ?></button>
+                </form>
+              <?php endforeach; ?>
+            </div>
+          </details>
+        <?php endif; ?>
         <details class="navbar-dropdown navbar-user-menu">
           <summary class="navbar-avatar-trigger" title="<?= \App\View::e(\App\I18n::t('nav.account')) ?>" aria-label="<?= \App\View::e(\App\I18n::t('nav.account')) ?>">
             <?php if (!empty($user['photo_url'])): ?>
