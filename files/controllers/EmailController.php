@@ -50,15 +50,14 @@ final class EmailController extends Controller
 
         $domain = trim((string) Settings::get('EMAIL_DOMAIN', 'grand-baie-maurice.com'));
         $message = 'Connexion automatique indisponible : connectez-vous avec votre email et le mot de passe configuré dans votre profil.';
-        // Surface the technical reason to admins only (never to partners),
-        // so a misconfiguration (missing/invalid CPANEL_* settings, wrong
-        // API token, etc.) can be diagnosed directly from the browser
-        // without needing hosting-level error log access.
-        if (($user['role'] ?? '') === 'admin') {
-            $reason = WebmailSso::getLastError();
-            if ($reason !== '') {
-                $message .= ' [admin] ' . $reason;
-            }
+        // Surface the technical reason too: this page is already gated to
+        // admins/partners on the configured EMAIL_DOMAIN (isEmailAllowed),
+        // a small, trusted internal audience, so showing the raw cPanel
+        // API diagnostic here (instead of admin-only) lets a partner
+        // report the exact failure without needing an admin to reproduce it.
+        $reason = WebmailSso::getLastError();
+        if ($reason !== '') {
+            $message .= ' [diagnostic] ' . $reason;
         }
         self::redirect('https://webmail.' . $domain, $message, 'info');
     }
