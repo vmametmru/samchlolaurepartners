@@ -94,12 +94,15 @@ final class ImapManager
     public static function getEmails(int $userId, string $folder = 'INBOX', int $limit = 50, int $offset = 0): array
     {
         $pdo = Database::connection();
-        $result = $pdo->query(
-            'SELECT * FROM imap_emails WHERE user_id = ' . $pdo->quote($userId) .
-            ' AND folder = ' . $pdo->quote($folder) .
-            ' ORDER BY received_at DESC LIMIT ' . (int)$limit . ' OFFSET ' . (int)$offset
+        // LIMIT/OFFSET can't be bound as params in MySQL's native prepared
+        // statements, so they're inlined directly here — safe because both
+        // are cast to int above. user_id/folder stay parameterized.
+        $stmt = $pdo->prepare(
+            'SELECT * FROM imap_emails WHERE user_id = ? AND folder = ? ' .
+            'ORDER BY received_at DESC LIMIT ' . (int) $limit . ' OFFSET ' . (int) $offset
         );
-        return $result !== false ? $result->fetchAll(PDO::FETCH_ASSOC) : [];
+        $stmt->execute([$userId, $folder]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
     /**
