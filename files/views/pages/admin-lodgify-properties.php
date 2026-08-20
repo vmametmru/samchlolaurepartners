@@ -53,6 +53,7 @@ $statusBadge = static function (?\DateTimeImmutable $updatedAt, bool $fresh): st
             <th class="manual-col" title="Colonne manuelle — non synchronisée depuis Lodgify. Une fois enregistrée, cette valeur n'est jamais écrasée par une synchronisation : elle prévaut toujours sur la valeur « VAT (Lodgify) »">TVA (%) ✎</th>
             <th class="manual-col" title="Colonne manuelle — non synchronisée depuis Lodgify. URL utilisée par le lien {{useful_info}} des emails, pour un email en français">URL Renseignements utiles (FR) ✎</th>
             <th class="manual-col" title="Colonne manuelle — non synchronisée depuis Lodgify. URL utilisée par le lien {{useful_info}} des emails, pour un email en anglais">URL Useful check-in info (EN) ✎</th>
+            <th class="manual-col" title="Colonne manuelle — non synchronisée depuis Lodgify. Utilisée pour filtrer les biens par emplacement dans le tableau Calendrier">📍 Emplacement ✎</th>
             <th>Coordonnées GPS</th>
             <th>Statut de la fiche</th>
             <th>Statut Prix</th>
@@ -70,6 +71,7 @@ $statusBadge = static function (?\DateTimeImmutable $updatedAt, bool $fresh): st
             $vatRateLodgifyVal = $row['vat_rate_lodgify'] !== null ? number_format((float) $row['vat_rate_lodgify'], 2, '.', '') . ' %' : '—';
             $checkinUrlFrVal = (string) ($row['checkin_info_url_fr'] ?? '');
             $checkinUrlEnVal = (string) ($row['checkin_info_url_en'] ?? '');
+            $locationVal = (string) ($row['location'] ?? '');
           ?>
             <tr>
               <td><img class="lodgify-thumb" src="<?= \App\View::e($photo) ?>" alt="<?= \App\View::e((string) $row['name']) ?>"></td>
@@ -119,6 +121,12 @@ $statusBadge = static function (?\DateTimeImmutable $updatedAt, bool $fresh): st
                   name="manual[<?= $propertyId ?>][checkin_info_url_en]"
                   value="<?= \App\View::e($checkinUrlEnVal) ?>"
                   placeholder="https://...">
+              </td>
+              <td class="manual-col">
+                <input class="input" type="text" maxlength="255"
+                  name="manual[<?= $propertyId ?>][location]"
+                  value="<?= \App\View::e($locationVal) ?>"
+                  placeholder="ex : Grand Baie">
               </td>
               <td>
                 <?php if ($hasCoords): ?>

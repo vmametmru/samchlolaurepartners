@@ -40,6 +40,8 @@ document.addEventListener('DOMContentLoaded', () => {
     initCalendarFilterLoading,
     initCalendarFilterSubmitState,
     initCalendarNameColumnToggle,
+    initCalendarLocationColumnToggle,
+    initCalendarLocationFilter,
     initCalendarGuestSlider,
     initHelpDialogs,
     initMultiPropertyCart,
@@ -402,6 +404,61 @@ function initCalendarNameColumnToggle() {
       // Ignore storage errors (e.g. private browsing): the choice simply
       // won't persist across page loads, which is a harmless degradation.
     }
+  });
+}
+
+/**
+ * Same behaviour as initCalendarNameColumnToggle() above, but for the
+ * "Emplacement" (location) column: hidden by default (see the
+ * "cal-location-hidden" class rendered server-side in calendar.php) to save
+ * width, revealed via the "Afficher l'Emplacement" checkbox and remembered
+ * in localStorage across page loads.
+ */
+function initCalendarLocationColumnToggle() {
+  const board = document.querySelector('[data-calendar-board]');
+  const toggle = document.querySelector('[data-calendar-location-toggle]');
+  if (!board || !toggle) return;
+
+  const storageKey = 'calendarLocationColumnVisible';
+  let stored = null;
+  try {
+    stored = window.localStorage.getItem(storageKey);
+  } catch (error) {
+    stored = null;
+  }
+  const visible = stored === '1';
+  toggle.checked = visible;
+  board.classList.toggle('cal-location-hidden', !visible);
+
+  toggle.addEventListener('change', () => {
+    board.classList.toggle('cal-location-hidden', !toggle.checked);
+    try {
+      window.localStorage.setItem(storageKey, toggle.checked ? '1' : '0');
+    } catch (error) {
+      // Ignore storage errors (e.g. private browsing): the choice simply
+      // won't persist across page loads, which is a harmless degradation.
+    }
+  });
+}
+
+/**
+ * Rendered outside the "Calendrier" board (next to the "Afficher le nom du
+ * bien" toggle, see calendar.php) rather than as an in-table header filter,
+ * so it stays put while the board scrolls horizontally. Filters the board's
+ * rows client-side (no reload) by matching data-property-location, set from
+ * the property's manual "Emplacement" override.
+ */
+function initCalendarLocationFilter() {
+  const board = document.querySelector('[data-calendar-board]');
+  const select = document.querySelector('[data-calendar-location-filter]');
+  if (!board || !select) return;
+
+  select.addEventListener('change', () => {
+    const wanted = select.value;
+    board.querySelectorAll('[data-property-row]').forEach((row) => {
+      const matches = wanted === '' || row.dataset.propertyLocation === wanted;
+      row.hidden = !matches;
+    });
   });
 }
 
