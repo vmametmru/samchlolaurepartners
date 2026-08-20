@@ -2078,6 +2078,9 @@ final class PageController extends Controller
                 'DKIM_DOMAIN' => Settings::get('DKIM_DOMAIN', ''),
                 'DKIM_SELECTOR' => Settings::get('DKIM_SELECTOR', ''),
                 'DKIM_PRIVATE_KEY' => Settings::get('DKIM_PRIVATE_KEY', ''),
+                'CPANEL_HOST' => Settings::get('CPANEL_HOST', ''),
+                'CPANEL_USERNAME' => Settings::get('CPANEL_USERNAME', ''),
+                'CPANEL_API_TOKEN' => Settings::get('CPANEL_API_TOKEN', ''),
             ],
         ]);
     }
@@ -2106,6 +2109,17 @@ final class PageController extends Controller
         Settings::set('DKIM_DOMAIN', trim((string) ($_POST['dkim_domain'] ?? '')));
         Settings::set('DKIM_SELECTOR', trim((string) ($_POST['dkim_selector'] ?? '')));
         Settings::set('DKIM_PRIVATE_KEY', (string) ($_POST['dkim_private_key'] ?? ''));
+
+        // cPanel Webmail SSO (see WebmailSso::createSessionUrl()): lets
+        // admins/partners open the hosting's Webmail (Roundcube) already
+        // signed in, via cPanel's official UAPI Email::create_user_session.
+        // CPANEL_API_TOKEN is an account-level secret (Security > Manage
+        // API Tokens in cPanel) — distinct from any individual mailbox's
+        // IMAP password above. Leave blank to disable SSO (falls back to
+        // the plain webmail login page).
+        Settings::set('CPANEL_HOST', trim((string) ($_POST['cpanel_host'] ?? '')));
+        Settings::set('CPANEL_USERNAME', trim((string) ($_POST['cpanel_username'] ?? '')));
+        Settings::set('CPANEL_API_TOKEN', (string) ($_POST['cpanel_api_token'] ?? ''));
         Settings::reload();
         self::redirect('/admin/email-server-settings', 'Configuration du serveur de messagerie sauvegardée.');
     }

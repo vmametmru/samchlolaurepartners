@@ -14,10 +14,11 @@
     <button class="btn-primary" type="submit">Sauvegarder</button>
   </form>
 
-  <h2>IMAP (Réception d'emails - Webmail)</h2>
+  <h2>IMAP (compteur d'emails non lus)</h2>
   <p class="text-muted">
-    Configurez ici le serveur IMAP pour le domaine email. 
-    Les partenaires et admins pourront consulter et envoyer des emails via le webmail intégré.
+    Ce compte IMAP sert uniquement à afficher le nombre d'emails non lus (icône dans le menu).
+    La lecture et l'envoi des emails se font désormais directement dans le Webmail de l'hébergeur
+    (voir section "Connexion automatique au Webmail" ci-dessous).
   </p>
   <form class="card card-body stack-md" method="post" action="/admin/email-server-settings">
     <label><span>Serveur IMAP</span><input class="input" type="text" name="imap_host" required value="<?= \App\View::e($smtpDefaults['IMAP_HOST'] ?? 'mail.grand-baie-maurice.com') ?>"></label>
@@ -26,6 +27,22 @@
     <label><span>Mot de passe IMAP</span><input class="input" type="password" name="imap_pass" value="<?= \App\View::e($smtpDefaults['IMAP_PASS'] ?? '') ?>"></label>
     <label><span>Domaine email (pour webmail)</span><input class="input" type="text" name="email_domain" required value="<?= \App\View::e($smtpDefaults['EMAIL_DOMAIN'] ?? 'grand-baie-maurice.com') ?>"></label>
     <small class="muted">Domaine utilisé pour le webmail (ex: grand-baie-maurice.com)</small>
+    <button class="btn-primary" type="submit">Sauvegarder</button>
+  </form>
+
+  <h2>Connexion automatique au Webmail (cPanel SSO)</h2>
+  <p class="text-muted">
+    Quand un admin/partenaire clique sur "Email", le site ouvre le Webmail de l'hébergeur
+    (<code>webmail.<?= \App\View::e($smtpDefaults['EMAIL_DOMAIN'] ?? 'votre-domaine.com') ?></code>) déjà connecté,
+    via l'API officielle cPanel (UAPI <code>Email::create_user_session</code>) — le même mécanisme que le
+    bouton "Webmail" du tableau de bord cPanel. Sans ces informations, le lien "Email" ouvrira simplement
+    la page de connexion manuelle du Webmail.
+  </p>
+  <form class="card card-body stack-md" method="post" action="/admin/email-server-settings">
+    <label><span>Hôte cPanel</span><input class="input" type="text" name="cpanel_host" placeholder="webmail.grand-baie-maurice.com" value="<?= \App\View::e($smtpDefaults['CPANEL_HOST'] ?? '') ?>"></label>
+    <label><span>Utilisateur cPanel</span><input class="input" type="text" name="cpanel_username" placeholder="mcherpco" value="<?= \App\View::e($smtpDefaults['CPANEL_USERNAME'] ?? '') ?>"></label>
+    <label><span>Jeton API cPanel</span><input class="input" type="password" name="cpanel_api_token" value="<?= \App\View::e($smtpDefaults['CPANEL_API_TOKEN'] ?? '') ?>"></label>
+    <small class="muted">Généré dans cPanel &rarr; Sécurité &rarr; Gérer les jetons API. Laisser vide pour désactiver l'auto-connexion.</small>
     <button class="btn-primary" type="submit">Sauvegarder</button>
   </form>
 
