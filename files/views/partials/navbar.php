@@ -116,19 +116,28 @@ $minimalHeader = !empty($minimalHeader);
         <?php if ($emailAllowed): ?>
           <script>
             (function () {
-              fetch('/api/email/unread-count', { credentials: 'same-origin' })
-                .then(function (res) { return res.ok ? res.json() : null; })
-                .then(function (data) {
-                  var count = data && data.unread_count ? parseInt(data.unread_count, 10) : 0;
-                  if (!count) return;
-                  var icon = document.getElementById('navbar-email-icon');
-                  var countEl = document.getElementById('navbar-email-count');
-                  if (icon && countEl) {
-                    countEl.textContent = count > 99 ? '99+' : String(count);
-                    icon.hidden = false;
-                  }
-                })
-                .catch(function () { /* silently ignore — icon just stays hidden */ });
+              function refreshUnreadCount() {
+                fetch('/api/email/unread-count', { credentials: 'same-origin' })
+                  .then(function (res) { return res.ok ? res.json() : null; })
+                  .then(function (data) {
+                    var count = data && data.unread_count ? parseInt(data.unread_count, 10) : 0;
+                    var icon = document.getElementById('navbar-email-icon');
+                    var countEl = document.getElementById('navbar-email-count');
+                    if (!icon || !countEl) return;
+                    if (count > 0) {
+                      countEl.textContent = count > 99 ? '99+' : String(count);
+                      icon.hidden = false;
+                    } else {
+                      icon.hidden = true;
+                    }
+                  })
+                  .catch(function () { /* silently ignore — leave icon as-is */ });
+              }
+              refreshUnreadCount();
+              // Keep the badge in sync in the background, without ever
+              // reloading the page or interrupting whatever the user is
+              // doing — just a quiet periodic re-fetch.
+              setInterval(refreshUnreadCount, 5 * 60 * 1000);
             })();
           </script>
         <?php endif; ?>
