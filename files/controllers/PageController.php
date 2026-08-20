@@ -579,7 +579,7 @@ final class PageController extends Controller
                 if ($id <= 0) {
                     continue;
                 }
-                $manual = $manualOverrides[$id] ?? ['sofa_bed_count' => null, 'min_people' => null, 'extra_person_fee' => null, 'vat_rate' => null];
+                $manual = $manualOverrides[$id] ?? ['sofa_bed_count' => null, 'min_people' => null, 'extra_person_fee' => null, 'vat_rate' => null, 'location' => null];
                 // VAT is not included in Lodgify's rate and must be added on
                 // top for VAT-registered properties (vat_rate = 0/null for
                 // properties not registered for VAT leaves the price
@@ -632,6 +632,7 @@ final class PageController extends Controller
                     'load_failed' => $loadFailed,
                     'restricted' => $restricted,
                     'sofa_bed_count' => $manual['sofa_bed_count'],
+                    'location' => $manual['location'],
                 ];
                 if ($manual['min_people'] !== null) {
                     $priceInfoRows[] = [
@@ -3486,7 +3487,7 @@ TEXT;
             $priceSnapshot = $client->getPriceStatusSnapshot($propertyId);
             $cacheStatus = $client->getCacheStatus($propertyId);
             $rateSettings = $client->getPropertyRateSettings($propertyId);
-            $manual = $manualOverrides[$propertyId] ?? ['sofa_bed_count' => null, 'min_people' => null, 'extra_person_fee' => null, 'vat_rate' => null, 'checkin_info_url_fr' => null, 'checkin_info_url_en' => null];
+            $manual = $manualOverrides[$propertyId] ?? ['sofa_bed_count' => null, 'min_people' => null, 'extra_person_fee' => null, 'vat_rate' => null, 'checkin_info_url_fr' => null, 'checkin_info_url_en' => null, 'location' => null];
             $row = $property + $priceSnapshot + $cacheStatus + ['cleaning_fee' => $rateSettings['cleaning_fee']];
             // Manual columns override Lodgify values (use explicit assignment, not +, to guarantee override)
             $row['sofa_bed_count'] = $manual['sofa_bed_count'];
@@ -3495,6 +3496,7 @@ TEXT;
             $row['vat_rate'] = $manual['vat_rate'];
             $row['checkin_info_url_fr'] = $manual['checkin_info_url_fr'];
             $row['checkin_info_url_en'] = $manual['checkin_info_url_en'];
+            $row['location'] = $manual['location'];
             // Best-effort VAT rate read live from Lodgify (never persisted,
             // never written into the manual override column): shown as a
             // reference "VAT (Lodgify)" column so the admin can see what
@@ -3545,6 +3547,7 @@ TEXT;
         // admin save with "Unknown column ...".
         $hasVatRate = Database::columnExists('lodgify_property_manual_columns', 'vat_rate');
         $hasCheckinUrls = Database::columnExists('lodgify_property_manual_columns', 'checkin_info_url_fr');
+        $hasLocation = Database::columnExists('lodgify_property_manual_columns', 'location');
         $columns = ['property_id', 'sofa_bed_count', 'min_people', 'extra_person_fee'];
         if ($hasVatRate) {
             $columns[] = 'vat_rate';
@@ -3552,6 +3555,9 @@ TEXT;
         if ($hasCheckinUrls) {
             $columns[] = 'checkin_info_url_fr';
             $columns[] = 'checkin_info_url_en';
+        }
+        if ($hasLocation) {
+            $columns[] = 'location';
         }
         $placeholders = implode(', ', array_fill(0, count($columns), '?'));
         $updates = implode(', ', array_map(
@@ -3581,7 +3587,8 @@ TEXT;
             $vatRate = self::parseNullableFloat($raw['vat_rate'] ?? null);
             $checkinUrlFr = trim((string) ($raw['checkin_info_url_fr'] ?? '')) ?: null;
             $checkinUrlEn = trim((string) ($raw['checkin_info_url_en'] ?? '')) ?: null;
-            if ($sofa === null && $minPeople === null && $extraPersonFee === null && $vatRate === null && $checkinUrlFr === null && $checkinUrlEn === null) {
+            $location = trim((string) ($raw['location'] ?? '')) ?: null;
+            if ($sofa === null && $minPeople === null && $extraPersonFee === null && $vatRate === null && $checkinUrlFr === null && $checkinUrlEn === null && $location === null) {
                 $delete->execute([$propertyId]);
                 continue;
             }
@@ -3593,6 +3600,9 @@ TEXT;
                 $params[] = $checkinUrlFr;
                 $params[] = $checkinUrlEn;
             }
+            if ($hasLocation) {
+                $params[] = $location;
+            }
             $save->execute($params);
         }
         self::redirect('/admin/lodgify-properties', 'Colonnes manuelles sauvegardées.');
@@ -3600,7 +3610,7 @@ TEXT;
 
     /**
      * @param array<int> $propertyIds
-     * @return array<int, array{sofa_bed_count: ?int, min_people: ?int, extra_person_fee: ?float, vat_rate: ?float, checkin_info_url_fr: ?string, checkin_info_url_en: ?string}>
+     * @return array<int, array{sofa_bed_count: ?int, min_people: ?int, extra_person_fee: ?float, vat_rate: ?float, checkin_info_url_fr: ?string, checkin_info_url_en: ?string, location: ?string}>
      */
     public static function manualLodgifyColumnsByPropertyId(array $propertyIds): array
     {
@@ -3609,15 +3619,17 @@ TEXT;
             return [];
         }
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
-        // vat_rate was added by migration 030 and checkin_info_url_fr/en by
-        // migration 036; if either hasn't applied yet on a given install,
-        // fall back to selecting without it rather than failing the whole
-        // page with "Unknown column ...".
+        // vat_rate was added by migration 030, checkin_info_url_fr/en by
+        // migration 036 and location by migration 053; if any hasn't applied
+        // yet on a given install, fall back to selecting without it rather
+        // than failing the whole page with "Unknown column ...".
         $hasVatRate = Database::columnExists('lodgify_property_manual_columns', 'vat_rate');
         $hasCheckinUrls = Database::columnExists('lodgify_property_manual_columns', 'checkin_info_url_fr');
+        $hasLocation = Database::columnExists('lodgify_property_manual_columns', 'location');
         $columns = 'property_id, sofa_bed_count, min_people, extra_person_fee'
             . ($hasVatRate ? ', vat_rate' : '')
-            . ($hasCheckinUrls ? ', checkin_info_url_fr, checkin_info_url_en' : '');
+            . ($hasCheckinUrls ? ', checkin_info_url_fr, checkin_info_url_en' : '')
+            . ($hasLocation ? ', location' : '');
         $stmt = Database::connection()->prepare(
             'SELECT ' . $columns . '
              FROM lodgify_property_manual_columns
@@ -3638,6 +3650,7 @@ TEXT;
                 'vat_rate' => isset($row['vat_rate']) ? (float) $row['vat_rate'] : null,
                 'checkin_info_url_fr' => isset($row['checkin_info_url_fr']) && $row['checkin_info_url_fr'] !== '' ? (string) $row['checkin_info_url_fr'] : null,
                 'checkin_info_url_en' => isset($row['checkin_info_url_en']) && $row['checkin_info_url_en'] !== '' ? (string) $row['checkin_info_url_en'] : null,
+                'location' => isset($row['location']) && $row['location'] !== '' ? (string) $row['location'] : null,
             ];
         }
         return $result;

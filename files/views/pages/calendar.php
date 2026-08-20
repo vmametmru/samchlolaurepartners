@@ -75,6 +75,21 @@ $bookingPolicies = $bookingPolicies ?? [];
       <button type="button" class="btn-primary calendar-view-selection-btn" data-multi-cart-view-btn hidden><?= \App\View::e(\App\I18n::t('calendar.view_selection')) ?></button>
     </div>
 
+    <?php
+      // Distinct "Emplacement" values (set per property in the admin
+      // "Biens Lodgify" table), sorted, used to populate the "Emplacement"
+      // column filter dropdown so several properties sharing the same
+      // location can be filtered together.
+      $locations = [];
+      foreach ($rows as $row) {
+        $loc = trim((string) ($row['location'] ?? ''));
+        if ($loc !== '') {
+          $locations[$loc] = true;
+        }
+      }
+      $locations = array_keys($locations);
+      sort($locations, SORT_NATURAL | SORT_FLAG_CASE);
+    ?>
     <div class="calendar-board cal-name-hidden" data-calendar-board data-multi-calendar-board data-total-guests="<?= (int) $countedGuests ?>" data-babies="<?= (int) $childrenUnder3 ?>" style="--cal-visible-days: <?= (int) $visibleDays ?>;">
       <table class="calendar-board-table">
         <thead>
@@ -92,6 +107,20 @@ $bookingPolicies = $bookingPolicies ?? [];
             <th class="cal-fixed cal-col-num cal-col-sofa" title="<?= \App\View::e(\App\I18n::t('calendar.col_sofa_beds')) ?>">
               <span class="cal-icon" aria-hidden="true">🛋️</span>
               <span class="sr-only"><?= \App\View::e(\App\I18n::t('calendar.col_sofa_beds')) ?></span>
+            </th>
+            <th class="cal-fixed cal-col-location" title="<?= \App\View::e(\App\I18n::t('calendar.col_location')) ?>">
+              <span class="cal-location-filter-head">
+                <span class="cal-icon" aria-hidden="true">📍</span>
+                <span class="sr-only"><?= \App\View::e(\App\I18n::t('calendar.col_location')) ?></span>
+                <?php if ($locations !== []): ?>
+                  <select class="input cal-location-filter" data-calendar-location-filter aria-label="<?= \App\View::e(\App\I18n::t('calendar.col_location')) ?>">
+                    <option value=""><?= \App\View::e(\App\I18n::t('calendar.filter_location_all')) ?></option>
+                    <?php foreach ($locations as $loc): ?>
+                      <option value="<?= \App\View::e($loc) ?>"><?= \App\View::e($loc) ?></option>
+                    <?php endforeach; ?>
+                  </select>
+                <?php endif; ?>
+              </span>
             </th>
             <?php foreach ($dates as $date):
               $dow = (int) $date->format('w');

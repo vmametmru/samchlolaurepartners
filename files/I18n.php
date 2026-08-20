@@ -268,6 +268,8 @@ final class I18n
             'calendar.col_max_guests' => ['fr' => 'Pers. max', 'en' => 'Max guests'],
             'calendar.col_bedrooms' => ['fr' => 'Chambres', 'en' => 'Bedrooms'],
             'calendar.col_sofa_beds' => ['fr' => 'Canapé-lit(s)', 'en' => 'Sofa bed(s)'],
+            'calendar.col_location' => ['fr' => 'Emplacement', 'en' => 'Location'],
+            'calendar.filter_location_all' => ['fr' => 'Tous les emplacements', 'en' => 'All locations'],
             'calendar.load_failed' => ['fr' => 'Disponibilités temporairement indisponibles — réessayez dans quelques instants.', 'en' => 'Availability temporarily unavailable — please try again shortly.'],
             'calendar.restricted_note' => ['fr' => 'Merci de contacter votre agence pour ce bien.', 'en' => 'Please contact your agency for this property.'],
             'calendar.your_selection' => ['fr' => 'Votre sélection', 'en' => 'Your selection'],
