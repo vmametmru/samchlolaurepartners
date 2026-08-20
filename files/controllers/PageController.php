@@ -3587,7 +3587,7 @@ TEXT;
             $vatRate = self::parseNullableFloat($raw['vat_rate'] ?? null);
             $checkinUrlFr = trim((string) ($raw['checkin_info_url_fr'] ?? '')) ?: null;
             $checkinUrlEn = trim((string) ($raw['checkin_info_url_en'] ?? '')) ?: null;
-            $location = trim((string) ($raw['location'] ?? '')) ?: null;
+            $location = $hasLocation ? (trim((string) ($raw['location'] ?? '')) ?: null) : null;
             if ($sofa === null && $minPeople === null && $extraPersonFee === null && $vatRate === null && $checkinUrlFr === null && $checkinUrlEn === null && $location === null) {
                 $delete->execute([$propertyId]);
                 continue;
