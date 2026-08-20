@@ -333,6 +333,9 @@ try {
         case route($method, $path, 'GET', '#^/admin/partners$#'):
             PageController::adminPartners();
             break;
+        case route($method, $path, 'GET', '#^/admin/users/(\d+)/sessions$#', $matches):
+            PageController::adminUserSessions((int) $matches[1]);
+            break;
         case route($method, $path, 'GET', '#^/admin/partners/new$#'):
             PageController::adminPartnerForm();
             break;

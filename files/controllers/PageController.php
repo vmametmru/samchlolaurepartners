@@ -18,6 +18,7 @@ use App\PartnerPropertyVisibility;
 use App\PartnerLinks;
 use App\Scheduler;
 use App\Tenant;
+use App\UserSessions;
 use App\View;
 use PDO;
 use Throwable;
@@ -1818,6 +1819,7 @@ final class PageController extends Controller
             $usersByPartner[$partnerId] = self::usersForPartner($partnerId);
             $linkedIdsByPartner[$partnerId] = PartnerLinks::linkedPartnerIds($partnerId);
         }
+        $sessionsOverview = UserSessions::overview();
         View::render('pages/admin-partners', [
             'pageTitle' => 'Partenaires',
             'partners' => $partners,
@@ -1826,7 +1828,21 @@ final class PageController extends Controller
             'visibilityByPartner' => $visibilityByPartner,
             'usersByPartner' => $usersByPartner,
             'linkedIdsByPartner' => $linkedIdsByPartner,
+            'sessionsOverview' => $sessionsOverview,
         ]);
+    }
+
+    /**
+     * Returns the session history for a single user as JSON, for the
+     * lazy-loading history dialog on /admin/partners.
+     */
+    public static function adminUserSessions(int $userId): never
+    {
+        self::requireAdminUser();
+        $history = UserSessions::historyForUser($userId);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode($history, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
     }
 
     /**

@@ -88,6 +88,43 @@ final class AccountController extends Controller
             Auth::resetPassword($userId, $newPassword);
         }
 
+        // Only admins may change their own login email from this page. A
+        // partner's email is tied to their partner record and to IMAP
+        // domain-matching (see ImapManager::isEmailDomainAllowed()), so it
+        // isn't user-editable here — this only ever applies to admins.
+        // Changing it never risks locking the admin out: Auth is stateless
+        // JWT keyed by user id (not email), and the Auth::refreshSession()
+        // call below always re-reads this row and reissues the cookie with
+        // the new email, so the CURRENT session keeps working unchanged —
+        // only the NEXT login needs the new address.
+        $newEmail = null;
+        if (($user['role'] ?? '') === 'admin') {
+            $submittedEmail = trim((string) ($_POST['email'] ?? ''));
+            if ($submittedEmail !== '' && strcasecmp($submittedEmail, (string) $user['email']) !== 0) {
+                if (!filter_var($submittedEmail, FILTER_VALIDATE_EMAIL)) {
+                    self::redirect('/account', 'Adresse email invalide : email non modifié (les autres informations ont bien été enregistrées).', 'error');
+                }
+                // Si un changement de mot de passe a été demandé plus haut, current_password a déjà été
+                // vérifié avant Auth::resetPassword(). Ne pas re-vérifier ici contre le hash désormais modifié.
+                if ($newPassword === '') {
+                    $currentPassword = (string) ($_POST['current_password'] ?? '');
+                    $stmt = $pdo->prepare('SELECT password_hash FROM users WHERE id = ? LIMIT 1');
+                    $stmt->execute([$userId]);
+                    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+                    if (!$row || !password_verify($currentPassword, (string) $row['password_hash'])) {
+                        self::redirect('/account', 'Mot de passe actuel incorrect : email non modifié (les autres informations ont bien été enregistrées).', 'error');
+                    }
+                }
+                $stmt = $pdo->prepare('SELECT id FROM users WHERE email = ? AND id != ? LIMIT 1');
+                $stmt->execute([$submittedEmail, $userId]);
+                if ($stmt->fetchColumn()) {
+                    self::redirect('/account', 'Cette adresse email est déjà utilisée par un autre compte : email non modifié.', 'error');
+                }
+                $pdo->prepare('UPDATE users SET email = ?, updated_at = NOW() WHERE id = ?')->execute([$submittedEmail, $userId]);
+                $newEmail = $submittedEmail;
+            }
+        }
+
         // Email (webmail/IMAP) password: only admins and partners have
         // access to the webmail feature (see EmailController), and the
         // centralized IMAP server (grand-baie-maurice.com) authenticates
@@ -100,7 +137,12 @@ final class AccountController extends Controller
         }
 
         Auth::refreshSession($userId);
-        self::redirect('/account', 'Profil mis à jour.');
+        self::redirect(
+            '/account',
+            $newEmail !== null
+                ? "Profil mis à jour. Email de connexion changé pour {$newEmail} — utilisez cette adresse lors de votre prochaine connexion."
+                : 'Profil mis à jour.'
+        );
     }
 
     public static function forgotPassword(): void

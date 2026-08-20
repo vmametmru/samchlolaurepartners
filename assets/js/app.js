@@ -331,6 +331,39 @@ function initHelpDialogs() {
     if (!dialog || typeof dialog.showModal !== 'function') return;
     trigger.addEventListener('click', () => {
       dialog.showModal();
+      const url = dialog.dataset.sessionHistoryUrl;
+      const body = dialog.querySelector('.session-history-body');
+      if (!url || !body || dialog.dataset.sessionHistoryLoaded) return;
+      dialog.dataset.sessionHistoryLoaded = '1';
+      fetch(url, { credentials: 'same-origin' })
+        .then((r) => r.json())
+        .then((rows) => {
+          if (!rows.length) {
+            body.innerHTML = '<p class="muted">Aucune connexion enregistrée pour le moment.</p>';
+            return;
+          }
+          const fmtDate = (s) => {
+            const d = new Date(s);
+            return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
+              ' ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+          };
+          const fmtDur = (sec) => {
+            const h = Math.floor(sec / 3600);
+            const m = Math.floor((sec % 3600) / 60);
+            return (h > 0 ? h + 'h ' : '') + m + 'min';
+          };
+          const esc = (s) => String(s ?? '—').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const rows_html = rows.map((e) => {
+            const end = e.online
+              ? '<span class="badge badge-confirmed">En cours</span>'
+              : e.ended_at ? esc(fmtDate(e.ended_at)) : '—';
+            return `<tr><td>${esc(fmtDate(e.started_at))}</td><td>${end}</td><td>${esc(fmtDur(e.duration_seconds))}</td><td>${esc(e.ip_address)}</td></tr>`;
+          }).join('');
+          body.innerHTML = `<table class="table"><thead><tr><th>Connexion</th><th>Fin</th><th>Durée</th><th>IP</th></tr></thead><tbody>${rows_html}</tbody></table>`;
+        })
+        .catch(() => {
+          body.innerHTML = '<p class="muted">Impossible de charger l\'historique.</p>';
+        });
     });
   });
 }

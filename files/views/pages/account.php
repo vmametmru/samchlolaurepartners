@@ -11,14 +11,19 @@ $showEmailPassword = $showEmailPassword ?? false;
       <img class="avatar-preview" src="<?= \App\View::e($userData['photo_url']) ?>" alt="Photo de profil" style="width:96px;height:96px;border-radius:50%;object-fit:cover;">
     <?php endif; ?>
     <form method="post" action="/account" enctype="multipart/form-data" class="stack-md">
-      <label><span>Email</span><input class="input" type="email" value="<?= \App\View::e($userData['email'] ?? '') ?>" disabled></label>
+      <?php if (($userData['role'] ?? '') === 'admin'): ?>
+        <label><span>Email (identifiant de connexion)</span><input class="input" type="email" name="email" value="<?= \App\View::e($userData['email'] ?? '') ?>" required></label>
+        <p class="muted">Changer cet email nécessite de saisir votre mot de passe actuel ci-dessous. Vous resterez connecté(e) sans interruption ; utilisez simplement le nouvel email lors de votre prochaine connexion.</p>
+      <?php else: ?>
+        <label><span>Email</span><input class="input" type="email" value="<?= \App\View::e($userData['email'] ?? '') ?>" disabled></label>
+      <?php endif; ?>
       <label><span>Prénom</span><input class="input" type="text" name="first_name" value="<?= \App\View::e($userData['first_name'] ?? '') ?>"></label>
       <label><span>Nom</span><input class="input" type="text" name="last_name" value="<?= \App\View::e($userData['last_name'] ?? '') ?>"></label>
       <label><span>Téléphone</span><input class="input" type="tel" name="phone" value="<?= \App\View::e($userData['phone'] ?? '') ?>"></label>
       <label><span>Photo de profil</span><input class="input" type="file" name="photo" accept="image/png,image/jpeg,image/gif,image/webp"></label>
 
       <hr>
-      <p class="muted">Laissez les champs suivants vides pour conserver votre mot de passe actuel.</p>
+      <p class="muted"><?= ($userData['role'] ?? '') === 'admin' ? 'Requis uniquement si vous changez votre email de connexion ci-dessus ou votre mot de passe ci-dessous.' : 'Laissez les champs suivants vides pour conserver votre mot de passe actuel.' ?></p>
       <label><span>Mot de passe actuel</span><input class="input" type="password" name="current_password" autocomplete="current-password"></label>
       <label><span>Nouveau mot de passe</span><input class="input" type="password" name="new_password" minlength="8" autocomplete="new-password"></label>
 
