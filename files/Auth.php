@@ -389,7 +389,12 @@ final class Auth
         if (!$user) {
             return;
         }
-        self::setAuthCookie(self::issueToken(self::userPayload($user)));
+        $payload = self::userPayload($user);
+        $sid = self::currentSessionId();
+        if ($sid !== null) {
+            $payload['sid'] = $sid;
+        }
+        self::setAuthCookie(self::issueToken($payload));
     }
 
     /**
