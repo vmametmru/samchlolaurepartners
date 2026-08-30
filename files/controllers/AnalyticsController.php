@@ -16,6 +16,10 @@ use PDO;
 
 final class AnalyticsController extends Controller
 {
+    /** All analytics times are displayed in Mauritius time (GMT+4). */
+    private const TZ = 'Indian/Mauritius';
+    private const TZ_OFFSET = '+04:00';
+
     // ── Visit tracking (called from JS beacon) ──────────────────────
 
     /**
@@ -640,7 +644,7 @@ final class AnalyticsController extends Controller
 
     private static function visitsByDate(PDO $pdo, array $where): array
     {
-        $sql = "SELECT DATE(pv.visited_at) AS visit_date,
+        $sql = "SELECT DATE(CONVERT_TZ(pv.visited_at, '+00:00', '" . self::TZ_OFFSET . "')) AS visit_date,
                 COUNT(*) AS total,
                 SUM(CASE WHEN pv.visitor_type = 'client' THEN 1 ELSE 0 END) AS clients,
                 SUM(CASE WHEN pv.visitor_type = 'partner' THEN 1 ELSE 0 END) AS partners,
@@ -669,7 +673,7 @@ final class AnalyticsController extends Controller
 
     private static function visitsByHour(PDO $pdo, array $where): array
     {
-        $sql = "SELECT HOUR(pv.visited_at) AS visit_hour, COUNT(*) AS visits
+        $sql = "SELECT HOUR(CONVERT_TZ(pv.visited_at, '+00:00', '" . self::TZ_OFFSET . "')) AS visit_hour, COUNT(*) AS visits
                 FROM page_visits pv {$where['sql']}
                 GROUP BY visit_hour ORDER BY visit_hour ASC";
         $stmt = $pdo->prepare($sql);
@@ -679,7 +683,7 @@ final class AnalyticsController extends Controller
 
     private static function recentVisits(PDO $pdo, array $where, int $limit): array
     {
-        $sql = "SELECT pv.* FROM page_visits pv {$where['sql']} ORDER BY pv.visited_at DESC LIMIT {$limit}";
+        $sql = "SELECT pv.*, CONVERT_TZ(pv.visited_at, '+00:00', '" . self::TZ_OFFSET . "') AS visited_at FROM page_visits pv {$where['sql']} ORDER BY pv.visited_at DESC LIMIT {$limit}";
         $stmt = $pdo->prepare($sql);
         $stmt->execute($where['params']);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -772,7 +776,7 @@ th{background:#f5f5f5;font-weight:600;}
 </style></head><body>';
         $html .= '<div class="logo">' . $logoHtml . '</div>';
         $html .= '<h1>Rapport d\'analyse — ' . htmlspecialchars($partnerName, ENT_QUOTES) . '</h1>';
-        $html .= '<p class="meta">Période : ' . htmlspecialchars($dateRange, ENT_QUOTES) . ' · Généré le ' . date('d/m/Y à H:i') . '</p>';
+        $html .= '<p class="meta">Période : ' . htmlspecialchars($dateRange, ENT_QUOTES) . ' · Généré le ' . (new \DateTimeImmutable('now', new \DateTimeZone(self::TZ)))->format('d/m/Y à H:i') . ' (GMT+4)</p>';
 
         // KPIs
         $html .= '<div class="kpi-grid">';

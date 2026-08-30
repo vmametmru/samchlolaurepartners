@@ -9,6 +9,7 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
 ?>
 <section class="container section-lg">
   <h1>Tableau d'analyse</h1>
+  <p class="text-muted">Toutes les heures sont affichées en heure de Maurice (GMT+4).</p>
 
   <!-- Filters -->
   <form class="card card-body analytics-filters" method="get" action="<?= \App\View::e($filterAction) ?>">
