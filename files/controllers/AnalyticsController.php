@@ -58,8 +58,8 @@ final class AnalyticsController extends Controller
         }
 
         $pdo->prepare(
-            'INSERT INTO page_visits (partner_id, visitor_type, user_id, page_url, page_title, duration_seconds, country_code, country_name, ip_address, user_agent, referrer, session_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO page_visits (partner_id, visitor_type, user_id, page_url, page_title, duration_seconds, country_code, country_name, ip_address, user_agent, referrer, session_id, visited_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())'
         )->execute([
             $partnerId,
             $visitorType,
@@ -207,6 +207,8 @@ final class AnalyticsController extends Controller
         $filters = self::readFilters();
         $filters['partner_id'] = (string) $partnerId; // Force partner scope
         $where = self::buildWhereClause($filters);
+        // Partners must not see admin visits
+        $where = self::excludeAdminVisits($where);
 
         $reportSchedule = self::getReportSchedule($pdo, $partnerId);
 
@@ -252,6 +254,9 @@ final class AnalyticsController extends Controller
         }
 
         $where = self::buildWhereClause($filters);
+        if ($role === 'partner') {
+            $where = self::excludeAdminVisits($where);
+        }
         $pdo = Database::connection();
         $rows = self::recentVisits($pdo, $where, 10000);
 
@@ -299,7 +304,7 @@ final class AnalyticsController extends Controller
             throw new HttpException(403, 'Forbidden', 'Accès réservé.');
         }
 
-        $pdfData = self::generatePdfReport($filters, $partnerId);
+        $pdfData = self::generatePdfReport($filters, $partnerId, $role === 'partner');
 
         header('Content-Type: application/pdf');
         header('Content-Disposition: attachment; filename="rapport-analytics-' . date('Y-m-d') . '.pdf"');
@@ -591,6 +596,20 @@ final class AnalyticsController extends Controller
         return ['sql' => $sql, 'params' => $params];
     }
 
+    /**
+     * Adds a condition to exclude admin visits from the WHERE clause.
+     * Used for partner views so they only see client and partner visits.
+     */
+    private static function excludeAdminVisits(array $where): array
+    {
+        if ($where['sql'] !== '') {
+            $where['sql'] .= " AND pv.visitor_type != 'admin'";
+        } else {
+            $where['sql'] = "WHERE pv.visitor_type != 'admin'";
+        }
+        return $where;
+    }
+
     private static function emptyKpis(): array
     {
         return [
@@ -659,13 +678,16 @@ final class AnalyticsController extends Controller
     private static function visitsByPage(PDO $pdo, array $where): array
     {
         $sql = "SELECT pv.page_url, pv.page_title,
+                COALESCE(pa.name, '—') AS partner_name,
                 COUNT(*) AS visits,
                 ROUND(AVG(pv.duration_seconds), 0) AS avg_duration,
                 SUM(CASE WHEN pv.visitor_type = 'client' THEN 1 ELSE 0 END) AS client_visits,
                 SUM(CASE WHEN pv.visitor_type = 'partner' THEN 1 ELSE 0 END) AS partner_visits,
                 SUM(CASE WHEN pv.visitor_type = 'admin' THEN 1 ELSE 0 END) AS admin_visits
-                FROM page_visits pv {$where['sql']}
-                GROUP BY pv.page_url, pv.page_title ORDER BY visits DESC LIMIT 50";
+                FROM page_visits pv
+                LEFT JOIN partners pa ON pa.id = pv.partner_id
+                {$where['sql']}
+                GROUP BY pv.page_url, pv.page_title, pa.name ORDER BY visits DESC LIMIT 50";
         $stmt = $pdo->prepare($sql);
         $stmt->execute($where['params']);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -683,7 +705,7 @@ final class AnalyticsController extends Controller
 
     private static function recentVisits(PDO $pdo, array $where, int $limit): array
     {
-        $sql = "SELECT pv.*, CONVERT_TZ(pv.visited_at, '+00:00', '" . self::TZ_OFFSET . "') AS visited_at FROM page_visits pv {$where['sql']} ORDER BY pv.visited_at DESC LIMIT {$limit}";
+        $sql = "SELECT pv.*, CONVERT_TZ(pv.visited_at, '+00:00', '" . self::TZ_OFFSET . "') AS visited_at, COALESCE(pa.name, '—') AS partner_name FROM page_visits pv LEFT JOIN partners pa ON pa.id = pv.partner_id {$where['sql']} ORDER BY pv.visited_at DESC LIMIT {$limit}";
         $stmt = $pdo->prepare($sql);
         $stmt->execute($where['params']);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -706,7 +728,7 @@ final class AnalyticsController extends Controller
      * approach: renders an HTML document and wraps it in a basic PDF structure.
      * No external library needed.
      */
-    public static function generatePdfReport(array $filters, ?int $partnerId = null): string
+    public static function generatePdfReport(array $filters, ?int $partnerId = null, bool $excludeAdmin = false): string
     {
         if (!Database::tableExists('page_visits')) {
             return self::buildSimplePdf('Rapport d\'analyse', 'Aucune donnée disponible.');
@@ -714,6 +736,9 @@ final class AnalyticsController extends Controller
 
         $pdo = Database::connection();
         $where = self::buildWhereClause($filters);
+        if ($excludeAdmin) {
+            $where = self::excludeAdminVisits($where);
+        }
         $kpis = self::computeKpis($pdo, $where);
         $visitsByCountry = self::visitsByCountry($pdo, $where);
         $visitsByPage = self::visitsByPage($pdo, $where);
