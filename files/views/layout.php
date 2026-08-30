@@ -49,5 +49,29 @@ $jsVersion = is_file($jsPath) ? (string) filemtime($jsPath) : '1';
   </footer>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="" defer></script>
   <script src="/assets/js/app.js?v=<?= \App\View::e($jsVersion) ?>" defer></script>
+  <script>
+  (function(){
+    var sid = sessionStorage.getItem('_asid');
+    if (!sid) { sid = Math.random().toString(36).substr(2) + Date.now().toString(36); sessionStorage.setItem('_asid', sid); }
+    var start = Date.now();
+    var sent = false;
+    function track() {
+      if (sent) return;
+      sent = true;
+      var data = JSON.stringify({page_url: location.pathname + location.search, page_title: document.title, referrer: document.referrer, session_id: sid, duration_seconds: 0});
+      if (navigator.sendBeacon) { navigator.sendBeacon('/api/analytics/track', new Blob([data], {type:'application/json'})); }
+      else { var x = new XMLHttpRequest(); x.open('POST','/api/analytics/track',true); x.setRequestHeader('Content-Type','application/json'); x.send(data); }
+    }
+    function sendDuration() {
+      var dur = Math.round((Date.now() - start) / 1000);
+      if (dur < 1) return;
+      var data = JSON.stringify({page_url: location.pathname + location.search, session_id: sid, duration_seconds: dur});
+      if (navigator.sendBeacon) { navigator.sendBeacon('/api/analytics/track-duration', new Blob([data], {type:'application/json'})); }
+    }
+    if (document.readyState === 'complete') { track(); } else { window.addEventListener('load', track); }
+    document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'hidden') sendDuration(); });
+    window.addEventListener('beforeunload', sendDuration);
+  })();
+  </script>
 </body>
 </html>

@@ -20,6 +20,7 @@ use App\controllers\PageController;
 use App\controllers\PartnersController;
 use App\controllers\ReservationsController;
 use App\controllers\VersionsController;
+use App\controllers\AnalyticsController;
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
@@ -186,6 +187,10 @@ try {
             LodgifyController::rates((int) $matches[1]);
         case route($method, $path, 'POST', '#^/api/lodgify/sync$#'):
             LodgifyController::sync();
+        case route($method, $path, 'POST', '#^/api/analytics/track$#'):
+            AnalyticsController::track();
+        case route($method, $path, 'POST', '#^/api/analytics/track-duration$#'):
+            AnalyticsController::trackDuration();
         case route($method, $path, 'GET', '#^/$#'):
             PageController::home();
             break;
@@ -330,6 +335,15 @@ try {
             break;
         case route($method, $path, 'POST', '#^/partner/gallery/(\d+)/zip$#', $matches):
             GalleryController::partnerDownloadZip((int) $matches[1]);
+        case route($method, $path, 'GET', '#^/partner/analytics$#'):
+            AnalyticsController::page();
+            break;
+        case route($method, $path, 'GET', '#^/partner/analytics/export$#'):
+            AnalyticsController::exportCsv();
+        case route($method, $path, 'GET', '#^/partner/analytics/pdf$#'):
+            AnalyticsController::exportPdf();
+        case route($method, $path, 'POST', '#^/partner/analytics/report-schedule$#'):
+            AnalyticsController::saveReportSchedule();
         case route($method, $path, 'GET', '#^/admin/partners$#'):
             PageController::adminPartners();
             break;
@@ -477,6 +491,23 @@ try {
         case route($method, $path, 'GET', '#^/admin/diagnostic$#'):
             PageController::adminDiagnostic();
             break;
+        case route($method, $path, 'GET', '#^/admin/analytics$#'):
+            AnalyticsController::page();
+            break;
+        case route($method, $path, 'GET', '#^/admin/analytics/export$#'):
+            AnalyticsController::exportCsv();
+        case route($method, $path, 'GET', '#^/admin/analytics/pdf$#'):
+            AnalyticsController::exportPdf();
+        case route($method, $path, 'POST', '#^/admin/analytics/report-schedule$#'):
+            AnalyticsController::adminSaveReportSchedule();
+        case route($method, $path, 'POST', '#^/admin/partners/(\d+)/analytics-toggle$#', $matches):
+            AnalyticsController::adminToggleAnalytics((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/admin/analytics/purge-partner$#'):
+            AnalyticsController::adminPurgePartner();
+        case route($method, $path, 'POST', '#^/admin/analytics/report-schedule/(\d+)/delete$#', $matches):
+            AnalyticsController::adminDeleteReportSchedule((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/admin/analytics/(\d+)/delete$#', $matches):
+            AnalyticsController::adminDeleteVisit((int) $matches[1]);
         case route($method, $path, 'GET', '#^/admin/cron$#'):
             PageController::adminCron();
             break;

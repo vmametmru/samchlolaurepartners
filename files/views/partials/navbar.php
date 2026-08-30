@@ -43,6 +43,11 @@ $minimalHeader = !empty($minimalHeader);
     </button>
     <div class="navbar-links" id="navbar-links-panel" data-mobile-nav-links>
       <?php if (is_array($user) && ($user['role'] ?? '') === 'partner'): ?><a href="/partner/dashboard"><?= \App\View::e(\App\I18n::t('nav.dashboard')) ?></a><?php endif; ?>
+      <?php if (is_array($user) && ($user['role'] ?? '') === 'partner' && \App\Database::columnExists('partners', 'analytics_visible')):
+          $navPid = (int) ($user['partner_id'] ?? 0);
+          $navAv = false;
+          if ($navPid > 0) { $navAvS = \App\Database::connection()->prepare('SELECT analytics_visible FROM partners WHERE id = ?'); $navAvS->execute([$navPid]); $navAvR = $navAvS->fetch(\PDO::FETCH_ASSOC); $navAv = $navAvR && (int) ($navAvR['analytics_visible'] ?? 0) === 1; }
+          if ($navAv): ?><a href="/partner/analytics">Analyse</a><?php endif; endif; ?>
       <?php if (is_array($user) && ($user['role'] ?? '') === 'admin'): ?><a href="/admin/partners"><?= \App\View::e(\App\I18n::t('nav.dashboard')) ?></a><?php endif; ?>
       <?php if ($partner): ?>
         <?php if (is_array($user)): ?>
@@ -80,6 +85,7 @@ $minimalHeader = !empty($minimalHeader);
               <a href="/admin/politique-reservation">Politique de réservation</a>
               <a href="/admin/email-server-settings">Configuration serveur email</a>
               <a href="/admin/communication">Communication</a>
+              <a href="/admin/analytics">Analyse</a>
               <a href="/admin/versions">Versions</a>
               <a href="/admin/diagnostic">Diagnostic</a>
               <a href="/admin/mise-a-jour">Mise à jour</a>

@@ -30,6 +30,7 @@
            data-label-done="<?= \App\View::e(\App\I18n::t('update.progress_done')) ?>">
         <div class="update-progress-track"><span class="update-progress-bar" data-update-progress-bar style="width:0%"></span></div>
         <p class="update-progress-label"><span data-update-progress-text><?= \App\View::e(\App\I18n::t('update.progress_uploading')) ?></span> <span data-update-progress-pct>0%</span></p>
+        <pre class="update-deploy-log" data-update-log hidden></pre>
       </div>
     </form>
   </div>
