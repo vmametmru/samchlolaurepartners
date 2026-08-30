@@ -8,8 +8,18 @@ $exportCsvUrl = $filterAction . '/export?' . http_build_query($filters);
 $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
 ?>
 <section class="container section-lg">
-  <h1>Tableau d'analyse</h1>
-  <p class="text-muted">Toutes les heures sont affichées en heure de Maurice (GMT+4).</p>
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;">
+    <div>
+      <h1 style="margin-bottom:0;">Tableau d'analyse</h1>
+      <p class="text-muted" style="margin-top:.25rem;">Toutes les heures sont affichées en heure de Maurice (GMT+4).</p>
+    </div>
+    <?php if ($isAdmin): ?>
+      <button type="button" class="btn-secondary" onclick="document.getElementById('analytics-settings-modal').hidden=false;" title="Paramètres" style="display:inline-flex;align-items:center;gap:.4rem;flex-shrink:0;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Paramètres
+      </button>
+    <?php endif; ?>
+  </div>
 
   <!-- Filters -->
   <form class="card card-body analytics-filters" method="get" action="<?= \App\View::e($filterAction) ?>">
@@ -44,22 +54,6 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
       <a class="btn-secondary" href="<?= \App\View::e($exportPdfUrl) ?>">Exporter PDF</a>
     </div>
   </form>
-
-  <?php if ($isAdmin): ?>
-    <form class="card card-body analytics-filters mt-8" method="post" action="/admin/analytics/purge-partner" onsubmit="return confirm('Êtes-vous sûr de vouloir supprimer TOUTES les données analytiques de ce partenaire ? Cette action est irréversible.');">
-      <div class="form-grid cols-2" style="align-items:end;">
-        <label><span>Supprimer toutes les données analytiques d'un partenaire</span>
-          <select class="input" name="partner_id" required>
-            <option value="">Sélectionner un partenaire...</option>
-            <?php foreach ($partners as $p): ?>
-              <option value="<?= (int) $p['id'] ?>"><?= \App\View::e($p['name']) ?></option>
-            <?php endforeach; ?>
-          </select>
-        </label>
-        <div><button class="btn-danger" type="submit">Tout supprimer</button></div>
-      </div>
-    </form>
-  <?php endif; ?>
 
   <!-- KPIs -->
   <div class="stats-grid analytics-kpis">
@@ -201,30 +195,54 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
   <?php endif; ?>
 
   <?php if ($isAdmin): ?>
-    <div class="card card-body mt-16">
-      <h2>Configurer le rapport automatique pour un partenaire</h2>
-      <form method="post" action="/admin/analytics/report-schedule" class="stack-md">
-        <label><span>Partenaire</span>
-          <select class="input" name="partner_id" required>
-            <option value="">Sélectionner...</option>
-            <?php foreach ($partners as $p): ?>
-              <option value="<?= (int) $p['id'] ?>"><?= \App\View::e($p['name']) ?></option>
-            <?php endforeach; ?>
-          </select>
-        </label>
-        <label class="inline-check"><input type="checkbox" name="report_enabled"> Activer l'envoi automatique</label>
-        <div class="form-grid cols-2">
-          <label><span>Jour d'envoi</span>
-            <select class="input" name="report_day">
-              <?php foreach ($days as $i => $dayName): ?>
-                <option value="<?= $i ?>" <?= $i === 1 ? 'selected' : '' ?>><?= \App\View::e($dayName) ?></option>
+    <div class="simple-modal-overlay" id="analytics-settings-modal" hidden onclick="if(event.target===this)this.hidden=true;">
+      <div class="simple-modal-dialog" style="max-width:38rem;">
+        <div class="simple-modal-header">
+          <h3>Paramètres d'analyse</h3>
+          <button type="button" class="btn-close" onclick="this.closest('.simple-modal-overlay').hidden=true;">&times;</button>
+        </div>
+
+        <h4 style="margin:0 0 .5rem;">Configurer le rapport automatique pour un partenaire</h4>
+        <form method="post" action="/admin/analytics/report-schedule" class="stack-md">
+          <label><span>Partenaire</span>
+            <select class="input" name="partner_id" required>
+              <option value="">Sélectionner...</option>
+              <?php foreach ($partners as $p): ?>
+                <option value="<?= (int) $p['id'] ?>"><?= \App\View::e($p['name']) ?></option>
               <?php endforeach; ?>
             </select>
           </label>
-          <label><span>Heure d'envoi</span><input class="input" type="time" name="report_time" value="08:00"></label>
-        </div>
-        <div class="button-row"><button class="btn-primary" type="submit">Sauvegarder</button></div>
-      </form>
+          <label class="inline-check"><input type="checkbox" name="report_enabled"> Activer l'envoi automatique</label>
+          <div class="form-grid cols-2">
+            <label><span>Jour d'envoi</span>
+              <select class="input" name="report_day">
+                <?php foreach ($days as $i => $dayName): ?>
+                  <option value="<?= $i ?>" <?= $i === 1 ? 'selected' : '' ?>><?= \App\View::e($dayName) ?></option>
+                <?php endforeach; ?>
+              </select>
+            </label>
+            <label><span>Heure d'envoi</span><input class="input" type="time" name="report_time" value="08:00"></label>
+          </div>
+          <div class="button-row"><button class="btn-primary" type="submit">Sauvegarder</button></div>
+        </form>
+
+        <hr style="margin:1.25rem 0;">
+
+        <h4 style="margin:0 0 .5rem;">Supprimer toutes les données analytiques d'un partenaire</h4>
+        <form method="post" action="/admin/analytics/purge-partner" onsubmit="return confirm('Êtes-vous sûr de vouloir supprimer TOUTES les données analytiques de ce partenaire ? Cette action est irréversible.');">
+          <div class="form-grid cols-2" style="align-items:end;">
+            <label>
+              <select class="input" name="partner_id" required>
+                <option value="">Sélectionner un partenaire...</option>
+                <?php foreach ($partners as $p): ?>
+                  <option value="<?= (int) $p['id'] ?>"><?= \App\View::e($p['name']) ?></option>
+                <?php endforeach; ?>
+              </select>
+            </label>
+            <div><button class="btn-primary" type="submit" style="background:#dc2626;border-color:#dc2626;">Tout supprimer</button></div>
+          </div>
+        </form>
+      </div>
     </div>
   <?php endif; ?>
 </section>
