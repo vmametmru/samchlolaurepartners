@@ -208,7 +208,7 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script>
-(function () {
+document.addEventListener('DOMContentLoaded', function () {
   var visitsByDate = <?= json_encode($visitsByDate, JSON_UNESCAPED_UNICODE) ?>;
   var visitsByHour = <?= json_encode($visitsByHour, JSON_UNESCAPED_UNICODE) ?>;
   var visitsByCountry = <?= json_encode(array_slice($visitsByCountry, 0, 10), JSON_UNESCAPED_UNICODE) ?>;
@@ -283,7 +283,8 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
   // Visits by country — Leaflet world map with circle markers
   var mapEl = document.getElementById('map-visits-country');
   if (mapEl && visitsByCountry.length > 0 && typeof L !== 'undefined') {
-    var map = L.map(mapEl, { scrollWheelZoom: false, attributionControl: false });
+    mapEl.style.height = '250px';
+    var map = L.map(mapEl, { scrollWheelZoom: false });
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(map);
     var maxVisits = Math.max.apply(null, visitsByCountry.map(function (r) { return parseInt(r.visits); }));
     var bounds = [];
@@ -324,5 +325,5 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
       options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
     });
   }
-})();
+});
 </script>
