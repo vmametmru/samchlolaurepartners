@@ -38,6 +38,16 @@ try {
         fwrite(STDERR, '[scheduler] Cache purge failed: ' . $e->getMessage() . PHP_EOL);
     }
 
+    try {
+        $analytics = App\controllers\AnalyticsController::sendScheduledReports();
+        echo '[scheduler] Analytics reports: checked ' . $analytics['checked'] . ', sent ' . $analytics['sent'] . PHP_EOL;
+        foreach ($analytics['errors'] as $aErr) {
+            fwrite(STDERR, '[scheduler] analytics: ' . $aErr . PHP_EOL);
+        }
+    } catch (Throwable $e) {
+        fwrite(STDERR, '[scheduler] Analytics reports failed: ' . $e->getMessage() . PHP_EOL);
+    }
+
     exit($result['errors'] === [] ? 0 : 1);
 } catch (Throwable $e) {
     fwrite(STDERR, '[scheduler] Error: ' . $e->getMessage() . PHP_EOL);

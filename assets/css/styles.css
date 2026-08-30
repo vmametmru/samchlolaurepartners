@@ -786,3 +786,20 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .narrow {
   max-width: 700px;
 }
+
+/* Analytics */
+.analytics-filters { margin-bottom: 1rem; }
+.analytics-kpis { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.analytics-charts-row { margin-top: 1rem; gap: 1rem; }
+.analytics-charts-row .card-body { padding: 1rem; }
+.table-responsive { overflow-x: auto; }
+.data-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.data-table th, .data-table td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--c-border, #e5e7eb); text-align: left; }
+.data-table th { background: var(--c-bg-muted, #f9fafb); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.02em; }
+.data-table tr:hover td { background: var(--c-bg-muted, #f9fafb); }
+.badge-client { background: #dcfce7; color: #166534; }
+.badge-partner { background: #fef3c7; color: #92400e; }
+.badge-admin { background: #e0e7ff; color: #3730a3; }
+.mt-8 { margin-top: 0.5rem; }
+.mt-16 { margin-top: 1rem; }
+.text-muted { color: #6b7280; font-size: 0.875rem; }

@@ -54,4 +54,12 @@
     <label class="inline-check"><input type="checkbox" name="active" <?= empty($partnerData) || !isset($partnerData['active']) || (int) $partnerData['active'] === 1 ? 'checked' : '' ?>> Partenaire actif</label>
     <div class="button-row"><button class="btn-primary" type="submit">Sauvegarder</button><a class="btn-secondary" href="/admin/partners">Annuler</a></div>
   </form>
+  <?php if ($editing && \App\Database::columnExists('partners', 'analytics_visible')): ?>
+    <form method="post" action="/admin/partners/<?= (int) $partnerData['id'] ?>/analytics-toggle" class="mt-16">
+      <label class="inline-check">
+        <input type="checkbox" onchange="this.form.submit()" <?= !empty($partnerData['analytics_visible']) && (int) $partnerData['analytics_visible'] === 1 ? 'checked' : '' ?>>
+        Autoriser ce partenaire à voir le tableau d'analyse
+      </label>
+    </form>
+  <?php endif; ?>
 </section>
