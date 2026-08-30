@@ -812,88 +812,300 @@ final class AnalyticsController extends Controller
 
         $dateRange = ($filters['date_from'] ?? '?') . ' — ' . ($filters['date_to'] ?? '?');
 
-        // Build HTML content for the PDF
-        $logoHtml = '';
+        // ── Build structured PDF with KPIs + tables ──
+        $lines = [];
+
+        // Title
+        $lines[] = ['type' => 'title', 'text' => 'Rapport d\'analyse — ' . $partnerName];
+        $lines[] = ['type' => 'meta', 'text' => 'Période : ' . $dateRange . '  ·  Généré le ' . (new \DateTimeImmutable('now', new \DateTimeZone(self::TZ)))->format('d/m/Y à H:i') . ' (GMT+4)'];
+        $lines[] = ['type' => 'spacer'];
+
+        // KPIs as a formatted block
+        $lines[] = ['type' => 'section', 'text' => 'Indicateurs clés'];
+        $kpiPairs = [
+            ['Visites totales', (int) $kpis['total_visits']],
+            ['Visiteurs uniques', (int) $kpis['unique_visitors']],
+            ['Visites clients', (int) $kpis['client_visits']],
+            ['Visites partenaires', (int) $kpis['partner_visits']],
+            ['Visites admin', (int) $kpis['admin_visits']],
+            ['Durée moyenne', (int) $kpis['avg_duration'] . 's'],
+            ['Pays', (int) $kpis['countries']],
+            ['Pages vues', (int) $kpis['pages_viewed']],
+        ];
+        foreach ($kpiPairs as [$label, $value]) {
+            $lines[] = ['type' => 'kpi', 'label' => $label, 'value' => (string) $value];
+        }
+        $lines[] = ['type' => 'spacer'];
+
+        // Visits by country table
+        if ($visitsByCountry !== []) {
+            $lines[] = ['type' => 'section', 'text' => 'Visites par pays'];
+            $lines[] = ['type' => 'table_header', 'cols' => ['Pays', 'Visites']];
+            foreach ($visitsByCountry as $row) {
+                $lines[] = ['type' => 'table_row', 'cols' => [
+                    (string) ($row['country_name'] ?: $row['country_code']),
+                    (string) (int) $row['visits'],
+                ]];
+            }
+            $lines[] = ['type' => 'spacer'];
+        }
+
+        // Visits by page table
+        if ($visitsByPage !== []) {
+            $lines[] = ['type' => 'section', 'text' => 'Pages les plus visitées'];
+            $lines[] = ['type' => 'table_header', 'cols' => ['Page', 'Visites', 'Durée moy.', 'Clients', 'Partenaires']];
+            foreach (array_slice($visitsByPage, 0, 20) as $row) {
+                $pageLabel = (string) ($row['page_title'] ?: $row['page_url']);
+                if (mb_strlen($pageLabel) > 45) {
+                    $pageLabel = mb_substr($pageLabel, 0, 42) . '...';
+                }
+                $lines[] = ['type' => 'table_row', 'cols' => [
+                    $pageLabel,
+                    (string) (int) $row['visits'],
+                    (int) ($row['avg_duration'] ?? 0) . 's',
+                    (string) (int) $row['client_visits'],
+                    (string) (int) $row['partner_visits'],
+                ]];
+            }
+        }
+
+        return self::buildStructuredPdf($lines, $partnerName, $logoUrl);
+    }
+
+    /**
+     * Builds a structured PDF with KPIs, section headers, and tables.
+     * Pure PHP — no external library.
+     */
+    private static function buildStructuredPdf(array $items, string $title, string $logoUrl = ''): string
+    {
+        $pageWidth = 595;
+        $pageHeight = 842;
+        $margin = 40;
+        $rightEdge = $pageWidth - $margin;
+        $usableWidth = $rightEdge - $margin;
+
+        // Prepare logo image object if available
+        $logoObjNum = null;
+        $logoRaw = '';
+        $logoW = 0;
+        $logoH = 0;
         if ($logoUrl !== '') {
-            $absLogo = $logoUrl;
+            $absPath = $logoUrl;
             if (str_starts_with($logoUrl, '/')) {
                 $basePath = defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2);
-                $localPath = $basePath . $logoUrl;
-                if (is_file($localPath)) {
-                    $logoData = @file_get_contents($localPath);
-                    if ($logoData !== false) {
-                        $mime = 'image/png';
-                        if (function_exists('finfo_open')) {
-                            $fi = @finfo_open(FILEINFO_MIME_TYPE);
-                            if ($fi !== false) {
-                                $detected = finfo_buffer($fi, $logoData);
-                                finfo_close($fi);
-                                if (is_string($detected) && str_starts_with($detected, 'image/')) {
-                                    $mime = $detected;
-                                }
-                            }
-                        }
-                        $absLogo = 'data:' . $mime . ';base64,' . base64_encode($logoData);
+                $absPath = $basePath . $logoUrl;
+            }
+            if (is_file($absPath)) {
+                $logoData = @file_get_contents($absPath);
+                if ($logoData !== false) {
+                    $info = @getimagesize($absPath);
+                    if ($info !== false) {
+                        $logoW = $info[0];
+                        $logoH = $info[1];
+                        $logoRaw = $logoData;
                     }
                 }
             }
-            $logoHtml = '<img src="' . htmlspecialchars($absLogo, ENT_QUOTES) . '" style="max-height:60px;max-width:200px;" alt="Logo">';
         }
 
-        $html = '<!DOCTYPE html><html><head><meta charset="utf-8"><style>
-body{font-family:Helvetica,Arial,sans-serif;font-size:12px;color:#333;margin:20px;}
-h1{font-size:20px;margin-bottom:4px;}
-h2{font-size:14px;color:#666;margin:16px 0 8px;}
-.logo{text-align:center;margin-bottom:10px;}
-.meta{color:#888;font-size:11px;margin-bottom:16px;}
-.kpi-grid{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;}
-.kpi{border:1px solid #ddd;border-radius:6px;padding:8px 12px;min-width:120px;}
-.kpi strong{display:block;font-size:18px;color:#E61E4D;}
-.kpi span{font-size:11px;color:#888;}
-table{width:100%;border-collapse:collapse;margin-top:8px;font-size:11px;}
-th,td{border:1px solid #ddd;padding:4px 8px;text-align:left;}
-th{background:#f5f5f5;font-weight:600;}
-</style></head><body>';
-        $html .= '<div class="logo">' . $logoHtml . '</div>';
-        $html .= '<h1>Rapport d\'analyse — ' . htmlspecialchars($partnerName, ENT_QUOTES) . '</h1>';
-        $html .= '<p class="meta">Période : ' . htmlspecialchars($dateRange, ENT_QUOTES) . ' · Généré le ' . (new \DateTimeImmutable('now', new \DateTimeZone(self::TZ)))->format('d/m/Y à H:i') . ' (GMT+4)</p>';
+        // Build all page content streams
+        $pageStreams = [];
+        $y = $pageHeight - $margin;
+        $currentStream = '';
+        $needNewPage = false;
 
-        // KPIs
-        $html .= '<div class="kpi-grid">';
-        $html .= '<div class="kpi"><strong>' . (int) $kpis['total_visits'] . '</strong><span>Visites totales</span></div>';
-        $html .= '<div class="kpi"><strong>' . (int) $kpis['unique_visitors'] . '</strong><span>Visiteurs uniques</span></div>';
-        $html .= '<div class="kpi"><strong>' . (int) $kpis['client_visits'] . '</strong><span>Visites clients</span></div>';
-        $html .= '<div class="kpi"><strong>' . (int) $kpis['partner_visits'] . '</strong><span>Visites partenaires</span></div>';
-        $html .= '<div class="kpi"><strong>' . (int) $kpis['admin_visits'] . '</strong><span>Visites admin</span></div>';
-        $html .= '<div class="kpi"><strong>' . (int) $kpis['avg_duration'] . 's</strong><span>Durée moyenne</span></div>';
-        $html .= '<div class="kpi"><strong>' . (int) $kpis['countries'] . '</strong><span>Pays</span></div>';
-        $html .= '</div>';
+        $esc = function (string $s): string {
+            $s = @iconv('UTF-8', 'ISO-8859-1//TRANSLIT//IGNORE', $s) ?: $s;
+            return str_replace(['\\', '(', ')'], ['\\\\', '\\(', '\\)'], $s);
+        };
 
-        // Visits by country
-        if ($visitsByCountry !== []) {
-            $html .= '<h2>Visites par pays</h2><table><tr><th>Pays</th><th>Visites</th></tr>';
-            foreach ($visitsByCountry as $row) {
-                $html .= '<tr><td>' . htmlspecialchars((string) ($row['country_name'] ?: $row['country_code']), ENT_QUOTES) . '</td><td>' . (int) $row['visits'] . '</td></tr>';
+        $checkSpace = function (float $needed) use (&$y, &$currentStream, &$pageStreams, &$needNewPage, $pageHeight, $margin) {
+            if ($y - $needed < $margin) {
+                $pageStreams[] = $currentStream;
+                $currentStream = '';
+                $y = $pageHeight - $margin;
+                $needNewPage = true;
             }
-            $html .= '</table>';
-        }
+        };
 
-        // Visits by page
-        if ($visitsByPage !== []) {
-            $html .= '<h2>Pages les plus visitées</h2><table><tr><th>Page</th><th>Visites</th><th>Durée moy.</th><th>Clients</th><th>Partenaires</th></tr>';
-            foreach (array_slice($visitsByPage, 0, 20) as $row) {
-                $html .= '<tr><td>' . htmlspecialchars((string) ($row['page_title'] ?: $row['page_url']), ENT_QUOTES) . '</td>';
-                $html .= '<td>' . (int) $row['visits'] . '</td>';
-                $html .= '<td>' . (int) ($row['avg_duration'] ?? 0) . 's</td>';
-                $html .= '<td>' . (int) $row['client_visits'] . '</td>';
-                $html .= '<td>' . (int) $row['partner_visits'] . '</td></tr>';
+        // Logo at top center
+        $logoPlaceholder = false;
+        if ($logoRaw !== '' && $logoW > 0 && $logoH > 0) {
+            $logoPlaceholder = true;
+            $displayH = 50;
+            $displayW = ($logoW / $logoH) * $displayH;
+            if ($displayW > 180) {
+                $displayW = 180;
+                $displayH = ($logoH / $logoW) * $displayW;
             }
-            $html .= '</table>';
+            $logoX = ($pageWidth - $displayW) / 2;
+            $logoY = $y - $displayH;
+            // Image will be placed via the Do command referencing /Im1
+            $currentStream .= "q {$displayW} 0 0 {$displayH} {$logoX} {$logoY} cm /Im1 Do Q\n";
+            $y -= $displayH + 10;
         }
 
-        $html .= '</body></html>';
+        foreach ($items as $item) {
+            $type = $item['type'] ?? '';
 
-        return self::buildSimplePdf('Rapport d\'analyse - ' . $partnerName, $html, true);
+            if ($type === 'title') {
+                $checkSpace(30);
+                $currentStream .= "BT /F1 18 Tf {$margin} {$y} Td (" . $esc($item['text']) . ") Tj ET\n";
+                $y -= 24;
+            } elseif ($type === 'meta') {
+                $checkSpace(16);
+                $currentStream .= "BT /F1 9 Tf 0.5 0.5 0.5 rg {$margin} {$y} Td (" . $esc($item['text']) . ") Tj 0 0 0 rg ET\n";
+                $y -= 16;
+            } elseif ($type === 'section') {
+                $checkSpace(26);
+                // Draw a line
+                $currentStream .= "0.85 0.85 0.85 RG 1 w {$margin} " . ($y - 2) . " m {$rightEdge} " . ($y - 2) . " l S\n";
+                $y -= 8;
+                $currentStream .= "BT /F2 12 Tf 0.2 0.2 0.2 rg {$margin} {$y} Td (" . $esc($item['text']) . ") Tj 0 0 0 rg ET\n";
+                $y -= 20;
+            } elseif ($type === 'kpi') {
+                $checkSpace(16);
+                $valueStr = $item['value'];
+                $labelStr = $item['label'];
+                // Value in brand color, label in gray
+                $currentStream .= "BT /F2 11 Tf 0.902 0.118 0.302 rg " . ($margin + 4) . " {$y} Td (" . $esc($valueStr) . ") Tj ET\n";
+                $currentStream .= "BT /F1 10 Tf 0.4 0.4 0.4 rg " . ($margin + 80) . " {$y} Td (" . $esc($labelStr) . ") Tj 0 0 0 rg ET\n";
+                $y -= 16;
+            } elseif ($type === 'spacer') {
+                $y -= 10;
+            } elseif ($type === 'table_header') {
+                $cols = $item['cols'];
+                $colCount = count($cols);
+                $colW = $usableWidth / $colCount;
+                $checkSpace(20);
+                // Header background
+                $currentStream .= "0.96 0.96 0.96 rg {$margin} " . ($y - 4) . " {$usableWidth} 16 re f\n";
+                $currentStream .= "0.85 0.85 0.85 RG 0.5 w {$margin} " . ($y - 4) . " {$usableWidth} 16 re S\n";
+                foreach ($cols as $ci => $col) {
+                    $cx = $margin + $ci * $colW + 4;
+                    $currentStream .= "BT /F2 8 Tf 0.2 0.2 0.2 rg {$cx} " . ($y + 1) . " Td (" . $esc($col) . ") Tj 0 0 0 rg ET\n";
+                }
+                $y -= 18;
+            } elseif ($type === 'table_row') {
+                $cols = $item['cols'];
+                $colCount = count($cols);
+                $colW = $usableWidth / $colCount;
+                $checkSpace(16);
+                // Row bottom border
+                $currentStream .= "0.9 0.9 0.9 RG 0.5 w {$margin} " . ($y - 2) . " m {$rightEdge} " . ($y - 2) . " l S\n";
+                foreach ($cols as $ci => $col) {
+                    $cx = $margin + $ci * $colW + 4;
+                    $currentStream .= "BT /F1 8 Tf {$cx} " . ($y + 2) . " Td (" . $esc($col) . ") Tj ET\n";
+                }
+                $y -= 14;
+            }
+        }
+
+        // Final page
+        if ($currentStream !== '') {
+            $pageStreams[] = $currentStream;
+        }
+        if ($pageStreams === []) {
+            $pageStreams = ["BT /F1 12 Tf {$margin} 780 Td (Aucune donnee.) Tj ET\n"];
+        }
+
+        // ── Assemble PDF objects ──
+        $objects = [];
+        $objectOffsets = [];
+
+        // Obj 1: Catalog
+        $objects[1] = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";
+        // Obj 3: Font Helvetica
+        $objects[3] = "3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\nendobj\n";
+        // Obj 4: Font Helvetica-Bold
+        $objects[4] = "4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>\nendobj\n";
+
+        $nextObj = 5;
+
+        // Logo image XObject (if any)
+        if ($logoRaw !== '' && $logoW > 0) {
+            $logoObjNum = $nextObj++;
+            $info = @getimagesize($logoUrl !== '' && str_starts_with($logoUrl, '/') ? ((defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2)) . $logoUrl) : $logoUrl);
+            $bpc = 8;
+            $cs = '/DeviceRGB';
+            $filter = '';
+            // Detect JPEG or PNG
+            $isJpeg = (substr($logoRaw, 0, 2) === "\xff\xd8");
+            if ($isJpeg) {
+                $filter = '/DCTDecode';
+                $streamData = $logoRaw;
+            } else {
+                // For PNG or other formats, try to convert to raw RGB via GD
+                $img = @imagecreatefromstring($logoRaw);
+                if ($img !== false) {
+                    $w = imagesx($img);
+                    $h = imagesy($img);
+                    $logoW = $w;
+                    $logoH = $h;
+                    $raw = '';
+                    for ($row = 0; $row < $h; $row++) {
+                        for ($col = 0; $col < $w; $col++) {
+                            $rgb = imagecolorat($img, $col, $row);
+                            $raw .= chr(($rgb >> 16) & 0xFF) . chr(($rgb >> 8) & 0xFF) . chr($rgb & 0xFF);
+                        }
+                    }
+                    imagedestroy($img);
+                    $streamData = gzcompress($raw);
+                    $filter = '/FlateDecode';
+                } else {
+                    $logoObjNum = null;
+                    $streamData = '';
+                }
+            }
+            if ($logoObjNum !== null) {
+                $objects[$logoObjNum] = "{$logoObjNum} 0 obj\n<< /Type /XObject /Subtype /Image /Width {$logoW} /Height {$logoH} /ColorSpace {$cs} /BitsPerComponent {$bpc} /Filter {$filter} /Length " . strlen($streamData) . " >>\nstream\n{$streamData}\nendstream\nendobj\n";
+            }
+        }
+
+        // Page content objects + page objects
+        $pageObjNums = [];
+        foreach ($pageStreams as $stream) {
+            $contentObj = $nextObj++;
+            $pageObj = $nextObj++;
+            $pageObjNums[] = $pageObj;
+
+            $objects[$contentObj] = "{$contentObj} 0 obj\n<< /Length " . strlen($stream) . " >>\nstream\n{$stream}endstream\nendobj\n";
+
+            $resources = '<< /Font << /F1 3 0 R /F2 4 0 R >>';
+            if ($logoObjNum !== null) {
+                $resources .= ' /XObject << /Im1 ' . $logoObjNum . ' 0 R >>';
+            }
+            $resources .= ' >>';
+
+            $objects[$pageObj] = "{$pageObj} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {$pageWidth} {$pageHeight}] /Contents {$contentObj} 0 R /Resources {$resources} >>\nendobj\n";
+        }
+
+        // Obj 2: Pages
+        $kids = implode(' ', array_map(static fn(int $n): string => $n . ' 0 R', $pageObjNums));
+        $objects[2] = "2 0 obj\n<< /Type /Pages /Kids [{$kids}] /Count " . count($pageObjNums) . " >>\nendobj\n";
+
+        // ── Serialize ──
+        $pdf = "%PDF-1.4\n";
+        ksort($objects);
+        foreach ($objects as $num => $obj) {
+            $objectOffsets[$num] = strlen($pdf);
+            $pdf .= $obj;
+        }
+
+        $xrefOffset = strlen($pdf);
+        $maxObj = max(array_keys($objects));
+        $pdf .= "xref\n0 " . ($maxObj + 1) . "\n";
+        $pdf .= "0000000000 65535 f \n";
+        for ($i = 1; $i <= $maxObj; $i++) {
+            if (isset($objectOffsets[$i])) {
+                $pdf .= sprintf("%010d 00000 n \n", $objectOffsets[$i]);
+            } else {
+                $pdf .= "0000000000 00000 f \n";
+            }
+        }
+        $pdf .= "trailer\n<< /Size " . ($maxObj + 1) . " /Root 1 0 R >>\nstartxref\n{$xrefOffset}\n%%EOF\n";
+
+        return $pdf;
     }
 
     /**
