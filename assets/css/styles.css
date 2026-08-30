@@ -722,6 +722,7 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
   0%, 100% { opacity: 1; }
   50% { opacity: .55; }
 }
+.update-deploy-log { margin-top: .5rem; padding: .6rem .8rem; max-height: 10rem; overflow-y: auto; font-size: .75rem; line-height: 1.5; background: #1e1e2e; color: #a6e3a1; border-radius: .4rem; white-space: pre-wrap; word-break: break-all; }
 
 /* Email/Webmail styles */
 .navbar-avatar-trigger {

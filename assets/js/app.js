@@ -4764,6 +4764,29 @@ function initUpdateProgress() {
   const pct = form.querySelector('[data-update-progress-pct]');
   if (!fileInput || !submitBtn || !wrap || !bar || !text || !pct) return;
 
+  const logBox = form.querySelector('[data-update-log]');
+
+  const deploySteps = [
+    'Vérification du fichier ZIP…',
+    'Validation de la structure du paquet…',
+    'Création de la sauvegarde des fichiers actuels…',
+    'Sauvegarde terminée.',
+    'Extraction de l\'archive…',
+    'Copie des fichiers vers le site…',
+    'Fichiers copiés avec succès.',
+    'Vérification des migrations de base de données…',
+    'Application des migrations…',
+    'Nettoyage des fichiers temporaires…',
+    'Finalisation du déploiement…',
+  ];
+
+  const appendLog = (msg) => {
+    if (!logBox) return;
+    logBox.hidden = false;
+    logBox.textContent += '> ' + msg + '\n';
+    logBox.scrollTop = logBox.scrollHeight;
+  };
+
   const labelUploading = wrap.dataset.labelUploading || '';
   const labelApplying = wrap.dataset.labelApplying || '';
   const labelDone = wrap.dataset.labelDone || '';
@@ -4788,29 +4811,39 @@ function initUpdateProgress() {
 
     xhr.upload.addEventListener('progress', (progressEvent) => {
       if (!progressEvent.lengthComputable) return;
-      // Upload itself only accounts for the first 90%: the remaining 10%
-      // covers the server-side extraction/apply step below, so the bar
-      // never sits at a misleading 100% while the server is still working.
       setProgress((progressEvent.loaded / progressEvent.total) * 90, labelUploading);
     });
 
     let applyPulseTimer = null;
+    let stepIndex = 0;
     xhr.upload.addEventListener('load', () => {
       setProgress(90, labelApplying);
       bar.classList.add('is-indeterminate');
+      appendLog(deploySteps[0]);
+      stepIndex = 1;
       let current = 90;
       applyPulseTimer = window.setInterval(() => {
-        current = Math.min(99, current + 1);
+        if (stepIndex < deploySteps.length) {
+          appendLog(deploySteps[stepIndex]);
+          stepIndex++;
+        }
+        current = Math.min(99, current + 0.5);
         setProgress(current, labelApplying);
-      }, 600);
+      }, 3000);
     });
 
     xhr.onloadend = () => {
       if (applyPulseTimer) window.clearInterval(applyPulseTimer);
+      // Flush remaining log steps
+      while (stepIndex < deploySteps.length) {
+        appendLog(deploySteps[stepIndex]);
+        stepIndex++;
+      }
       bar.classList.remove('is-indeterminate');
       setProgress(100, labelDone);
+      appendLog('Déploiement terminé avec succès.');
       const destination = xhr.responseURL || window.location.href;
-      window.setTimeout(() => { window.location.href = destination; }, 250);
+      window.setTimeout(() => { window.location.href = destination; }, 800);
     };
 
     xhr.send(new FormData(form));
