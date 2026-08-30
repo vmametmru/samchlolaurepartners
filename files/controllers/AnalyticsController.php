@@ -400,6 +400,36 @@ final class AnalyticsController extends Controller
         self::redirect('/admin/partners/' . $partnerId . '/edit', 'Visibilité des analyses mise à jour.');
     }
 
+    /**
+     * POST /admin/analytics/{id}/delete
+     * Delete a single analytics row.
+     */
+    public static function adminDeleteVisit(int $visitId): never
+    {
+        Auth::requireUser(true);
+        if (Database::tableExists('page_visits')) {
+            Database::connection()->prepare('DELETE FROM page_visits WHERE id = ?')->execute([$visitId]);
+        }
+        self::redirect('/admin/analytics', 'Entrée supprimée.');
+    }
+
+    /**
+     * POST /admin/analytics/purge-partner
+     * Delete ALL analytics for a given partner.
+     */
+    public static function adminPurgePartner(): never
+    {
+        Auth::requireUser(true);
+        $partnerId = (int) ($_POST['partner_id'] ?? 0);
+        if ($partnerId <= 0) {
+            self::redirect('/admin/analytics', 'Partenaire invalide.', 'error');
+        }
+        if (Database::tableExists('page_visits')) {
+            Database::connection()->prepare('DELETE FROM page_visits WHERE partner_id = ?')->execute([$partnerId]);
+        }
+        self::redirect('/admin/analytics', 'Toutes les données analytiques du partenaire ont été supprimées.');
+    }
+
     // ── Scheduler: send weekly reports ───────────────────────────────
 
     /**

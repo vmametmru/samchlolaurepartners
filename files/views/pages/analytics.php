@@ -45,6 +45,22 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
     </div>
   </form>
 
+  <?php if ($isAdmin): ?>
+    <form class="card card-body analytics-filters mt-8" method="post" action="/admin/analytics/purge-partner" onsubmit="return confirm('Êtes-vous sûr de vouloir supprimer TOUTES les données analytiques de ce partenaire ? Cette action est irréversible.');">
+      <div class="form-grid cols-2" style="align-items:end;">
+        <label><span>Supprimer toutes les données analytiques d'un partenaire</span>
+          <select class="input" name="partner_id" required>
+            <option value="">Sélectionner un partenaire...</option>
+            <?php foreach ($partners as $p): ?>
+              <option value="<?= (int) $p['id'] ?>"><?= \App\View::e($p['name']) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </label>
+        <div><button class="btn-danger" type="submit">Tout supprimer</button></div>
+      </div>
+    </form>
+  <?php endif; ?>
+
   <!-- KPIs -->
   <div class="stats-grid analytics-kpis">
     <div class="card card-body"><p>Visites totales</p><strong><?= (int) $kpis['total_visits'] ?></strong></div>
@@ -71,9 +87,9 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
     </div>
   </div>
   <div class="form-grid cols-2 analytics-charts-row">
-    <div class="card card-body">
-      <h2 class="card-header">Visites par pays</h2>
-      <div id="map-visits-country" style="height:250px;"></div>
+    <div class="card card-body" style="display:flex;flex-direction:column;">
+      <h2 class="card-header" style="flex-shrink:0;">Visites par pays</h2>
+      <div id="map-visits-country" style="flex:1;min-height:250px;"></div>
     </div>
     <div class="card card-body">
       <h2 class="card-header">Répartition par type</h2>
@@ -136,7 +152,7 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
     <?php else: ?>
       <div class="table-responsive">
         <table class="data-table" id="analytics-visits-table">
-          <thead><tr><th>Date/Heure</th><th>Partenaire</th><th>Page</th><th>Type</th><th>Pays</th><th>Durée</th><th>IP</th></tr></thead>
+          <thead><tr><th>Date/Heure</th><th>Partenaire</th><th>Page</th><th>Type</th><th>Pays</th><th>Durée</th><th>IP</th><?php if ($isAdmin): ?><th>Actions</th><?php endif; ?></tr></thead>
           <tbody>
             <?php foreach (array_slice($visits, 0, 50) as $row): ?>
               <tr>
@@ -147,6 +163,13 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
                 <td><?= \App\View::e($row['country_name'] ?: ($row['country_code'] ?: '—')) ?></td>
                 <td><?= $row['duration_seconds'] !== null ? (int) $row['duration_seconds'] . 's' : '—' ?></td>
                 <td><?= \App\View::e($row['ip_address'] ?: '—') ?></td>
+                <?php if ($isAdmin): ?>
+                  <td class="nowrap">
+                    <form method="post" action="/admin/analytics/<?= (int) $row['id'] ?>/delete" style="display:inline;" onsubmit="return confirm('Supprimer cette entrée ?');">
+                      <button type="submit" class="btn-sm btn-danger" title="Supprimer">✕</button>
+                    </form>
+                  </td>
+                <?php endif; ?>
               </tr>
             <?php endforeach; ?>
           </tbody>
@@ -283,7 +306,6 @@ document.addEventListener('DOMContentLoaded', function () {
   // Visits by country — Leaflet world map with circle markers
   var mapEl = document.getElementById('map-visits-country');
   if (mapEl && visitsByCountry.length > 0 && typeof L !== 'undefined') {
-    mapEl.style.height = '250px';
     var map = L.map(mapEl, { scrollWheelZoom: false });
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(map);
     var maxVisits = Math.max.apply(null, visitsByCountry.map(function (r) { return parseInt(r.visits); }));
