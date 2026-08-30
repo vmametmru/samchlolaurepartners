@@ -138,6 +138,7 @@ final class AnalyticsController extends Controller
                 'visits' => [],
                 'filters' => self::defaultFilters(),
                 'reportSchedule' => null,
+                'reportSchedules' => [],
             ]);
             return;
         }
@@ -160,6 +161,7 @@ final class AnalyticsController extends Controller
             'visits' => self::recentVisits($pdo, $where, 200),
             'filters' => $filters,
             'reportSchedule' => null,
+            'reportSchedules' => self::getAllReportSchedules($pdo),
         ]);
     }
 
@@ -428,6 +430,19 @@ final class AnalyticsController extends Controller
             Database::connection()->prepare('DELETE FROM page_visits WHERE partner_id = ?')->execute([$partnerId]);
         }
         self::redirect('/admin/analytics', 'Toutes les données analytiques du partenaire ont été supprimées.');
+    }
+
+    /**
+     * POST /admin/analytics/report-schedule/{id}/delete
+     * Delete a report schedule entry.
+     */
+    public static function adminDeleteReportSchedule(int $scheduleId): never
+    {
+        Auth::requireUser(true);
+        if (Database::tableExists('analytics_report_schedules')) {
+            Database::connection()->prepare('DELETE FROM analytics_report_schedules WHERE id = ?')->execute([$scheduleId]);
+        }
+        self::redirect('/admin/analytics', 'Configuration de rapport supprimée.');
     }
 
     // ── Scheduler: send weekly reports ───────────────────────────────
@@ -749,6 +764,16 @@ final class AnalyticsController extends Controller
         $stmt = $pdo->prepare('SELECT * FROM analytics_report_schedules WHERE partner_id = ? LIMIT 1');
         $stmt->execute([$partnerId]);
         return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
+    private static function getAllReportSchedules(PDO $pdo): array
+    {
+        if (!Database::tableExists('analytics_report_schedules')) {
+            return [];
+        }
+        return $pdo->query(
+            'SELECT ars.*, p.name AS partner_name FROM analytics_report_schedules ars JOIN partners p ON p.id = ars.partner_id ORDER BY p.name'
+        )->fetchAll(PDO::FETCH_ASSOC);
     }
 
     // ── PDF generation ─────────────────────────────────────────────

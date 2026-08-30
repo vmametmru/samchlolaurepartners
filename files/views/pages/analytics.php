@@ -226,6 +226,36 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
           <div class="button-row"><button class="btn-primary" type="submit">Sauvegarder</button></div>
         </form>
 
+        <?php
+          $schedules = $reportSchedules ?? [];
+          $dayLabels = $days;
+        ?>
+        <?php if ($schedules): ?>
+          <div class="table-responsive" style="margin-top:1rem;">
+            <table class="data-table" style="font-size:.82rem;">
+              <thead><tr><th>Partenaire</th><th>Actif</th><th>Jour</th><th>Heure</th><th>Dernier envoi</th><th></th></tr></thead>
+              <tbody>
+                <?php foreach ($schedules as $s): ?>
+                  <tr>
+                    <td><?= \App\View::e($s['partner_name']) ?></td>
+                    <td><?= (int) $s['enabled'] ? '✓' : '—' ?></td>
+                    <td><?= \App\View::e($dayLabels[(int) $s['day_of_week']] ?? '?') ?></td>
+                    <td><?= \App\View::e($s['time_of_day']) ?></td>
+                    <td><?= $s['last_sent_at'] ? \App\View::e($s['last_sent_at']) : '—' ?></td>
+                    <td>
+                      <form method="post" action="/admin/analytics/report-schedule/<?= (int) $s['id'] ?>/delete" style="display:inline;" onsubmit="return confirm('Supprimer cette configuration ?');">
+                        <button type="submit" class="btn-sm btn-danger" title="Supprimer">✕</button>
+                      </form>
+                    </td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
+        <?php else: ?>
+          <p class="text-muted" style="margin-top:.75rem;font-size:.85rem;">Aucun rapport automatique configuré.</p>
+        <?php endif; ?>
+
         <hr style="margin:1.25rem 0;">
 
         <h4 style="margin:0 0 .5rem;">Supprimer toutes les données analytiques d'un partenaire</h4>
