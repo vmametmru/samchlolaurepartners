@@ -57,9 +57,10 @@
   <?php if ($editing && \App\Database::columnExists('partners', 'analytics_visible')): ?>
     <form method="post" action="/admin/partners/<?= (int) $partnerData['id'] ?>/analytics-toggle" class="mt-16">
       <label class="inline-check">
-        <input type="checkbox" onchange="this.form.submit()" <?= !empty($partnerData['analytics_visible']) && (int) $partnerData['analytics_visible'] === 1 ? 'checked' : '' ?>>
+        <input type="checkbox" name="analytics_visible" value="1" onchange="this.form.submit()" <?= !empty($partnerData['analytics_visible']) && (int) $partnerData['analytics_visible'] === 1 ? 'checked' : '' ?>>
         Autoriser ce partenaire à voir le tableau d'analyse
       </label>
+      <noscript><div class="button-row" style="margin-top:.75rem;"><button class="btn-primary" type="submit">Sauvegarder</button></div></noscript>
     </form>
   <?php endif; ?>
 </section>
