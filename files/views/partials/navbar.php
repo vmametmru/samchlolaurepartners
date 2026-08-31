@@ -11,6 +11,16 @@ $navOtherLang = \App\I18n::other();
 $navLangFlag = $navOtherLang === 'en' ? '🇬🇧' : '🇫🇷';
 $navBackPath = (string) ($currentPath ?? '/');
 $navLangHref = '/lang/' . $navOtherLang . '?back=' . rawurlencode($navBackPath);
+$partnerAnalyticsVisible = false;
+if (is_array($user) && ($user['role'] ?? '') === 'partner' && \App\Database::columnExists('partners', 'analytics_visible')) {
+    $navPid = (int) ($user['partner_id'] ?? 0);
+    if ($navPid > 0) {
+        $navAnalyticsStmt = \App\Database::connection()->prepare('SELECT analytics_visible FROM partners WHERE id = ? LIMIT 1');
+        $navAnalyticsStmt->execute([$navPid]);
+        $navAnalyticsRow = $navAnalyticsStmt->fetch(\PDO::FETCH_ASSOC);
+        $partnerAnalyticsVisible = $navAnalyticsRow && (int) ($navAnalyticsRow['analytics_visible'] ?? 0) === 1;
+    }
+}
 // Client-facing links shared directly over WhatsApp/email (e.g. the public
 // reservation page, /r/{token} — see PageController::reservationPublic())
 // pass 'minimalHeader' => true to View::render() to hide the whole
@@ -43,11 +53,7 @@ $minimalHeader = !empty($minimalHeader);
     </button>
     <div class="navbar-links" id="navbar-links-panel" data-mobile-nav-links>
       <?php if (is_array($user) && ($user['role'] ?? '') === 'partner'): ?><a href="/partner/dashboard"><?= \App\View::e(\App\I18n::t('nav.dashboard')) ?></a><?php endif; ?>
-      <?php if (is_array($user) && ($user['role'] ?? '') === 'partner' && \App\Database::columnExists('partners', 'analytics_visible')):
-          $navPid = (int) ($user['partner_id'] ?? 0);
-          $navAv = false;
-          if ($navPid > 0) { $navAvS = \App\Database::connection()->prepare('SELECT analytics_visible FROM partners WHERE id = ? LIMIT 1'); $navAvS->execute([$navPid]); $navAvR = $navAvS->fetch(\PDO::FETCH_ASSOC); $navAv = $navAvR && (int) ($navAvR['analytics_visible'] ?? 0) === 1; }
-          if ($navAv): ?><a href="/partner/analytics">Analyse</a><?php endif; endif; ?>
+      <?php if ($partnerAnalyticsVisible): ?><a href="/partner/analytics">Analyse</a><?php endif; ?>
       <?php if (is_array($user) && ($user['role'] ?? '') === 'admin'): ?><a href="/admin/partners"><?= \App\View::e(\App\I18n::t('nav.dashboard')) ?></a><?php endif; ?>
       <?php if ($partner): ?>
         <?php if (is_array($user)): ?>
@@ -178,4 +184,3 @@ $minimalHeader = !empty($minimalHeader);
   <button class="navbar-mobile-backdrop" type="button" aria-label="Fermer le menu" data-mobile-nav-backdrop></button>
   <?php endif; ?>
 </nav>
-

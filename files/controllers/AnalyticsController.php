@@ -30,9 +30,13 @@ final class AnalyticsController extends Controller
     public static function track(): never
     {
         $input = self::input();
-        $pageUrl = trim((string) ($input['page_url'] ?? ''));
+        $pageUrl = self::normalizePageUrl((string) ($input['page_url'] ?? ''));
         if ($pageUrl === '') {
             self::json(['ok' => false], 400);
+        }
+
+        if (!Database::tableExists('page_visits')) {
+            self::json(['ok' => true]);
         }
 
         $user = Auth::user();
@@ -50,14 +54,8 @@ final class AnalyticsController extends Controller
         }
 
         $ip = self::clientIp();
-
-        $pdo = Database::connection();
-        if (!Database::tableExists('page_visits')) {
-            self::json(['ok' => true]);
-        }
-
         $country = self::countryFromIp($ip);
-
+        $pdo = Database::connection();
         $pdo->prepare(
             'INSERT INTO page_visits (partner_id, visitor_type, user_id, page_url, page_title, duration_seconds, country_code, country_name, ip_address, user_agent, referrer, session_id, visited_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())'
@@ -65,7 +63,7 @@ final class AnalyticsController extends Controller
             $partnerId,
             $visitorType,
             $user ? (int) $user['id'] : null,
-            substr($pageUrl, 0, 500),
+            $pageUrl,
             substr(trim((string) ($input['page_title'] ?? '')), 0, 255) ?: null,
             isset($input['duration_seconds']) ? max(0, (int) $input['duration_seconds']) : null,
             $country['code'],
@@ -87,7 +85,7 @@ final class AnalyticsController extends Controller
     {
         $input = self::input();
         $sessionId = trim((string) ($input['session_id'] ?? ''));
-        $pageUrl = substr(trim((string) ($input['page_url'] ?? '')), 0, 500);
+        $pageUrl = self::normalizePageUrl((string) ($input['page_url'] ?? ''));
         $duration = max(0, (int) ($input['duration_seconds'] ?? 0));
 
         if ($sessionId === '' || $pageUrl === '' || $duration <= 0) {
@@ -394,10 +392,7 @@ final class AnalyticsController extends Controller
     {
         Auth::requireUser(true);
         if (Database::columnExists('partners', 'analytics_visible')) {
-            $current = Database::connection()->prepare('SELECT analytics_visible FROM partners WHERE id = ?');
-            $current->execute([$partnerId]);
-            $row = $current->fetch(PDO::FETCH_ASSOC);
-            $newValue = $row ? (((int) $row['analytics_visible']) === 1 ? 0 : 1) : 1;
+            $newValue = isset($_POST['analytics_visible']) ? 1 : 0;
             Database::connection()->prepare('UPDATE partners SET analytics_visible = ? WHERE id = ?')->execute([$newValue, $partnerId]);
         }
         self::redirect('/admin/partners/' . $partnerId . '/edit', 'Visibilité des analyses mise à jour.');
@@ -550,6 +545,11 @@ final class AnalyticsController extends Controller
         return $ip !== '' ? substr($ip, 0, 45) : null;
     }
 
+    private static function normalizePageUrl(string $pageUrl): string
+    {
+        return substr(trim($pageUrl), 0, 500);
+    }
+
     /**
      * Best-effort country lookup from IP. Uses ip-api.com free tier
      * (45 req/min, no key needed). Falls back gracefully.
@@ -561,15 +561,18 @@ final class AnalyticsController extends Controller
         if ($ip === null || $ip === '' || $ip === '127.0.0.1' || $ip === '::1') {
             return $default;
         }
-        // Skip private/reserved IPs
-        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
-            return $default;
-        }
-        if (array_key_exists($ip, $cache)) {
+        if (isset($cache[$ip])) {
             return $cache[$ip];
         }
+        // Skip private/reserved IPs
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+            return $cache[$ip] = $default;
+        }
         try {
-            $ctx = stream_context_create(['http' => ['timeout' => 2, 'ignore_errors' => true]]);
+            $ctx = stream_context_create([
+                'http' => ['timeout' => 2, 'ignore_errors' => true],
+                'ssl' => ['verify_peer' => true, 'verify_peer_name' => true],
+            ]);
             $response = @file_get_contents('https://ip-api.com/json/' . urlencode($ip) . '?fields=status,countryCode,country', false, $ctx);
             if ($response === false) {
                 return $cache[$ip] = $default;
@@ -617,12 +620,18 @@ final class AnalyticsController extends Controller
         $params = [];
 
         if ($filters['date_from'] !== '') {
-            $conditions[] = 'pv.visited_at >= ?';
-            $params[] = gmdate('Y-m-d H:i:s', strtotime($filters['date_from'] . ' 00:00:00') - 4 * 3600);
+            $dateFromUtc = self::localDateBoundaryToUtc((string) $filters['date_from'], false);
+            if ($dateFromUtc !== null) {
+                $conditions[] = 'pv.visited_at >= ?';
+                $params[] = $dateFromUtc;
+            }
         }
         if ($filters['date_to'] !== '') {
-            $conditions[] = 'pv.visited_at <= ?';
-            $params[] = gmdate('Y-m-d H:i:s', strtotime($filters['date_to'] . ' 23:59:59') - 4 * 3600);
+            $dateToUtc = self::localDateBoundaryToUtc((string) $filters['date_to'], true);
+            if ($dateToUtc !== null) {
+                $conditions[] = 'pv.visited_at <= ?';
+                $params[] = $dateToUtc;
+            }
         }
         if ($filters['partner_id'] !== '') {
             $conditions[] = 'pv.partner_id = ?';
@@ -644,6 +653,16 @@ final class AnalyticsController extends Controller
 
         $sql = $conditions !== [] ? 'WHERE ' . implode(' AND ', $conditions) : '';
         return ['sql' => $sql, 'params' => $params];
+    }
+
+    private static function localDateBoundaryToUtc(string $date, bool $endOfDay): ?string
+    {
+        $time = $endOfDay ? '23:59:59' : '00:00:00';
+        $local = \DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $date . ' ' . $time, new \DateTimeZone(self::TZ));
+        if (!$local) {
+            return null;
+        }
+        return $local->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s');
     }
 
     /**
