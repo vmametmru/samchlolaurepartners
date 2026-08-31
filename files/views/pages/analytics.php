@@ -173,7 +173,7 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
   </div>
 
   <!-- Report schedule config -->
-  <?php if (!$isAdmin && $reportSchedule !== null || !$isAdmin): ?>
+  <?php if (!$isAdmin): ?>
     <div class="card card-body mt-16">
       <h2>Rapport automatique hebdomadaire</h2>
       <p class="text-muted">Recevez un PDF de votre rapport d'analyse chaque semaine par email.</p>
@@ -277,7 +277,7 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
   <?php endif; ?>
 </section>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" integrity="sha384-wqdq57DPpB/H7q1ddTIsVPPGQhVc4NiOiyOp1pAyg9JG38y1B8sHFKw3DbOyChux" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" integrity="sha384-OLBgp1GsljhM2TJ+sbHjaiH9txEUvgdDTAzHv2P24donTt6/529l+9Ua0vFImLlb" crossorigin="anonymous"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   var visitsByDate = <?= json_encode($visitsByDate, JSON_UNESCAPED_UNICODE) ?>;
