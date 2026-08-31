@@ -55,7 +55,6 @@ final class AnalyticsController extends Controller
 
         $ip = self::clientIp();
         $country = self::countryFromIp($ip);
-
         $pdo = Database::connection();
         $pdo->prepare(
             'INSERT INTO page_visits (partner_id, visitor_type, user_id, page_url, page_title, duration_seconds, country_code, country_name, ip_address, user_agent, referrer, session_id, visited_at)
@@ -558,7 +557,6 @@ final class AnalyticsController extends Controller
     private static function countryFromIp(?string $ip): array
     {
         static $cache = [];
-
         $default = ['code' => null, 'name' => null];
         if ($ip === null || $ip === '' || $ip === '127.0.0.1' || $ip === '::1') {
             return $default;
