@@ -60,6 +60,7 @@
         <input type="checkbox" onchange="this.form.submit()" <?= !empty($partnerData['analytics_visible']) && (int) $partnerData['analytics_visible'] === 1 ? 'checked' : '' ?>>
         Autoriser ce partenaire à voir le tableau d'analyse
       </label>
+      <noscript><button type="submit" class="btn-secondary">Enregistrer</button></noscript>
     </form>
   <?php endif; ?>
 </section>
