@@ -46,7 +46,7 @@ $minimalHeader = !empty($minimalHeader);
       <?php if (is_array($user) && ($user['role'] ?? '') === 'partner' && \App\Database::columnExists('partners', 'analytics_visible')):
           $navPid = (int) ($user['partner_id'] ?? 0);
           $navAv = false;
-          if ($navPid > 0) { $navAvS = \App\Database::connection()->prepare('SELECT analytics_visible FROM partners WHERE id = ?'); $navAvS->execute([$navPid]); $navAvR = $navAvS->fetch(\PDO::FETCH_ASSOC); $navAv = $navAvR && (int) ($navAvR['analytics_visible'] ?? 0) === 1; }
+          if ($navPid > 0) { $navAvS = \App\Database::connection()->prepare('SELECT analytics_visible FROM partners WHERE id = ? LIMIT 1'); $navAvS->execute([$navPid]); $navAvR = $navAvS->fetch(\PDO::FETCH_ASSOC); $navAv = $navAvR && (int) ($navAvR['analytics_visible'] ?? 0) === 1; }
           if ($navAv): ?><a href="/partner/analytics">Analyse</a><?php endif; endif; ?>
       <?php if (is_array($user) && ($user['role'] ?? '') === 'admin'): ?><a href="/admin/partners"><?= \App\View::e(\App\I18n::t('nav.dashboard')) ?></a><?php endif; ?>
       <?php if ($partner): ?>

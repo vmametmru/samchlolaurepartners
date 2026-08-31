@@ -50,12 +50,13 @@ final class AnalyticsController extends Controller
         }
 
         $ip = self::clientIp();
-        $country = self::countryFromIp($ip);
 
         $pdo = Database::connection();
         if (!Database::tableExists('page_visits')) {
             self::json(['ok' => true]);
         }
+
+        $country = self::countryFromIp($ip);
 
         $pdo->prepare(
             'INSERT INTO page_visits (partner_id, visitor_type, user_id, page_url, page_title, duration_seconds, country_code, country_name, ip_address, user_agent, referrer, session_id, visited_at)
@@ -86,7 +87,7 @@ final class AnalyticsController extends Controller
     {
         $input = self::input();
         $sessionId = trim((string) ($input['session_id'] ?? ''));
-        $pageUrl = trim((string) ($input['page_url'] ?? ''));
+        $pageUrl = substr(trim((string) ($input['page_url'] ?? '')), 0, 500);
         $duration = max(0, (int) ($input['duration_seconds'] ?? 0));
 
         if ($sessionId === '' || $pageUrl === '' || $duration <= 0) {
@@ -99,7 +100,7 @@ final class AnalyticsController extends Controller
 
         Database::connection()->prepare(
             'UPDATE page_visits SET duration_seconds = ? WHERE session_id = ? AND page_url = ? ORDER BY visited_at DESC LIMIT 1'
-        )->execute([$duration, $sessionId, substr($pageUrl, 0, 500)]);
+        )->execute([$duration, $sessionId, $pageUrl]);
 
         self::json(['ok' => true]);
     }
@@ -555,6 +556,7 @@ final class AnalyticsController extends Controller
      */
     private static function countryFromIp(?string $ip): array
     {
+        static $cache = [];
         $default = ['code' => null, 'name' => null];
         if ($ip === null || $ip === '' || $ip === '127.0.0.1' || $ip === '::1') {
             return $default;
@@ -563,20 +565,23 @@ final class AnalyticsController extends Controller
         if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
             return $default;
         }
+        if (array_key_exists($ip, $cache)) {
+            return $cache[$ip];
+        }
         try {
             $ctx = stream_context_create(['http' => ['timeout' => 2, 'ignore_errors' => true]]);
-            $response = @file_get_contents('http://ip-api.com/json/' . urlencode($ip) . '?fields=status,countryCode,country', false, $ctx);
+            $response = @file_get_contents('https://ip-api.com/json/' . urlencode($ip) . '?fields=status,countryCode,country', false, $ctx);
             if ($response === false) {
-                return $default;
+                return $cache[$ip] = $default;
             }
             $data = json_decode($response, true);
             if (is_array($data) && ($data['status'] ?? '') === 'success') {
-                return ['code' => (string) ($data['countryCode'] ?? ''), 'name' => (string) ($data['country'] ?? '')];
+                return $cache[$ip] = ['code' => (string) ($data['countryCode'] ?? ''), 'name' => (string) ($data['country'] ?? '')];
             }
         } catch (\Throwable) {
             // ignore
         }
-        return $default;
+        return $cache[$ip] = $default;
     }
 
     private static function defaultFilters(): array
@@ -613,11 +618,11 @@ final class AnalyticsController extends Controller
 
         if ($filters['date_from'] !== '') {
             $conditions[] = 'pv.visited_at >= ?';
-            $params[] = $filters['date_from'] . ' 00:00:00';
+            $params[] = gmdate('Y-m-d H:i:s', strtotime($filters['date_from'] . ' 00:00:00') - 4 * 3600);
         }
         if ($filters['date_to'] !== '') {
             $conditions[] = 'pv.visited_at <= ?';
-            $params[] = $filters['date_to'] . ' 23:59:59';
+            $params[] = gmdate('Y-m-d H:i:s', strtotime($filters['date_to'] . ' 23:59:59') - 4 * 3600);
         }
         if ($filters['partner_id'] !== '') {
             $conditions[] = 'pv.partner_id = ?';
