@@ -277,7 +277,7 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
   <?php endif; ?>
 </section>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" integrity="sha384-wqdq57DPpB/H7q1ddTIsVPPGQhVc4NiOiyOp1pAyg9JG38y1B8sHFKw3DbOyChux" crossorigin="anonymous"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   var visitsByDate = <?= json_encode($visitsByDate, JSON_UNESCAPED_UNICODE) ?>;
