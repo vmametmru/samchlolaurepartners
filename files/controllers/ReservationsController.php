@@ -447,6 +447,9 @@ final class ReservationsController extends Controller
      */
     public static function quote(): never
     {
+        if (self::agencyStrictModeBlocksClient()) {
+            self::json(['error' => 'Forbidden', 'message' => 'Reservation requests are disabled'], 403);
+        }
         $input = self::input();
         $propertyId = (int) ($input['property_id'] ?? 0);
         $checkin = trim((string) ($input['checkin_date'] ?? ''));
