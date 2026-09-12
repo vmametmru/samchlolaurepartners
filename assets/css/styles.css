@@ -646,6 +646,8 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .rates-tab-layout:not(:has(.rates-tab-sidebar:not([hidden]))) .rates-tab-main { flex: 1 1 100%; max-width: 100%; }
 .rates-tab-sidebar { flex: 0 0 30%; max-width: 30%; min-width: 0; }
 .rates-tab-calendar-wrap { margin-top: 1.5rem; width: 100%; }
+.mismatch-field-error { color: #b91c1c; font-size: .85rem; margin: -.5rem 0 .75rem; }
+.last-search-mismatch-invalid.input, input.last-search-mismatch-invalid { border-color: #dc2626; background: #fef2f2; }
 .rates-price-note-block { border: 1px solid var(--border); border-radius: .75rem; padding: 1rem 1.25rem; background: #fafafa; margin-bottom: 1rem; }
 .rates-price-note-block .calendar-price-note { margin: 0; }
 .last-search-block { position: sticky; top: 1rem; border: 1px solid var(--border); border-radius: .9rem; padding: 1rem 1.25rem; background: #fafafa; }

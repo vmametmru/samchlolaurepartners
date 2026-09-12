@@ -365,4 +365,43 @@ $policyText = $policyText ?? \App\controllers\PageController::bookingPolicyText(
     </div>
   </div>
   <?php endif; ?>
+
+  <?php if (!$strictModeHidesPrices && empty($ratesRestricted) && $minRate !== null): ?>
+  <div class="simple-modal-overlay" data-last-search-mismatch-overlay hidden>
+    <div class="simple-modal-dialog" data-last-search-mismatch-panel role="dialog" aria-modal="true">
+      <h3 class="section-title"><?= \App\View::e(\App\I18n::t('property.last_search_mismatch_title')) ?></h3>
+      <p class="muted"><?= \App\View::e(\App\I18n::t('property.last_search_mismatch_intro')) ?></p>
+      <div class="form-grid cols-2">
+        <label>
+          <span><?= \App\View::e(\App\I18n::t('property.last_search_mismatch_arrival')) ?></span>
+          <input class="input" type="date" data-last-search-mismatch-field="checkin">
+        </label>
+        <label>
+          <span><?= \App\View::e(\App\I18n::t('property.last_search_mismatch_departure')) ?></span>
+          <input class="input" type="date" data-last-search-mismatch-field="checkout">
+        </label>
+      </div>
+      <p class="mismatch-field-error" data-last-search-mismatch-dates-error hidden><?= \App\View::e(\App\I18n::t('property.last_search_mismatch_dates_error')) ?></p>
+      <div class="form-grid cols-3">
+        <label>
+          <span><?= \App\View::e(\App\I18n::t('property.last_search_mismatch_adults')) ?></span>
+          <input class="input" type="number" min="1" max="20" data-last-search-mismatch-field="adults">
+        </label>
+        <label>
+          <span><?= \App\View::e(\App\I18n::t('property.last_search_mismatch_children_3to12')) ?></span>
+          <input class="input" type="number" min="0" max="20" data-last-search-mismatch-field="children_3to12">
+        </label>
+        <label>
+          <span><?= \App\View::e(\App\I18n::t('property.last_search_mismatch_children_under3')) ?></span>
+          <input class="input" type="number" min="0" max="2" data-last-search-mismatch-field="children_under3">
+        </label>
+      </div>
+      <p class="mismatch-field-error" data-last-search-mismatch-guests-error hidden data-i18n-guests-error-template="<?= \App\View::e(\App\I18n::t('property.last_search_mismatch_guests_error')) ?>"></p>
+      <div class="button-row">
+        <button type="button" class="btn-secondary" data-last-search-mismatch-cancel><?= \App\View::e(\App\I18n::t('property.last_search_mismatch_cancel')) ?></button>
+        <button type="button" class="btn-primary" data-last-search-mismatch-continue disabled><?= \App\View::e(\App\I18n::t('property.last_search_mismatch_continue')) ?></button>
+      </div>
+    </div>
+  </div>
+  <?php endif; ?>
 </section>
