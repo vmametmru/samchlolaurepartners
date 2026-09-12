@@ -960,6 +960,35 @@ function writeLastSearch(partnerCode, data) {
   }
 }
 
+function isLastSearchDateStr(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value || '');
+}
+
+// Shared by initLastSearchPanel() (on "Masquer") and initApiForms() (on
+// successful submit, before form.reset() clears the fields) so both paths
+// snapshot the visitor's in-progress search/contact details the same way.
+function bookingFormSnapshot(form) {
+  const checkin = form.querySelector('[data-booking-checkin]')?.value || '';
+  const checkout = form.querySelector('[data-booking-checkout]')?.value || '';
+  const adults = form.querySelector('[data-guest-stepper] input[name="adults"]')?.value || '';
+  const childrenUnder3 = form.querySelector('[data-guest-stepper] input[name="children_under3"]')?.value || '';
+  const children3to12 = form.querySelector('[data-guest-stepper] input[name="children_3to12"]')?.value || '';
+  const sameNat = form.querySelector('[data-same-nationality]');
+  const nationality = sameNat && sameNat.checked ? (form.querySelector('[data-uniform-nationality]')?.value || '') : '';
+  return {
+    checkin,
+    checkout,
+    adults,
+    childrenUnder3,
+    children3to12,
+    nationality,
+    clientName: form.querySelector('[name="client_name"]')?.value || '',
+    clientEmail: form.querySelector('[name="client_email"]')?.value || '',
+    clientPhone: form.querySelector('[name="client_phone"]')?.value || '',
+    message: form.querySelector('[name="message"]')?.value || '',
+  };
+}
+
 function initLastSearchPanel() {
   document.querySelectorAll('[data-last-search-panel]').forEach((panel) => {
     const section = panel.closest('[data-gallery]') || document;
@@ -970,34 +999,12 @@ function initLastSearchPanel() {
     const body = panel.querySelector('[data-last-search-body]');
     const cta = panel.querySelector('[data-last-search-cta]');
     const partnerCode = panel.dataset.partnerCode || '';
-    const isDateStr = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value || '');
+    const isDateStr = isLastSearchDateStr;
 
     function formatFr(dateStr) {
       if (!isDateStr(dateStr)) return '';
       const [y, m, d] = dateStr.split('-');
       return `${d}/${m}/${y}`;
-    }
-
-    function currentFormSnapshot() {
-      const checkin = form.querySelector('[data-booking-checkin]')?.value || '';
-      const checkout = form.querySelector('[data-booking-checkout]')?.value || '';
-      const adults = form.querySelector('[data-guest-stepper] input[name="adults"]')?.value || '';
-      const childrenUnder3 = form.querySelector('[data-guest-stepper] input[name="children_under3"]')?.value || '';
-      const children3to12 = form.querySelector('[data-guest-stepper] input[name="children_3to12"]')?.value || '';
-      const sameNat = form.querySelector('[data-same-nationality]');
-      const nationality = sameNat && sameNat.checked ? (form.querySelector('[data-uniform-nationality]')?.value || '') : '';
-      return {
-        checkin,
-        checkout,
-        adults,
-        childrenUnder3,
-        children3to12,
-        nationality,
-        clientName: form.querySelector('[name="client_name"]')?.value || '',
-        clientEmail: form.querySelector('[name="client_email"]')?.value || '',
-        clientPhone: form.querySelector('[name="client_phone"]')?.value || '',
-        message: form.querySelector('[name="message"]')?.value || '',
-      };
     }
 
     function render() {
@@ -1051,7 +1058,7 @@ function initLastSearchPanel() {
     // search: snapshot whatever the visitor has filled in so far.
     if (hideBtn) {
       hideBtn.addEventListener('click', () => {
-        const snapshot = currentFormSnapshot();
+        const snapshot = bookingFormSnapshot(form);
         if (isDateStr(snapshot.checkin) && isDateStr(snapshot.checkout)) {
           writeLastSearch(partnerCode, snapshot);
           render();
@@ -1414,6 +1421,17 @@ function initApiForms() {
         // be wrong: confirm instead that the request now exists in their
         // dashboard. Read before form.reset(), which unticks the checkbox.
         const createdWithoutEmail = form.dataset.noClientEmail === '1';
+        if (form.hasAttribute('data-booking-form')) {
+          // A successful submit is itself the most recent search: persist
+          // it the same way "Masquer" does, before reset() wipes the
+          // fields, so the "Dernière recherche" panel reflects it too.
+          const snapshot = bookingFormSnapshot(form);
+          if (isLastSearchDateStr(snapshot.checkin) && isLastSearchDateStr(snapshot.checkout)) {
+            const section = form.closest('[data-gallery]') || document;
+            const panel = section.querySelector('[data-last-search-panel]');
+            writeLastSearch(panel ? (panel.dataset.partnerCode || '') : '', snapshot);
+          }
+        }
         form.reset();
         const quoteBox = form.querySelector('[data-quote-box]');
         if (quoteBox) quoteBox.hidden = true;
