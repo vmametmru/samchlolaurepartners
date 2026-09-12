@@ -2132,6 +2132,71 @@ final class PageController extends Controller
         self::redirect('/admin/partners', 'Partenaire supprimé.');
     }
 
+    /**
+     * "Dupliquer" (admin-partners.php action icon): clones a partner's row
+     * plus its booking_policies and partner_property_visibility rows into a
+     * brand-new partner, so an admin doesn't have to re-enter every field
+     * (colors, fees, SMTP, policies, per-property visibility, ...) to spin
+     * up a near-identical partner. Only the subdomain ("code partenaire")
+     * changes, becoming "{original}Copy" (deduped with a numeric suffix if
+     * that code is already taken). Logins/users and email_templates are
+     * intentionally NOT copied: credentials must never be duplicated, and
+     * templates are considered a separate admin-content library.
+     *
+     * Uses a dynamic column list (SELECT * then rebuild INSERT from
+     * array_keys()) instead of a hardcoded column list so this keeps working
+     * as partners' schema grows across migrations.
+     */
+    public static function adminDuplicatePartner(int $id): never
+    {
+        self::requireAdminUser();
+        $pdo = Database::connection();
+        $source = $pdo->prepare('SELECT * FROM partners WHERE id = ?');
+        $source->execute([$id]);
+        $row = $source->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            self::redirect('/admin/partners', 'Partenaire introuvable.', 'error');
+        }
+
+        unset($row['id'], $row['created_at'], $row['updated_at']);
+
+        $baseSubdomain = trim((string) ($row['subdomain'] ?? '')) . 'Copy';
+        $subdomain = $baseSubdomain;
+        $existsStmt = $pdo->prepare('SELECT COUNT(*) FROM partners WHERE subdomain = ?');
+        $suffix = 1;
+        while (true) {
+            $existsStmt->execute([$subdomain]);
+            if ((int) $existsStmt->fetchColumn() === 0) {
+                break;
+            }
+            $suffix++;
+            $subdomain = $baseSubdomain . $suffix;
+        }
+        $row['subdomain'] = $subdomain;
+
+        $columns = array_keys($row);
+        $placeholders = implode(', ', array_fill(0, count($columns), '?'));
+        $columnList = implode(', ', array_map(static fn (string $col): string => "`$col`", $columns));
+        $pdo->prepare("INSERT INTO partners ($columnList) VALUES ($placeholders)")->execute(array_values($row));
+        $newPartnerId = (int) $pdo->lastInsertId();
+
+        $policies = $pdo->prepare('SELECT * FROM booking_policies WHERE partner_id = ?');
+        $policies->execute([$id]);
+        $insertPolicy = $pdo->prepare('INSERT INTO booking_policies (partner_id, label, text_fr, text_en, is_default) VALUES (?, ?, ?, ?, ?)');
+        foreach ($policies->fetchAll(PDO::FETCH_ASSOC) as $policy) {
+            $insertPolicy->execute([$newPartnerId, $policy['label'], $policy['text_fr'], $policy['text_en'], $policy['is_default']]);
+        }
+
+        $visibility = $pdo->prepare('SELECT * FROM partner_property_visibility WHERE partner_id = ?');
+        $visibility->execute([$id]);
+        $insertVisibility = $pdo->prepare('INSERT INTO partner_property_visibility (partner_id, property_id, visibility) VALUES (?, ?, ?)');
+        foreach ($visibility->fetchAll(PDO::FETCH_ASSOC) as $visibilityRow) {
+            $insertVisibility->execute([$newPartnerId, $visibilityRow['property_id'], $visibilityRow['visibility']]);
+        }
+
+        self::redirect('/admin/partners', 'Partenaire dupliqué.');
+    }
+
     public static function adminFees(): void
     {
         self::requireAdminUser();
