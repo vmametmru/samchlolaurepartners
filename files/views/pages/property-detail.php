@@ -157,7 +157,7 @@ $policyText = $policyText ?? \App\controllers\PageController::bookingPolicyText(
             <?php endif; ?>
           </div>
           <?php if (!$strictModeHidesPrices && empty($ratesRestricted) && $minRate !== null): ?>
-          <div class="rates-tab-sidebar" data-last-search-panel hidden data-property-id="<?= (int) $property['id'] ?>">
+          <div class="rates-tab-sidebar" data-last-search-panel hidden data-property-id="<?= (int) $property['id'] ?>" data-partner-code="<?= \App\View::e((string) ($partnerCode ?? '')) ?>">
             <div class="last-search-block">
               <h3 class="section-title"><?= \App\View::e(\App\I18n::t('property.last_search_title')) ?></h3>
               <div class="last-search-body" data-last-search-body></div>

@@ -920,9 +920,10 @@ function initBookingModal() {
  * "Dernière recherche" sidebar (30% column next to "Tarifs &
  * Disponibilités", see property-detail.php's [data-last-search-panel]):
  * persists the visitor's most recent search/date-selection in
- * localStorage (gbmLastSearch) so it survives navigating to another
- * property, and lets them re-apply it with one click ("Faire une demande
- * avec ces dates") instead of re-entering everything.
+ * localStorage (gbmLastSearch, namespaced per partner code since this app
+ * serves every partner from the same origin) so it survives navigating to
+ * another property, and lets them re-apply it with one click ("Faire une
+ * demande avec ces dates") instead of re-entering everything.
  *
  * The panel is seeded from two places:
  *  - a home-page search that lands here via ?arrival=&departure=&adults=&
@@ -935,9 +936,13 @@ function initBookingModal() {
  */
 const LAST_SEARCH_STORAGE_KEY = 'gbmLastSearch';
 
-function readLastSearch() {
+function lastSearchStorageKey(partnerCode) {
+  return partnerCode ? `${LAST_SEARCH_STORAGE_KEY}:${partnerCode}` : LAST_SEARCH_STORAGE_KEY;
+}
+
+function readLastSearch(partnerCode) {
   try {
-    const raw = window.localStorage.getItem(LAST_SEARCH_STORAGE_KEY);
+    const raw = window.localStorage.getItem(lastSearchStorageKey(partnerCode));
     if (!raw) return null;
     const data = JSON.parse(raw);
     return data && typeof data === 'object' ? data : null;
@@ -946,9 +951,9 @@ function readLastSearch() {
   }
 }
 
-function writeLastSearch(data) {
+function writeLastSearch(partnerCode, data) {
   try {
-    window.localStorage.setItem(LAST_SEARCH_STORAGE_KEY, JSON.stringify(data));
+    window.localStorage.setItem(lastSearchStorageKey(partnerCode), JSON.stringify(data));
   } catch (error) {
     // Private browsing / storage disabled: silently give up, the panel
     // simply won't persist across page loads for this visitor.
@@ -964,6 +969,7 @@ function initLastSearchPanel() {
     const hideBtn = overlay ? overlay.querySelector('[data-booking-modal-hide]') : null;
     const body = panel.querySelector('[data-last-search-body]');
     const cta = panel.querySelector('[data-last-search-cta]');
+    const partnerCode = panel.dataset.partnerCode || '';
     const isDateStr = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value || '');
 
     function formatFr(dateStr) {
@@ -995,7 +1001,7 @@ function initLastSearchPanel() {
     }
 
     function render() {
-      const data = readLastSearch();
+      const data = readLastSearch(partnerCode);
       if (!data || !isDateStr(data.checkin) || !isDateStr(data.checkout)) {
         panel.hidden = true;
         return;
@@ -1028,8 +1034,8 @@ function initLastSearchPanel() {
     const arrivalParam = params.get('arrival') || '';
     const departureParam = params.get('departure') || '';
     if (isDateStr(arrivalParam) && isDateStr(departureParam) && departureParam > arrivalParam) {
-      const existing = readLastSearch() || {};
-      writeLastSearch({
+      const existing = readLastSearch(partnerCode) || {};
+      writeLastSearch(partnerCode, {
         ...existing,
         checkin: arrivalParam,
         checkout: departureParam,
@@ -1047,7 +1053,7 @@ function initLastSearchPanel() {
       hideBtn.addEventListener('click', () => {
         const snapshot = currentFormSnapshot();
         if (isDateStr(snapshot.checkin) && isDateStr(snapshot.checkout)) {
-          writeLastSearch(snapshot);
+          writeLastSearch(partnerCode, snapshot);
           render();
         }
       });
@@ -1055,7 +1061,7 @@ function initLastSearchPanel() {
 
     if (cta) {
       cta.addEventListener('click', () => {
-        const data = readLastSearch();
+        const data = readLastSearch(partnerCode);
         if (!data) return;
         form.dispatchEvent(new CustomEvent('booking-set-dates', { detail: { checkin: data.checkin, checkout: data.checkout } }));
         [
