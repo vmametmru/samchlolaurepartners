@@ -1017,12 +1017,12 @@ function initLastSearchPanel() {
       if (under3Num > 0) guestParts.push(`${under3Num} bébé(s) (< 3 ans)`);
       let html = `<p><strong>${escapeHtml(form.dataset.i18nCheckin || 'Arrivée')}</strong> : ${escapeHtml(formatFr(data.checkin))}</p>`;
       html += `<p><strong>${escapeHtml(form.dataset.i18nCheckout || 'Départ')}</strong> : ${escapeHtml(formatFr(data.checkout))}</p>`;
-      if (guestParts.length) html += `<p><strong>Voyageurs</strong> : ${escapeHtml(guestParts.join(', '))}</p>`;
-      if (data.nationality) html += `<p><strong>Nationalité</strong> : ${escapeHtml(data.nationality)}</p>`;
-      if (data.clientName) html += `<p><strong>Nom</strong> : ${escapeHtml(data.clientName)}</p>`;
-      if (data.clientEmail) html += `<p><strong>Email</strong> : ${escapeHtml(data.clientEmail)}</p>`;
-      if (data.clientPhone) html += `<p><strong>Téléphone</strong> : ${escapeHtml(data.clientPhone)}</p>`;
-      if (data.message) html += `<p><strong>Message</strong> : ${escapeHtml(data.message)}</p>`;
+      if (guestParts.length) html += `<p><strong>${escapeHtml(panel.dataset.i18nGuests || 'Voyageurs')}</strong> : ${escapeHtml(guestParts.join(', '))}</p>`;
+      if (data.nationality) html += `<p><strong>${escapeHtml(panel.dataset.i18nNationality || 'Nationalité')}</strong> : ${escapeHtml(data.nationality)}</p>`;
+      if (data.clientName) html += `<p><strong>${escapeHtml(panel.dataset.i18nName || 'Nom')}</strong> : ${escapeHtml(data.clientName)}</p>`;
+      if (data.clientEmail) html += `<p><strong>${escapeHtml(panel.dataset.i18nEmail || 'Email')}</strong> : ${escapeHtml(data.clientEmail)}</p>`;
+      if (data.clientPhone) html += `<p><strong>${escapeHtml(panel.dataset.i18nPhone || 'Téléphone')}</strong> : ${escapeHtml(data.clientPhone)}</p>`;
+      if (data.message) html += `<p><strong>${escapeHtml(panel.dataset.i18nMessage || 'Message')}</strong> : ${escapeHtml(data.message)}</p>`;
       body.innerHTML = html;
     }
 

@@ -157,7 +157,13 @@ $policyText = $policyText ?? \App\controllers\PageController::bookingPolicyText(
             <?php endif; ?>
           </div>
           <?php if (!$strictModeHidesPrices && empty($ratesRestricted) && $minRate !== null): ?>
-          <div class="rates-tab-sidebar" data-last-search-panel hidden data-property-id="<?= (int) $property['id'] ?>" data-partner-code="<?= \App\View::e((string) ($partnerCode ?? '')) ?>">
+          <div class="rates-tab-sidebar" data-last-search-panel hidden data-property-id="<?= (int) $property['id'] ?>" data-partner-code="<?= \App\View::e((string) ($partnerCode ?? '')) ?>"
+            data-i18n-guests="<?= \App\View::e(\App\I18n::t('property.last_search_guests')) ?>"
+            data-i18n-nationality="<?= \App\View::e(\App\I18n::t('property.last_search_nationality')) ?>"
+            data-i18n-name="<?= \App\View::e(\App\I18n::t('property.last_search_name')) ?>"
+            data-i18n-email="<?= \App\View::e(\App\I18n::t('property.last_search_email')) ?>"
+            data-i18n-phone="<?= \App\View::e(\App\I18n::t('property.last_search_phone')) ?>"
+            data-i18n-message="<?= \App\View::e(\App\I18n::t('property.last_search_message')) ?>">
             <div class="last-search-block">
               <h3 class="section-title"><?= \App\View::e(\App\I18n::t('property.last_search_title')) ?></h3>
               <div class="last-search-body" data-last-search-body></div>
