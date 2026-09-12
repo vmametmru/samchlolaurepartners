@@ -43,6 +43,11 @@
       </div>
     </div>
     <label><span>Couleur principale</span><div class="color-row"><input type="color" name="primary_color" value="<?= \App\View::e($partnerData['primary_color'] ?? '#E61E4D') ?>"><input class="input" type="text" name="primary_color_text" value="<?= \App\View::e($partnerData['primary_color'] ?? '#E61E4D') ?>" data-sync-color></div></label>
+    <label class="inline-check">
+      <input type="checkbox" name="agency_strict_mode" value="1"<?= !empty($partnerData['agency_strict_mode']) ? ' checked' : '' ?>>
+      <span>Mode Agence Strict</span>
+    </label>
+    <p class="muted">Quand ce mode est activé, rien ne change pour vous : vos clients (les personnes à qui vous partagez vos liens) voient toujours les biens, l'onglet "Disponibilités" et la page "Calendrier", mais les prix/tarifs y sont masqués et ils ne peuvent plus faire de demande de réservation — ils consultent uniquement vos biens et leurs disponibilités comme un catalogue.</p>
     <h2 class="section-title">Configuration SMTP</h2>
     <p class="muted">
       Sécurité: SSL/TLS (obligatoire). Si vous laissez vide, les paramètres admin seront utilisés.

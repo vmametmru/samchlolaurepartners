@@ -25,6 +25,7 @@ $frenchMonthsShort = \App\I18n::monthNamesShort();
 $canForcePrice = $canForcePrice ?? false;
 $canOverrideBookingPolicy = $canOverrideBookingPolicy ?? false;
 $bookingPolicies = $bookingPolicies ?? [];
+$strictModeHidesPrices = !empty($strictModeHidesPrices);
 ?>
 <section class="container section-lg">
   <div class="section-header">
@@ -58,7 +59,9 @@ $bookingPolicies = $bookingPolicies ?? [];
   <?php elseif ($rows === []): ?>
     <p class="muted"><?= \App\View::e(\App\I18n::t('calendar.no_properties')) ?></p>
   <?php else: ?>
+    <?php if (!$strictModeHidesPrices): ?>
     <p class="muted calendar-price-note"><?= \App\View::e(\App\I18n::t('calendar.click_dates_hint')) ?></p>
+    <?php endif; ?>
     <?php
       // Distinct "Emplacement" values (set per property in the admin
       // "Biens Lodgify" table), sorted, used to populate the "Emplacement"
@@ -120,9 +123,13 @@ $bookingPolicies = $bookingPolicies ?? [];
         <span class="dot dot-red"></span> <?= \App\View::e(\App\I18n::t('calendar.legend_unavailable')) ?>
         <span class="dot dot-yellow"></span> <?= \App\View::e(\App\I18n::t('calendar.legend_blocked')) ?>
         <span class="dot dot-gray"></span> <?= \App\View::e(\App\I18n::t('calendar.legend_not_bookable')) ?>
+        <?php if (!$strictModeHidesPrices): ?>
         <span class="calendar-legend-note"><?= \App\View::e(\App\I18n::t('calendar.legend_price_currency')) ?></span>
+        <?php endif; ?>
       </div>
+      <?php if (!$strictModeHidesPrices): ?>
       <button type="button" class="btn-primary calendar-view-selection-btn" data-multi-cart-view-btn hidden><?= \App\View::e(\App\I18n::t('calendar.view_selection')) ?></button>
+      <?php endif; ?>
     </div>
 
     <div class="calendar-board cal-name-hidden cal-location-hidden" data-calendar-board data-multi-calendar-board data-total-guests="<?= (int) $countedGuests ?>" data-babies="<?= (int) $childrenUnder3 ?>" style="--cal-visible-days: <?= (int) $visibleDays ?>;">
@@ -215,10 +222,10 @@ $bookingPolicies = $bookingPolicies ?? [];
                 // can reuse an unavailable/single-night day as a valid
                 // departure date, exactly like the property detail calendar.
               ?>
-                <td class="cal-cell cal-<?= $class ?><?= $isAvailable ? ' cal-clickable' : '' ?>" title="<?= \App\View::e($key) ?>" data-calendar-date="<?= $key ?>" data-calendar-available="<?= $isAvailable ? '1' : '0' ?>" data-calendar-minstay="<?= $minStay > 0 ? $minStay : 1 ?>" data-calendar-price="<?= $isAvailable && $rate !== null ? (float) $rate['price_per_night'] : '0' ?>">
-                  <?php if ($isAvailable && $rate !== null): ?>
+                <td class="cal-cell cal-<?= $class ?><?= $isAvailable && !$strictModeHidesPrices ? ' cal-clickable' : '' ?>" title="<?= \App\View::e($key) ?>" data-calendar-date="<?= $key ?>" data-calendar-available="<?= $isAvailable && !$strictModeHidesPrices ? '1' : '0' ?>" data-calendar-minstay="<?= $minStay > 0 ? $minStay : 1 ?>" data-calendar-price="<?= $isAvailable && $rate !== null && !$strictModeHidesPrices ? (float) $rate['price_per_night'] : '0' ?>">
+                    <?php if ($isAvailable && $rate !== null && !$strictModeHidesPrices): ?>
                     <span class="cal-price"><?= number_format((float) $rate['price_per_night'], 2, ',', ' ') ?></span>
-                  <?php endif; ?>
+                    <?php endif; ?>
                 </td>
               <?php endforeach; ?>
               <?php endif; ?>
@@ -238,11 +245,12 @@ $bookingPolicies = $bookingPolicies ?? [];
         <?php endforeach; ?>
       </div>
     <?php endif; ?>
-    <?php $calendarUpdatedAtLabel = \App\controllers\PageController::calendarUpdatedAtLabel(); ?>
+    <?php $calendarUpdatedAtLabel = \App\controllers\PageController::calendarUpdatedAtLabel($strictModeHidesPrices); ?>
     <?php if ($calendarUpdatedAtLabel !== null): ?>
       <p class="muted calendar-updated-note"><?= \App\View::e($calendarUpdatedAtLabel) ?></p>
     <?php endif; ?>
 
+    <?php if (!$strictModeHidesPrices): ?>
     <div class="multi-booking-cart" id="multi-cart-selection" data-multi-cart data-can-force-price="<?= $canForcePrice ? '1' : '0' ?>" hidden>
       <div class="multi-cart-header">
         <h2 class="section-title"><?= \App\View::e(\App\I18n::t('calendar.your_selection')) ?></h2>
@@ -344,6 +352,7 @@ $bookingPolicies = $bookingPolicies ?? [];
         <button type="button" class="booking-status-popup-close" data-form-status-popup-close><?= \App\View::e(\App\I18n::t('calendar.close')) ?></button>
       </div>
     </div>
+    <?php endif; ?>
 
     <div class="form-grid cols-2 calendar-info-blocks">
       <div class="booking-policy-block">
@@ -351,6 +360,7 @@ $bookingPolicies = $bookingPolicies ?? [];
         <div class="prose"><?= \App\controllers\PageController::formatBookingPolicyHtml(\App\controllers\PageController::bookingPolicyText(\App\I18n::current())) ?></div>
       </div>
 
+      <?php if (!$strictModeHidesPrices): ?>
       <div class="booking-policy-block price-info-block">
         <h3 class="section-title"><?= \App\View::e(\App\I18n::t('calendar.price_info_title')) ?></h3>
         <div class="prose">
@@ -380,6 +390,7 @@ $bookingPolicies = $bookingPolicies ?? [];
           <?php endif; ?>
         </div>
       </div>
+      <?php endif; ?>
     </div>
   <?php endif; ?>
 </section>

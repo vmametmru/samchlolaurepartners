@@ -36,6 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initBookingModal,
     initBookingAccordion,
     initBookingQuote,
+    initLastSearchPanel,
     initCalendarBoard,
     initCalendarFilterLoading,
     initCalendarFilterSubmitState,
@@ -597,10 +598,17 @@ function initPropertyTabs() {
       button.addEventListener('click', () => activate(button.dataset.tabBtn));
     });
     const hashTarget = window.location.hash ? window.location.hash.slice(1) : '';
-    const hasPartnerParam = new URLSearchParams(window.location.search).has('partner');
+    const searchParamsForTabs = new URLSearchParams(window.location.search);
+    const hasPartnerParam = searchParamsForTabs.has('partner');
+    // A home-page search (?arrival=&departure=) that lands on this property
+    // must jump straight to "Tarifs & Disponibilités" — see
+    // initBookingCalendarSelection() below, which reads the same params to
+    // pre-fill the dates and auto-open the slide-in booking modal.
+    const hasArrivalParams = /^\d{4}-\d{2}-\d{2}$/.test(searchParamsForTabs.get('arrival') || '')
+      && /^\d{4}-\d{2}-\d{2}$/.test(searchParamsForTabs.get('departure') || '');
     if (hashTarget && tabs.querySelector(`[data-tab-btn="${hashTarget}"]`)) {
       activate(hashTarget);
-    } else if (hasPartnerParam && tabs.querySelector('[data-tab-btn="rates-availability"]')) {
+    } else if ((hasPartnerParam || hasArrivalParams) && tabs.querySelector('[data-tab-btn="rates-availability"]')) {
       activate('rates-availability');
     } else {
       activate('description');
@@ -636,6 +644,66 @@ function initPropertyTabs() {
  *   with an unavailable night in between, that click becomes the new arrival
  *   date and the widget waits for a new departure click.
  */
+// Shared date-range/availability helpers, used both by
+// initBookingCalendarSelection() (the calendar click-to-select flow) and by
+// initLastSearchPanel()'s "Faire une demande avec ces infos" mismatch check
+// (validating a stored last-search date range against a *different*
+// property's own calendar before applying it).
+function nightsBetween(startStr, endStr) {
+  const start = new Date(`${startStr}T00:00:00`);
+  const end = new Date(`${endStr}T00:00:00`);
+  return Math.round((end - start) / 86400000);
+}
+
+function addDaysStr(dateStr, days) {
+  // Use UTC arithmetic so the result is independent of the visitor's
+  // timezone: building the date in local time and reading it back with
+  // toISOString() shifts it by a day in timezones ahead of UTC (e.g.
+  // Mauritius, UTC+4), which broke availability checks (turnover day
+  // wrongly greyed out) and caused an infinite loop when selecting the
+  // departure date.
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+// Map<date, { available: boolean, minStay: number }> built once from the
+// server-rendered cells (the calendar is not re-rendered client-side).
+function computeNightInfo(calendarWidget) {
+  const nightInfo = new Map();
+  calendarWidget.querySelectorAll('[data-calendar-date]').forEach((cell) => {
+    const date = cell.dataset.calendarDate;
+    if (!date) return;
+    nightInfo.set(date, {
+      available: cell.dataset.calendarAvailable === '1',
+      minStay: Math.max(1, parseInt(cell.dataset.calendarMinstay || '1', 10) || 1),
+    });
+  });
+  return nightInfo;
+}
+
+function nightInfoAvailable(nightInfo, date) {
+  const info = nightInfo.get(date);
+  return Boolean(info && info.available);
+}
+
+function nightInfoMinStay(nightInfo, date) {
+  const info = nightInfo.get(date);
+  return info ? info.minStay : 1;
+}
+
+// Whether every night from startDate (inclusive) to endDate (exclusive) is
+// available, i.e. a valid stay with no gap in between.
+function nightInfoRangeAvailable(nightInfo, startDate, endDate) {
+  let cursor = startDate;
+  while (cursor < endDate) {
+    if (!nightInfoAvailable(nightInfo, cursor)) return false;
+    cursor = addDaysStr(cursor, 1);
+  }
+  return true;
+}
+
 function initBookingCalendarSelection() {
   document.querySelectorAll('[data-booking-form]').forEach((form) => {
     const propertyId = form.dataset.propertyId;
@@ -665,47 +733,18 @@ function initBookingCalendarSelection() {
       return `${d}/${m}/${y}`;
     }
 
-    function nightsBetween(startStr, endStr) {
-      const start = new Date(`${startStr}T00:00:00`);
-      const end = new Date(`${endStr}T00:00:00`);
-      return Math.round((end - start) / 86400000);
-    }
-
-    function addDaysStr(dateStr, days) {
-      // Use UTC arithmetic so the result is independent of the visitor's
-      // timezone: building the date in local time and reading it back with
-      // toISOString() shifts it by a day in timezones ahead of UTC (e.g.
-      // Mauritius, UTC+4), which broke availability checks (turnover day
-      // wrongly greyed out) and caused an infinite loop when selecting the
-      // departure date.
-      const [y, m, d] = dateStr.split('-').map(Number);
-      const date = new Date(Date.UTC(y, m - 1, d));
-      date.setUTCDate(date.getUTCDate() + days);
-      return date.toISOString().slice(0, 10);
-    }
-
     // Map<date, { available: boolean, minStay: number }> built once from the
     // server-rendered cells (the calendar is not re-rendered client-side).
-    const nightInfo = new Map();
-    calendarWidget.querySelectorAll('[data-calendar-date]').forEach((cell) => {
-      const date = cell.dataset.calendarDate;
-      if (!date) return;
-      nightInfo.set(date, {
-        available: cell.dataset.calendarAvailable === '1',
-        minStay: Math.max(1, parseInt(cell.dataset.calendarMinstay || '1', 10) || 1),
-      });
-    });
+    const nightInfo = computeNightInfo(calendarWidget);
 
     function isNightAvailable(date) {
-      const info = nightInfo.get(date);
-      return Boolean(info && info.available);
+      return nightInfoAvailable(nightInfo, date);
     }
 
     // Property minimum-stay (in nights) that applies to a stay starting on
     // this arrival date. Defaults to 1 when the date is unknown.
     function minStayFor(date) {
-      const info = nightInfo.get(date);
-      return info ? info.minStay : 1;
+      return nightInfoMinStay(nightInfo, date);
     }
 
     // Whether a stay can start on this date. Any available (green) day is a
@@ -720,12 +759,7 @@ function initBookingCalendarSelection() {
     // Whether every night from startDate (inclusive) to endDate (exclusive)
     // is available, i.e. a valid stay with no gap in between.
     function isRangeFullyAvailable(startDate, endDate) {
-      let cursor = startDate;
-      while (cursor < endDate) {
-        if (!isNightAvailable(cursor)) return false;
-        cursor = addDaysStr(cursor, 1);
-      }
-      return true;
+      return nightInfoRangeAvailable(nightInfo, startDate, endDate);
     }
 
     // Every available day stays green and clickable as an arrival date; the
@@ -817,6 +851,21 @@ function initBookingCalendarSelection() {
       checkout = null;
       update();
     });
+
+    // Programmatic date selection, used by the "Dernière recherche" sidebar
+    // panel's "Faire une demande avec ces dates" button (see
+    // initLastSearchPanel()) to re-apply a previously stored search without
+    // the visitor having to re-click the calendar.
+    form.addEventListener('booking-set-dates', (event) => {
+      const detail = (event && event.detail) || {};
+      const nextCheckin = typeof detail.checkin === 'string' ? detail.checkin : '';
+      const nextCheckout = typeof detail.checkout === 'string' ? detail.checkout : '';
+      if (isDateStr(nextCheckin) && isDateStr(nextCheckout) && nextCheckout > nextCheckin) {
+        checkin = nextCheckin;
+        checkout = nextCheckout;
+        update();
+      }
+    });
   });
 }
 
@@ -892,6 +941,324 @@ function initBookingModal() {
     }
   });
 }
+
+/**
+ * "Dernière recherche" sidebar (30% column next to "Tarifs &
+ * Disponibilités", see property-detail.php's [data-last-search-panel]):
+ * persists the visitor's most recent search/date-selection in
+ * localStorage (gbmLastSearch, namespaced per partner code since this app
+ * serves every partner from the same origin) so it survives navigating to
+ * another property, and lets them re-apply it with one click ("Faire une
+ * demande avec ces dates") instead of re-entering everything.
+ *
+ * The panel is seeded from two places:
+ *  - a home-page search that lands here via ?arrival=&departure=&adults=&
+ *    children=&children_under3= (see home.php / accueil());
+ *  - manually picking 2 dates in the calendar then clicking "Masquer" on
+ *    the slide-in modal, which snapshots whatever the visitor has typed so
+ *    far (dates, party size, nationality, name/email/phone, message).
+ *
+ * It stays hidden until at least one of these has happened once.
+ */
+const LAST_SEARCH_STORAGE_KEY = 'gbmLastSearch';
+
+function lastSearchStorageKey(partnerCode) {
+  return partnerCode ? `${LAST_SEARCH_STORAGE_KEY}:${partnerCode}` : LAST_SEARCH_STORAGE_KEY;
+}
+
+function readLastSearch(partnerCode) {
+  try {
+    const raw = window.localStorage.getItem(lastSearchStorageKey(partnerCode));
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    return data && typeof data === 'object' ? data : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function writeLastSearch(partnerCode, data) {
+  try {
+    window.localStorage.setItem(lastSearchStorageKey(partnerCode), JSON.stringify(data));
+  } catch (error) {
+    // Private browsing / storage disabled: silently give up, the panel
+    // simply won't persist across page loads for this visitor.
+  }
+}
+
+function isLastSearchDateStr(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value || '');
+}
+
+// Shared by initLastSearchPanel() (on "Masquer") and initApiForms() (on
+// successful submit, before form.reset() clears the fields) so both paths
+// snapshot the visitor's in-progress search/contact details the same way.
+function bookingFormSnapshot(form) {
+  const checkin = form.querySelector('[data-booking-checkin]')?.value || '';
+  const checkout = form.querySelector('[data-booking-checkout]')?.value || '';
+  const adults = form.querySelector('[data-guest-stepper] input[name="adults"]')?.value || '';
+  const childrenUnder3 = form.querySelector('[data-guest-stepper] input[name="children_under3"]')?.value || '';
+  const children3to12 = form.querySelector('[data-guest-stepper] input[name="children_3to12"]')?.value || '';
+  const sameNat = form.querySelector('[data-same-nationality]');
+  const nationality = sameNat && sameNat.checked ? (form.querySelector('[data-uniform-nationality]')?.value || '') : '';
+  return {
+    checkin,
+    checkout,
+    adults,
+    childrenUnder3,
+    children3to12,
+    nationality,
+    clientName: form.querySelector('[name="client_name"]')?.value || '',
+    clientEmail: form.querySelector('[name="client_email"]')?.value || '',
+    clientPhone: form.querySelector('[name="client_phone"]')?.value || '',
+    message: form.querySelector('[name="message"]')?.value || '',
+  };
+}
+
+function applyLastSearchToForm(form, data) {
+  if (!data) return;
+  form.dispatchEvent(new CustomEvent('booking-set-dates', { detail: { checkin: data.checkin, checkout: data.checkout } }));
+  [
+    ['adults', data.adults],
+    ['children_under3', data.childrenUnder3],
+    ['children_3to12', data.children3to12],
+  ].forEach(([name, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    const input = form.querySelector(`[data-guest-stepper] input[name="${name}"]`);
+    if (!input) return;
+    input.value = String(value);
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  if (data.nationality) {
+    const sameNat = form.querySelector('[data-same-nationality]');
+    const uniformSelect = form.querySelector('[data-uniform-nationality]');
+    if (sameNat && uniformSelect) {
+      sameNat.checked = true;
+      sameNat.dispatchEvent(new Event('change', { bubbles: true }));
+      uniformSelect.value = data.nationality;
+    }
+  }
+  const nameInput = form.querySelector('[name="client_name"]');
+  if (nameInput && data.clientName) nameInput.value = data.clientName;
+  const emailInput = form.querySelector('[name="client_email"]');
+  if (emailInput && data.clientEmail) emailInput.value = data.clientEmail;
+  const messageInput = form.querySelector('[name="message"]');
+  if (messageInput && data.message) messageInput.value = data.message;
+  if (data.clientPhone) {
+    const dialCode = form.querySelector('[data-phone-dial-code]');
+    const number = form.querySelector('[data-phone-number]');
+    if (dialCode && number) {
+      const match = /^(\+\d{1,4})[\s.-]*(.*)$/.exec(data.clientPhone);
+      if (match) {
+        dialCode.value = match[1];
+        number.value = match[2];
+      } else {
+        number.value = data.clientPhone;
+      }
+      number.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  }
+}
+
+// Checks whether a stored "Dernière recherche" (dates + guest count) is
+// still valid for a *different* property's own availability calendar and
+// max_guests cap, before it gets silently re-applied via "Faire une demande
+// avec ces infos" — a stay valid on the property it was captured on may not
+// fit the one the visitor navigated to afterwards.
+function validateLastSearchForProperty(data, form, calendarWidget) {
+  const isDateStr = isLastSearchDateStr;
+  const checkin = data.checkin || '';
+  const checkout = data.checkout || '';
+  let datesOk = isDateStr(checkin) && isDateStr(checkout) && checkout > checkin;
+  if (datesOk && calendarWidget) {
+    const nightInfo = computeNightInfo(calendarWidget);
+    datesOk = nightInfoRangeAvailable(nightInfo, checkin, checkout)
+      && nightsBetween(checkin, checkout) >= nightInfoMinStay(nightInfo, checkin);
+  }
+  const maxGuests = Number(form.dataset.maxGuests || 0) || Infinity;
+  const adults = parseInt(data.adults, 10) || 0;
+  const children3to12 = parseInt(data.children3to12, 10) || 0;
+  const guestsOk = !Number.isFinite(maxGuests) || (adults + children3to12) <= maxGuests;
+  return { datesOk, guestsOk, ok: datesOk && guestsOk, maxGuests };
+}
+
+// Wires the "Dernière recherche ne correspond plus à ce logement" modal:
+// editable dates/guests fields, live red-highlighting of invalid fields, and
+// "Continuer" (enabled only once valid) / "Annuler" buttons. Returns null
+// when the modal markup isn't present on the page (e.g. rates tab hidden).
+function initLastSearchMismatchModal(section, form, calendarWidget) {
+  const overlay = section.querySelector('[data-last-search-mismatch-overlay]');
+  if (!overlay) return null;
+  const checkinInput = overlay.querySelector('[data-last-search-mismatch-field="checkin"]');
+  const checkoutInput = overlay.querySelector('[data-last-search-mismatch-field="checkout"]');
+  const adultsInput = overlay.querySelector('[data-last-search-mismatch-field="adults"]');
+  const children3to12Input = overlay.querySelector('[data-last-search-mismatch-field="children_3to12"]');
+  const childrenUnder3Input = overlay.querySelector('[data-last-search-mismatch-field="children_under3"]');
+  const datesError = overlay.querySelector('[data-last-search-mismatch-dates-error]');
+  const guestsError = overlay.querySelector('[data-last-search-mismatch-guests-error]');
+  const cancelBtn = overlay.querySelector('[data-last-search-mismatch-cancel]');
+  const continueBtn = overlay.querySelector('[data-last-search-mismatch-continue]');
+  if (!checkinInput || !checkoutInput || !adultsInput || !continueBtn) return null;
+  let pendingData = null;
+
+  function currentFieldData() {
+    return {
+      checkin: checkinInput.value || '',
+      checkout: checkoutInput.value || '',
+      adults: adultsInput.value || '',
+      children3to12: children3to12Input ? (children3to12Input.value || '') : '',
+      childrenUnder3: childrenUnder3Input ? (childrenUnder3Input.value || '') : '',
+    };
+  }
+
+  function revalidate() {
+    const result = validateLastSearchForProperty(currentFieldData(), form, calendarWidget);
+    checkinInput.classList.toggle('last-search-mismatch-invalid', !result.datesOk);
+    checkoutInput.classList.toggle('last-search-mismatch-invalid', !result.datesOk);
+    if (datesError) datesError.hidden = result.datesOk;
+    [adultsInput, children3to12Input].forEach((input) => {
+      if (input) input.classList.toggle('last-search-mismatch-invalid', !result.guestsOk);
+    });
+    if (guestsError) {
+      guestsError.hidden = result.guestsOk;
+      if (!result.guestsOk) {
+        const template = guestsError.dataset.i18nGuestsErrorTemplate || 'Ce logement peut accueillir %d personne(s) maximum.';
+        guestsError.textContent = template.replace('%d', String(result.maxGuests));
+      }
+    }
+    continueBtn.disabled = !result.ok;
+    return result;
+  }
+
+  [checkinInput, checkoutInput, adultsInput, children3to12Input, childrenUnder3Input].forEach((input) => {
+    if (input) input.addEventListener('input', revalidate);
+  });
+
+  function close() {
+    overlay.hidden = true;
+    pendingData = null;
+  }
+
+  if (cancelBtn) cancelBtn.addEventListener('click', close);
+  continueBtn.addEventListener('click', () => {
+    const result = revalidate();
+    if (!result.ok) return;
+    const merged = { ...(pendingData || {}), ...currentFieldData() };
+    applyLastSearchToForm(form, merged);
+    close();
+  });
+
+  return {
+    open(data) {
+      pendingData = data;
+      checkinInput.value = data.checkin || '';
+      checkoutInput.value = data.checkout || '';
+      if (adultsInput) adultsInput.value = data.adults || '2';
+      if (children3to12Input) children3to12Input.value = data.children3to12 || '0';
+      if (childrenUnder3Input) childrenUnder3Input.value = data.childrenUnder3 || '0';
+      overlay.hidden = false;
+      revalidate();
+    },
+  };
+}
+
+function initLastSearchPanel() {
+  document.querySelectorAll('[data-last-search-panel]').forEach((panel) => {
+    const section = panel.closest('[data-gallery]') || document;
+    const form = section.querySelector('[data-booking-form]');
+    if (!form) return;
+    const overlay = section.querySelector('[data-booking-modal-overlay]');
+    const hideBtn = overlay ? overlay.querySelector('[data-booking-modal-hide]') : null;
+    const body = panel.querySelector('[data-last-search-body]');
+    const cta = panel.querySelector('[data-last-search-cta]');
+    const partnerCode = panel.dataset.partnerCode || '';
+    const isDateStr = isLastSearchDateStr;
+    const propertyId = form.dataset.propertyId;
+    const calendarWidget = propertyId
+      ? document.querySelector(`[data-calendar-widget][data-property-id="${propertyId}"]`)
+      : null;
+    const mismatchModal = initLastSearchMismatchModal(section, form, calendarWidget);
+
+    function formatFr(dateStr) {
+      if (!isDateStr(dateStr)) return '';
+      const [y, m, d] = dateStr.split('-');
+      return `${d}/${m}/${y}`;
+    }
+
+    function render() {
+      const data = readLastSearch(partnerCode);
+      if (!data || !isDateStr(data.checkin) || !isDateStr(data.checkout)) {
+        panel.hidden = true;
+        return;
+      }
+      panel.hidden = false;
+      if (!body) return;
+      const adultsNum = parseInt(data.adults, 10) || 0;
+      const under3Num = parseInt(data.childrenUnder3, 10) || 0;
+      const from3to12Num = parseInt(data.children3to12, 10) || 0;
+      const guestParts = [];
+      if (adultsNum > 0) guestParts.push(`${adultsNum} adulte(s)`);
+      if (from3to12Num > 0) guestParts.push(`${from3to12Num} enfant(s) (3-12 ans)`);
+      if (under3Num > 0) guestParts.push(`${under3Num} bébé(s) (< 3 ans)`);
+      let html = `<p><strong>${escapeHtml(form.dataset.i18nCheckin || 'Arrivée')}</strong> : ${escapeHtml(formatFr(data.checkin))}</p>`;
+      html += `<p><strong>${escapeHtml(form.dataset.i18nCheckout || 'Départ')}</strong> : ${escapeHtml(formatFr(data.checkout))}</p>`;
+      if (guestParts.length) html += `<p><strong>${escapeHtml(panel.dataset.i18nGuests || 'Voyageurs')}</strong> : ${escapeHtml(guestParts.join(', '))}</p>`;
+      if (data.nationality) html += `<p><strong>${escapeHtml(panel.dataset.i18nNationality || 'Nationalité')}</strong> : ${escapeHtml(data.nationality)}</p>`;
+      if (data.clientName) html += `<p><strong>${escapeHtml(panel.dataset.i18nName || 'Nom')}</strong> : ${escapeHtml(data.clientName)}</p>`;
+      if (data.clientEmail) html += `<p><strong>${escapeHtml(panel.dataset.i18nEmail || 'Email')}</strong> : ${escapeHtml(data.clientEmail)}</p>`;
+      if (data.clientPhone) html += `<p><strong>${escapeHtml(panel.dataset.i18nPhone || 'Téléphone')}</strong> : ${escapeHtml(data.clientPhone)}</p>`;
+      if (data.message) html += `<p><strong>${escapeHtml(panel.dataset.i18nMessage || 'Message')}</strong> : ${escapeHtml(data.message)}</p>`;
+      body.innerHTML = html;
+    }
+
+    // A home-page search landing on this property (?arrival=&departure=)
+    // always counts as "a search made from the home page" and seeds/
+    // refreshes the panel right away, keeping any contact details already
+    // stored from a previous property.
+    const params = new URLSearchParams(window.location.search);
+    const arrivalParam = params.get('arrival') || '';
+    const departureParam = params.get('departure') || '';
+    if (isDateStr(arrivalParam) && isDateStr(departureParam) && departureParam > arrivalParam) {
+      const existing = readLastSearch(partnerCode) || {};
+      writeLastSearch(partnerCode, {
+        ...existing,
+        checkin: arrivalParam,
+        checkout: departureParam,
+        adults: params.get('adults') || existing.adults || '',
+        childrenUnder3: params.get('children_under3') || existing.childrenUnder3 || '',
+        children3to12: params.get('children') || existing.children3to12 || '',
+      });
+    }
+
+    render();
+
+    // Manually selecting 2 dates then clicking "Masquer" also counts as a
+    // search: snapshot whatever the visitor has filled in so far.
+    if (hideBtn) {
+      hideBtn.addEventListener('click', () => {
+        const snapshot = bookingFormSnapshot(form);
+        if (isDateStr(snapshot.checkin) && isDateStr(snapshot.checkout)) {
+          writeLastSearch(partnerCode, snapshot);
+          render();
+        }
+      });
+    }
+
+    if (cta) {
+      cta.addEventListener('click', () => {
+        const data = readLastSearch(partnerCode);
+        if (!data) return;
+        const validation = validateLastSearchForProperty(data, form, calendarWidget);
+        if (validation.ok || !mismatchModal) {
+          applyLastSearchToForm(form, data);
+        } else {
+          mismatchModal.open(data);
+        }
+      });
+    }
+  });
+}
+
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (char) => ({
@@ -1198,6 +1565,17 @@ function initApiForms() {
         // be wrong: confirm instead that the request now exists in their
         // dashboard. Read before form.reset(), which unticks the checkbox.
         const createdWithoutEmail = form.dataset.noClientEmail === '1';
+        if (form.hasAttribute('data-booking-form')) {
+          // A successful submit is itself the most recent search: persist
+          // it the same way "Masquer" does, before reset() wipes the
+          // fields, so the "Dernière recherche" panel reflects it too.
+          const snapshot = bookingFormSnapshot(form);
+          if (isLastSearchDateStr(snapshot.checkin) && isLastSearchDateStr(snapshot.checkout)) {
+            const section = form.closest('[data-gallery]') || document;
+            const panel = section.querySelector('[data-last-search-panel]');
+            writeLastSearch(panel ? (panel.dataset.partnerCode || '') : '', snapshot);
+          }
+        }
         form.reset();
         const quoteBox = form.querySelector('[data-quote-box]');
         if (quoteBox) quoteBox.hidden = true;
@@ -1882,17 +2260,20 @@ function initGuestSteppers() {
 
 /**
  * Pre-fills the "Nombre de Voyageur(s)" adults/children steppers from
- * ?adults=X&children=Y query parameters (children = 3 to 12 years old), e.g.
- * a link shared by the partner to jump straight to a property's page with
- * the party size already filled in — see the "Voir le bien avec ces dates"
- * button on /partner/reservations/{id}. Must run after initGuestSteppers()
- * so the existing change listeners (clamping, capacity note) pick it up.
+ * ?adults=X&children=Y&children_under3=Z query parameters (children = 3 to
+ * 12 years old), e.g. a link shared by the partner to jump straight to a
+ * property's page with the party size already filled in — see the "Voir le
+ * bien avec ces dates" button on /partner/reservations/{id}, and the home
+ * page search results (see home.php / accueil()). Must run after
+ * initGuestSteppers() so the existing change listeners (clamping, capacity
+ * note) pick it up.
  */
 function initBookingLinkPrefillGuests() {
   document.querySelectorAll('[data-booking-form]').forEach((form) => {
     const params = new URLSearchParams(window.location.search);
     const adultsParam = params.get('adults');
     const childrenParam = params.get('children');
+    const childrenUnder3Param = params.get('children_under3');
 
     function applyTo(inputName, rawValue) {
       if (rawValue === null || rawValue === '') return;
@@ -1906,6 +2287,7 @@ function initBookingLinkPrefillGuests() {
 
     applyTo('adults', adultsParam);
     applyTo('children_3to12', childrenParam);
+    applyTo('children_under3', childrenUnder3Param);
   });
 }
 

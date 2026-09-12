@@ -235,6 +235,22 @@ final class PageController extends Controller
         return $role === 'partner' && (int) ($user['partner_id'] ?? 0) > 0;
     }
 
+    /**
+     * "Mode Agence Strict" (partners.agency_strict_mode, toggled from
+     * /partner/settings): when enabled, nothing changes for the logged-in
+     * partner/admin themselves. An anonymous client browsing the public
+     * site still sees the property catalogue, availability (calendar tab,
+     * /calendrier) and can navigate everything — only the *prices* are
+     * hidden and reservation requests are blocked (see
+     * ReservationsController::agencyStrictModeBlocksClient()). A logged-in
+     * client account doesn't exist in this app (only partner/admin users
+     * do), so "not Auth::isPartnerOrAdmin()" is equivalent to "is a client".
+     */
+    private static function agencyStrictModeHidesPricesForVisitor(?array $partner): bool
+    {
+        return $partner !== null && !empty($partner['agency_strict_mode']) && !Auth::isPartnerOrAdmin();
+    }
+
     public static function propertyDetail(int $id): void
     {
         $partner = Tenant::current();
@@ -317,6 +333,7 @@ final class PageController extends Controller
             'vatRate' => $vatRate,
             'calendarGuests' => 2,
             'ratesRestricted' => $visibility === PartnerPropertyVisibility::PARTIAL,
+            'strictModeHidesPrices' => self::agencyStrictModeHidesPricesForVisitor($partner),
             'priceMinPeople' => $manual['min_people'],
             'priceExtraPersonFee' => $manual['extra_person_fee'],
             'globalTouristTax' => $globalTouristTax,
@@ -371,6 +388,13 @@ final class PageController extends Controller
             throw new HttpException(404, 'Not Found', 'Hébergement introuvable');
         }
 
+        // "Mode Agence Strict" blocks reservation requests, and a Lodgify
+        // checkout redirect is itself a booking action — see
+        // ReservationsController::agencyStrictModeBlocksClient().
+        if (ReservationsController::agencyStrictModeBlocksClient()) {
+            throw new HttpException(403, 'Forbidden', 'La réservation directe est désactivée pour ce partenaire.');
+        }
+
         $available = self::isPropertyAvailableNow($id, $arrival, $departure);
         if ($available) {
             header('Location: ' . ReservationsController::lodgifyCheckoutUrl(
@@ -416,7 +440,11 @@ final class PageController extends Controller
         }
 
         $available = $validRange && self::isPropertyAvailableNow($id, $arrival, $departure);
-        $checkoutUrl = $available
+        // "Mode Agence Strict" still lets a client see this availability
+        // confirmation, but a Lodgify checkout link is a booking action and
+        // must stay blocked — see
+        // ReservationsController::agencyStrictModeBlocksClient().
+        $checkoutUrl = $available && !ReservationsController::agencyStrictModeBlocksClient()
             ? ReservationsController::lodgifyCheckoutUrl($id, $arrival, $departure, max(1, $adults + $children))
             : '';
 
@@ -478,6 +506,11 @@ final class PageController extends Controller
 
     public static function calendar(): void
     {
+        // "Mode Agence Strict" (partners.agency_strict_mode): the standalone
+        // /calendrier board stays available to clients (availability is
+        // still shown), only the per-night prices/price-info block are
+        // hidden — see the 'strictModeHidesPrices' flag passed to the view
+        // below. Nothing changes for a logged-in partner/admin user.
         // Standalone "Calendrier" overview: one row per property, showing the
         // same availability/price colouring as the detail-page calendars, but
         // laid out horizontally so every property can be scanned day by day.
@@ -674,6 +707,7 @@ final class PageController extends Controller
             // (partner) user tied to the active partner.
             'canOverrideBookingPolicy' => $canOverrideBookingPolicy,
             'bookingPolicies' => $canOverrideBookingPolicy && $partner ? self::partnerBookingPolicies((int) $partner['id']) : [],
+            'strictModeHidesPrices' => self::agencyStrictModeHidesPricesForVisitor($partner),
         ]);
     }
 
@@ -1691,7 +1725,7 @@ final class PageController extends Controller
         // longer touches partners.booking_policy_text(_en) at all — those
         // legacy columns are only ever read as a fallback (bookingPolicyText())
         // for a partner who hasn't created any policy yet.
-        Database::connection()->prepare('UPDATE partners SET name = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, logo_url = ?, catalog_pdf_url = ?, primary_color = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, updated_at = NOW() WHERE id = ?')->execute([
+        Database::connection()->prepare('UPDATE partners SET name = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, logo_url = ?, catalog_pdf_url = ?, primary_color = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, agency_strict_mode = ?, updated_at = NOW() WHERE id = ?')->execute([
             trim((string) ($_POST['name'] ?? '')),
             trim((string) ($_POST['email'] ?? '')),
             trim((string) ($_POST['phone'] ?? '')) ?: null,
@@ -1705,6 +1739,7 @@ final class PageController extends Controller
             ($_POST['smtp_port'] ?? '') !== '' ? (int) $_POST['smtp_port'] : null,
             trim((string) ($_POST['smtp_user'] ?? '')) ?: null,
             trim((string) ($_POST['smtp_pass'] ?? '')) ?: null,
+            isset($_POST['agency_strict_mode']) && $_POST['agency_strict_mode'] === '1' ? 1 : 0,
             $partnerId,
         ]);
         self::redirect('/partner/settings', 'Paramètres sauvegardés.');
@@ -2057,9 +2092,19 @@ final class PageController extends Controller
             $catalogPdfUrl = self::storePartnerCatalogPdf($uploadedId) ?? '';
         }
 
+        $subdomain = trim((string) ($_POST['subdomain'] ?? ''));
+        if ($subdomain === '') {
+            self::redirect($id === null ? '/admin/partners/new' : '/admin/partners/' . $id . '/edit', 'Le code partenaire est obligatoire.', 'error');
+        }
+        $duplicateCheck = Database::connection()->prepare('SELECT COUNT(*) FROM partners WHERE subdomain = ? AND id <> ?');
+        $duplicateCheck->execute([$subdomain, $id ?? 0]);
+        if ((int) $duplicateCheck->fetchColumn() > 0) {
+            self::redirect($id === null ? '/admin/partners/new' : '/admin/partners/' . $id . '/edit', 'Ce code partenaire est déjà utilisé par un autre partenaire.', 'error');
+        }
+
         if ($id === null) {
             Database::connection()->prepare('INSERT INTO partners (subdomain, name, logo_url, catalog_pdf_url, primary_color, email, phone, facebook_url, tiktok_url, instagram_url, markup_percent, cleaning_fee_per_person_per_night, smtp_host, smtp_port, smtp_user, smtp_pass, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([
-                trim((string) ($_POST['subdomain'] ?? '')),
+                $subdomain,
                 trim((string) ($_POST['name'] ?? '')),
                 $logoUrl !== '' ? $logoUrl : null,
                 $catalogPdfUrl !== '' ? $catalogPdfUrl : null,
@@ -2078,7 +2123,8 @@ final class PageController extends Controller
                 isset($_POST['active']) ? 1 : 0,
             ]);
         } else {
-            Database::connection()->prepare('UPDATE partners SET name = ?, logo_url = ?, catalog_pdf_url = ?, primary_color = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, markup_percent = ?, cleaning_fee_per_person_per_night = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?')->execute([
+            Database::connection()->prepare('UPDATE partners SET subdomain = ?, name = ?, logo_url = ?, catalog_pdf_url = ?, primary_color = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, markup_percent = ?, cleaning_fee_per_person_per_night = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?')->execute([
+                $subdomain,
                 trim((string) ($_POST['name'] ?? '')),
                 $logoUrl !== '' ? $logoUrl : null,
                 $catalogPdfUrl !== '' ? $catalogPdfUrl : null,
@@ -2106,6 +2152,82 @@ final class PageController extends Controller
         self::requireAdminUser();
         Database::connection()->prepare('DELETE FROM partners WHERE id = ?')->execute([$id]);
         self::redirect('/admin/partners', 'Partenaire supprimé.');
+    }
+
+    /**
+     * "Dupliquer" (admin-partners.php action icon): clones a partner's row
+     * plus its booking_policies and partner_property_visibility rows into a
+     * brand-new partner, so an admin doesn't have to re-enter every field
+     * (colors, fees, SMTP, policies, per-property visibility, ...) to spin
+     * up a near-identical partner. Only the subdomain ("code partenaire")
+     * changes, becoming "{original}Copy" (deduped with a numeric suffix if
+     * that code is already taken). Logins/users and email_templates are
+     * intentionally NOT copied: credentials must never be duplicated, and
+     * templates are considered a separate admin-content library.
+     *
+     * Uses a dynamic column list (SELECT * then rebuild INSERT from
+     * array_keys()) instead of a hardcoded column list so this keeps working
+     * as partners' schema grows across migrations.
+     */
+    public static function adminDuplicatePartner(int $id): never
+    {
+        self::requireAdminUser();
+        $pdo = Database::connection();
+        $source = $pdo->prepare('SELECT * FROM partners WHERE id = ?');
+        $source->execute([$id]);
+        $row = $source->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            self::redirect('/admin/partners', 'Partenaire introuvable.', 'error');
+        }
+
+        unset($row['id'], $row['created_at'], $row['updated_at']);
+
+        $originalSubdomain = trim((string) ($row['subdomain'] ?? ''));
+        $baseSubdomain = mb_substr($originalSubdomain, 0, 100 - mb_strlen('Copy')) . 'Copy';
+        $subdomain = $baseSubdomain;
+        $existsStmt = $pdo->prepare('SELECT COUNT(*) FROM partners WHERE subdomain = ?');
+        $suffix = 1;
+        while (true) {
+            $existsStmt->execute([$subdomain]);
+            if ((int) $existsStmt->fetchColumn() === 0) {
+                break;
+            }
+            $suffix++;
+            $suffixText = (string) $suffix;
+            $subdomain = mb_substr($baseSubdomain, 0, 100 - mb_strlen($suffixText)) . $suffixText;
+        }
+        $row['subdomain'] = $subdomain;
+
+        $columns = array_keys($row);
+        $placeholders = implode(', ', array_fill(0, count($columns), '?'));
+        $columnList = implode(', ', array_map(static fn (string $col): string => "`$col`", $columns));
+
+        $pdo->beginTransaction();
+        try {
+            $pdo->prepare("INSERT INTO partners ($columnList) VALUES ($placeholders)")->execute(array_values($row));
+            $newPartnerId = (int) $pdo->lastInsertId();
+
+            $policies = $pdo->prepare('SELECT * FROM booking_policies WHERE partner_id = ?');
+            $policies->execute([$id]);
+            $insertPolicy = $pdo->prepare('INSERT INTO booking_policies (partner_id, label, text_fr, text_en, is_default) VALUES (?, ?, ?, ?, ?)');
+            foreach ($policies->fetchAll(PDO::FETCH_ASSOC) as $policy) {
+                $insertPolicy->execute([$newPartnerId, $policy['label'], $policy['text_fr'], $policy['text_en'], $policy['is_default']]);
+            }
+
+            $visibility = $pdo->prepare('SELECT * FROM partner_property_visibility WHERE partner_id = ?');
+            $visibility->execute([$id]);
+            $insertVisibility = $pdo->prepare('INSERT INTO partner_property_visibility (partner_id, property_id, visibility) VALUES (?, ?, ?)');
+            foreach ($visibility->fetchAll(PDO::FETCH_ASSOC) as $visibilityRow) {
+                $insertVisibility->execute([$newPartnerId, $visibilityRow['property_id'], $visibilityRow['visibility']]);
+            }
+
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+
+        self::redirect('/admin/partners', 'Partenaire dupliqué.');
     }
 
     public static function adminFees(): void
@@ -4277,7 +4399,7 @@ TEXT;
      * reservation-edit modal), all of which only ever read this same local
      * cache (see reservationDatesAvailabilityFragment()'s doc comment).
      */
-    public static function calendarUpdatedAtLabel(): ?string
+    public static function calendarUpdatedAtLabel(bool $pricesHidden = false): ?string
     {
         $raw = Settings::get('LODGIFY_CACHE_WARMED_AT');
         if ($raw === null || $raw === '') {
@@ -4289,7 +4411,11 @@ TEXT;
         } catch (\Throwable $e) {
             return null;
         }
-        return 'Disponibilités et Tarifs mis à jour le ' . $date->format('d/m/Y') . ' à ' . $date->format('H:i') . ' (GMT + 4)';
+        // "Mode Agence Strict" hides rates from clients: the "et Tarifs" part
+        // of this label would otherwise be misleading since prices are no
+        // longer shown anywhere on the page.
+        $prefix = $pricesHidden ? 'Disponibilités' : 'Disponibilités et Tarifs';
+        return $prefix . ' mis à jour le ' . $date->format('d/m/Y') . ' à ' . $date->format('H:i') . ' (GMT + 4)';
     }
 
     public static function publicRates(LodgifyClient $client, int $propertyId, string $from, string $to, float $vatRate = 0.0, bool $cacheOnly = false): array

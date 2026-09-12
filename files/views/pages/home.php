@@ -22,6 +22,23 @@ try {
 } catch (Throwable $e) {
     // Keep the plain /calendrier fallback if dates are invalid.
 }
+// A successful home-page search hands its dates/party-size on to each
+// property card's link (?arrival=&departure=&adults=&children=&
+// children_under3=), so landing on /properties/{id} jumps straight to
+// "Tarifs & Disponibilités" with the booking form already pre-filled (see
+// initPropertyTabs()/initBookingCalendarSelection()/
+// initBookingLinkPrefillGuests() in assets/js/app.js) instead of the
+// visitor having to re-enter everything.
+$propertyCardQuery = '';
+if ($checkinRaw !== '' && $checkoutRaw !== '') {
+    $propertyCardQuery = '?' . http_build_query([
+        'arrival' => $checkinRaw,
+        'departure' => $checkoutRaw,
+        'adults' => (int) ($search['adults'] ?? 0),
+        'children' => (int) ($search['children_3to12'] ?? 0),
+        'children_under3' => (int) ($search['children_under3'] ?? 0),
+    ]);
+}
 ?>
 <section class="hero hero-video"<?= $searched ? ' data-searched="1"' : '' ?>>
   <video class="hero-video-bg" src="/medias/home.mp4" muted loop playsinline preload="auto" data-hero-video></video>
