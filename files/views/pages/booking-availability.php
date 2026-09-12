@@ -18,7 +18,9 @@ $travelers = $adults + $children;
       <div class="alert alert-success">✅ Ces dates sont disponibles pour ce bien.</div>
       <p>Du <strong><?= \App\View::e($arrivalLabel) ?></strong> au <strong><?= \App\View::e($departureLabel) ?></strong>
         &middot; <?= (int) $travelers ?> voyageur(s)</p>
-      <a class="btn-primary" href="<?= \App\View::e($checkoutUrl) ?>" target="_blank" rel="noopener">Réserver</a>
+      <?php if ($checkoutUrl !== ''): ?>
+        <a class="btn-primary" href="<?= \App\View::e($checkoutUrl) ?>" target="_blank" rel="noopener">Réserver</a>
+      <?php endif; ?>
     <?php else: ?>
       <div class="alert alert-error">❌ Ces dates ne sont malheureusement plus disponibles pour ce bien.</div>
       <p>Du <?= \App\View::e($arrivalLabel) ?> au <?= \App\View::e($departureLabel) ?> &middot; <?= (int) $travelers ?> voyageur(s)</p>

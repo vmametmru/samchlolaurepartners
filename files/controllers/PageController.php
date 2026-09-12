@@ -388,6 +388,13 @@ final class PageController extends Controller
             throw new HttpException(404, 'Not Found', 'Hébergement introuvable');
         }
 
+        // "Mode Agence Strict" blocks reservation requests, and a Lodgify
+        // checkout redirect is itself a booking action — see
+        // ReservationsController::agencyStrictModeBlocksClient().
+        if (ReservationsController::agencyStrictModeBlocksClient()) {
+            throw new HttpException(403, 'Forbidden', 'La réservation directe est désactivée pour ce partenaire.');
+        }
+
         $available = self::isPropertyAvailableNow($id, $arrival, $departure);
         if ($available) {
             header('Location: ' . ReservationsController::lodgifyCheckoutUrl(
@@ -433,7 +440,11 @@ final class PageController extends Controller
         }
 
         $available = $validRange && self::isPropertyAvailableNow($id, $arrival, $departure);
-        $checkoutUrl = $available
+        // "Mode Agence Strict" still lets a client see this availability
+        // confirmation, but a Lodgify checkout link is a booking action and
+        // must stay blocked — see
+        // ReservationsController::agencyStrictModeBlocksClient().
+        $checkoutUrl = $available && !ReservationsController::agencyStrictModeBlocksClient()
             ? ReservationsController::lodgifyCheckoutUrl($id, $arrival, $departure, max(1, $adults + $children))
             : '';
 
@@ -2171,7 +2182,7 @@ final class PageController extends Controller
 
         unset($row['id'], $row['created_at'], $row['updated_at']);
 
-$originalSubdomain = trim((string) ($row['subdomain'] ?? ''));
+        $originalSubdomain = trim((string) ($row['subdomain'] ?? ''));
         $baseSubdomain = mb_substr($originalSubdomain, 0, 100 - mb_strlen('Copy')) . 'Copy';
         $subdomain = $baseSubdomain;
         $existsStmt = $pdo->prepare('SELECT COUNT(*) FROM partners WHERE subdomain = ?');
@@ -2184,6 +2195,7 @@ $originalSubdomain = trim((string) ($row['subdomain'] ?? ''));
             $suffix++;
             $suffixText = (string) $suffix;
             $subdomain = mb_substr($baseSubdomain, 0, 100 - mb_strlen($suffixText)) . $suffixText;
+        }
         $row['subdomain'] = $subdomain;
 
         $columns = array_keys($row);

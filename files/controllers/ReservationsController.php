@@ -50,9 +50,11 @@ final class ReservationsController extends Controller
      * reservation request directly against the API. Prices/availability
      * stay visible in this mode — only the ability to *request* a
      * reservation is blocked. Nothing changes for a logged-in partner/admin
-     * user.
+     * user. Public so PageController::bookingRedirect()/availabilityCheck()
+     * (which produce a Lodgify checkout URL, bypassing the request form
+     * entirely) can re-check it too.
      */
-    private static function agencyStrictModeBlocksClient(): bool
+    public static function agencyStrictModeBlocksClient(): bool
     {
         $partner = Tenant::current();
         return $partner !== null && !empty($partner['agency_strict_mode']) && !Auth::isPartnerOrAdmin();
