@@ -2171,7 +2171,8 @@ final class PageController extends Controller
 
         unset($row['id'], $row['created_at'], $row['updated_at']);
 
-        $baseSubdomain = trim((string) ($row['subdomain'] ?? '')) . 'Copy';
+$originalSubdomain = trim((string) ($row['subdomain'] ?? ''));
+        $baseSubdomain = mb_substr($originalSubdomain, 0, 100 - mb_strlen('Copy')) . 'Copy';
         $subdomain = $baseSubdomain;
         $existsStmt = $pdo->prepare('SELECT COUNT(*) FROM partners WHERE subdomain = ?');
         $suffix = 1;
@@ -2181,8 +2182,8 @@ final class PageController extends Controller
                 break;
             }
             $suffix++;
-            $subdomain = $baseSubdomain . $suffix;
-        }
+            $suffixText = (string) $suffix;
+            $subdomain = mb_substr($baseSubdomain, 0, 100 - mb_strlen($suffixText)) . $suffixText;
         $row['subdomain'] = $subdomain;
 
         $columns = array_keys($row);
