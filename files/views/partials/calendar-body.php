@@ -14,6 +14,13 @@ $calendarStartDate = isset($calendarStart) && $calendarStart !== ''
 // whole month is visible), so any day before today (already elapsed) must be
 // greyed out and non-selectable rather than shown as a bookable date.
 $today = isset($today) && $today !== '' ? (string) $today : (new DateTimeImmutable('today'))->format('Y-m-d');
+// "Mode Agence Strict": set by property-detail.php (rates-availability tab)
+// when the current visitor is a client of a strict-mode partner. Prices are
+// then omitted from every cell (and its data-calendar-rate/-currency
+// attributes) while availability stays fully visible. Defaults to false so
+// every other caller of this shared partial (the "Modifier les Dates" modal
+// fragment, partner/admin-only) is unaffected.
+$hidePricesForVisitor = !empty($hidePricesForVisitor);
 
 $availabilityMap = [];
 $singleNightMap = [];
@@ -60,9 +67,9 @@ $frenchMonths = \App\I18n::monthNames();
           // "Nettoyage" quote line), not part of the per-night rate.
           $displayPrice = $rate !== null ? (float) $rate['price_per_night'] : null;
         ?>
-          <div class="calendar-cell <?= $class ?>" data-calendar-date="<?= $date ?>" data-calendar-available="<?= $isAvailable ? '1' : '0' ?>" data-calendar-minstay="<?= $minStay > 0 ? $minStay : 1 ?>"<?php if ($rate !== null && !$isPast): ?> data-calendar-rate="<?= (float) $rate['price_per_night'] ?>" data-calendar-currency="<?= \App\View::e($rate['currency']) ?>"<?php endif; ?>>
+          <div class="calendar-cell <?= $class ?>" data-calendar-date="<?= $date ?>" data-calendar-available="<?= $isAvailable ? '1' : '0' ?>" data-calendar-minstay="<?= $minStay > 0 ? $minStay : 1 ?>"<?php if ($rate !== null && !$isPast && !$hidePricesForVisitor): ?> data-calendar-rate="<?= (float) $rate['price_per_night'] ?>" data-calendar-currency="<?= \App\View::e($rate['currency']) ?>"<?php endif; ?>>
             <span class="calendar-day"><?= $dayNumber ?></span>
-            <?php if ($isAvailable && $rate !== null): ?>
+            <?php if ($isAvailable && $rate !== null && !$hidePricesForVisitor): ?>
               <span class="calendar-price"><?= number_format((float) $displayPrice, 2, ',', ' ') ?></span>
             <?php endif; ?>
           </div>
@@ -76,9 +83,11 @@ $frenchMonths = \App\I18n::monthNames();
   <span class="dot dot-red"></span> <?= \App\View::e(\App\I18n::t('calendar.legend_unavailable')) ?>
   <span class="dot dot-yellow"></span> <?= \App\View::e(\App\I18n::t('calendar.legend_single_night')) ?>
   <span class="dot dot-gray"></span> <?= \App\View::e(\App\I18n::t('calendar.legend_not_bookable_full')) ?>
+  <?php if (!$hidePricesForVisitor): ?>
   <span class="calendar-legend-note"><?= \App\View::e(\App\I18n::t('calendar.legend_price_currency')) ?></span>
+  <?php endif; ?>
 </div>
-<?php $calendarUpdatedAtLabel = \App\controllers\PageController::calendarUpdatedAtLabel(); ?>
+<?php $calendarUpdatedAtLabel = \App\controllers\PageController::calendarUpdatedAtLabel($hidePricesForVisitor); ?>
 <?php if ($calendarUpdatedAtLabel !== null): ?>
   <p class="muted calendar-updated-note"><?= \App\View::e($calendarUpdatedAtLabel) ?></p>
 <?php endif; ?>

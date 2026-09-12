@@ -238,13 +238,15 @@ final class PageController extends Controller
     /**
      * "Mode Agence Strict" (partners.agency_strict_mode, toggled from
      * /partner/settings): when enabled, nothing changes for the logged-in
-     * partner/admin themselves — only an anonymous client browsing the
-     * public site (no logged-in user at all) loses access to rates/
-     * availability/booking. A logged-in client account doesn't exist in
-     * this app (only partner/admin users do), so "not Auth::isPartnerOrAdmin()"
-     * is equivalent to "is a client".
+     * partner/admin themselves. An anonymous client browsing the public
+     * site still sees the property catalogue, availability (calendar tab,
+     * /calendrier) and can navigate everything — only the *prices* are
+     * hidden and reservation requests are blocked (see
+     * ReservationsController::agencyStrictModeBlocksClient()). A logged-in
+     * client account doesn't exist in this app (only partner/admin users
+     * do), so "not Auth::isPartnerOrAdmin()" is equivalent to "is a client".
      */
-    private static function agencyStrictModeHidesRatesForVisitor(?array $partner): bool
+    private static function agencyStrictModeHidesPricesForVisitor(?array $partner): bool
     {
         return $partner !== null && !empty($partner['agency_strict_mode']) && !Auth::isPartnerOrAdmin();
     }
@@ -331,7 +333,7 @@ final class PageController extends Controller
             'vatRate' => $vatRate,
             'calendarGuests' => 2,
             'ratesRestricted' => $visibility === PartnerPropertyVisibility::PARTIAL,
-            'strictModeHidesRates' => self::agencyStrictModeHidesRatesForVisitor($partner),
+            'strictModeHidesPrices' => self::agencyStrictModeHidesPricesForVisitor($partner),
             'priceMinPeople' => $manual['min_people'],
             'priceExtraPersonFee' => $manual['extra_person_fee'],
             'globalTouristTax' => $globalTouristTax,
@@ -494,13 +496,10 @@ final class PageController extends Controller
     public static function calendar(): void
     {
         // "Mode Agence Strict" (partners.agency_strict_mode): the standalone
-        // /calendrier board exposes rates/availability for every property at
-        // once, exactly what this mode is meant to hide from clients — send
-        // them back to /accueil instead. Nothing changes for a logged-in
-        // partner/admin user.
-        if (self::agencyStrictModeHidesRatesForVisitor(Tenant::current())) {
-            self::redirect('/accueil');
-        }
+        // /calendrier board stays available to clients (availability is
+        // still shown), only the per-night prices/price-info block are
+        // hidden — see the 'strictModeHidesPrices' flag passed to the view
+        // below. Nothing changes for a logged-in partner/admin user.
         // Standalone "Calendrier" overview: one row per property, showing the
         // same availability/price colouring as the detail-page calendars, but
         // laid out horizontally so every property can be scanned day by day.
@@ -697,6 +696,7 @@ final class PageController extends Controller
             // (partner) user tied to the active partner.
             'canOverrideBookingPolicy' => $canOverrideBookingPolicy,
             'bookingPolicies' => $canOverrideBookingPolicy && $partner ? self::partnerBookingPolicies((int) $partner['id']) : [],
+            'strictModeHidesPrices' => self::agencyStrictModeHidesPricesForVisitor($partner),
         ]);
     }
 
@@ -4366,7 +4366,7 @@ TEXT;
      * reservation-edit modal), all of which only ever read this same local
      * cache (see reservationDatesAvailabilityFragment()'s doc comment).
      */
-    public static function calendarUpdatedAtLabel(): ?string
+    public static function calendarUpdatedAtLabel(bool $pricesHidden = false): ?string
     {
         $raw = Settings::get('LODGIFY_CACHE_WARMED_AT');
         if ($raw === null || $raw === '') {
@@ -4378,7 +4378,11 @@ TEXT;
         } catch (\Throwable $e) {
             return null;
         }
-        return 'Disponibilités et Tarifs mis à jour le ' . $date->format('d/m/Y') . ' à ' . $date->format('H:i') . ' (GMT + 4)';
+        // "Mode Agence Strict" hides rates from clients: the "et Tarifs" part
+        // of this label would otherwise be misleading since prices are no
+        // longer shown anywhere on the page.
+        $prefix = $pricesHidden ? 'Disponibilités' : 'Disponibilités et Tarifs';
+        return $prefix . ' mis à jour le ' . $date->format('d/m/Y') . ' à ' . $date->format('H:i') . ' (GMT + 4)';
     }
 
     public static function publicRates(LodgifyClient $client, int $propertyId, string $from, string $to, float $vatRate = 0.0, bool $cacheOnly = false): array

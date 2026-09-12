@@ -24,7 +24,7 @@ $priceMinPeople = $priceMinPeople ?? null;
 $priceExtraPersonFee = $priceExtraPersonFee ?? null;
 $globalTouristTax = $globalTouristTax ?? 0.0;
 $canOverrideBookingPolicy = $canOverrideBookingPolicy ?? false;
-$strictModeHidesRates = !empty($strictModeHidesRates);
+$strictModeHidesPrices = !empty($strictModeHidesPrices);
 $bookingPolicies = $bookingPolicies ?? [];
 $policyText = $policyText ?? \App\controllers\PageController::bookingPolicyText(\App\I18n::current());
 ?>
@@ -34,9 +34,7 @@ $policyText = $policyText ?? \App\controllers\PageController::bookingPolicyText(
       <h1><?= \App\View::e($propertyName) ?></h1>
       <p><?= \App\View::e(sprintf(\App\I18n::t('property.rooms_max_guests'), (int) $property['bedrooms'], (int) $property['max_guests'])) ?></p>
     </div>
-    <?php if (!$strictModeHidesRates): ?>
     <button type="button" class="btn-primary" data-reserve-btn data-reserve-tab="rates-availability"><?= \App\View::e(\App\I18n::t('property.check_availability')) ?></button>
-    <?php endif; ?>
   </div>
   <div class="gallery-main">
     <img src="<?= \App\View::e($mainImage) ?>" alt="<?= \App\View::e($propertyName) ?>" data-gallery-main loading="eager" decoding="async" fetchpriority="high">
@@ -68,9 +66,7 @@ $policyText = $policyText ?? \App\controllers\PageController::bookingPolicyText(
     <button type="button" class="tab-btn active" data-tab-btn="description"><?= \App\View::e(\App\I18n::t('property.tab_description')) ?></button>
     <button type="button" class="tab-btn" data-tab-btn="amenities"><?= \App\View::e(\App\I18n::t('property.tab_amenities')) ?></button>
     <button type="button" class="tab-btn" data-tab-btn="location"><?= \App\View::e(\App\I18n::t('property.tab_location')) ?></button>
-    <?php if (!$strictModeHidesRates): ?>
-    <button type="button" class="tab-btn" data-tab-btn="rates-availability"><?= \App\View::e(\App\I18n::t('property.tab_rates_availability')) ?></button>
-    <?php endif; ?>
+    <button type="button" class="tab-btn" data-tab-btn="rates-availability"><?= \App\View::e(\App\I18n::t($strictModeHidesPrices ? 'property.tab_availability_only' : 'property.tab_rates_availability')) ?></button>
   </nav>
 
   <div>
@@ -118,12 +114,11 @@ $policyText = $policyText ?? \App\controllers\PageController::bookingPolicyText(
         <?php endif; ?>
       </div>
 
-      <?php if (!$strictModeHidesRates): ?>
       <div data-tab-panel="rates-availability" hidden>
         <div class="rates-tab-layout">
           <div class="rates-tab-main">
             <div class="rates-tab-header">
-              <h2 class="section-title"><?= \App\View::e(\App\I18n::t('property.tab_rates_availability')) ?></h2>
+              <h2 class="section-title"><?= \App\View::e(\App\I18n::t($strictModeHidesPrices ? 'property.tab_availability_only' : 'property.tab_rates_availability')) ?></h2>
               <button type="button" class="rates-clear-dates-btn" data-clear-dates-btn hidden><?= \App\View::e(\App\I18n::t('property.clear_dates')) ?></button>
             </div>
             <?php if (!empty($ratesRestricted)): ?>
@@ -131,7 +126,7 @@ $policyText = $policyText ?? \App\controllers\PageController::bookingPolicyText(
             <?php else: ?>
               <?php if ($minRate === null): ?>
                 <p class="muted"><?= \App\View::e(\App\I18n::t('property.rates_unavailable')) ?></p>
-              <?php else: ?>
+              <?php elseif (!$strictModeHidesPrices): ?>
                 <div class="rates-price-note-block">
                   <p class="muted calendar-price-note">
                     <?= \App\View::e(sprintf(
@@ -151,15 +146,17 @@ $policyText = $policyText ?? \App\controllers\PageController::bookingPolicyText(
                   </p>
                 </div>
               <?php endif; ?>
+              <?php if (!$strictModeHidesPrices): ?>
               <p class="muted"><?= \App\View::e(\App\I18n::t('property.select_dates_hint')) ?></p>
-              <?php require BASE_PATH . '/files/views/partials/calendar.php'; ?>
+              <?php endif; ?>
+              <?php $hidePricesForVisitor = $strictModeHidesPrices; require BASE_PATH . '/files/views/partials/calendar.php'; ?>
               <div class="booking-policy-block">
                 <h3 class="section-title"><?= \App\View::e(\App\I18n::t('property.booking_policy_title')) ?></h3>
                 <div class="prose"><?= \App\controllers\PageController::formatBookingPolicyHtml($policyText ?? \App\controllers\PageController::bookingPolicyText(\App\I18n::current())) ?></div>
               </div>
             <?php endif; ?>
           </div>
-          <?php if (empty($ratesRestricted) && $minRate !== null): ?>
+          <?php if (!$strictModeHidesPrices && empty($ratesRestricted) && $minRate !== null): ?>
           <div class="rates-tab-sidebar" data-last-search-panel hidden data-property-id="<?= (int) $property['id'] ?>">
             <div class="last-search-block">
               <h3 class="section-title"><?= \App\View::e(\App\I18n::t('property.last_search_title')) ?></h3>
@@ -170,11 +167,10 @@ $policyText = $policyText ?? \App\controllers\PageController::bookingPolicyText(
           <?php endif; ?>
         </div>
       </div>
-      <?php endif; ?>
     </div>
   </div>
 
-  <?php if (!$strictModeHidesRates): ?>
+  <?php if (!$strictModeHidesPrices): ?>
   <div class="booking-modal-overlay" data-booking-modal-overlay style="display:none">
   <div class="booking-modal-panel" data-booking-modal-panel>
     <button type="button" class="booking-modal-hide-btn" data-booking-modal-hide><?= \App\View::e(\App\I18n::t('property.hide')) ?></button>

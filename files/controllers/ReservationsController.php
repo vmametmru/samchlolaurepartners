@@ -45,10 +45,12 @@ final class ReservationsController extends Controller
     /**
      * "Mode Agence Strict" (partners.agency_strict_mode, toggled from
      * /partner/settings): re-checked here server-side so an anonymous
-     * client can't bypass the hidden "Tarifs & Disponibilités" tab/booking
-     * modal (see PageController::agencyStrictModeHidesRatesForVisitor())
-     * and submit a reservation request directly against the API. Nothing
-     * changes for a logged-in partner/admin user.
+     * client can't bypass the hidden booking modal (see
+     * PageController::agencyStrictModeHidesPricesForVisitor()) and submit a
+     * reservation request directly against the API. Prices/availability
+     * stay visible in this mode — only the ability to *request* a
+     * reservation is blocked. Nothing changes for a logged-in partner/admin
+     * user.
      */
     private static function agencyStrictModeBlocksClient(): bool
     {

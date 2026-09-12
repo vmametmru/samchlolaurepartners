@@ -47,7 +47,7 @@
       <input type="checkbox" name="agency_strict_mode" value="1"<?= !empty($partnerData['agency_strict_mode']) ? ' checked' : '' ?>>
       <span>Mode Agence Strict</span>
     </label>
-    <p class="muted">Quand ce mode est activé, rien ne change pour vous : vos clients (les personnes à qui vous partagez vos liens) ne voient plus l'onglet "Tarifs &amp; Disponibilités" ni la page "Calendrier", et ne peuvent plus faire de demande de réservation — ils consultent uniquement vos biens comme un catalogue.</p>
+    <p class="muted">Quand ce mode est activé, rien ne change pour vous : vos clients (les personnes à qui vous partagez vos liens) voient toujours les biens, l'onglet "Disponibilités" et la page "Calendrier", mais les prix/tarifs y sont masqués et ils ne peuvent plus faire de demande de réservation — ils consultent uniquement vos biens et leurs disponibilités comme un catalogue.</p>
     <h2 class="section-title">Configuration SMTP</h2>
     <p class="muted">
       Sécurité: SSL/TLS (obligatoire). Si vous laissez vide, les paramètres admin seront utilisés.
