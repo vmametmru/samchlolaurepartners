@@ -641,6 +641,22 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .rates-tab-header .section-title { margin-bottom: 0; }
 .rates-clear-dates-btn { font-size: .85rem; color: var(--muted); background: transparent; border: 1px solid var(--border); border-radius: .5rem; padding: .35rem .75rem; cursor: pointer; font: inherit; white-space: nowrap; }
 .rates-clear-dates-btn:hover { background: #f3f4f6; }
+.rates-tab-layout { display: flex; gap: 1.5rem; align-items: flex-start; }
+.rates-tab-main { flex: 0 0 70%; max-width: 70%; min-width: 0; }
+.rates-tab-layout:not(:has(.rates-tab-sidebar:not([hidden]))) .rates-tab-main { flex: 1 1 100%; max-width: 100%; }
+.rates-tab-sidebar { flex: 0 0 30%; max-width: 30%; min-width: 0; }
+.rates-price-note-block { border: 1px solid var(--border); border-radius: .75rem; padding: 1rem 1.25rem; background: #fafafa; margin-bottom: 1rem; }
+.rates-price-note-block .calendar-price-note { margin: 0; }
+.last-search-block { position: sticky; top: 1rem; border: 1px solid var(--border); border-radius: .9rem; padding: 1rem 1.25rem; background: #fafafa; }
+.last-search-body { font-size: .88rem; }
+.last-search-body p { margin: 0 0 .5rem; }
+.last-search-body strong { display: inline-block; min-width: 6rem; }
+.last-search-cta { width: 100%; margin-top: .75rem; }
+@media (max-width: 900px) {
+  .rates-tab-layout { flex-direction: column; }
+  .rates-tab-main, .rates-tab-sidebar { flex: 1 1 100%; max-width: 100%; }
+  .last-search-block { position: static; }
+}
 .booking-modal-form > * + * { margin-top: 1rem; }
 .booking-status-popup { position: fixed; inset: 0; z-index: 950; display: grid; place-items: center; padding: 1rem; background: rgba(15,23,42,.18); opacity: 0; pointer-events: none; transition: opacity .2s ease; }
 .booking-status-popup.visible { opacity: 1; pointer-events: auto; }

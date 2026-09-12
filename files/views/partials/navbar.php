@@ -1,4 +1,5 @@
 <?php declare(strict_types=1); $primaryColor = $partner['primary_color'] ?? '#E61E4D'; $brandHref = $partner ? '/accueil' : '/';
+$agencyStrictModeForClient = $partner !== null && !empty($partner['agency_strict_mode']) && !\App\Auth::isPartnerOrAdmin();
 $userDisplayName = '';
 if (is_array($user ?? null)) {
     $fullName = trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
@@ -61,7 +62,9 @@ $minimalHeader = !empty($minimalHeader);
           </details>
         <?php else: ?>
           <a href="/properties"><?= \App\View::e(\App\I18n::t('nav.properties')) ?></a>
+          <?php if (!$agencyStrictModeForClient): ?>
           <a href="/calendrier"><?= \App\View::e(\App\I18n::t('nav.calendar')) ?></a>
+          <?php endif; ?>
           <a href="/contact"><?= \App\View::e(\App\I18n::t('nav.contact')) ?></a>
         <?php endif; ?>
       <?php endif; ?>

@@ -43,6 +43,20 @@ final class ReservationsController extends Controller
     }
 
     /**
+     * "Mode Agence Strict" (partners.agency_strict_mode, toggled from
+     * /partner/settings): re-checked here server-side so an anonymous
+     * client can't bypass the hidden "Tarifs & Disponibilités" tab/booking
+     * modal (see PageController::agencyStrictModeHidesRatesForVisitor())
+     * and submit a reservation request directly against the API. Nothing
+     * changes for a logged-in partner/admin user.
+     */
+    private static function agencyStrictModeBlocksClient(): bool
+    {
+        $partner = Tenant::current();
+        return $partner !== null && !empty($partner['agency_strict_mode']) && !Auth::isPartnerOrAdmin();
+    }
+
+    /**
      * Whether the current visitor may choose a "booking_policy_id"
      * (the "Politique de réservation" dropdown on the quote-request form),
      * mirroring PageController::canOverrideBookingPolicyUser(): a logged-in
@@ -749,6 +763,9 @@ final class ReservationsController extends Controller
 
     public static function requestReservation(): never
     {
+        if (self::agencyStrictModeBlocksClient()) {
+            self::json(['error' => 'Forbidden', 'message' => 'Reservation requests are disabled'], 403);
+        }
         $input = self::input();
         $clientName = trim((string) ($input['client_name'] ?? ''));
         $clientEmail = trim((string) ($input['client_email'] ?? ''));
@@ -985,6 +1002,9 @@ final class ReservationsController extends Controller
      */
     public static function requestMultiple(): never
     {
+        if (self::agencyStrictModeBlocksClient()) {
+            self::json(['error' => 'Forbidden', 'message' => 'Reservation requests are disabled'], 403);
+        }
         $input = self::input();
         $clientName = trim((string) ($input['client_name'] ?? ''));
         $clientEmail = trim((string) ($input['client_email'] ?? ''));

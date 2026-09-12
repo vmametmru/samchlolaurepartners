@@ -24,6 +24,7 @@ $priceMinPeople = $priceMinPeople ?? null;
 $priceExtraPersonFee = $priceExtraPersonFee ?? null;
 $globalTouristTax = $globalTouristTax ?? 0.0;
 $canOverrideBookingPolicy = $canOverrideBookingPolicy ?? false;
+$strictModeHidesRates = !empty($strictModeHidesRates);
 $bookingPolicies = $bookingPolicies ?? [];
 $policyText = $policyText ?? \App\controllers\PageController::bookingPolicyText(\App\I18n::current());
 ?>
@@ -33,7 +34,9 @@ $policyText = $policyText ?? \App\controllers\PageController::bookingPolicyText(
       <h1><?= \App\View::e($propertyName) ?></h1>
       <p><?= \App\View::e(sprintf(\App\I18n::t('property.rooms_max_guests'), (int) $property['bedrooms'], (int) $property['max_guests'])) ?></p>
     </div>
+    <?php if (!$strictModeHidesRates): ?>
     <button type="button" class="btn-primary" data-reserve-btn data-reserve-tab="rates-availability"><?= \App\View::e(\App\I18n::t('property.check_availability')) ?></button>
+    <?php endif; ?>
   </div>
   <div class="gallery-main">
     <img src="<?= \App\View::e($mainImage) ?>" alt="<?= \App\View::e($propertyName) ?>" data-gallery-main loading="eager" decoding="async" fetchpriority="high">
@@ -65,7 +68,9 @@ $policyText = $policyText ?? \App\controllers\PageController::bookingPolicyText(
     <button type="button" class="tab-btn active" data-tab-btn="description"><?= \App\View::e(\App\I18n::t('property.tab_description')) ?></button>
     <button type="button" class="tab-btn" data-tab-btn="amenities"><?= \App\View::e(\App\I18n::t('property.tab_amenities')) ?></button>
     <button type="button" class="tab-btn" data-tab-btn="location"><?= \App\View::e(\App\I18n::t('property.tab_location')) ?></button>
+    <?php if (!$strictModeHidesRates): ?>
     <button type="button" class="tab-btn" data-tab-btn="rates-availability"><?= \App\View::e(\App\I18n::t('property.tab_rates_availability')) ?></button>
+    <?php endif; ?>
   </nav>
 
   <div>
@@ -113,45 +118,63 @@ $policyText = $policyText ?? \App\controllers\PageController::bookingPolicyText(
         <?php endif; ?>
       </div>
 
+      <?php if (!$strictModeHidesRates): ?>
       <div data-tab-panel="rates-availability" hidden>
-        <div class="rates-tab-header">
-          <h2 class="section-title"><?= \App\View::e(\App\I18n::t('property.tab_rates_availability')) ?></h2>
-          <button type="button" class="rates-clear-dates-btn" data-clear-dates-btn hidden><?= \App\View::e(\App\I18n::t('property.clear_dates')) ?></button>
-        </div>
-        <?php if (!empty($ratesRestricted)): ?>
-          <p class="muted"><?= \App\View::e(\App\I18n::t('property.contact_agency')) ?></p>
-        <?php else: ?>
-          <?php if ($minRate === null): ?>
-            <p class="muted"><?= \App\View::e(\App\I18n::t('property.rates_unavailable')) ?></p>
-          <?php else: ?>
-            <p class="muted calendar-price-note">
-              <?= \App\View::e(sprintf(
-                \App\I18n::t('calendar.price_note'),
-                ($cleaningFeePerPerson ?? 0) > 0 ? sprintf(\App\I18n::t('calendar.price_note_cleaning_fee'), number_format((float) $cleaningFeePerPerson, 2, ',', ' ')) : ''
-              )) ?>
-              <?php if ($priceMinPeople !== null): ?>
-                <?= \App\View::e(sprintf(\App\I18n::t('property.price_min_people'), (int) $priceMinPeople)) ?>
-                <?php if ($priceExtraPersonFee !== null && $priceExtraPersonFee > 0): ?>
-                  <?= \App\View::e(sprintf(\App\I18n::t('property.price_extra_person_fee'), number_format((float) $priceExtraPersonFee, 2, ',', ' '))) ?>
-                <?php endif; ?>
-                <?= \App\View::e(\App\I18n::t('property.price_babies_and_tax')) ?>
-                <?php if ($globalTouristTax > 0): ?>
-                  <?= \App\View::e(sprintf(\App\I18n::t('property.tourist_tax_note'), number_format($globalTouristTax, 2, ',', ' '))) ?>
-                <?php endif; ?>
+        <div class="rates-tab-layout">
+          <div class="rates-tab-main">
+            <div class="rates-tab-header">
+              <h2 class="section-title"><?= \App\View::e(\App\I18n::t('property.tab_rates_availability')) ?></h2>
+              <button type="button" class="rates-clear-dates-btn" data-clear-dates-btn hidden><?= \App\View::e(\App\I18n::t('property.clear_dates')) ?></button>
+            </div>
+            <?php if (!empty($ratesRestricted)): ?>
+              <p class="muted"><?= \App\View::e(\App\I18n::t('property.contact_agency')) ?></p>
+            <?php else: ?>
+              <?php if ($minRate === null): ?>
+                <p class="muted"><?= \App\View::e(\App\I18n::t('property.rates_unavailable')) ?></p>
+              <?php else: ?>
+                <div class="rates-price-note-block">
+                  <p class="muted calendar-price-note">
+                    <?= \App\View::e(sprintf(
+                      \App\I18n::t('calendar.price_note'),
+                      ($cleaningFeePerPerson ?? 0) > 0 ? sprintf(\App\I18n::t('calendar.price_note_cleaning_fee'), number_format((float) $cleaningFeePerPerson, 2, ',', ' ')) : ''
+                    )) ?>
+                    <?php if ($priceMinPeople !== null): ?>
+                      <?= \App\View::e(sprintf(\App\I18n::t('property.price_min_people'), (int) $priceMinPeople)) ?>
+                      <?php if ($priceExtraPersonFee !== null && $priceExtraPersonFee > 0): ?>
+                        <?= \App\View::e(sprintf(\App\I18n::t('property.price_extra_person_fee'), number_format((float) $priceExtraPersonFee, 2, ',', ' '))) ?>
+                      <?php endif; ?>
+                      <?= \App\View::e(\App\I18n::t('property.price_babies_and_tax')) ?>
+                      <?php if ($globalTouristTax > 0): ?>
+                        <?= \App\View::e(sprintf(\App\I18n::t('property.tourist_tax_note'), number_format($globalTouristTax, 2, ',', ' '))) ?>
+                      <?php endif; ?>
+                    <?php endif; ?>
+                  </p>
+                </div>
               <?php endif; ?>
-            </p>
-          <?php endif; ?>
-          <p class="muted"><?= \App\View::e(\App\I18n::t('property.select_dates_hint')) ?></p>
-          <?php require BASE_PATH . '/files/views/partials/calendar.php'; ?>
-          <div class="booking-policy-block">
-            <h3 class="section-title"><?= \App\View::e(\App\I18n::t('property.booking_policy_title')) ?></h3>
-            <div class="prose"><?= \App\controllers\PageController::formatBookingPolicyHtml($policyText ?? \App\controllers\PageController::bookingPolicyText(\App\I18n::current())) ?></div>
+              <p class="muted"><?= \App\View::e(\App\I18n::t('property.select_dates_hint')) ?></p>
+              <?php require BASE_PATH . '/files/views/partials/calendar.php'; ?>
+              <div class="booking-policy-block">
+                <h3 class="section-title"><?= \App\View::e(\App\I18n::t('property.booking_policy_title')) ?></h3>
+                <div class="prose"><?= \App\controllers\PageController::formatBookingPolicyHtml($policyText ?? \App\controllers\PageController::bookingPolicyText(\App\I18n::current())) ?></div>
+              </div>
+            <?php endif; ?>
           </div>
-        <?php endif; ?>
+          <?php if (empty($ratesRestricted) && $minRate !== null): ?>
+          <div class="rates-tab-sidebar" data-last-search-panel hidden data-property-id="<?= (int) $property['id'] ?>">
+            <div class="last-search-block">
+              <h3 class="section-title"><?= \App\View::e(\App\I18n::t('property.last_search_title')) ?></h3>
+              <div class="last-search-body" data-last-search-body></div>
+              <button type="button" class="btn-primary last-search-cta" data-last-search-cta><?= \App\View::e(\App\I18n::t('property.last_search_cta')) ?></button>
+            </div>
+          </div>
+          <?php endif; ?>
+        </div>
       </div>
+      <?php endif; ?>
     </div>
   </div>
 
+  <?php if (!$strictModeHidesRates): ?>
   <div class="booking-modal-overlay" data-booking-modal-overlay style="display:none">
   <div class="booking-modal-panel" data-booking-modal-panel>
     <button type="button" class="booking-modal-hide-btn" data-booking-modal-hide><?= \App\View::e(\App\I18n::t('property.hide')) ?></button>
@@ -317,22 +340,23 @@ $policyText = $policyText ?? \App\controllers\PageController::bookingPolicyText(
       </div>
     </form>
   </div>
-</div>
-<div class="booking-status-popup" id="booking-status-popup-<?= (int) $property['id'] ?>" data-form-status-popup hidden aria-live="polite" aria-atomic="true">
-  <div class="booking-status-popup-box" data-form-status-popup-box>
-    <p class="booking-status-popup-message" data-form-status-popup-message></p>
-    <p class="booking-status-popup-note" data-form-status-popup-spam-note hidden><?= \App\View::e(\App\I18n::t('property.spam_note')) ?></p>
-    <!-- Share buttons for the request just created, filled in by
-         renderFormStatusPopupShares() in app.js from the API response's
-         data.shares (partner/admin only — see
-         ReservationsController::requestReservation()). -->
-    <div class="booking-status-popup-shares" data-form-status-popup-shares hidden
-         data-i18n-whatsapp="<?= \App\View::e(\App\I18n::t('share.whatsapp')) ?>"
-         data-i18n-copy-link="<?= \App\View::e(\App\I18n::t('share.copy_link')) ?>"
-         data-i18n-link-copied="<?= \App\View::e(\App\I18n::t('share.link_copied')) ?>"
-         data-i18n-whatsapp-message="<?= \App\View::e(\App\I18n::t('share.whatsapp_message')) ?>"
-         data-i18n-request-label="<?= \App\View::e(\App\I18n::t('share.request_label')) ?>"></div>
-    <button type="button" class="booking-status-popup-close" data-form-status-popup-close><?= \App\View::e(\App\I18n::t('property.close')) ?></button>
   </div>
-</div>
+  <div class="booking-status-popup" id="booking-status-popup-<?= (int) $property['id'] ?>" data-form-status-popup hidden aria-live="polite" aria-atomic="true">
+    <div class="booking-status-popup-box" data-form-status-popup-box>
+      <p class="booking-status-popup-message" data-form-status-popup-message></p>
+      <p class="booking-status-popup-note" data-form-status-popup-spam-note hidden><?= \App\View::e(\App\I18n::t('property.spam_note')) ?></p>
+      <!-- Share buttons for the request just created, filled in by
+           renderFormStatusPopupShares() in app.js from the API response's
+           data.shares (partner/admin only — see
+           ReservationsController::requestReservation()). -->
+      <div class="booking-status-popup-shares" data-form-status-popup-shares hidden
+           data-i18n-whatsapp="<?= \App\View::e(\App\I18n::t('share.whatsapp')) ?>"
+           data-i18n-copy-link="<?= \App\View::e(\App\I18n::t('share.copy_link')) ?>"
+           data-i18n-link-copied="<?= \App\View::e(\App\I18n::t('share.link_copied')) ?>"
+           data-i18n-whatsapp-message="<?= \App\View::e(\App\I18n::t('share.whatsapp_message')) ?>"
+           data-i18n-request-label="<?= \App\View::e(\App\I18n::t('share.request_label')) ?>"></div>
+      <button type="button" class="booking-status-popup-close" data-form-status-popup-close><?= \App\View::e(\App\I18n::t('property.close')) ?></button>
+    </div>
+  </div>
+  <?php endif; ?>
 </section>

@@ -235,6 +235,20 @@ final class PageController extends Controller
         return $role === 'partner' && (int) ($user['partner_id'] ?? 0) > 0;
     }
 
+    /**
+     * "Mode Agence Strict" (partners.agency_strict_mode, toggled from
+     * /partner/settings): when enabled, nothing changes for the logged-in
+     * partner/admin themselves — only an anonymous client browsing the
+     * public site (no logged-in user at all) loses access to rates/
+     * availability/booking. A logged-in client account doesn't exist in
+     * this app (only partner/admin users do), so "not Auth::isPartnerOrAdmin()"
+     * is equivalent to "is a client".
+     */
+    private static function agencyStrictModeHidesRatesForVisitor(?array $partner): bool
+    {
+        return $partner !== null && !empty($partner['agency_strict_mode']) && !Auth::isPartnerOrAdmin();
+    }
+
     public static function propertyDetail(int $id): void
     {
         $partner = Tenant::current();
@@ -317,6 +331,7 @@ final class PageController extends Controller
             'vatRate' => $vatRate,
             'calendarGuests' => 2,
             'ratesRestricted' => $visibility === PartnerPropertyVisibility::PARTIAL,
+            'strictModeHidesRates' => self::agencyStrictModeHidesRatesForVisitor($partner),
             'priceMinPeople' => $manual['min_people'],
             'priceExtraPersonFee' => $manual['extra_person_fee'],
             'globalTouristTax' => $globalTouristTax,
@@ -478,6 +493,14 @@ final class PageController extends Controller
 
     public static function calendar(): void
     {
+        // "Mode Agence Strict" (partners.agency_strict_mode): the standalone
+        // /calendrier board exposes rates/availability for every property at
+        // once, exactly what this mode is meant to hide from clients — send
+        // them back to /accueil instead. Nothing changes for a logged-in
+        // partner/admin user.
+        if (self::agencyStrictModeHidesRatesForVisitor(Tenant::current())) {
+            self::redirect('/accueil');
+        }
         // Standalone "Calendrier" overview: one row per property, showing the
         // same availability/price colouring as the detail-page calendars, but
         // laid out horizontally so every property can be scanned day by day.
@@ -1691,7 +1714,7 @@ final class PageController extends Controller
         // longer touches partners.booking_policy_text(_en) at all — those
         // legacy columns are only ever read as a fallback (bookingPolicyText())
         // for a partner who hasn't created any policy yet.
-        Database::connection()->prepare('UPDATE partners SET name = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, logo_url = ?, catalog_pdf_url = ?, primary_color = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, updated_at = NOW() WHERE id = ?')->execute([
+        Database::connection()->prepare('UPDATE partners SET name = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, logo_url = ?, catalog_pdf_url = ?, primary_color = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, agency_strict_mode = ?, updated_at = NOW() WHERE id = ?')->execute([
             trim((string) ($_POST['name'] ?? '')),
             trim((string) ($_POST['email'] ?? '')),
             trim((string) ($_POST['phone'] ?? '')) ?: null,
@@ -1705,6 +1728,7 @@ final class PageController extends Controller
             ($_POST['smtp_port'] ?? '') !== '' ? (int) $_POST['smtp_port'] : null,
             trim((string) ($_POST['smtp_user'] ?? '')) ?: null,
             trim((string) ($_POST['smtp_pass'] ?? '')) ?: null,
+            isset($_POST['agency_strict_mode']) && $_POST['agency_strict_mode'] === '1' ? 1 : 0,
             $partnerId,
         ]);
         self::redirect('/partner/settings', 'Paramètres sauvegardés.');

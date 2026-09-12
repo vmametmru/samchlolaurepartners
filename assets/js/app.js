@@ -36,6 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initBookingModal,
     initBookingAccordion,
     initBookingQuote,
+    initLastSearchPanel,
     initCalendarBoard,
     initCalendarFilterLoading,
     initCalendarFilterSubmitState,
@@ -597,10 +598,17 @@ function initPropertyTabs() {
       button.addEventListener('click', () => activate(button.dataset.tabBtn));
     });
     const hashTarget = window.location.hash ? window.location.hash.slice(1) : '';
-    const hasPartnerParam = new URLSearchParams(window.location.search).has('partner');
+    const searchParamsForTabs = new URLSearchParams(window.location.search);
+    const hasPartnerParam = searchParamsForTabs.has('partner');
+    // A home-page search (?arrival=&departure=) that lands on this property
+    // must jump straight to "Tarifs & Disponibilités" — see
+    // initBookingCalendarSelection() below, which reads the same params to
+    // pre-fill the dates and auto-open the slide-in booking modal.
+    const hasArrivalParams = /^\d{4}-\d{2}-\d{2}$/.test(searchParamsForTabs.get('arrival') || '')
+      && /^\d{4}-\d{2}-\d{2}$/.test(searchParamsForTabs.get('departure') || '');
     if (hashTarget && tabs.querySelector(`[data-tab-btn="${hashTarget}"]`)) {
       activate(hashTarget);
-    } else if (hasPartnerParam && tabs.querySelector('[data-tab-btn="rates-availability"]')) {
+    } else if ((hasPartnerParam || hasArrivalParams) && tabs.querySelector('[data-tab-btn="rates-availability"]')) {
       activate('rates-availability');
     } else {
       activate('description');
@@ -817,6 +825,21 @@ function initBookingCalendarSelection() {
       checkout = null;
       update();
     });
+
+    // Programmatic date selection, used by the "Dernière recherche" sidebar
+    // panel's "Faire une demande avec ces dates" button (see
+    // initLastSearchPanel()) to re-apply a previously stored search without
+    // the visitor having to re-click the calendar.
+    form.addEventListener('booking-set-dates', (event) => {
+      const detail = (event && event.detail) || {};
+      const nextCheckin = typeof detail.checkin === 'string' ? detail.checkin : '';
+      const nextCheckout = typeof detail.checkout === 'string' ? detail.checkout : '';
+      if (isDateStr(nextCheckin) && isDateStr(nextCheckout) && nextCheckout > nextCheckin) {
+        checkin = nextCheckin;
+        checkout = nextCheckout;
+        update();
+      }
+    });
   });
 }
 
@@ -888,6 +911,193 @@ function initBookingModal() {
     if (clearBtn) {
       clearBtn.addEventListener('click', () => {
         form.dispatchEvent(new CustomEvent('booking-clear-dates'));
+      });
+    }
+  });
+}
+
+/**
+ * "Dernière recherche" sidebar (30% column next to "Tarifs &
+ * Disponibilités", see property-detail.php's [data-last-search-panel]):
+ * persists the visitor's most recent search/date-selection in
+ * localStorage (gbmLastSearch) so it survives navigating to another
+ * property, and lets them re-apply it with one click ("Faire une demande
+ * avec ces dates") instead of re-entering everything.
+ *
+ * The panel is seeded from two places:
+ *  - a home-page search that lands here via ?arrival=&departure=&adults=&
+ *    children=&children_under3= (see home.php / accueil());
+ *  - manually picking 2 dates in the calendar then clicking "Masquer" on
+ *    the slide-in modal, which snapshots whatever the visitor has typed so
+ *    far (dates, party size, nationality, name/email/phone, message).
+ *
+ * It stays hidden until at least one of these has happened once.
+ */
+const LAST_SEARCH_STORAGE_KEY = 'gbmLastSearch';
+
+function readLastSearch() {
+  try {
+    const raw = window.localStorage.getItem(LAST_SEARCH_STORAGE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    return data && typeof data === 'object' ? data : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function writeLastSearch(data) {
+  try {
+    window.localStorage.setItem(LAST_SEARCH_STORAGE_KEY, JSON.stringify(data));
+  } catch (error) {
+    // Private browsing / storage disabled: silently give up, the panel
+    // simply won't persist across page loads for this visitor.
+  }
+}
+
+function initLastSearchPanel() {
+  document.querySelectorAll('[data-last-search-panel]').forEach((panel) => {
+    const section = panel.closest('[data-gallery]') || document;
+    const form = section.querySelector('[data-booking-form]');
+    if (!form) return;
+    const overlay = section.querySelector('[data-booking-modal-overlay]');
+    const hideBtn = overlay ? overlay.querySelector('[data-booking-modal-hide]') : null;
+    const body = panel.querySelector('[data-last-search-body]');
+    const cta = panel.querySelector('[data-last-search-cta]');
+    const isDateStr = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value || '');
+
+    function formatFr(dateStr) {
+      if (!isDateStr(dateStr)) return '';
+      const [y, m, d] = dateStr.split('-');
+      return `${d}/${m}/${y}`;
+    }
+
+    function currentFormSnapshot() {
+      const checkin = form.querySelector('[data-booking-checkin]')?.value || '';
+      const checkout = form.querySelector('[data-booking-checkout]')?.value || '';
+      const adults = form.querySelector('[data-guest-stepper] input[name="adults"]')?.value || '';
+      const childrenUnder3 = form.querySelector('[data-guest-stepper] input[name="children_under3"]')?.value || '';
+      const children3to12 = form.querySelector('[data-guest-stepper] input[name="children_3to12"]')?.value || '';
+      const sameNat = form.querySelector('[data-same-nationality]');
+      const nationality = sameNat && sameNat.checked ? (form.querySelector('[data-uniform-nationality]')?.value || '') : '';
+      return {
+        checkin,
+        checkout,
+        adults,
+        childrenUnder3,
+        children3to12,
+        nationality,
+        clientName: form.querySelector('[name="client_name"]')?.value || '',
+        clientEmail: form.querySelector('[name="client_email"]')?.value || '',
+        clientPhone: form.querySelector('[name="client_phone"]')?.value || '',
+        message: form.querySelector('[name="message"]')?.value || '',
+      };
+    }
+
+    function render() {
+      const data = readLastSearch();
+      if (!data || !isDateStr(data.checkin) || !isDateStr(data.checkout)) {
+        panel.hidden = true;
+        return;
+      }
+      panel.hidden = false;
+      if (!body) return;
+      const adultsNum = parseInt(data.adults, 10) || 0;
+      const under3Num = parseInt(data.childrenUnder3, 10) || 0;
+      const from3to12Num = parseInt(data.children3to12, 10) || 0;
+      const guestParts = [];
+      if (adultsNum > 0) guestParts.push(`${adultsNum} adulte(s)`);
+      if (from3to12Num > 0) guestParts.push(`${from3to12Num} enfant(s) (3-12 ans)`);
+      if (under3Num > 0) guestParts.push(`${under3Num} bébé(s) (< 3 ans)`);
+      let html = `<p><strong>${escapeHtml(form.dataset.i18nCheckin || 'Arrivée')}</strong> : ${escapeHtml(formatFr(data.checkin))}</p>`;
+      html += `<p><strong>${escapeHtml(form.dataset.i18nCheckout || 'Départ')}</strong> : ${escapeHtml(formatFr(data.checkout))}</p>`;
+      if (guestParts.length) html += `<p><strong>Voyageurs</strong> : ${escapeHtml(guestParts.join(', '))}</p>`;
+      if (data.nationality) html += `<p><strong>Nationalité</strong> : ${escapeHtml(data.nationality)}</p>`;
+      if (data.clientName) html += `<p><strong>Nom</strong> : ${escapeHtml(data.clientName)}</p>`;
+      if (data.clientEmail) html += `<p><strong>Email</strong> : ${escapeHtml(data.clientEmail)}</p>`;
+      if (data.clientPhone) html += `<p><strong>Téléphone</strong> : ${escapeHtml(data.clientPhone)}</p>`;
+      if (data.message) html += `<p><strong>Message</strong> : ${escapeHtml(data.message)}</p>`;
+      body.innerHTML = html;
+    }
+
+    // A home-page search landing on this property (?arrival=&departure=)
+    // always counts as "a search made from the home page" and seeds/
+    // refreshes the panel right away, keeping any contact details already
+    // stored from a previous property.
+    const params = new URLSearchParams(window.location.search);
+    const arrivalParam = params.get('arrival') || '';
+    const departureParam = params.get('departure') || '';
+    if (isDateStr(arrivalParam) && isDateStr(departureParam) && departureParam > arrivalParam) {
+      const existing = readLastSearch() || {};
+      writeLastSearch({
+        ...existing,
+        checkin: arrivalParam,
+        checkout: departureParam,
+        adults: params.get('adults') || existing.adults || '',
+        childrenUnder3: params.get('children_under3') || existing.childrenUnder3 || '',
+        children3to12: params.get('children') || existing.children3to12 || '',
+      });
+    }
+
+    render();
+
+    // Manually selecting 2 dates then clicking "Masquer" also counts as a
+    // search: snapshot whatever the visitor has filled in so far.
+    if (hideBtn) {
+      hideBtn.addEventListener('click', () => {
+        const snapshot = currentFormSnapshot();
+        if (isDateStr(snapshot.checkin) && isDateStr(snapshot.checkout)) {
+          writeLastSearch(snapshot);
+          render();
+        }
+      });
+    }
+
+    if (cta) {
+      cta.addEventListener('click', () => {
+        const data = readLastSearch();
+        if (!data) return;
+        form.dispatchEvent(new CustomEvent('booking-set-dates', { detail: { checkin: data.checkin, checkout: data.checkout } }));
+        [
+          ['adults', data.adults],
+          ['children_under3', data.childrenUnder3],
+          ['children_3to12', data.children3to12],
+        ].forEach(([name, value]) => {
+          if (value === undefined || value === null || value === '') return;
+          const input = form.querySelector(`[data-guest-stepper] input[name="${name}"]`);
+          if (!input) return;
+          input.value = String(value);
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+        if (data.nationality) {
+          const sameNat = form.querySelector('[data-same-nationality]');
+          const uniformSelect = form.querySelector('[data-uniform-nationality]');
+          if (sameNat && uniformSelect) {
+            sameNat.checked = true;
+            sameNat.dispatchEvent(new Event('change', { bubbles: true }));
+            uniformSelect.value = data.nationality;
+          }
+        }
+        const nameInput = form.querySelector('[name="client_name"]');
+        if (nameInput && data.clientName) nameInput.value = data.clientName;
+        const emailInput = form.querySelector('[name="client_email"]');
+        if (emailInput && data.clientEmail) emailInput.value = data.clientEmail;
+        const messageInput = form.querySelector('[name="message"]');
+        if (messageInput && data.message) messageInput.value = data.message;
+        if (data.clientPhone) {
+          const dialCode = form.querySelector('[data-phone-dial-code]');
+          const number = form.querySelector('[data-phone-number]');
+          if (dialCode && number) {
+            const match = /^(\+\d{1,4})[\s.-]*(.*)$/.exec(data.clientPhone);
+            if (match) {
+              dialCode.value = match[1];
+              number.value = match[2];
+            } else {
+              number.value = data.clientPhone;
+            }
+            number.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        }
       });
     }
   });
@@ -1882,17 +2092,20 @@ function initGuestSteppers() {
 
 /**
  * Pre-fills the "Nombre de Voyageur(s)" adults/children steppers from
- * ?adults=X&children=Y query parameters (children = 3 to 12 years old), e.g.
- * a link shared by the partner to jump straight to a property's page with
- * the party size already filled in — see the "Voir le bien avec ces dates"
- * button on /partner/reservations/{id}. Must run after initGuestSteppers()
- * so the existing change listeners (clamping, capacity note) pick it up.
+ * ?adults=X&children=Y&children_under3=Z query parameters (children = 3 to
+ * 12 years old), e.g. a link shared by the partner to jump straight to a
+ * property's page with the party size already filled in — see the "Voir le
+ * bien avec ces dates" button on /partner/reservations/{id}, and the home
+ * page search results (see home.php / accueil()). Must run after
+ * initGuestSteppers() so the existing change listeners (clamping, capacity
+ * note) pick it up.
  */
 function initBookingLinkPrefillGuests() {
   document.querySelectorAll('[data-booking-form]').forEach((form) => {
     const params = new URLSearchParams(window.location.search);
     const adultsParam = params.get('adults');
     const childrenParam = params.get('children');
+    const childrenUnder3Param = params.get('children_under3');
 
     function applyTo(inputName, rawValue) {
       if (rawValue === null || rawValue === '') return;
@@ -1906,6 +2119,7 @@ function initBookingLinkPrefillGuests() {
 
     applyTo('adults', adultsParam);
     applyTo('children_3to12', childrenParam);
+    applyTo('children_under3', childrenUnder3Param);
   });
 }
 
