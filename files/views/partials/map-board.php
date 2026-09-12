@@ -7,6 +7,7 @@
 // in layout.php) instead of a flat gradient placeholder, so it actually
 // looks and behaves like a map.
 $items = array_values(array_filter($properties, static fn(array $item): bool => isset($item['map_latitude'], $item['map_longitude']) && $item['map_latitude'] !== null && $item['map_longitude'] !== null));
+$mapMarkerQuery = $propertyCardQuery ?? '';
 $hasEstimated = false;
 $points = [];
 foreach ($items as $item) {
@@ -17,7 +18,7 @@ foreach ($items as $item) {
         'lat' => (float) $item['map_latitude'],
         'lng' => (float) $item['map_longitude'],
         'name' => (string) $item['name'],
-        'url' => '/properties/' . (int) $item['id'],
+        'url' => '/properties/' . (int) $item['id'] . $mapMarkerQuery,
         'estimated' => $isEstimated,
         'image' => $item['images'][0]['url'] ?? null,
         'bedrooms' => (int) ($item['bedrooms'] ?? 0),
