@@ -3,7 +3,7 @@
   <h1><?= $editing ? 'Modifier le partenaire' : 'Nouveau partenaire' ?></h1>
   <form class="card card-body stack-md" method="post" action="<?= \App\View::e($action) ?>" enctype="multipart/form-data" data-catalog-form>
     <label><span>Nom *</span><input class="input" type="text" name="name" required value="<?= \App\View::e($partnerData['name'] ?? '') ?>"></label>
-    <label><span>Code Partenaire *</span><input class="input" type="text" name="subdomain" <?= $editing ? 'disabled' : '' ?> required value="<?= \App\View::e($partnerData['subdomain'] ?? '') ?>"></label>
+    <label><span>Code Partenaire *</span><input class="input" type="text" name="subdomain" required value="<?= \App\View::e($partnerData['subdomain'] ?? '') ?>"></label>
     <label><span>Email de contact *</span><input class="input" type="email" name="email" required value="<?= \App\View::e($partnerData['email'] ?? '') ?>"></label>
     <label><span>No de téléphone</span><input class="input" type="tel" name="phone" value="<?= \App\View::e($partnerData['phone'] ?? '') ?>"></label>
     <label><span>Page Facebook</span><input class="input" type="url" name="facebook_url" value="<?= \App\View::e($partnerData['facebook_url'] ?? '') ?>"></label>

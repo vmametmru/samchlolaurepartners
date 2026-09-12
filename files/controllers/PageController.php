@@ -2081,9 +2081,19 @@ final class PageController extends Controller
             $catalogPdfUrl = self::storePartnerCatalogPdf($uploadedId) ?? '';
         }
 
+        $subdomain = trim((string) ($_POST['subdomain'] ?? ''));
+        if ($subdomain === '') {
+            self::redirect($id === null ? '/admin/partners/new' : '/admin/partners/' . $id . '/edit', 'Le code partenaire est obligatoire.', 'error');
+        }
+        $duplicateCheck = Database::connection()->prepare('SELECT COUNT(*) FROM partners WHERE subdomain = ? AND id <> ?');
+        $duplicateCheck->execute([$subdomain, $id ?? 0]);
+        if ((int) $duplicateCheck->fetchColumn() > 0) {
+            self::redirect($id === null ? '/admin/partners/new' : '/admin/partners/' . $id . '/edit', 'Ce code partenaire est déjà utilisé par un autre partenaire.', 'error');
+        }
+
         if ($id === null) {
             Database::connection()->prepare('INSERT INTO partners (subdomain, name, logo_url, catalog_pdf_url, primary_color, email, phone, facebook_url, tiktok_url, instagram_url, markup_percent, cleaning_fee_per_person_per_night, smtp_host, smtp_port, smtp_user, smtp_pass, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([
-                trim((string) ($_POST['subdomain'] ?? '')),
+                $subdomain,
                 trim((string) ($_POST['name'] ?? '')),
                 $logoUrl !== '' ? $logoUrl : null,
                 $catalogPdfUrl !== '' ? $catalogPdfUrl : null,
@@ -2102,7 +2112,8 @@ final class PageController extends Controller
                 isset($_POST['active']) ? 1 : 0,
             ]);
         } else {
-            Database::connection()->prepare('UPDATE partners SET name = ?, logo_url = ?, catalog_pdf_url = ?, primary_color = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, markup_percent = ?, cleaning_fee_per_person_per_night = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?')->execute([
+            Database::connection()->prepare('UPDATE partners SET subdomain = ?, name = ?, logo_url = ?, catalog_pdf_url = ?, primary_color = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, markup_percent = ?, cleaning_fee_per_person_per_night = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?')->execute([
+                $subdomain,
                 trim((string) ($_POST['name'] ?? '')),
                 $logoUrl !== '' ? $logoUrl : null,
                 $catalogPdfUrl !== '' ? $catalogPdfUrl : null,
