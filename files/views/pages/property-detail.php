@@ -149,11 +149,6 @@ $policyText = $policyText ?? \App\controllers\PageController::bookingPolicyText(
               <?php if (!$strictModeHidesPrices): ?>
               <p class="muted"><?= \App\View::e(\App\I18n::t('property.select_dates_hint')) ?></p>
               <?php endif; ?>
-              <?php $hidePricesForVisitor = $strictModeHidesPrices; require BASE_PATH . '/files/views/partials/calendar.php'; ?>
-              <div class="booking-policy-block">
-                <h3 class="section-title"><?= \App\View::e(\App\I18n::t('property.booking_policy_title')) ?></h3>
-                <div class="prose"><?= \App\controllers\PageController::formatBookingPolicyHtml($policyText ?? \App\controllers\PageController::bookingPolicyText(\App\I18n::current())) ?></div>
-              </div>
             <?php endif; ?>
           </div>
           <?php if (!$strictModeHidesPrices && empty($ratesRestricted) && $minRate !== null): ?>
@@ -172,6 +167,15 @@ $policyText = $policyText ?? \App\controllers\PageController::bookingPolicyText(
           </div>
           <?php endif; ?>
         </div>
+        <?php if (empty($ratesRestricted)): ?>
+        <div class="rates-tab-calendar-wrap">
+          <?php $hidePricesForVisitor = $strictModeHidesPrices; require BASE_PATH . '/files/views/partials/calendar.php'; ?>
+          <div class="booking-policy-block">
+            <h3 class="section-title"><?= \App\View::e(\App\I18n::t('property.booking_policy_title')) ?></h3>
+            <div class="prose"><?= \App\controllers\PageController::formatBookingPolicyHtml($policyText ?? \App\controllers\PageController::bookingPolicyText(\App\I18n::current())) ?></div>
+          </div>
+        </div>
+        <?php endif; ?>
       </div>
     </div>
   </div>
