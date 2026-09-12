@@ -2201,21 +2201,30 @@ final class PageController extends Controller
         $columns = array_keys($row);
         $placeholders = implode(', ', array_fill(0, count($columns), '?'));
         $columnList = implode(', ', array_map(static fn (string $col): string => "`$col`", $columns));
-        $pdo->prepare("INSERT INTO partners ($columnList) VALUES ($placeholders)")->execute(array_values($row));
-        $newPartnerId = (int) $pdo->lastInsertId();
 
-        $policies = $pdo->prepare('SELECT * FROM booking_policies WHERE partner_id = ?');
-        $policies->execute([$id]);
-        $insertPolicy = $pdo->prepare('INSERT INTO booking_policies (partner_id, label, text_fr, text_en, is_default) VALUES (?, ?, ?, ?, ?)');
-        foreach ($policies->fetchAll(PDO::FETCH_ASSOC) as $policy) {
-            $insertPolicy->execute([$newPartnerId, $policy['label'], $policy['text_fr'], $policy['text_en'], $policy['is_default']]);
-        }
+        $pdo->beginTransaction();
+        try {
+            $pdo->prepare("INSERT INTO partners ($columnList) VALUES ($placeholders)")->execute(array_values($row));
+            $newPartnerId = (int) $pdo->lastInsertId();
 
-        $visibility = $pdo->prepare('SELECT * FROM partner_property_visibility WHERE partner_id = ?');
-        $visibility->execute([$id]);
-        $insertVisibility = $pdo->prepare('INSERT INTO partner_property_visibility (partner_id, property_id, visibility) VALUES (?, ?, ?)');
-        foreach ($visibility->fetchAll(PDO::FETCH_ASSOC) as $visibilityRow) {
-            $insertVisibility->execute([$newPartnerId, $visibilityRow['property_id'], $visibilityRow['visibility']]);
+            $policies = $pdo->prepare('SELECT * FROM booking_policies WHERE partner_id = ?');
+            $policies->execute([$id]);
+            $insertPolicy = $pdo->prepare('INSERT INTO booking_policies (partner_id, label, text_fr, text_en, is_default) VALUES (?, ?, ?, ?, ?)');
+            foreach ($policies->fetchAll(PDO::FETCH_ASSOC) as $policy) {
+                $insertPolicy->execute([$newPartnerId, $policy['label'], $policy['text_fr'], $policy['text_en'], $policy['is_default']]);
+            }
+
+            $visibility = $pdo->prepare('SELECT * FROM partner_property_visibility WHERE partner_id = ?');
+            $visibility->execute([$id]);
+            $insertVisibility = $pdo->prepare('INSERT INTO partner_property_visibility (partner_id, property_id, visibility) VALUES (?, ?, ?)');
+            foreach ($visibility->fetchAll(PDO::FETCH_ASSOC) as $visibilityRow) {
+                $insertVisibility->execute([$newPartnerId, $visibilityRow['property_id'], $visibilityRow['visibility']]);
+            }
+
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
         }
 
         self::redirect('/admin/partners', 'Partenaire dupliqué.');
