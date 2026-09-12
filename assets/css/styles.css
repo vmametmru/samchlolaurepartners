@@ -428,7 +428,9 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .assoc-property-options label { display: flex; align-items: center; gap: .25rem; cursor: pointer; }
 .links-dialog { max-width: 30rem; max-height: 85vh; overflow-y: auto; }
 .links-partner-list { display: flex; flex-direction: column; gap: .4rem; max-height: 50vh; overflow-y: auto; }
-.links-partner-row { display: flex; align-items: center; gap: .6rem; padding: .5rem; border: 1px solid var(--border, #e5e7eb); border-radius: .6rem; cursor: pointer; font-size: .9rem; }
+.links-partner-row { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; padding: .5rem; border: 1px solid var(--border, #e5e7eb); border-radius: .6rem; font-size: .9rem; }
+.links-partner-name { font-weight: 600; margin-right: auto; }
+.links-partner-option { display: flex; align-items: center; gap: .3rem; cursor: pointer; white-space: nowrap; }
 .session-status-dot { display: inline-block; width: .65rem; height: .65rem; border-radius: 50%; background: #9ca3af; }
 .session-status-dot.online { background: var(--green); box-shadow: 0 0 0 3px rgba(22, 163, 74, .15); }
 .session-status-dot.offline { background: #d1d5db; }

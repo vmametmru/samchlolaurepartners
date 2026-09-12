@@ -1848,11 +1848,13 @@ final class PageController extends Controller
         $visibilityByPartner = [];
         $usersByPartner = [];
         $linkedIdsByPartner = [];
+        $rawLinksByPartner = [];
         foreach ($partners as $partnerRow) {
             $partnerId = (int) $partnerRow['id'];
             $visibilityByPartner[$partnerId] = PartnerPropertyVisibility::allForPartner($partnerId);
             $usersByPartner[$partnerId] = self::usersForPartner($partnerId);
             $linkedIdsByPartner[$partnerId] = PartnerLinks::linkedPartnerIds($partnerId);
+            $rawLinksByPartner[$partnerId] = PartnerLinks::rawLinksFor($partnerId);
         }
         $sessionsOverview = UserSessions::overview();
         View::render('pages/admin-partners', [
@@ -1863,6 +1865,7 @@ final class PageController extends Controller
             'visibilityByPartner' => $visibilityByPartner,
             'usersByPartner' => $usersByPartner,
             'linkedIdsByPartner' => $linkedIdsByPartner,
+            'rawLinksByPartner' => $rawLinksByPartner,
             'sessionsOverview' => $sessionsOverview,
         ]);
     }
@@ -1881,16 +1884,26 @@ final class PageController extends Controller
     }
 
     /**
-     * Saves which OTHER partners the given partner is linked to (see
-     * PartnerLinks) — the "Lier" dialog on /admin/partners always submits
-     * the full desired checkbox set, so PartnerLinks::setLinks() replaces
-     * all of this partner's links in one go.
+     * Saves which OTHER partners the given partner is linked to, and with
+     * which link type (see PartnerLinks) — the "Lier" dialog on
+     * /admin/partners always submits the full desired set of per-partner
+     * radio choices (link_type[otherId] = none|direct|hierarchical), so
+     * PartnerLinks::setLinks() replaces all of this partner's links in one
+     * go. A "hierarchical" choice makes $id the principal over that partner.
      */
     public static function adminSavePartnerLinks(int $id): never
     {
         self::requireAdminUser();
-        $linkedIds = is_array($_POST['linked_partner_ids'] ?? null) ? $_POST['linked_partner_ids'] : [];
-        PartnerLinks::setLinks($id, array_map('intval', $linkedIds));
+        $linkTypes = is_array($_POST['link_type'] ?? null) ? $_POST['link_type'] : [];
+        $links = [];
+        foreach ($linkTypes as $otherId => $type) {
+            $type = (string) $type;
+            if ($type !== 'direct' && $type !== 'hierarchical') {
+                continue;
+            }
+            $links[] = ['id' => (int) $otherId, 'type' => $type];
+        }
+        PartnerLinks::setLinks($id, $links);
         self::redirect('/admin/partners', 'Liaisons entre partenaires mises à jour.');
     }
 

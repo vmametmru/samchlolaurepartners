@@ -3,11 +3,13 @@
 /** @var array<int, array<string, string>> $visibilityByPartner */
 /** @var array<int, array<int, array>> $usersByPartner */
 /** @var array<int, array<int, int>> $linkedIdsByPartner */
+/** @var array<int, array<int, array{other_id: int, type: string, is_principal: bool}>> $rawLinksByPartner */
 /** @var array<int, array> $sessionsOverview */
 $properties = $properties ?? [];
 $visibilityByPartner = $visibilityByPartner ?? [];
 $usersByPartner = $usersByPartner ?? [];
 $linkedIdsByPartner = $linkedIdsByPartner ?? [];
+$rawLinksByPartner = $rawLinksByPartner ?? [];
 $sessionsOverview = $sessionsOverview ?? [];
 $globalTouristTax = (float) ($globalTouristTax ?? 0);
 $formatFee = static fn (float $value): string => rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.');
@@ -175,22 +177,31 @@ $formatFee = static fn (float $value): string => rtrim(rtrim(number_format($valu
   <?php foreach ($partners as $partnerRow):
     $partnerId = (int) $partnerRow['id'];
     $otherPartners = array_values(array_filter($partners, static fn (array $p): bool => (int) $p['id'] !== $partnerId));
-    $linkedIds = $linkedIdsByPartner[$partnerId] ?? [];
+    $linkTypeByOtherId = [];
+    foreach ($rawLinksByPartner[$partnerId] ?? [] as $rawLink) {
+        $linkTypeByOtherId[$rawLink['other_id']] = $rawLink['type'];
+    }
   ?>
     <dialog class="help-dialog links-dialog" data-help-dialog="links-<?= $partnerId ?>">
       <form method="dialog"><button type="submit" class="help-dialog-close" aria-label="Fermer">×</button></form>
       <h2 class="section-title">Lier des partenaires · <?= \App\View::e($partnerRow['name']) ?></h2>
-      <p class="muted">Un partenaire lié permet à cet utilisateur de basculer instantanément sur le compte de l'autre partenaire (icône 🔗 dans la barre de navigation), sans se déconnecter/reconnecter.</p>
+      <p class="muted">Liaison directe : cet utilisateur et l'autre partenaire peuvent chacun basculer instantanément sur le compte de l'autre (icône 🔗 dans la barre de navigation), sans se déconnecter/reconnecter.</p>
+      <p class="muted">Liaison hiérarchique : cet utilisateur (compte principal) peut basculer vers le compte sélectionné, mais l'inverse n'est pas possible — le compte sélectionné n'a aucun bouton de liaison et ne peut basculer ni vers ce compte principal, ni vers les autres comptes qui lui sont liés.</p>
       <?php if ($otherPartners === []): ?>
         <p class="empty-state">Aucun autre partenaire à lier pour le moment.</p>
       <?php else: ?>
         <form class="stack-md" method="post" action="/admin/partners/<?= $partnerId ?>/links">
           <div class="links-partner-list">
-            <?php foreach ($otherPartners as $otherPartner): ?>
-              <label class="links-partner-row">
-                <input type="checkbox" name="linked_partner_ids[]" value="<?= (int) $otherPartner['id'] ?>" <?= in_array((int) $otherPartner['id'], $linkedIds, true) ? 'checked' : '' ?>>
-                <span><?= \App\View::e((string) $otherPartner['name']) ?></span>
-              </label>
+            <?php foreach ($otherPartners as $otherPartner):
+              $otherId = (int) $otherPartner['id'];
+              $currentType = $linkTypeByOtherId[$otherId] ?? 'none';
+            ?>
+              <div class="links-partner-row">
+                <span class="links-partner-name"><?= \App\View::e((string) $otherPartner['name']) ?></span>
+                <label class="links-partner-option"><input type="radio" name="link_type[<?= $otherId ?>]" value="none" <?= $currentType === 'none' ? 'checked' : '' ?>> Aucune</label>
+                <label class="links-partner-option"><input type="radio" name="link_type[<?= $otherId ?>]" value="direct" <?= $currentType === 'direct' ? 'checked' : '' ?>> Directe</label>
+                <label class="links-partner-option"><input type="radio" name="link_type[<?= $otherId ?>]" value="hierarchical" <?= $currentType === 'hierarchical' ? 'checked' : '' ?>> Hiérarchique</label>
+              </div>
             <?php endforeach; ?>
           </div>
           <div class="button-row"><button class="btn-primary" type="submit">Lier</button></div>
@@ -199,3 +210,4 @@ $formatFee = static fn (float $value): string => rtrim(rtrim(number_format($valu
     </dialog>
   <?php endforeach; ?>
 </section>
+
