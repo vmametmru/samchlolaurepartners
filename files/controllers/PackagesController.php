@@ -519,6 +519,18 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
         $_POST['children'] = (string) ($params['children_3to12'] + $params['children_under3']);
         $_POST['children_under3'] = (string) $params['children_under3'];
         $_POST['children_3to12'] = (string) $params['children_3to12'];
+        $_POST['guests'] = [];
+        if ($params['nationality'] !== '') {
+            for ($i = 0; $i < $params['adults']; $i++) {
+                $_POST['guests'][] = ['type' => 'adult', 'nationality' => $params['nationality']];
+            }
+            for ($i = 0; $i < $params['children_3to12']; $i++) {
+                $_POST['guests'][] = ['type' => 'child', 'nationality' => $params['nationality']];
+            }
+            for ($i = 0; $i < $params['children_under3']; $i++) {
+                $_POST['guests'][] = ['type' => 'child_under3', 'nationality' => $params['nationality']];
+            }
+        }
         $summary = self::summaryText(
             $package,
             $extras,
