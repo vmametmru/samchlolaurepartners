@@ -534,11 +534,18 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
       results.appendChild(empty);
     }
 
+    // Toggling options quickly starts several searches: only the newest one may
+    // update the screen, otherwise a slower older response would restore a
+    // stale total and selection.
+    var searchGeneration = 0;
+
     function search() {
       if (!value('[data-package-checkin]') || !value('[data-package-checkout]')) {
         searchStatus.textContent = 'Choisissez vos dates.';
         return;
       }
+      searchGeneration += 1;
+      var generation = searchGeneration;
       searchStatus.textContent = 'Recherche en cours…';
       fetch('/api/packages/' + packageId + '/search', {
         method: 'POST',
@@ -547,6 +554,7 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
       }).then(function (response) {
         return response.json().then(function (payload) { return { ok: response.ok, payload: payload }; });
       }).then(function (result) {
+        if (generation !== searchGeneration) { return; }
         if (!result.ok) {
           searchStatus.textContent = (result.payload && result.payload.message) || 'Recherche impossible.';
           return;
@@ -554,6 +562,7 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
         searchStatus.textContent = '';
         render(result.payload.data);
       }).catch(function () {
+        if (generation !== searchGeneration) { return; }
         searchStatus.textContent = 'Recherche impossible pour le moment.';
       });
     }
