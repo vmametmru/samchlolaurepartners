@@ -781,6 +781,7 @@ final class Packages
      * (offer page's "Nationalité" field), used to compute the tourist tax
      * exactly like the ordinary property pages instead of the conservative
      * "every adult is a foreigner" estimate (see guestsForNationality()).
+     * @param array<int, array{type?: string, nationality?: string}> $guests Optional detailed guest list; when valid, it is used instead of a uniform nationality.
      * @return array{nights: int, matches: array<int, array<string, mixed>>, alternatives: array<int, array<string, mixed>>, groups: array<int, array<string, mixed>>}
      */
     public static function searchAccommodations(
@@ -791,7 +792,8 @@ final class Packages
         int $adults,
         int $children3to12,
         int $childrenUnder3,
-        string $nationality = ''
+        string $nationality = '',
+        array $guests = []
     ): array {
         $empty = ['nights' => 0, 'matches' => [], 'alternatives' => [], 'groups' => []];
         try {
@@ -808,7 +810,7 @@ final class Packages
 
         $countedGuests = $adults + $children3to12;
         $totalGuests = $countedGuests + $childrenUnder3;
-        $guests = self::guestsForNationality($adults, $children3to12, $childrenUnder3, $nationality);
+        $guests = self::normalizeGuests($adults, $children3to12, $childrenUnder3, $nationality, $guests);
         if ($countedGuests < 1) {
             return $empty;
         }
@@ -1119,6 +1121,7 @@ final class Packages
      * @param array<string, mixed> $partner
      * @param array<int, int> $propertyIds
      * @param array{groups: array<int, array<string, mixed>>}|null $search result of searchAccommodations() for the very same dates/party, reused instead of scanning again
+     * @param array<int, array{type?: string, nationality?: string}> $guests Optional detailed guest list; when valid, it is spread across selected properties.
      * @return array{items: array<int, array<string, mixed>>, total_stay: float, currency: string, location: string}|null
      */
     public static function quoteSelection(
@@ -1131,13 +1134,14 @@ final class Packages
         int $children3to12,
         int $childrenUnder3,
         ?array $search = null,
-        string $nationality = ''
+        string $nationality = '',
+        array $guests = []
     ): ?array {
         $propertyIds = array_values(array_unique(array_map('intval', $propertyIds)));
         if (count($propertyIds) < 2) {
             return null;
         }
-        $search ??= self::searchAccommodations($package, $partner, $checkin, $checkout, $adults, $children3to12, $childrenUnder3, $nationality);
+        $search ??= self::searchAccommodations($package, $partner, $checkin, $checkout, $adults, $children3to12, $childrenUnder3, $nationality, $guests);
         $group = null;
         foreach ($search['groups'] as $candidateGroup) {
             $groupIds = array_map(
@@ -1186,6 +1190,9 @@ final class Packages
         $items = [];
         $total = 0.0;
         $currency = 'EUR';
+        $guestPool = self::guestPoolByType(
+            self::normalizeGuests($adults, $children3to12, $childrenUnder3, $nationality, $guests)
+        );
         foreach ($allocation as $propertyId => $share) {
             $property = $propertiesById[$propertyId] ?? null;
             $shareCounted = $share['adults'] + $share['children_3to12'];
@@ -1198,7 +1205,7 @@ final class Packages
                 $share['adults'],
                 $shareCounted + $share['children_under3'],
                 $shareCounted,
-                self::guestsForNationality($share['adults'], $share['children_3to12'], $share['children_under3'], $nationality)
+                self::takeGuestShare($guestPool, $share)
             );
             if ($quote === null) {
                 return null;
@@ -1462,6 +1469,98 @@ final class Packages
             $guests[] = ['type' => 'child_under3', 'nationality' => $nationality];
         }
         return $guests;
+    }
+
+    /**
+     * @param array<int, array{type?: string, nationality?: string}> $guests
+     * @return array<int, array{type: string, nationality: string}>
+     */
+    private static function normalizeGuests(
+        int $adults,
+        int $children3to12,
+        int $childrenUnder3,
+        string $nationality,
+        array $guests
+    ): array {
+        $adultGuests = [];
+        $childGuests = [];
+        $babyGuests = [];
+        foreach ($guests as $guest) {
+            if (!is_array($guest)) {
+                continue;
+            }
+            $guestNationality = trim((string) ($guest['nationality'] ?? ''));
+            if ($guestNationality === '') {
+                continue;
+            }
+            $type = (string) ($guest['type'] ?? 'adult');
+            if ($type === 'adult') {
+                $adultGuests[] = ['type' => 'adult', 'nationality' => $guestNationality];
+                continue;
+            }
+            if ($type === 'child_under3') {
+                $babyGuests[] = ['type' => 'child_under3', 'nationality' => $guestNationality];
+                continue;
+            }
+            $childGuests[] = ['type' => 'child', 'nationality' => $guestNationality];
+        }
+        if (count($adultGuests) < $adults || count($childGuests) < $children3to12 || count($babyGuests) < $childrenUnder3) {
+            return self::guestsForNationality($adults, $children3to12, $childrenUnder3, $nationality);
+        }
+        return array_merge(
+            array_slice($adultGuests, 0, $adults),
+            array_slice($childGuests, 0, $children3to12),
+            array_slice($babyGuests, 0, $childrenUnder3)
+        );
+    }
+
+    /**
+     * @param array<int, array{type: string, nationality: string}> $guests
+     * @return array{adults: array<int, string>, children: array<int, string>, babies: array<int, string>}
+     */
+    private static function guestPoolByType(array $guests): array
+    {
+        $pool = ['adults' => [], 'children' => [], 'babies' => []];
+        foreach ($guests as $guest) {
+            $nationality = trim((string) ($guest['nationality'] ?? ''));
+            if ($nationality === '') {
+                continue;
+            }
+            $type = (string) ($guest['type'] ?? 'adult');
+            if ($type === 'adult') {
+                $pool['adults'][] = $nationality;
+                continue;
+            }
+            if ($type === 'child_under3') {
+                $pool['babies'][] = $nationality;
+                continue;
+            }
+            $pool['children'][] = $nationality;
+        }
+        return $pool;
+    }
+
+    /**
+     * @param array{adults: array<int, string>, children: array<int, string>, babies: array<int, string>} &$pool
+     * @param array{adults: int, children_3to12: int, children_under3: int} $share
+     * @return array<int, array{type: string, nationality: string}>
+     */
+    private static function takeGuestShare(array &$pool, array $share): array
+    {
+        $result = [];
+        for ($i = 0; $i < (int) $share['adults']; $i++) {
+            $nationality = (string) array_shift($pool['adults']);
+            $result[] = ['type' => 'adult', 'nationality' => $nationality];
+        }
+        for ($i = 0; $i < (int) $share['children_3to12']; $i++) {
+            $nationality = (string) array_shift($pool['children']);
+            $result[] = ['type' => 'child', 'nationality' => $nationality];
+        }
+        for ($i = 0; $i < (int) $share['children_under3']; $i++) {
+            $nationality = (string) array_shift($pool['babies']);
+            $result[] = ['type' => 'child_under3', 'nationality' => $nationality];
+        }
+        return $result;
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────

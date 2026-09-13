@@ -119,14 +119,34 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
               <label><span>Bébés (moins de 3 ans)</span><input class="input" type="number" min="0" step="1" value="0" data-package-babies></label>
               <!-- Used to compute the tourist tax (see Packages::guestsForNationality()):
                    a Mauricien party is exempt, everyone else is taxable. -->
-              <label><span>Nationalité</span>
-                <select class="input" data-package-nationality>
-                  <option value="">— Sélectionnez —</option>
-                  <?php foreach (['Mauricienne', 'Française', 'Britannique', 'Allemande', 'Italienne', 'Espagnole', 'Belge', 'Suisse', 'Américaine', 'Australienne', 'Autre'] as $nationalityOption): ?>
-                    <option value="<?= $e($nationalityOption) ?>"><?= $e($nationalityOption) ?></option>
-                  <?php endforeach; ?>
-                </select>
-              </label>
+              <div class="stack-sm" data-package-nationalities>
+                <div class="inline-check">
+                  <input type="checkbox" id="packageSameNat" data-package-same-nationality checked>
+                  <label for="packageSameNat">Même nationalité pour tous</label>
+                </div>
+                <div data-package-uniform-nationality-wrap>
+                  <label><span>Nationalité (tous)</span>
+                    <select class="input" data-package-uniform-nationality>
+                      <option value="">Sélectionner...</option>
+                      <?php foreach (['Mauricienne', 'Française', 'Britannique', 'Allemande', 'Italienne', 'Espagnole', 'Belge', 'Suisse', 'Américaine', 'Australienne', 'Autre'] as $nationalityOption): ?>
+                        <option value="<?= $e($nationalityOption) ?>"><?= $e($nationalityOption) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </label>
+                </div>
+                <div class="stack-sm" data-package-nationality-list hidden></div>
+                <template data-package-nationality-template>
+                  <label>
+                    <span></span>
+                    <select class="input" data-package-nationality-select>
+                      <option value="">Sélectionner...</option>
+                      <?php foreach (['Mauricienne', 'Française', 'Britannique', 'Allemande', 'Italienne', 'Espagnole', 'Belge', 'Suisse', 'Américaine', 'Australienne', 'Autre'] as $nationalityOption): ?>
+                        <option value="<?= $e($nationalityOption) ?>"><?= $e($nationalityOption) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </label>
+                </template>
+              </div>
             </div>
             <div class="button-row mt-16">
               <button class="btn-primary" type="button" data-package-search>Rechercher</button>
@@ -305,6 +325,13 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
       return Number(amount).toFixed(2).replace('.', ',') + ' ' + (currency || 'EUR');
     }
 
+    function displayDate(isoDate) {
+      var text = String(isoDate || '');
+      var parts = text.split('-');
+      if (parts.length !== 3) { return text; }
+      return parts[2] + '/' + parts[1] + '/' + parts[0];
+    }
+
     // Tabs of the "Voir le bien" modal (description / équipements /
     // disponibilités). The page itself is a step wizard, not tabs.
     function initTabs(nav, panelsContainer, buttonAttribute, panelAttribute) {
@@ -470,14 +497,95 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
         .map(function (input) { return input.value; });
     }
 
+    function partyCounts() {
+      return {
+        adults: Math.max(0, Number(value('[data-package-adults]') || 0)),
+        children3to12: Math.max(0, Number(value('[data-package-children]') || 0)),
+        babies: Math.max(0, Number(value('[data-package-babies]') || 0))
+      };
+    }
+
+    function renderPackageNationalities() {
+      var wrap = page.querySelector('[data-package-nationalities]');
+      if (!wrap) { return; }
+      var sameCheckbox = wrap.querySelector('[data-package-same-nationality]');
+      var uniformWrap = wrap.querySelector('[data-package-uniform-nationality-wrap]');
+      var uniformSelect = wrap.querySelector('[data-package-uniform-nationality]');
+      var list = wrap.querySelector('[data-package-nationality-list]');
+      var template = wrap.querySelector('[data-package-nationality-template]');
+      if (!sameCheckbox || !uniformWrap || !uniformSelect || !list || !template) { return; }
+      var counts = partyCounts();
+      var existing = Array.prototype.slice.call(list.querySelectorAll('[data-package-nationality-select]')).map(function (select) {
+        return { type: select.getAttribute('data-type') || '', nationality: select.value || '' };
+      });
+      var same = sameCheckbox.checked;
+      uniformWrap.hidden = !same;
+      list.hidden = same;
+      list.innerHTML = '';
+      if (same) { return; }
+      var entries = [];
+      for (var i = 0; i < counts.adults; i += 1) {
+        entries.push({ type: 'adult', label: 'Adulte ' + (i + 1) + ' — Nationalité' });
+      }
+      for (var b = 0; b < counts.babies; b += 1) {
+        entries.push({ type: 'child_under3', label: 'Enfant (< 3 ans) ' + (b + 1) + ' — Nationalité' });
+      }
+      for (var c = 0; c < counts.children3to12; c += 1) {
+        entries.push({ type: 'child', label: 'Enfant (3-12 ans) ' + (c + 1) + ' — Nationalité' });
+      }
+      entries.forEach(function (entry, index) {
+        var node = template.content.firstElementChild.cloneNode(true);
+        node.querySelector('span').textContent = entry.label;
+        var select = node.querySelector('[data-package-nationality-select]');
+        select.setAttribute('data-type', entry.type);
+        if (existing[index] && existing[index].type === entry.type) {
+          select.value = existing[index].nationality;
+        } else if (uniformSelect.value) {
+          select.value = uniformSelect.value;
+        }
+        list.appendChild(node);
+      });
+    }
+
+    function collectPackageGuests() {
+      var wrap = page.querySelector('[data-package-nationalities]');
+      if (!wrap) { return []; }
+      var counts = partyCounts();
+      var sameCheckbox = wrap.querySelector('[data-package-same-nationality]');
+      if (sameCheckbox && sameCheckbox.checked) {
+        var uniform = wrap.querySelector('[data-package-uniform-nationality]');
+        var nationality = uniform ? (uniform.value || '') : '';
+        return []
+          .concat(Array.from({ length: counts.adults }, function () { return { type: 'adult', nationality: nationality }; }))
+          .concat(Array.from({ length: counts.children3to12 }, function () { return { type: 'child', nationality: nationality }; }))
+          .concat(Array.from({ length: counts.babies }, function () { return { type: 'child_under3', nationality: nationality }; }));
+      }
+      return Array.prototype.slice.call(wrap.querySelectorAll('[data-package-nationality-select]')).map(function (select) {
+        return {
+          type: select.getAttribute('data-type') || 'adult',
+          nationality: select.value || ''
+        };
+      });
+    }
+
+    function selectedPackageNationality(guests) {
+      var filled = guests.filter(function (guest) { return (guest.nationality || '').trim() !== ''; });
+      if (filled.length === 0 || filled.length !== guests.length) { return ''; }
+      var first = filled[0].nationality;
+      var same = filled.every(function (guest) { return guest.nationality === first; });
+      return same ? first : '';
+    }
+
     function searchPayload() {
       var body = new URLSearchParams();
+      var guests = collectPackageGuests();
       body.set('checkin_date', value('[data-package-checkin]'));
       body.set('checkout_date', value('[data-package-checkout]'));
       body.set('adults', value('[data-package-adults]') || '0');
       body.set('children_3to12', value('[data-package-children]') || '0');
       body.set('children_under3', value('[data-package-babies]') || '0');
-      body.set('nationality', value('[data-package-nationality]') || '');
+      body.set('nationality', selectedPackageNationality(guests));
+      body.set('guests_json', JSON.stringify(guests));
       var flight = page.querySelector('[data-package-flight]:checked');
       if (flight) { body.set('flight_id', flight.value); }
       selectedExtraIds('transports').forEach(function (id) { body.append('transport_ids[]', id); });
@@ -588,7 +696,7 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
       }
 
       var dates = document.createElement('p');
-      dates.textContent = 'Du ' + entry.checkin + ' au ' + entry.checkout + ' — ' + entry.nights + ' nuit(s)'
+      dates.textContent = 'Du ' + displayDate(entry.checkin) + ' au ' + displayDate(entry.checkout) + ' — ' + entry.nights + ' nuit(s)'
         + (isAlternative && entry.nights_lost > 0 ? ' (' + entry.nights_lost + ' nuit(s) de moins que demandé)' : '');
       body.appendChild(dates);
 
@@ -951,10 +1059,27 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
     // those criteria, so the selection is dropped instead of being carried
     // over to a stay the client never validated.
     page.querySelectorAll('[data-package-checkin], [data-package-checkout], [data-package-adults],'
-      + ' [data-package-children], [data-package-babies], [data-package-nationality]').forEach(function (field) {
+      + ' [data-package-children], [data-package-babies], [data-package-same-nationality],'
+      + ' [data-package-uniform-nationality]').forEach(function (field) {
       field.addEventListener('change', clearSelection);
       field.addEventListener('input', clearSelection);
     });
+    page.addEventListener('change', function (event) {
+      var target = event.target;
+      if (!target || !target.matches || !target.matches('[data-package-nationality-select]')) { return; }
+      clearSelection();
+    });
+    page.addEventListener('input', function (event) {
+      var target = event.target;
+      if (!target || !target.matches || !target.matches('[data-package-nationality-select]')) { return; }
+      clearSelection();
+    });
+    page.querySelectorAll('[data-package-adults], [data-package-children], [data-package-babies], [data-package-same-nationality], [data-package-uniform-nationality]')
+      .forEach(function (field) {
+        field.addEventListener('change', renderPackageNationalities);
+        field.addEventListener('input', renderPackageNationalities);
+      });
+    renderPackageNationalities();
 
     // Steps: Hébergement, Vol (when the offer has flight options), Transport,
     // Activités then Restauration. Hidden panels keep their inputs in the DOM,

@@ -250,7 +250,8 @@ final class PackagesController extends Controller
             $params['adults'],
             $params['children_3to12'],
             $params['children_under3'],
-            $params['nationality']
+            $params['nationality'],
+            $params['guests']
         );
 
         $pricesHidden = self::pricesHidden($partner);
@@ -360,7 +361,8 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
                 $params['children_3to12'],
                 $params['children_under3'],
                 $search,
-                $params['nationality']
+                $params['nationality'],
+                $params['guests']
             );
             if ($quotedSelection !== null) {
                 $selectionTouristTax = array_sum(array_map(
@@ -477,7 +479,8 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
             $params['adults'],
             $params['children_3to12'],
             $params['children_under3'],
-            $params['nationality']
+            $params['nationality'],
+            $params['guests']
         );
 
         $extras = Packages::extrasSelection(
@@ -519,18 +522,7 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
         $_POST['children'] = (string) ($params['children_3to12'] + $params['children_under3']);
         $_POST['children_under3'] = (string) $params['children_under3'];
         $_POST['children_3to12'] = (string) $params['children_3to12'];
-        $_POST['guests'] = [];
-        if ($params['nationality'] !== '') {
-            for ($i = 0; $i < $params['adults']; $i++) {
-                $_POST['guests'][] = ['type' => 'adult', 'nationality' => $params['nationality']];
-            }
-            for ($i = 0; $i < $params['children_3to12']; $i++) {
-                $_POST['guests'][] = ['type' => 'child', 'nationality' => $params['nationality']];
-            }
-            for ($i = 0; $i < $params['children_under3']; $i++) {
-                $_POST['guests'][] = ['type' => 'child_under3', 'nationality' => $params['nationality']];
-            }
-        }
+        $_POST['guests'] = $params['guests'];
         $summary = self::summaryText(
             $package,
             $extras,
@@ -585,7 +577,8 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
             $params['children_3to12'],
             $params['children_under3'],
             $search,
-            $params['nationality']
+            $params['nationality'],
+            $params['guests']
         );
         if ($selection === null) {
             self::json([
@@ -606,6 +599,7 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
         $_POST['children'] = (string) ($params['children_3to12'] + $params['children_under3']);
         $_POST['children_under3'] = (string) $params['children_under3'];
         $_POST['children_3to12'] = (string) $params['children_3to12'];
+        $_POST['guests'] = $params['guests'];
         $_POST['message'] = trim(
             (string) ($_POST['message'] ?? '') . "\n\n" . $summary
         );
@@ -782,7 +776,7 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
 
     /**
      * @param array<string, mixed> $source
-     * @return array{checkin: string, checkout: string, adults: int, children_3to12: int, children_under3: int, persons: int, nationality: string, flight_id: ?int, transport_ids: array<int, int>, activity_ids: array<int, int>, meal_ids: array<int, int>}|null
+     * @return array{checkin: string, checkout: string, adults: int, children_3to12: int, children_under3: int, persons: int, nationality: string, guests: array<int, array{type: string, nationality: string}>, flight_id: ?int, transport_ids: array<int, int>, activity_ids: array<int, int>, meal_ids: array<int, int>}|null
      */
     private static function searchParams(array $source): ?array
     {
@@ -792,6 +786,13 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
         $children3to12 = max(0, (int) ($source['children_3to12'] ?? 0));
         $childrenUnder3 = max(0, (int) ($source['children_under3'] ?? 0));
         $nationality = trim((string) ($source['nationality'] ?? ''));
+        $guestsRaw = $source['guests_json'] ?? '';
+        $guests = self::normalizePackageGuests(
+            self::decodeGuestList(is_string($guestsRaw) ? $guestsRaw : ''),
+            $adults,
+            $children3to12,
+            $childrenUnder3
+        );
         if ($checkin === '' || $checkout === '' || $adults < 1) {
             return null;
         }
@@ -829,11 +830,65 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
             // like the ordinary property pages (see
             // Packages::guestsForNationality()).
             'nationality' => $nationality,
+            'guests' => $guests,
             'flight_id' => $flightId > 0 ? $flightId : null,
             'transport_ids' => $extraIds['transport_ids'],
             'activity_ids' => $extraIds['activity_ids'],
             'meal_ids' => $extraIds['meal_ids'],
         ];
+    }
+
+    /**
+     * @return array<int, array{type: string, nationality: string}>
+     */
+    private static function decodeGuestList(string $raw): array
+    {
+        if ($raw === '') {
+            return [];
+        }
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+        return $decoded;
+    }
+
+    /**
+     * @param array<int, mixed> $guests
+     * @return array<int, array{type: string, nationality: string}>
+     */
+    private static function normalizePackageGuests(array $guests, int $adults, int $children3to12, int $childrenUnder3): array
+    {
+        $adultGuests = [];
+        $childGuests = [];
+        $babyGuests = [];
+        foreach ($guests as $guest) {
+            if (!is_array($guest)) {
+                continue;
+            }
+            $nationality = trim((string) ($guest['nationality'] ?? ''));
+            if ($nationality === '') {
+                continue;
+            }
+            $type = (string) ($guest['type'] ?? 'adult');
+            if ($type === 'adult') {
+                $adultGuests[] = ['type' => 'adult', 'nationality' => $nationality];
+                continue;
+            }
+            if ($type === 'child_under3') {
+                $babyGuests[] = ['type' => 'child_under3', 'nationality' => $nationality];
+                continue;
+            }
+            $childGuests[] = ['type' => 'child', 'nationality' => $nationality];
+        }
+        if (count($adultGuests) < $adults || count($childGuests) < $children3to12 || count($babyGuests) < $childrenUnder3) {
+            return [];
+        }
+        return array_merge(
+            array_slice($adultGuests, 0, $adults),
+            array_slice($childGuests, 0, $children3to12),
+            array_slice($babyGuests, 0, $childrenUnder3)
+        );
     }
 
     /**
