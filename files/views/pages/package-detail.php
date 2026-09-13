@@ -44,94 +44,110 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
   <?php endif; ?>
 
   <?php
-  // Vol / Activités / Restauration / Hébergement are shown as tabs, in the
-  // order the offer is presented (the accommodation search comes last since
-  // its results are listed underneath the tabs). Tabs with nothing to show
-  // are simply not rendered, and the first one is open by default.
-  $tabs = [];
+  // The offer is filled in step by step, in the order it is sold: Vol (only
+  // when the offer has flight options), Hébergement, Activités then
+  // Restauration. Each step unlocks the next one, and the reservation form
+  // only appears once the last step is done. Steps with nothing to show are
+  // simply not rendered.
+  $steps = [];
   if ($flights !== []) {
-      $tabs['flight'] = 'Vol';
+      $steps['flight'] = 'Vol';
   }
+  $steps['accommodation'] = 'Hébergement';
   foreach ($extraBlocks as $blockKey => $block) {
       if ($block['rows'] !== []) {
-          $tabs[$blockKey] = $block['title'];
+          $steps[$blockKey] = $block['title'];
       }
   }
-  $tabs['accommodation'] = 'Hébergement';
-  $firstTab = array_key_first($tabs);
+  $stepKeys = array_keys($steps);
+  $stepCount = count($stepKeys);
   ?>
-  <nav class="detail-tabs mt-16" data-package-tabs>
-    <?php foreach ($tabs as $tabKey => $tabLabel): ?>
-      <button type="button" class="tab-btn<?= $tabKey === $firstTab ? ' active' : '' ?>" data-package-tab-btn="<?= $e($tabKey) ?>"><?= $e($tabLabel) ?></button>
+  <ol class="package-steps mt-16" data-package-steps>
+    <?php foreach ($stepKeys as $index => $stepKey): ?>
+      <li class="package-step<?= $index === 0 ? ' active' : '' ?>" data-package-step-item="<?= $e($stepKey) ?>">
+        <span class="package-step-index"><?= $index + 1 ?></span>
+        <span><?= $e($steps[$stepKey]) ?></span>
+      </li>
     <?php endforeach; ?>
-  </nav>
+  </ol>
 
-  <div data-package-tab-panels>
-    <?php if ($flights !== []): ?>
-      <div data-package-tab-panel="flight"<?= $firstTab === 'flight' ? '' : ' hidden' ?>>
-        <div class="card card-body">
-          <?php foreach ($flights as $index => $flight): ?>
-            <label class="inline-check">
-              <input type="radio" name="package_flight" value="<?= (int) $flight['id'] ?>" data-package-flight
-                <?= (int) ($flight['is_default'] ?? 0) === 1 || $index === 0 ? 'checked' : '' ?>>
-              <span>
-                <strong><?= $e((string) $flight['label']) ?></strong>
-                <?php if (!empty($flight['airline'])): ?> — <?= $e((string) $flight['airline']) ?><?php endif; ?>
-                <?php if (!empty($flight['cabin_class'])): ?> (<?= $e((string) $flight['cabin_class']) ?>)<?php endif; ?>
-                <?php if (!empty($flight['description'])): ?><br><small class="muted"><?= nl2br($e((string) $flight['description'])) ?></small><?php endif; ?>
-              </span>
-            </label>
-          <?php endforeach; ?>
-        </div>
-      </div>
-    <?php endif; ?>
-
-    <?php foreach ($extraBlocks as $blockKey => $block): if ($block['rows'] === []) { continue; } ?>
-      <div data-package-tab-panel="<?= $e($blockKey) ?>"<?= $firstTab === $blockKey ? '' : ' hidden' ?>>
-        <div class="property-grid">
-          <?php foreach ($block['rows'] as $extra): $mandatory = (int) ($extra['is_mandatory'] ?? 0) === 1; ?>
-            <article class="card">
-              <?php if (!empty($extra['photo_url'])): ?>
-                <div class="property-card-image"><img src="<?= $e($extra['photo_url']) ?>" alt="<?= $e($t($extra, 'label')) ?>" loading="lazy"></div>
-              <?php endif; ?>
-              <div class="card-body">
-                <h3><?= $e($t($extra, 'label')) ?></h3>
-                <?php $extraDescription = $t($extra, 'description'); ?>
-                <?php if ($extraDescription !== ''): ?><p><?= nl2br($e($extraDescription)) ?></p><?php endif; ?>
-                <label class="inline-check">
-                  <input type="checkbox" value="<?= (int) $extra['id'] ?>" data-package-extra="<?= $e($blockKey) ?>"
-                    <?= $mandatory ? 'checked disabled' : '' ?>>
-                  <?= $e($mandatory ? $block['included'] : $block['optional']) ?>
-                </label>
-              </div>
-            </article>
-          <?php endforeach; ?>
-        </div>
-      </div>
-    <?php endforeach; ?>
-    <div data-package-tab-panel="accommodation"<?= $firstTab === 'accommodation' ? '' : ' hidden' ?>>
-      <div class="card card-body">
-        <div class="form-grid cols-2">
-          <label><span>Arrivée</span><input class="input" type="date" min="<?= $e($today) ?>" data-package-checkin></label>
-          <label><span>Départ</span><input class="input" type="date" min="<?= $e($today) ?>" data-package-checkout></label>
-          <label><span>Adultes</span><input class="input" type="number" min="1" step="1" value="2" data-package-adults></label>
-          <label><span>Enfants (3-12 ans)</span><input class="input" type="number" min="0" step="1" value="0" data-package-children></label>
-          <label><span>Bébés (moins de 3 ans)</span><input class="input" type="number" min="0" step="1" value="0" data-package-babies></label>
-        </div>
-        <div class="button-row mt-16">
-          <button class="btn-primary" type="button" data-package-search>Rechercher</button>
-          <span class="muted" data-package-search-status></span>
-        </div>
-        <?php if ($cacheUpdatedLabel !== null && $cacheUpdatedLabel !== ''): ?>
-          <p class="muted mt-16"><?= $e($cacheUpdatedLabel) ?></p>
+  <div data-package-step-panels>
+    <?php foreach ($stepKeys as $index => $stepKey): ?>
+      <div data-package-step-panel="<?= $e($stepKey) ?>"<?= $index === 0 ? '' : ' hidden' ?>>
+        <?php if ($stepKey === 'flight'): ?>
+          <div class="card card-body">
+            <?php foreach ($flights as $flightIndex => $flight): ?>
+              <label class="inline-check">
+                <input type="radio" name="package_flight" value="<?= (int) $flight['id'] ?>" data-package-flight
+                  <?= (int) ($flight['is_default'] ?? 0) === 1 || $flightIndex === 0 ? 'checked' : '' ?>>
+                <span>
+                  <strong><?= $e((string) $flight['label']) ?></strong>
+                  <?php if (!empty($flight['airline'])): ?> — <?= $e((string) $flight['airline']) ?><?php endif; ?>
+                  <?php if (!empty($flight['cabin_class'])): ?> (<?= $e((string) $flight['cabin_class']) ?>)<?php endif; ?>
+                  <?php if (!empty($flight['description'])): ?><br><small class="muted"><?= nl2br($e((string) $flight['description'])) ?></small><?php endif; ?>
+                </span>
+              </label>
+            <?php endforeach; ?>
+          </div>
+        <?php elseif ($stepKey === 'accommodation'): ?>
+          <div class="card card-body">
+            <div class="form-grid cols-2">
+              <label><span>Arrivée</span><input class="input" type="date" min="<?= $e($today) ?>" data-package-checkin></label>
+              <label><span>Départ</span><input class="input" type="date" min="<?= $e($today) ?>" data-package-checkout></label>
+              <label><span>Adultes</span><input class="input" type="number" min="1" step="1" value="2" data-package-adults></label>
+              <label><span>Enfants (3-12 ans)</span><input class="input" type="number" min="0" step="1" value="0" data-package-children></label>
+              <label><span>Bébés (moins de 3 ans)</span><input class="input" type="number" min="0" step="1" value="0" data-package-babies></label>
+            </div>
+            <div class="button-row mt-16">
+              <button class="btn-primary" type="button" data-package-search>Rechercher</button>
+              <span class="muted" data-package-search-status></span>
+            </div>
+            <?php if ($cacheUpdatedLabel !== null && $cacheUpdatedLabel !== ''): ?>
+              <p class="muted mt-16"><?= $e($cacheUpdatedLabel) ?></p>
+            <?php endif; ?>
+          </div>
+          <div class="mt-16" data-package-results hidden></div>
+          <!-- Party too big for a single accommodation: the properties of the
+               offer sharing one same address ("Emplacement" in Biens Lodgify)
+               can be combined, so several of them are picked here. -->
+          <div class="mt-16" data-package-groups hidden></div>
+          <div class="mt-16" data-package-alternatives hidden></div>
+        <?php else: $block = $extraBlocks[$stepKey]; ?>
+          <div class="property-grid">
+            <?php foreach ($block['rows'] as $extra): $mandatory = (int) ($extra['is_mandatory'] ?? 0) === 1; ?>
+              <article class="card">
+                <?php if (!empty($extra['photo_url'])): ?>
+                  <div class="property-card-image"><img src="<?= $e($extra['photo_url']) ?>" alt="<?= $e($t($extra, 'label')) ?>" loading="lazy"></div>
+                <?php endif; ?>
+                <div class="card-body">
+                  <h3><?= $e($t($extra, 'label')) ?></h3>
+                  <?php $extraDescription = $t($extra, 'description'); ?>
+                  <?php if ($extraDescription !== ''): ?><p><?= nl2br($e($extraDescription)) ?></p><?php endif; ?>
+                  <label class="inline-check">
+                    <input type="checkbox" value="<?= (int) $extra['id'] ?>" data-package-extra="<?= $e($stepKey) ?>"
+                      <?= $mandatory ? 'checked disabled' : '' ?>>
+                    <?= $e($mandatory ? $block['included'] : $block['optional']) ?>
+                  </label>
+                </div>
+              </article>
+            <?php endforeach; ?>
+          </div>
         <?php endif; ?>
+
+        <div class="button-row mt-16">
+          <?php if ($index > 0): ?>
+            <button type="button" class="btn-secondary" data-package-step-prev>Retour</button>
+          <?php endif; ?>
+          <button type="button" class="btn-primary" data-package-step-next>
+            <?= $index + 1 < $stepCount
+              ? 'Étape suivante : ' . $e($steps[$stepKeys[$index + 1]])
+              : 'Faire une demande de réservation' ?>
+          </button>
+          <span class="muted" data-package-step-error></span>
+        </div>
       </div>
-    </div>
-
+    <?php endforeach; ?>
   </div>
-
-  <div class="mt-16" data-package-results hidden></div>
-  <div class="mt-16" data-package-alternatives hidden></div>
 
   <div class="card card-body mt-16" data-package-request hidden>
     <h2 class="section-title">Faire une demande de réservation</h2>
@@ -199,12 +215,20 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
     var packageId = page.getAttribute('data-package-id');
     var pricesHidden = page.getAttribute('data-prices-hidden') === '1';
     var results = page.querySelector('[data-package-results]');
+    var groupsBlock = page.querySelector('[data-package-groups]');
     var alternatives = page.querySelector('[data-package-alternatives]');
     var requestBlock = page.querySelector('[data-package-request]');
     var requestForm = page.querySelector('[data-package-request-form]');
     var requestRecap = page.querySelector('[data-package-request-recap]');
     var searchStatus = page.querySelector('[data-package-search-status]');
+    // One single accommodation chosen, or several accommodations sharing the
+    // same address when the party is too big for one of them.
     var selected = null;
+    var selectedGroupIds = [];
+    var selectedGroupIndex = null;
+    var groupSelection = null;
+    var groupStay = null;
+    var resultCards = [];
 
     function value(selector) {
       var field = page.querySelector(selector);
@@ -216,9 +240,8 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
       return Number(amount).toFixed(2).replace('.', ',') + ' ' + (currency || 'EUR');
     }
 
-    // Vol / Hébergement / Activités / Restauration tabs. Hidden panels keep
-    // their inputs in the DOM, so the flight/activity/meal selection is
-    // still read by searchPayload() whichever tab is open.
+    // Tabs of the "Voir le bien" modal (description / équipements /
+    // disponibilités). The page itself is a step wizard, not tabs.
     function initTabs(nav, panelsContainer, buttonAttribute, panelAttribute) {
       if (!nav || !panelsContainer) { return; }
       var buttons = Array.prototype.slice.call(nav.querySelectorAll('[' + buttonAttribute + ']'));
@@ -234,13 +257,6 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
         });
       });
     }
-
-    initTabs(
-      page.querySelector('[data-package-tabs]'),
-      page.querySelector('[data-package-tab-panels]'),
-      'data-package-tab-btn',
-      'data-package-tab-panel'
-    );
 
     var propertyModal = page.querySelector('[data-package-property-modal]');
     if (propertyModal) {
@@ -400,6 +416,9 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
       if (flight) { body.set('flight_id', flight.value); }
       selectedExtraIds('activities').forEach(function (id) { body.append('activity_ids[]', id); });
       selectedExtraIds('meals').forEach(function (id) { body.append('meal_ids[]', id); });
+      // Same-address selection: the server prices the whole selection as one
+      // single all-inclusive total.
+      selectedGroupIds.forEach(function (id) { body.append('property_ids[]', String(id)); });
       return body;
     }
 
@@ -458,7 +477,7 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
       var button = document.createElement('button');
       button.type = 'button';
       button.className = isAlternative ? 'btn-secondary' : 'btn-primary';
-      button.textContent = isAlternative ? 'Voir cette période' : 'Faire une demande de réservation';
+      button.textContent = isAlternative ? 'Voir cette période' : 'Choisir ce bien';
       button.addEventListener('click', function () {
         if (isAlternative) {
           // The client keeps the hand: we only prefill the new dates and
@@ -469,17 +488,17 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
           return;
         }
         selected = entry;
-        if (requestForm) {
-          requestForm.querySelector('[name="property_id"]').value = entry.property_id;
-        }
-        if (requestBlock) { requestBlock.hidden = false; }
-        if (requestRecap) {
-          requestRecap.textContent = entry.name + ' — du ' + entry.checkin + ' au ' + entry.checkout
-            + (pricesHidden || entry.total_all_in === null ? '' : ' — total tout compris ' + money(entry.total_all_in, entry.currency || currency));
-        }
-        if (requestBlock) { requestBlock.scrollIntoView({ behavior: 'smooth' }); }
+        // A single accommodation and a same-address selection are exclusive.
+        selectedGroupIds = [];
+        selectedGroupIndex = null;
+        groupSelection = null;
+        groupStay = null;
+        markSelection();
+        clearStepError();
       });
       actions.appendChild(button);
+
+      if (!isAlternative) { resultCards.push({ entry: entry, card: card, button: button }); }
 
       var detailButton = document.createElement('button');
       detailButton.type = 'button';
@@ -491,12 +510,189 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
       return card;
     }
 
+    function markSelection() {
+      resultCards.forEach(function (item) {
+        var isSelected = selected !== null && String(item.entry.property_id) === String(selected.property_id)
+          && item.entry.checkin === selected.checkin;
+        item.card.classList.toggle('is-selected', isSelected);
+        item.button.textContent = isSelected ? 'Bien sélectionné ✓' : 'Choisir ce bien';
+      });
+    }
+
+    /**
+     * Party too big for one single accommodation: the properties of the offer
+     * sharing one same address can be combined. No individual price is shown,
+     * only the combined all-inclusive total of the ticked properties.
+     */
+    function renderGroups(data) {
+      groupsBlock.innerHTML = '';
+      groupsBlock.hidden = true;
+      var groups = data.groups || [];
+      if (groups.length === 0) {
+        // The party now fits a single accommodation (or no address can host
+        // it): a stale multi-bien selection must not survive.
+        selectedGroupIds = [];
+        selectedGroupIndex = null;
+        groupSelection = null;
+        return;
+      }
+      groupsBlock.hidden = false;
+
+      var heading = document.createElement('h2');
+      heading.className = 'section-title';
+      heading.textContent = 'Biens à la même adresse';
+      groupsBlock.appendChild(heading);
+
+      var intro = document.createElement('p');
+      intro.className = 'muted';
+      intro.textContent = 'Vous pouvez sélectionner plusieurs biens ci-dessous car ils sont à la même adresse.';
+      groupsBlock.appendChild(intro);
+
+      var required = Number(value('[data-package-adults]') || 0) + Number(value('[data-package-children]') || 0);
+
+      groups.forEach(function (group, groupIndex) {
+        var section = document.createElement('div');
+        section.className = 'card card-body mt-16';
+        groupsBlock.appendChild(section);
+
+        var address = document.createElement('p');
+        var addressLabel = document.createElement('strong');
+        addressLabel.textContent = group.location;
+        address.appendChild(addressLabel);
+        section.appendChild(address);
+
+        var grid = document.createElement('div');
+        grid.className = 'package-results-grid';
+        section.appendChild(grid);
+
+        var capacityLine = document.createElement('p');
+        capacityLine.className = 'muted mt-16';
+        section.appendChild(capacityLine);
+
+        var totalLine = document.createElement('p');
+        section.appendChild(totalLine);
+
+        function refreshGroupStatus() {
+          var capacity = 0;
+          var unlimited = false;
+          group.properties.forEach(function (property) {
+            if (selectedGroupIndex !== groupIndex) { return; }
+            if (selectedGroupIds.indexOf(String(property.property_id)) === -1) { return; }
+            if (Number(property.max_guests) > 0) { capacity += Number(property.max_guests); } else { unlimited = true; }
+          });
+          var count = selectedGroupIndex === groupIndex ? selectedGroupIds.length : 0;
+          capacityLine.textContent = count === 0
+            ? 'Sélectionnez les biens à réserver (' + required + ' personne(s) à loger).'
+            : count + ' bien(s) sélectionné(s) — capacité ' + (unlimited ? 'suffisante' : capacity + ' / ' + required + ' personne(s)');
+          totalLine.textContent = '';
+          if (selectedGroupIndex === groupIndex && groupSelection && !pricesHidden
+            && groupSelection.total_all_in !== null && groupSelection.total_all_in !== undefined) {
+            var strong = document.createElement('strong');
+            strong.textContent = 'Total tout compris : ' + money(groupSelection.total_all_in, groupSelection.currency || data.currency);
+            totalLine.appendChild(strong);
+          }
+        }
+
+        group.properties.forEach(function (property) {
+          var entry = {
+            property_id: property.property_id,
+            name: property.name,
+            image_url: property.image_url,
+            checkin: property.checkin,
+            checkout: property.checkout
+          };
+          var card = document.createElement('article');
+          card.className = 'card package-result-card';
+          if (property.image_url) {
+            var figure = document.createElement('div');
+            figure.className = 'property-card-image';
+            var image = document.createElement('img');
+            image.src = property.image_url;
+            image.alt = property.name;
+            image.loading = 'lazy';
+            figure.appendChild(image);
+            card.appendChild(figure);
+          }
+          var body = document.createElement('div');
+          body.className = 'card-body';
+          card.appendChild(body);
+
+          var title = document.createElement('h3');
+          title.textContent = property.name;
+          body.appendChild(title);
+
+          var meta = [];
+          if (property.bedrooms > 0) { meta.push(property.bedrooms + ' chambre(s)'); }
+          if (property.max_guests > 0) { meta.push('jusqu\'à ' + property.max_guests + ' personne(s)'); }
+          if (meta.length > 0) {
+            var metaLine = document.createElement('p');
+            metaLine.className = 'muted';
+            metaLine.textContent = meta.join(' · ');
+            body.appendChild(metaLine);
+          }
+
+          var choice = document.createElement('label');
+          choice.className = 'inline-check';
+          var checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.value = String(property.property_id);
+          checkbox.checked = selectedGroupIndex === groupIndex
+            && selectedGroupIds.indexOf(String(property.property_id)) !== -1;
+          checkbox.addEventListener('change', function () {
+            if (selectedGroupIndex !== groupIndex) {
+              // Only one address can be combined at a time.
+              selectedGroupIndex = groupIndex;
+              selectedGroupIds = [];
+            }
+            var position = selectedGroupIds.indexOf(checkbox.value);
+            if (checkbox.checked && position === -1) { selectedGroupIds.push(checkbox.value); }
+            if (!checkbox.checked && position !== -1) { selectedGroupIds.splice(position, 1); }
+            if (selectedGroupIds.length === 0) { selectedGroupIndex = null; }
+            selected = null;
+            groupSelection = null;
+            groupStay = null;
+            clearStepError();
+            // The combined total is computed server-side for the ticked biens.
+            search();
+          });
+          choice.appendChild(checkbox);
+          var choiceLabel = document.createElement('span');
+          choiceLabel.textContent = 'Réserver ce bien';
+          choice.appendChild(choiceLabel);
+          body.appendChild(choice);
+
+          var actions = document.createElement('div');
+          actions.className = 'button-row';
+          var detailButton = document.createElement('button');
+          detailButton.type = 'button';
+          detailButton.className = 'btn-secondary';
+          detailButton.textContent = 'Voir le bien';
+          detailButton.addEventListener('click', function () { openPropertyModal(entry); });
+          actions.appendChild(detailButton);
+          body.appendChild(actions);
+
+          grid.appendChild(card);
+        });
+
+        refreshGroupStatus();
+        if (selectedGroupIndex === groupIndex && group.properties.length > 0) {
+          groupStay = {
+            checkin: group.properties[0].checkin,
+            checkout: group.properties[0].checkout,
+            location: group.location
+          };
+        }
+      });
+    }
+
     function render(data) {
       results.innerHTML = '';
       alternatives.innerHTML = '';
       alternatives.hidden = true;
       results.hidden = false;
-      selected = null;
+      resultCards = [];
+      groupSelection = data.selection || null;
+      groupStay = null;
       if (requestBlock) { requestBlock.hidden = true; }
 
       function grid(container, entries, isAlternative) {
@@ -509,14 +705,24 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
         container.appendChild(wrapper);
       }
 
+      renderGroups(data);
+
       if (data.matches.length > 0) {
         var heading = document.createElement('h2');
         heading.className = 'section-title';
         heading.textContent = 'Hébergements disponibles pour vos dates';
         results.appendChild(heading);
         grid(results, data.matches, false);
+        // A previously chosen bien is kept selected when it is still offered.
+        var previous = selected;
+        selected = previous === null ? null : (data.matches.filter(function (entry) {
+          return String(entry.property_id) === String(previous.property_id) && entry.checkin === previous.checkin;
+        })[0] || null);
+        markSelection();
         return;
       }
+
+      selected = null;
 
       if (data.alternatives.length > 0) {
         alternatives.hidden = false;
@@ -525,6 +731,11 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
         altHeading.textContent = 'Aucun hébergement pour vos dates — voici des dates proches';
         alternatives.appendChild(altHeading);
         grid(alternatives, data.alternatives, true);
+        return;
+      }
+
+      if (!groupsBlock.hidden) {
+        results.hidden = true;
         return;
       }
 
@@ -570,12 +781,118 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
     var searchButton = page.querySelector('[data-package-search]');
     if (searchButton) { searchButton.addEventListener('click', search); }
 
+    // Steps: Vol (when the offer has flight options), Hébergement, Activités
+    // then Restauration. Hidden panels keep their inputs in the DOM, so the
+    // flight/activity/meal selection is always read by searchPayload().
+    var stepPanels = Array.prototype.slice.call(page.querySelectorAll('[data-package-step-panel]'));
+    var stepItems = Array.prototype.slice.call(page.querySelectorAll('[data-package-step-item]'));
+    var currentStep = 0;
+
+    function clearStepError() {
+      stepPanels.forEach(function (panel) {
+        var error = panel.querySelector('[data-package-step-error]');
+        if (error) { error.textContent = ''; }
+      });
+    }
+
+    function showStepError(message) {
+      var error = stepPanels[currentStep].querySelector('[data-package-step-error]');
+      if (error) { error.textContent = message; }
+    }
+
+    function showStep(index) {
+      currentStep = index;
+      stepPanels.forEach(function (panel, position) { panel.hidden = position !== index; });
+      stepItems.forEach(function (item, position) {
+        item.classList.toggle('active', position === index);
+        item.classList.toggle('done', position < index);
+      });
+      clearStepError();
+      if (requestBlock) { requestBlock.hidden = true; }
+    }
+
+    /**
+     * The accommodation step is the only blocking one: either one single bien
+     * is chosen, or enough biens of one same address are ticked for everybody
+     * to be housed (the server only returns a selection total when the whole
+     * party fits in the ticked biens).
+     */
+    function accommodationStepError() {
+      if (selectedGroupIds.length > 0) {
+        if (selectedGroupIds.length < 2) {
+          return 'Sélectionnez au moins deux biens à la même adresse.';
+        }
+        if (!groupSelection) {
+          return 'Les biens sélectionnés ne suffisent pas à loger tout le monde : sélectionnez d\'autres biens.';
+        }
+        return '';
+      }
+      if (selected === null) { return 'Choisissez votre hébergement pour continuer.'; }
+      return '';
+    }
+
+    function currentStepError() {
+      var key = stepPanels[currentStep].getAttribute('data-package-step-panel');
+      // Vol has a default option, activités and restauration are optional.
+      return key === 'accommodation' ? accommodationStepError() : '';
+    }
+
+    function stayDates() {
+      if (selected !== null) { return { checkin: selected.checkin, checkout: selected.checkout }; }
+      if (groupStay !== null) { return { checkin: groupStay.checkin, checkout: groupStay.checkout }; }
+      return { checkin: value('[data-package-checkin]'), checkout: value('[data-package-checkout]') };
+    }
+
+    function recapText() {
+      var dates = stayDates();
+      if (selected !== null) {
+        return selected.name + ' — du ' + dates.checkin + ' au ' + dates.checkout
+          + (pricesHidden || selected.total_all_in === null || selected.total_all_in === undefined
+            ? '' : ' — total tout compris ' + money(selected.total_all_in, selected.currency));
+      }
+      var label = selectedGroupIds.length + ' biens à la même adresse'
+        + (groupStay && groupStay.location ? ' (' + groupStay.location + ')' : '')
+        + ' — du ' + dates.checkin + ' au ' + dates.checkout;
+      if (!pricesHidden && groupSelection && groupSelection.total_all_in !== null && groupSelection.total_all_in !== undefined) {
+        label += ' — total tout compris ' + money(groupSelection.total_all_in, groupSelection.currency);
+      }
+      return label;
+    }
+
+    function revealRequest() {
+      if (!requestBlock) { return; }
+      requestBlock.hidden = false;
+      if (requestForm) {
+        var field = requestForm.querySelector('[name="property_id"]');
+        if (field) { field.value = selected !== null ? String(selected.property_id) : ''; }
+      }
+      if (requestRecap) { requestRecap.textContent = recapText(); }
+      requestBlock.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    stepPanels.forEach(function (panel, index) {
+      var previousButton = panel.querySelector('[data-package-step-prev]');
+      if (previousButton) {
+        previousButton.addEventListener('click', function () { showStep(index - 1); });
+      }
+      var nextButton = panel.querySelector('[data-package-step-next]');
+      if (nextButton) {
+        nextButton.addEventListener('click', function () {
+          var error = currentStepError();
+          if (error !== '') { showStepError(error); return; }
+          if (index + 1 < stepPanels.length) { showStep(index + 1); return; }
+          revealRequest();
+        });
+      }
+    });
+    if (stepPanels.length > 0) { showStep(0); }
+
     // The displayed total includes the chosen flight option, activities and
     // meal plans: changing the selection after a search must recompute it
     // instead of leaving a stale price (and a stale selection) on screen.
     page.querySelectorAll('[data-package-flight], [data-package-extra]').forEach(function (input) {
       input.addEventListener('change', function () {
-        if (!results.hidden || !alternatives.hidden) { search(); }
+        if (!results.hidden || !alternatives.hidden || !groupsBlock.hidden) { search(); }
       });
     });
 
@@ -586,7 +903,8 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
       var requestPending = false;
       requestForm.addEventListener('submit', function (event) {
         event.preventDefault();
-        if (!selected || requestPending) { return; }
+        var hasSelection = selected !== null || (selectedGroupIds.length > 1 && groupSelection !== null);
+        if (!hasSelection || requestPending) { return; }
         var status = page.querySelector('[data-package-request-status]');
         var submitButton = requestForm.querySelector('[type="submit"]');
         requestPending = true;
@@ -595,10 +913,13 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
           requestPending = false;
           if (submitButton) { submitButton.disabled = false; }
         };
+        var dates = stayDates();
         var body = searchPayload();
-        body.set('property_id', String(selected.property_id));
-        body.set('checkin_date', selected.checkin);
-        body.set('checkout_date', selected.checkout);
+        // searchPayload() already carries property_ids[] for a same-address
+        // selection; a single bien is sent as property_id.
+        if (selected !== null) { body.set('property_id', String(selected.property_id)); }
+        body.set('checkin_date', dates.checkin);
+        body.set('checkout_date', dates.checkout);
         new FormData(requestForm).forEach(function (fieldValue, name) {
           if (name !== 'property_id') { body.set(name, fieldValue); }
         });

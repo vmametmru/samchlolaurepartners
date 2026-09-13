@@ -840,3 +840,11 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .package-result-card .button-row { margin-top: auto; padding-top: .6rem; flex-wrap: wrap; }
 @media (max-width: 980px) { .package-results-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 760px) { .package-results-grid { grid-template-columns: 1fr; } }
+.package-result-card.is-selected { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37, 99, 235, .25); }
+.package-steps { display: flex; flex-wrap: wrap; gap: .5rem; list-style: none; margin: 0; padding: 0; }
+.package-step { display: flex; align-items: center; gap: .5rem; padding: .5rem .85rem; border: 1px solid #e5e7eb; border-radius: 999px; color: #6b7280; font-size: .9rem; }
+.package-step-index { display: inline-flex; align-items: center; justify-content: center; width: 1.5rem; height: 1.5rem; border-radius: 50%; background: #e5e7eb; color: #374151; font-size: .8rem; font-weight: 600; }
+.package-step.active { border-color: #2563eb; color: #1f2937; font-weight: 600; }
+.package-step.active .package-step-index { background: #2563eb; color: #fff; }
+.package-step.done { border-color: #16a34a; color: #166534; }
+.package-step.done .package-step-index { background: #16a34a; color: #fff; }
