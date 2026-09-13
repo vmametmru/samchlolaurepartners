@@ -1,13 +1,36 @@
 <?php declare(strict_types=1);
 /**
  * Create/edit an "Offre Complète": general information, then the three
- * blocks (Vol, Hébergement, Activités) described on the public page.
+ * blocks (Vol, Hébergement, Activités, Restauration) described on the
+ * public page.
  */
 $package = $package ?? null;
 $isAdmin = !empty($isAdmin);
 $basePath = (string) ($basePath ?? '/partner/offres');
 $flights = $package['flights'] ?? [];
 $activities = $package['activities'] ?? [];
+$meals = $package['meals'] ?? [];
+// "Activités" and "Restauration" share exactly the same row shape, so both
+// are rendered by the same loop. Restauration only appears once migration
+// 065 created its table.
+$extraBlocks = [
+    'activities' => [
+        'title' => 'Activités',
+        'hint' => 'Une activité obligatoire est toujours incluse dans le prix ; sinon le client peut la cocher ou non.',
+        'addLabel' => 'Ajouter une activité',
+        'removeLabel' => 'Supprimer cette activité',
+        'mandatoryLabel' => 'Activité obligatoire (incluse dans le prix)',
+    ],
+];
+if (!empty($mealsEnabled)) {
+    $extraBlocks['meals'] = [
+        'title' => 'Restauration',
+        'hint' => 'Formules repas proposées avec l\'offre : une formule obligatoire est toujours incluse dans le prix, sinon le client peut la cocher ou non.',
+        'addLabel' => 'Ajouter une formule',
+        'removeLabel' => 'Supprimer cette formule',
+        'mandatoryLabel' => 'Formule obligatoire (incluse dans le prix)',
+    ];
+}
 $selectedPropertyIds = array_map('intval', $package['property_ids'] ?? []);
 $allProperties = $package === null ? true : (int) $package['all_properties'] === 1;
 $stockMode = (string) ($package['stock_mode'] ?? 'none');
@@ -107,37 +130,39 @@ $e = static fn (mixed $value): string => \App\View::e($value);
     </div>
     <p class="muted">Lors d'une recherche sur la page publique, seuls les biens réellement disponibles pour les dates et le nombre de personnes demandés sont affichés.</p>
 
-    <h2 class="section-title">Activités</h2>
-    <p class="muted">Une activité obligatoire est toujours incluse dans le prix ; sinon le client peut la cocher ou non.</p>
-    <div data-package-rows="activities">
-      <?php foreach ($activities as $index => $activity): ?>
-        <div class="card card-body mt-16" data-package-row>
-          <input type="hidden" name="activities[<?= (int) $index ?>][id]" value="<?= (int) $activity['id'] ?>">
-          <input type="hidden" name="activities[<?= (int) $index ?>][photo_url]" value="<?= $e($activity['photo_url'] ?? '') ?>">
-          <div class="form-grid cols-2">
-            <label><span>Nom (FR) *</span><input class="input" type="text" name="activities[<?= (int) $index ?>][label]" value="<?= $e($activity['label']) ?>"></label>
-            <label><span>Nom (EN)</span><input class="input" type="text" name="activities[<?= (int) $index ?>][label_en]" value="<?= $e($activity['label_en'] ?? '') ?>"></label>
-            <label>
-              <span>Type de prix</span>
-              <select class="input" name="activities[<?= (int) $index ?>][price_mode]">
-                <option value="per_person" <?= (string) $activity['price_mode'] === 'per_person' ? 'selected' : '' ?>>Par personne</option>
-                <option value="per_group" <?= (string) $activity['price_mode'] === 'per_group' ? 'selected' : '' ?>>Par groupe</option>
-              </select>
-            </label>
-            <label><span>Prix</span><input class="input" type="number" min="0" step="0.01" name="activities[<?= (int) $index ?>][price]" value="<?= $e((string) $activity['price']) ?>"></label>
+<?php foreach ($extraBlocks as $blockKey => $block): $rows = $blockKey === 'meals' ? $meals : $activities; ?>
+      <h2 class="section-title"><?= $e($block['title']) ?></h2>
+      <p class="muted"><?= $e($block['hint']) ?></p>
+      <div data-package-rows="<?= $e($blockKey) ?>">
+        <?php foreach ($rows as $index => $row): $name = $blockKey . '[' . (int) $index . ']'; ?>
+          <div class="card card-body mt-16" data-package-row>
+            <input type="hidden" name="<?= $e($name) ?>[id]" value="<?= (int) $row['id'] ?>">
+            <input type="hidden" name="<?= $e($name) ?>[photo_url]" value="<?= $e($row['photo_url'] ?? '') ?>">
+            <div class="form-grid cols-2">
+              <label><span>Nom (FR) *</span><input class="input" type="text" name="<?= $e($name) ?>[label]" value="<?= $e($row['label']) ?>"></label>
+              <label><span>Nom (EN)</span><input class="input" type="text" name="<?= $e($name) ?>[label_en]" value="<?= $e($row['label_en'] ?? '') ?>"></label>
+              <label>
+                <span>Type de prix</span>
+                <select class="input" name="<?= $e($name) ?>[price_mode]">
+                  <option value="per_person" <?= (string) $row['price_mode'] === 'per_person' ? 'selected' : '' ?>>Par personne</option>
+                  <option value="per_group" <?= (string) $row['price_mode'] === 'per_group' ? 'selected' : '' ?>>Par groupe</option>
+                </select>
+              </label>
+              <label><span>Prix</span><input class="input" type="number" min="0" step="0.01" name="<?= $e($name) ?>[price]" value="<?= $e((string) $row['price']) ?>"></label>
+            </div>
+            <label><span>Description (FR)</span><textarea class="input" name="<?= $e($name) ?>[description]" rows="3"><?= $e($row['description'] ?? '') ?></textarea></label>
+            <label><span>Description (EN)</span><textarea class="input" name="<?= $e($name) ?>[description_en]" rows="3"><?= $e($row['description_en'] ?? '') ?></textarea></label>
+            <label><span>Photo</span><input class="input" type="file" name="<?= $e($name) ?>[photo]" accept="image/*"></label>
+            <?php if (!empty($row['photo_url'])): ?>
+              <img src="<?= $e($row['photo_url']) ?>" alt="" class="gallery-thumb" style="max-width:160px">
+            <?php endif; ?>
+            <label class="inline-check"><input type="checkbox" name="<?= $e($name) ?>[is_mandatory]" value="1" <?= (int) $row['is_mandatory'] === 1 ? 'checked' : '' ?>> <?= $e($block['mandatoryLabel']) ?></label>
+            <button type="button" class="btn-secondary" data-package-row-remove><?= $e($block['removeLabel']) ?></button>
           </div>
-          <label><span>Description (FR)</span><textarea class="input" name="activities[<?= (int) $index ?>][description]" rows="3"><?= $e($activity['description'] ?? '') ?></textarea></label>
-          <label><span>Description (EN)</span><textarea class="input" name="activities[<?= (int) $index ?>][description_en]" rows="3"><?= $e($activity['description_en'] ?? '') ?></textarea></label>
-          <label><span>Photo</span><input class="input" type="file" name="activities[<?= (int) $index ?>][photo]" accept="image/*"></label>
-          <?php if (!empty($activity['photo_url'])): ?>
-            <img src="<?= $e($activity['photo_url']) ?>" alt="" class="gallery-thumb" style="max-width:160px">
-          <?php endif; ?>
-          <label class="inline-check"><input type="checkbox" name="activities[<?= (int) $index ?>][is_mandatory]" value="1" <?= (int) $activity['is_mandatory'] === 1 ? 'checked' : '' ?>> Activité obligatoire (incluse dans le prix)</label>
-          <button type="button" class="btn-secondary" data-package-row-remove>Supprimer cette activité</button>
-        </div>
-      <?php endforeach; ?>
-    </div>
-    <button type="button" class="btn-secondary mt-16" data-package-row-add="activities">Ajouter une activité</button>
+        <?php endforeach; ?>
+      </div>
+      <button type="button" class="btn-secondary mt-16" data-package-row-add="<?= $e($blockKey) ?>"><?= $e($block['addLabel']) ?></button>
+    <?php endforeach; ?>
 
     <div class="button-row mt-16">
       <button class="btn-primary" type="submit">Sauvegarder</button>
@@ -167,27 +192,29 @@ $e = static fn (mixed $value): string => \App\View::e($value);
   </div>
 </template>
 
-<template data-package-template="activities">
-  <div class="card card-body mt-16" data-package-row>
-    <div class="form-grid cols-2">
-      <label><span>Nom (FR) *</span><input class="input" type="text" name="activities[__INDEX__][label]"></label>
-      <label><span>Nom (EN)</span><input class="input" type="text" name="activities[__INDEX__][label_en]"></label>
-      <label>
-        <span>Type de prix</span>
-        <select class="input" name="activities[__INDEX__][price_mode]">
-          <option value="per_person">Par personne</option>
-          <option value="per_group">Par groupe</option>
-        </select>
-      </label>
-      <label><span>Prix</span><input class="input" type="number" min="0" step="0.01" name="activities[__INDEX__][price]" value="0"></label>
+<?php foreach ($extraBlocks as $blockKey => $block): ?>
+  <template data-package-template="<?= $e($blockKey) ?>">
+    <div class="card card-body mt-16" data-package-row>
+      <div class="form-grid cols-2">
+        <label><span>Nom (FR) *</span><input class="input" type="text" name="<?= $e($blockKey) ?>[__INDEX__][label]"></label>
+        <label><span>Nom (EN)</span><input class="input" type="text" name="<?= $e($blockKey) ?>[__INDEX__][label_en]"></label>
+        <label>
+          <span>Type de prix</span>
+          <select class="input" name="<?= $e($blockKey) ?>[__INDEX__][price_mode]">
+            <option value="per_person">Par personne</option>
+            <option value="per_group">Par groupe</option>
+          </select>
+        </label>
+        <label><span>Prix</span><input class="input" type="number" min="0" step="0.01" name="<?= $e($blockKey) ?>[__INDEX__][price]" value="0"></label>
+      </div>
+      <label><span>Description (FR)</span><textarea class="input" name="<?= $e($blockKey) ?>[__INDEX__][description]" rows="3"></textarea></label>
+      <label><span>Description (EN)</span><textarea class="input" name="<?= $e($blockKey) ?>[__INDEX__][description_en]" rows="3"></textarea></label>
+      <label><span>Photo</span><input class="input" type="file" name="<?= $e($blockKey) ?>[__INDEX__][photo]" accept="image/*"></label>
+      <label class="inline-check"><input type="checkbox" name="<?= $e($blockKey) ?>[__INDEX__][is_mandatory]" value="1"> <?= $e($block['mandatoryLabel']) ?></label>
+      <button type="button" class="btn-secondary" data-package-row-remove><?= $e($block['removeLabel']) ?></button>
     </div>
-    <label><span>Description (FR)</span><textarea class="input" name="activities[__INDEX__][description]" rows="3"></textarea></label>
-    <label><span>Description (EN)</span><textarea class="input" name="activities[__INDEX__][description_en]" rows="3"></textarea></label>
-    <label><span>Photo</span><input class="input" type="file" name="activities[__INDEX__][photo]" accept="image/*"></label>
-    <label class="inline-check"><input type="checkbox" name="activities[__INDEX__][is_mandatory]" value="1"> Activité obligatoire (incluse dans le prix)</label>
-    <button type="button" class="btn-secondary" data-package-row-remove>Supprimer cette activité</button>
-  </div>
-</template>
+  </template>
+<?php endforeach; ?>
 
 <script>
   (function () {
@@ -195,7 +222,7 @@ $e = static fn (mixed $value): string => \App\View::e($value);
     if (!form) { return; }
     // Row indexes only have to be unique within the submitted form: start
     // above the highest index already rendered server-side.
-    var nextIndex = <?= (int) (max(count($flights), count($activities)) + 1) ?>;
+    var nextIndex = <?= (int) (max(count($flights), count($activities), count($meals)) + 1) ?>;
 
     function addRow(kind) {
       var template = document.querySelector('[data-package-template="' + kind + '"]');

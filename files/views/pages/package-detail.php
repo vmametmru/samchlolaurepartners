@@ -1,17 +1,20 @@
 <?php declare(strict_types=1);
 /**
  * Public page of a single offer: general description, flight options,
- * available accommodations (searched in the local cache only) and
- * activities, then the reservation request form.
+ * available accommodations (searched in the local cache only), activities
+ * and meal plans, then the reservation request form.
+ *
+ * An offer is sold as a whole: no individual price (flight, activity, meal,
+ * accommodation) is ever printed here — only the all-inclusive total
+ * returned by the search endpoint.
  */
 $e = static fn (mixed $value): string => \App\View::e($value);
 $t = static fn (array $row, string $field): string => \App\Packages::text($row, $field);
-$money = static function (mixed $value, string $currency = 'EUR'): string {
-    return number_format((float) $value, 2, ',', ' ') . ' ' . $currency;
-};
 $flights = $package['flights'] ?? [];
-$activities = $package['activities'] ?? [];
-$priceModeLabels = ['per_person' => 'par personne', 'per_group' => 'par groupe'];
+$extraBlocks = [
+    'activities' => ['title' => 'Activités', 'rows' => $package['activities'] ?? [], 'included' => 'Incluse dans l\'offre', 'optional' => 'Ajouter cette activité'],
+    'meals' => ['title' => 'Restauration', 'rows' => $package['meals'] ?? [], 'included' => 'Incluse dans l\'offre', 'optional' => 'Ajouter cette formule'],
+];
 $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('Y-m-d');
 ?>
 <section class="container section-lg" data-package-page data-package-id="<?= (int) $package['id'] ?>" data-prices-hidden="<?= $pricesHidden ? '1' : '0' ?>">
@@ -51,9 +54,6 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
             <strong><?= $e((string) $flight['label']) ?></strong>
             <?php if (!empty($flight['airline'])): ?> — <?= $e((string) $flight['airline']) ?><?php endif; ?>
             <?php if (!empty($flight['cabin_class'])): ?> (<?= $e((string) $flight['cabin_class']) ?>)<?php endif; ?>
-            <?php if (!$pricesHidden): ?>
-              — <?= $e($money($flight['price'])) ?> <?= $e($priceModeLabels[(string) $flight['price_mode']] ?? '') ?>
-            <?php endif; ?>
             <?php if (!empty($flight['description'])): ?><br><small class="muted"><?= nl2br($e((string) $flight['description'])) ?></small><?php endif; ?>
           </span>
         </label>
@@ -61,31 +61,28 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
     </div>
   <?php endif; ?>
 
-  <?php if ($activities !== []): ?>
-    <h2 class="section-title mt-16">Activités</h2>
+  <?php foreach ($extraBlocks as $blockKey => $block): if ($block['rows'] === []) { continue; } ?>
+    <h2 class="section-title mt-16"><?= $e($block['title']) ?></h2>
     <div class="property-grid">
-      <?php foreach ($activities as $activity): $mandatory = (int) ($activity['is_mandatory'] ?? 0) === 1; ?>
+      <?php foreach ($block['rows'] as $extra): $mandatory = (int) ($extra['is_mandatory'] ?? 0) === 1; ?>
         <article class="card">
-          <?php if (!empty($activity['photo_url'])): ?>
-            <div class="property-card-image"><img src="<?= $e($activity['photo_url']) ?>" alt="<?= $e($t($activity, 'label')) ?>" loading="lazy"></div>
+          <?php if (!empty($extra['photo_url'])): ?>
+            <div class="property-card-image"><img src="<?= $e($extra['photo_url']) ?>" alt="<?= $e($t($extra, 'label')) ?>" loading="lazy"></div>
           <?php endif; ?>
           <div class="card-body">
-            <h3><?= $e($t($activity, 'label')) ?></h3>
-            <?php $activityDescription = $t($activity, 'description'); ?>
-            <?php if ($activityDescription !== ''): ?><p><?= nl2br($e($activityDescription)) ?></p><?php endif; ?>
-            <?php if (!$pricesHidden): ?>
-              <p class="muted"><?= $e($money($activity['price'])) ?> <?= $e($priceModeLabels[(string) $activity['price_mode']] ?? '') ?></p>
-            <?php endif; ?>
+            <h3><?= $e($t($extra, 'label')) ?></h3>
+            <?php $extraDescription = $t($extra, 'description'); ?>
+            <?php if ($extraDescription !== ''): ?><p><?= nl2br($e($extraDescription)) ?></p><?php endif; ?>
             <label class="inline-check">
-              <input type="checkbox" value="<?= (int) $activity['id'] ?>" data-package-activity
-                <?= $mandatory ? 'checked disabled data-package-activity-mandatory' : '' ?>>
-              <?= $mandatory ? 'Incluse dans l\'offre' : 'Ajouter cette activité' ?>
+              <input type="checkbox" value="<?= (int) $extra['id'] ?>" data-package-extra="<?= $e($blockKey) ?>"
+                <?= $mandatory ? 'checked disabled' : '' ?>>
+              <?= $e($mandatory ? $block['included'] : $block['optional']) ?>
             </label>
           </div>
         </article>
       <?php endforeach; ?>
     </div>
-  <?php endif; ?>
+  <?php endforeach; ?>
 
   <h2 class="section-title mt-16">Hébergement et disponibilités</h2>
   <div class="card card-body">
@@ -155,9 +152,9 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
       return Number(amount).toFixed(2).replace('.', ',') + ' ' + (currency || 'EUR');
     }
 
-    function selectedActivityIds() {
+    function selectedExtraIds(block) {
       return Array.prototype.slice
-        .call(page.querySelectorAll('[data-package-activity]'))
+        .call(page.querySelectorAll('[data-package-extra="' + block + '"]'))
         .filter(function (input) { return input.checked; })
         .map(function (input) { return input.value; });
     }
@@ -171,7 +168,8 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
       body.set('children_under3', value('[data-package-babies]') || '0');
       var flight = page.querySelector('[data-package-flight]:checked');
       if (flight) { body.set('flight_id', flight.value); }
-      selectedActivityIds().forEach(function (id) { body.append('activity_ids[]', id); });
+      selectedExtraIds('activities').forEach(function (id) { body.append('activity_ids[]', id); });
+      selectedExtraIds('meals').forEach(function (id) { body.append('meal_ids[]', id); });
       return body;
     }
 
@@ -187,15 +185,14 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
         + (isAlternative && entry.nights_lost > 0 ? ' (' + entry.nights_lost + ' nuit(s) de moins que demandé)' : '');
       card.appendChild(dates);
 
+      // One single figure: the offer is sold as a whole (vol + hébergement
+      // + activités + restauration), never broken down line by line.
       if (!pricesHidden && entry.total_all_in !== null && entry.total_all_in !== undefined) {
         var total = document.createElement('p');
-        total.innerHTML = '<strong>Total tout compris : ' + money(entry.total_all_in, entry.currency || currency) + '</strong>';
+        var strong = document.createElement('strong');
+        strong.textContent = 'Total tout compris : ' + money(entry.total_all_in, entry.currency || currency);
+        total.appendChild(strong);
         card.appendChild(total);
-        var detail = document.createElement('p');
-        detail.className = 'muted';
-        detail.textContent = 'Hébergement ' + money(entry.total_stay, entry.currency || currency)
-          + ' + vol et activités ' + money(entry.extras_total, entry.currency || currency);
-        card.appendChild(detail);
       }
 
       var button = document.createElement('button');
@@ -289,6 +286,15 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
 
     var searchButton = page.querySelector('[data-package-search]');
     if (searchButton) { searchButton.addEventListener('click', search); }
+
+    // The displayed total includes the chosen flight option, activities and
+    // meal plans: changing the selection after a search must recompute it
+    // instead of leaving a stale price (and a stale selection) on screen.
+    page.querySelectorAll('[data-package-flight], [data-package-extra]').forEach(function (input) {
+      input.addEventListener('change', function () {
+        if (!results.hidden || !alternatives.hidden) { search(); }
+      });
+    });
 
     if (requestForm) {
       requestForm.addEventListener('submit', function (event) {

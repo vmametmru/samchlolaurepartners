@@ -562,6 +562,9 @@ final class PackagesController extends Controller
             'isAdmin' => $isAdmin,
             'properties' => self::selectableProperties($partner),
             'expiresAtInput' => $package === null ? '' : Packages::expiresAtLocalInput($package),
+            // The "Restauration" block only shows up once migration 065 has
+            // been applied, so an install still on 064 keeps working.
+            'mealsEnabled' => Packages::mealsTableReady(),
         ]);
     }
 
