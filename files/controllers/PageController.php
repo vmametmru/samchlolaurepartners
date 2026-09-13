@@ -807,6 +807,8 @@ final class PageController extends Controller
             'requests' => $requests,
             'catalogPdfUrl' => (string) ($partner['catalog_pdf_url'] ?? ''),
             'analyticsVisible' => $analyticsVisible,
+            // "Offres Complètes" (App\Packages): admin-controlled, off by default.
+            'packagesVisible' => \App\Packages::enabledForPartner($partner),
         ]);
     }
 

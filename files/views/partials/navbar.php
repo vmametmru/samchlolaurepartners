@@ -17,6 +17,10 @@ $navLangHref = '/lang/' . $navOtherLang . '?back=' . rawurlencode($navBackPath);
 // navigation menu, keeping only the brand logo/name (not a link) so the
 // visitor isn't tempted/able to browse away from their reservation.
 $minimalHeader = !empty($minimalHeader);
+// "Offres Complètes" (App\Packages): the public link only exists for a
+// partner the admin explicitly enabled the option for.
+$navPackagesVisible = \App\Packages::enabledForPartner($partner ?? null);
+$navPackagesLabel = $navLang === 'en' ? 'Full Packages' : 'Offres Complètes';
 ?>
 <nav class="navbar<?= $minimalHeader ? ' navbar-minimal' : '' ?>">
   <div class="container navbar-inner">
@@ -52,12 +56,14 @@ $minimalHeader = !empty($minimalHeader);
               <a href="/properties"><?= \App\View::e(\App\I18n::t('nav.properties')) ?></a>
               <a href="/calendrier"><?= \App\View::e(\App\I18n::t('nav.calendar')) ?></a>
               <a href="/contact"><?= \App\View::e(\App\I18n::t('nav.contact')) ?></a>
+              <?php if ($navPackagesVisible): ?><a href="/offres"><?= \App\View::e($navPackagesLabel) ?></a><?php endif; ?>
             </div>
           </details>
         <?php else: ?>
           <a href="/properties"><?= \App\View::e(\App\I18n::t('nav.properties')) ?></a>
           <a href="/calendrier"><?= \App\View::e(\App\I18n::t('nav.calendar')) ?></a>
           <a href="/contact"><?= \App\View::e(\App\I18n::t('nav.contact')) ?></a>
+          <?php if ($navPackagesVisible): ?><a href="/offres"><?= \App\View::e($navPackagesLabel) ?></a><?php endif; ?>
         <?php endif; ?>
       <?php endif; ?>
       <a class="navbar-lang-toggle" href="<?= \App\View::e($navLangHref) ?>" title="<?= \App\View::e(\App\I18n::t('nav.switch_to_en')) ?>" aria-label="<?= \App\View::e(\App\I18n::t('nav.switch_to_en')) ?>">
@@ -81,6 +87,7 @@ $minimalHeader = !empty($minimalHeader);
               <a href="/admin/email-server-settings">Configuration serveur email</a>
               <a href="/admin/communication">Communication</a>
               <a href="/admin/analytics">Analyse</a>
+              <a href="/admin/offres">Offres Complètes</a>
               <a href="/admin/versions">Versions</a>
               <a href="/admin/diagnostic">Diagnostic</a>
               <a href="/admin/mise-a-jour">Mise à jour</a>

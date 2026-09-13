@@ -1,0 +1,564 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\controllers;
+
+use App\Auth;
+use App\Controller;
+use App\Database;
+use App\Flash;
+use App\HttpException;
+use App\LodgifyClient;
+use App\Packages;
+use App\Tenant;
+use App\View;
+use PDO;
+use Throwable;
+
+/**
+ * "Offres Complètes" (packages): partner/admin management screens plus the
+ * public offer pages.
+ *
+ * The whole feature is invisible until an admin turns on
+ * partners.packages_visible for a partner: every entry point below either
+ * 404s or redirects when the option is off, so a site where nobody enabled
+ * it behaves exactly as it did before this feature existed.
+ */
+final class PackagesController extends Controller
+{
+    // ── Guards ────────────────────────────────────────────────────────────
+
+    private static function requirePartnerUser(): array
+    {
+        $user = Auth::requireUser();
+        if (($user['role'] ?? '') !== 'partner' || (int) ($user['partner_id'] ?? 0) <= 0) {
+            throw new HttpException(403, 'Forbidden', 'Accès partenaire requis.');
+        }
+        if (!Packages::enabledForPartnerId((int) $user['partner_id'])) {
+            throw new HttpException(404, 'Not Found', 'Page introuvable');
+        }
+        return $user;
+    }
+
+    private static function requireAdminUser(): array
+    {
+        $user = Auth::requireUser(true);
+        if (!Packages::tablesReady()) {
+            throw new HttpException(404, 'Not Found', 'Page introuvable');
+        }
+        return $user;
+    }
+
+    // ── Partner: management ───────────────────────────────────────────────
+
+    public static function partnerIndex(): void
+    {
+        $user = self::requirePartnerUser();
+        $partnerId = (int) $user['partner_id'];
+        View::render('pages/packages-list', [
+            'pageTitle' => 'Offres Complètes',
+            'packages' => self::withUsage(Packages::listForPartner($partnerId)),
+            'basePath' => '/partner/offres',
+            'isAdmin' => false,
+            'partners' => [],
+            'selectedPartnerId' => $partnerId,
+        ]);
+    }
+
+    public static function partnerForm(?int $id = null): void
+    {
+        $user = self::requirePartnerUser();
+        $partnerId = (int) $user['partner_id'];
+        $package = $id !== null ? Packages::findForPartner($partnerId, $id) : null;
+        if ($id !== null && $package === null) {
+            throw new HttpException(404, 'Not Found', 'Offre introuvable');
+        }
+        self::renderForm($package, $partnerId, '/partner/offres', false);
+    }
+
+    public static function partnerSave(): never
+    {
+        $user = self::requirePartnerUser();
+        self::handleSave((int) $user['partner_id'], '/partner/offres');
+    }
+
+    public static function partnerDelete(int $id): never
+    {
+        $user = self::requirePartnerUser();
+        Packages::delete((int) $user['partner_id'], $id);
+        self::redirect('/partner/offres', 'Offre supprimée.');
+    }
+
+    // ── Admin: management (every partner's offers) ────────────────────────
+
+    public static function adminIndex(): void
+    {
+        self::requireAdminUser();
+        $partnerId = (int) ($_GET['partner_id'] ?? 0);
+        View::render('pages/packages-list', [
+            'pageTitle' => 'Offres Complètes',
+            'packages' => self::withUsage(Packages::listAll($partnerId > 0 ? $partnerId : null)),
+            'basePath' => '/admin/offres',
+            'isAdmin' => true,
+            'partners' => self::partnersWithPackagesEnabled(),
+            'selectedPartnerId' => $partnerId,
+        ]);
+    }
+
+    public static function adminForm(?int $id = null): void
+    {
+        self::requireAdminUser();
+        $package = $id !== null ? Packages::find($id) : null;
+        if ($id !== null && $package === null) {
+            throw new HttpException(404, 'Not Found', 'Offre introuvable');
+        }
+        $partnerId = $package !== null
+            ? (int) $package['partner_id']
+            : (int) ($_GET['partner_id'] ?? 0);
+        if ($partnerId <= 0) {
+            Flash::set('Choisissez d\'abord le partenaire concerné.', 'error');
+            self::redirect('/admin/offres');
+        }
+        self::renderForm($package, $partnerId, '/admin/offres', true);
+    }
+
+    public static function adminSave(): never
+    {
+        self::requireAdminUser();
+        $partnerId = (int) ($_POST['partner_id'] ?? 0);
+        if ($partnerId <= 0) {
+            self::redirect('/admin/offres', 'Partenaire manquant.', 'error');
+        }
+        self::handleSave($partnerId, '/admin/offres');
+    }
+
+    public static function adminDelete(int $id): never
+    {
+        self::requireAdminUser();
+        $package = Packages::find($id);
+        if ($package !== null) {
+            Packages::delete((int) $package['partner_id'], $id);
+        }
+        self::redirect('/admin/offres', 'Offre supprimée.');
+    }
+
+    /**
+     * Admin-only switch enabling the whole feature for one partner
+     * (mirrors the analytics toggle on the same form).
+     */
+    public static function adminTogglePartner(int $partnerId): never
+    {
+        Auth::requireUser(true);
+        if (Database::columnExists('partners', 'packages_visible')) {
+            $stmt = Database::connection()->prepare('SELECT packages_visible FROM partners WHERE id = ? LIMIT 1');
+            $stmt->execute([$partnerId]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            $newValue = $row && (int) $row['packages_visible'] === 1 ? 0 : 1;
+            Database::connection()
+                ->prepare('UPDATE partners SET packages_visible = ? WHERE id = ?')
+                ->execute([$newValue, $partnerId]);
+            Flash::set($newValue === 1 ? 'Offres Complètes activées pour ce partenaire.' : 'Offres Complètes désactivées pour ce partenaire.');
+        }
+        self::redirect('/admin/partners/' . $partnerId . '/edit');
+    }
+
+    // ── Public pages ──────────────────────────────────────────────────────
+
+    public static function publicIndex(): void
+    {
+        $partner = self::requirePublicPartner();
+        View::render('pages/packages-public', [
+            'pageTitle' => 'Offres Complètes',
+            'packages' => Packages::publicList((int) $partner['id']),
+            'pricesHidden' => self::pricesHidden($partner),
+        ]);
+    }
+
+    public static function publicDetail(int $id): void
+    {
+        $partner = self::requirePublicPartner();
+        $package = Packages::findForPartner((int) $partner['id'], $id);
+        if ($package === null) {
+            throw new HttpException(404, 'Not Found', 'Offre introuvable');
+        }
+        // A draft/expired/sold-out offer stays reachable for the agency
+        // itself (preview), never for a client.
+        $bookable = Packages::isBookable($package);
+        if (!$bookable && !Auth::isPartnerOrAdmin()) {
+            throw new HttpException(404, 'Not Found', 'Offre introuvable');
+        }
+        View::render('pages/package-detail', [
+            'pageTitle' => (string) $package['title'],
+            'package' => $package,
+            'bookable' => $bookable,
+            'remainingStock' => Packages::remainingStock($package),
+            'expiresLabel' => Packages::expiresAtLabel($package),
+            'pricesHidden' => self::pricesHidden($partner),
+            'requestsBlocked' => ReservationsController::agencyStrictModeBlocksClient(),
+            'cacheUpdatedLabel' => PageController::calendarUpdatedAtLabel(self::pricesHidden($partner)),
+        ]);
+    }
+
+    /**
+     * JSON search for an offer: which of its accommodations are available
+     * for the requested dates/party size, at what all-inclusive price, plus
+     * close-by alternative dates when nothing matches. Reads the local cache
+     * only — never the Lodgify API (see Packages::searchAccommodations()).
+     */
+    public static function publicSearch(int $id): never
+    {
+        $partner = Tenant::current();
+        if (!Packages::enabledForPartner($partner)) {
+            self::json(['error' => 'Not Found'], 404);
+        }
+        $package = Packages::findForPartner((int) $partner['id'], $id);
+        if ($package === null || (!Packages::isBookable($package) && !Auth::isPartnerOrAdmin())) {
+            self::json(['error' => 'Not Found'], 404);
+        }
+
+        $params = self::searchParams($_POST);
+        if ($params === null) {
+            self::json(['error' => 'Bad Request', 'message' => 'Dates ou nombre de personnes invalides.'], 400);
+        }
+
+        $extras = Packages::extrasSelection(
+            $package,
+            $params['flight_id'],
+            $params['activity_ids'],
+            $params['persons']
+        );
+        $search = Packages::searchAccommodations(
+            $package,
+            $partner,
+            $params['checkin'],
+            $params['checkout'],
+            $params['adults'],
+            $params['children_3to12'],
+            $params['children_under3']
+        );
+
+        $pricesHidden = self::pricesHidden($partner);
+        $decorate = static function (array $entry) use ($extras, $pricesHidden): array {
+            $entry['extras_total'] = $extras['total'];
+            $entry['total_all_in'] = round($entry['total_stay'] + $extras['total'], 2);
+            if ($pricesHidden) {
+                foreach (['room_total', 'extra_person_total', 'cleaning_total', 'tourist_tax_total', 'total_stay', 'extras_total', 'total_all_in'] as $field) {
+                    $entry[$field] = null;
+                }
+            }
+            return $entry;
+        };
+
+        self::json([
+            'data' => [
+                'nights' => $search['nights'],
+                'persons' => $params['persons'],
+                'currency' => $search['matches'][0]['currency'] ?? ($search['alternatives'][0]['currency'] ?? 'EUR'),
+                'prices_hidden' => $pricesHidden,
+                'extras' => [
+                    'flight' => $extras['flight'] === null ? null : [
+                        'id' => (int) $extras['flight']['id'],
+                        'label' => (string) $extras['flight']['label'],
+                        'total' => $pricesHidden ? null : Packages::lineTotal($extras['flight'], $params['persons']),
+                    ],
+                    'activities' => array_map(static fn (array $activity): array => [
+                        'id' => (int) $activity['id'],
+                        'label' => (string) $activity['label'],
+                        'total' => $pricesHidden ? null : (float) $activity['line_total'],
+                    ], $extras['activities']),
+                    'total' => $pricesHidden ? null : $extras['total'],
+                ],
+                'matches' => array_map($decorate, $search['matches']),
+                'alternatives' => array_map($decorate, $search['alternatives']),
+            ],
+        ]);
+    }
+
+    /**
+     * Creates the reservation request for an offer. The offer's own rules
+     * (still bookable, enough stock, accommodation really available for
+     * those dates) are enforced here, then the request itself is created by
+     * the ordinary ReservationsController::requestReservation() flow, so it
+     * ends up in /partner/reservations and /admin/reservations with the same
+     * emails and the same /r/{token} client link as any other request.
+     */
+    public static function publicRequest(int $id): never
+    {
+        $partner = Tenant::current();
+        if (!Packages::enabledForPartner($partner)) {
+            self::json(['error' => 'Not Found'], 404);
+        }
+        $package = Packages::findForPartner((int) $partner['id'], $id);
+        if ($package === null) {
+            self::json(['error' => 'Not Found'], 404);
+        }
+
+        $params = self::searchParams($_POST);
+        if ($params === null) {
+            self::json(['error' => 'Bad Request', 'message' => 'Dates ou nombre de personnes invalides.'], 400);
+        }
+        // Re-checked at submission time, never only when the page was
+        // rendered: the offer may have expired or run out of stock while the
+        // client was filling the form.
+        if (!Packages::isBookable($package, $params['persons'])) {
+            self::json([
+                'error' => 'Conflict',
+                'message' => 'Cette offre n\'est plus disponible (expirée ou complète).',
+            ], 409);
+        }
+
+        $propertyId = (int) ($_POST['property_id'] ?? 0);
+        $search = Packages::searchAccommodations(
+            $package,
+            $partner,
+            $params['checkin'],
+            $params['checkout'],
+            $params['adults'],
+            $params['children_3to12'],
+            $params['children_under3']
+        );
+        $match = null;
+        foreach ($search['matches'] as $candidate) {
+            if ((int) $candidate['property_id'] === $propertyId) {
+                $match = $candidate;
+                break;
+            }
+        }
+        if ($match === null) {
+            self::json([
+                'error' => 'Conflict',
+                'message' => 'Cet hébergement n\'est plus disponible pour ces dates.',
+            ], 409);
+        }
+
+        $extras = Packages::extrasSelection($package, $params['flight_id'], $params['activity_ids'], $params['persons']);
+
+        // Hand over to the standard reservation-request flow: it validates
+        // the client fields, prices the stay, stores the request and sends
+        // every existing email. $_POST is completed (never replaced) with
+        // the offer's own context first.
+        $_POST['property_id'] = (string) $propertyId;
+        $_POST['property_name'] = (string) $match['name'];
+        $_POST['checkin_date'] = $match['checkin'];
+        $_POST['checkout_date'] = $match['checkout'];
+        $_POST['adults'] = (string) $params['adults'];
+        $_POST['children'] = (string) ($params['children_3to12'] + $params['children_under3']);
+        $_POST['children_under3'] = (string) $params['children_under3'];
+        $_POST['children_3to12'] = (string) $params['children_3to12'];
+        $_POST['package_id'] = (string) $package['id'];
+        $_POST['package_summary'] = self::summaryText($package, $extras, $match, $params['persons']);
+        $_POST['message'] = trim(
+            (string) ($_POST['message'] ?? '') . "\n\n" . $_POST['package_summary']
+        );
+
+        ReservationsController::requestReservation();
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────
+
+    /** @return array<string, mixed> */
+    private static function requirePublicPartner(): array
+    {
+        $partner = Tenant::current();
+        if (!Packages::enabledForPartner($partner)) {
+            throw new HttpException(404, 'Not Found', 'Page introuvable');
+        }
+        return $partner;
+    }
+
+    /**
+     * "Mode Agence Strict": clients see the offer but not its prices
+     * (identical rule to the property pages).
+     */
+    private static function pricesHidden(?array $partner): bool
+    {
+        return $partner !== null && !empty($partner['agency_strict_mode']) && !Auth::isPartnerOrAdmin();
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     * @return array{checkin: string, checkout: string, adults: int, children_3to12: int, children_under3: int, persons: int, flight_id: ?int, activity_ids: array<int, int>}|null
+     */
+    private static function searchParams(array $source): ?array
+    {
+        $checkin = trim((string) ($source['checkin_date'] ?? ''));
+        $checkout = trim((string) ($source['checkout_date'] ?? ''));
+        $adults = max(0, (int) ($source['adults'] ?? 0));
+        $children3to12 = max(0, (int) ($source['children_3to12'] ?? 0));
+        $childrenUnder3 = max(0, (int) ($source['children_under3'] ?? 0));
+        if ($checkin === '' || $checkout === '' || $adults < 1) {
+            return null;
+        }
+        try {
+            $checkinDate = new \DateTimeImmutable($checkin);
+            $checkoutDate = new \DateTimeImmutable($checkout);
+        } catch (Throwable $e) {
+            return null;
+        }
+        if ($checkoutDate <= $checkinDate) {
+            return null;
+        }
+        $flightId = (int) ($source['flight_id'] ?? 0);
+        $activityIds = [];
+        foreach ((array) ($source['activity_ids'] ?? []) as $activityId) {
+            $activityId = (int) $activityId;
+            if ($activityId > 0) {
+                $activityIds[] = $activityId;
+            }
+        }
+
+        return [
+            'checkin' => $checkinDate->format('Y-m-d'),
+            'checkout' => $checkoutDate->format('Y-m-d'),
+            'adults' => $adults,
+            'children_3to12' => $children3to12,
+            'children_under3' => $childrenUnder3,
+            // Babies are not charged as travellers in the offer's per-person
+            // pricing, same rule as the accommodation capacity check.
+            'persons' => $adults + $children3to12,
+            'flight_id' => $flightId > 0 ? $flightId : null,
+            'activity_ids' => $activityIds,
+        ];
+    }
+
+    /**
+     * Plain-text recap of what the client selected, stored on the request
+     * and appended to its message so the agency sees the whole offer.
+     *
+     * @param array<string, mixed> $package
+     * @param array{flight: array<string, mixed>|null, activities: array<int, array<string, mixed>>, total: float} $extras
+     * @param array<string, mixed> $match
+     */
+    private static function summaryText(array $package, array $extras, array $match, int $persons): string
+    {
+        $currency = (string) ($match['currency'] ?? 'EUR');
+        $lines = ['Offre Complète : ' . (string) $package['title']];
+        if ($extras['flight'] !== null) {
+            $flight = $extras['flight'];
+            $details = array_filter([
+                (string) $flight['label'],
+                (string) ($flight['airline'] ?? ''),
+                (string) ($flight['cabin_class'] ?? ''),
+            ], static fn (string $value): bool => trim($value) !== '');
+            $lines[] = 'Vol : ' . implode(' — ', $details)
+                . ' (' . self::amount(Packages::lineTotal($flight, $persons), $currency) . ')';
+        }
+        $lines[] = 'Hébergement : ' . (string) $match['name']
+            . ' du ' . (string) $match['checkin'] . ' au ' . (string) $match['checkout']
+            . ' (' . self::amount((float) $match['total_stay'], $currency) . ' tout compris)';
+        foreach ($extras['activities'] as $activity) {
+            $lines[] = 'Activité : ' . (string) $activity['label']
+                . ((int) ($activity['is_mandatory'] ?? 0) === 1 ? ' (incluse)' : '')
+                . ' (' . self::amount((float) $activity['line_total'], $currency) . ')';
+        }
+        $lines[] = 'Total de l\'offre : '
+            . self::amount(round((float) $match['total_stay'] + (float) $extras['total'], 2), $currency)
+            . ' pour ' . $persons . ' personne(s).';
+
+        return implode("\n", $lines);
+    }
+
+    private static function amount(float $value, string $currency): string
+    {
+        return number_format($value, 2, ',', ' ') . ' ' . $currency;
+    }
+
+    /**
+     * Adds the "how much stock is left" figures to a list of offers for the
+     * management table.
+     *
+     * @param array<int, array<string, mixed>> $packages
+     * @return array<int, array<string, mixed>>
+     */
+    private static function withUsage(array $packages): array
+    {
+        foreach ($packages as &$package) {
+            $package['remaining_stock'] = Packages::remainingStock($package);
+            $package['used_stock'] = Packages::usedStock((int) $package['id'], (string) $package['stock_mode']);
+            $package['expires_label'] = Packages::expiresAtLabel($package);
+            $package['is_expired'] = Packages::isExpired($package);
+        }
+        unset($package);
+        return $packages;
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private static function partnersWithPackagesEnabled(): array
+    {
+        $stmt = Database::connection()->query(
+            'SELECT id, name, packages_visible FROM partners ORDER BY name ASC'
+        );
+        return $stmt === false ? [] : ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
+    }
+
+    /**
+     * Shared create/update handler for both the partner and the admin form.
+     */
+    private static function handleSave(int $partnerId, string $basePath): never
+    {
+        $id = (int) ($_POST['id'] ?? 0);
+        if ($id > 0 && Packages::findForPartner($partnerId, $id) === null) {
+            throw new HttpException(404, 'Not Found', 'Offre introuvable');
+        }
+        $title = trim((string) ($_POST['title'] ?? ''));
+        if ($title === '') {
+            self::redirect($basePath, 'Le titre de l\'offre est obligatoire.', 'error');
+        }
+        $photoUrl = Packages::storeUploadedImage($_FILES['photo'] ?? null);
+        try {
+            $savedId = Packages::save($partnerId, $id > 0 ? $id : null, $_POST, $photoUrl);
+        } catch (HttpException $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            error_log('Packages: failed to save package: ' . $e);
+            self::redirect($basePath, 'Impossible d\'enregistrer l\'offre.', 'error');
+        }
+        self::redirect($basePath . '/' . $savedId, 'Offre enregistrée.');
+    }
+
+    /**
+     * @param array<string, mixed>|null $package
+     */
+    private static function renderForm(?array $package, int $partnerId, string $basePath, bool $isAdmin): void
+    {
+        $partner = PartnersController::formData($partnerId);
+        View::render('pages/package-form', [
+            'pageTitle' => $package === null ? 'Nouvelle offre' : 'Modifier l\'offre',
+            'package' => $package,
+            'partnerId' => $partnerId,
+            'partnerName' => (string) ($partner['name'] ?? ''),
+            'basePath' => $basePath,
+            'isAdmin' => $isAdmin,
+            'properties' => self::selectableProperties($partner),
+            'expiresAtInput' => $package === null ? '' : Packages::expiresAtLocalInput($package),
+        ]);
+    }
+
+    /**
+     * The accommodations an offer may include: the partner's visible
+     * properties, read from the local cache only (the management form must
+     * not depend on a live Lodgify call either).
+     *
+     * @param array<string, mixed> $partner
+     * @return array<int, array{id: int, name: string}>
+     */
+    private static function selectableProperties(array $partner): array
+    {
+        try {
+            $properties = PageController::publicVisibleProperties((new LodgifyClient())->getPropertiesFromCache(), $partner);
+        } catch (Throwable $e) {
+            error_log('Packages: failed to read cached properties for the offer form: ' . $e->getMessage());
+            return [];
+        }
+        $result = [];
+        foreach ($properties as $property) {
+            $propertyId = (int) ($property['id'] ?? 0);
+            if ($propertyId > 0) {
+                $result[] = ['id' => $propertyId, 'name' => View::localized($property, 'name')];
+            }
+        }
+        usort($result, static fn (array $a, array $b): int => strcasecmp($a['name'], $b['name']));
+        return $result;
+    }
+}

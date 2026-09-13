@@ -10,6 +10,7 @@ use App\Database;
 use App\I18n;
 use App\LodgifyClient;
 use App\Mailer;
+use App\Packages;
 use App\Settings;
 use App\Tenant;
 use App\View;
@@ -270,6 +271,43 @@ final class ReservationsController extends Controller
             $columns[] = 'quote_extra_person_price_forced';
             $params[] = $quoteInput['extra_person_base_before_commission'] ?? null;
             $params[] = !empty($quoteInput['is_extra_person_price_forced']) ? 1 : 0;
+        }
+        return [$columns, $params];
+    }
+
+    /**
+     * Extra INSERT columns tying a reservation request to an "Offre
+     * Complète" (App\Packages) it was submitted from. Returns empty arrays —
+     * i.e. changes nothing at all — for every ordinary request, for installs
+     * where migration 064 hasn't applied, and whenever the submitted
+     * package_id isn't a real, currently bookable offer of the active
+     * partner (the client-submitted summary is never trusted as-is: it is
+     * stripped of any markup and length-capped).
+     *
+     * @param array<string, mixed> $input
+     * @return array{0: array<int, string>, 1: array<int, mixed>}
+     */
+    private static function packageInsertColumnsAndParams(array $input, int $partnerId): array
+    {
+        $packageId = (int) ($input['package_id'] ?? 0);
+        if ($packageId <= 0 || !Database::columnExists('reservation_requests', 'package_id')) {
+            return [[], []];
+        }
+        try {
+            $package = Packages::findForPartner($partnerId, $packageId);
+        } catch (Throwable $e) {
+            error_log('Packages: failed to resolve package ' . $packageId . ': ' . $e->getMessage());
+            return [[], []];
+        }
+        if ($package === null || !Packages::isBookable($package)) {
+            return [[], []];
+        }
+        $columns = ['package_id'];
+        $params = [$packageId];
+        if (Database::columnExists('reservation_requests', 'package_summary')) {
+            $summary = trim(strip_tags((string) ($input['package_summary'] ?? '')));
+            $columns[] = 'package_summary';
+            $params[] = $summary === '' ? null : mb_substr($summary, 0, 4000);
         }
         return [$columns, $params];
     }
@@ -585,7 +623,8 @@ final class ReservationsController extends Controller
         int $countedGuests,
         array $guests,
         ?float $forcedTotalPrice = null,
-        ?float $forcedExtraPersonTotal = null
+        ?float $forcedExtraPersonTotal = null,
+        bool $cacheOnly = false
     ): ?array {
         $nights = (int) (new \DateTimeImmutable($checkin))->diff($checkoutDate)->days;
         $pdo = Database::connection();
@@ -605,12 +644,24 @@ final class ReservationsController extends Controller
         $manualVatRate = $manualRow && ($manualRow['vat_rate'] ?? null) !== null ? (float) $manualRow['vat_rate'] : null;
         $lodgifyClient = new LodgifyClient();
         // A manual override always wins; when none has been saved, fall
-        // back to the VAT rate best-effort read live from Lodgify.
-        $vatRate = PageController::resolveVatRate($lodgifyClient, $propertyId, $manualVatRate);
+        // back to the VAT rate best-effort read live from Lodgify — except
+        // in $cacheOnly mode (the "Offres Complètes" pages, see
+        // cacheOnlyStayQuote() below), where no live Lodgify call may ever
+        // be issued: the local manual override is then the only source and
+        // a property without one is simply treated as non-VAT-registered.
+        $vatRate = $cacheOnly
+            ? ($manualVatRate ?? 0.0)
+            : PageController::resolveVatRate($lodgifyClient, $propertyId, $manualVatRate);
         try {
-            $rates = PageController::publicRates($lodgifyClient, $propertyId, $checkin, $checkoutDate->modify('-1 day')->format('Y-m-d'), $vatRate);
+            $rates = PageController::publicRates($lodgifyClient, $propertyId, $checkin, $checkoutDate->modify('-1 day')->format('Y-m-d'), $vatRate, $cacheOnly);
         } catch (Throwable $e) {
             error_log((string) $e);
+            return null;
+        }
+        // Cache-only callers must never price a stay from partial data: if
+        // the local cache doesn't hold a rate for every single night, the
+        // property is not offered at all rather than quoted too cheaply.
+        if ($cacheOnly && count($rates) < $nights) {
             return null;
         }
         $currency = $rates[0]['currency'] ?? 'EUR';
@@ -930,6 +981,17 @@ final class ReservationsController extends Controller
         [$quoteColumns, $quoteParams] = self::quoteInsertColumnsAndParams($pdo, $quoteBreakdown, $quoteInput);
         $columns = [...$columns, ...$quoteColumns];
         $params = [...$params, ...$quoteParams];
+
+        // "Offres Complètes" (App\Packages): a request submitted from an
+        // offer page carries the offer's id plus a plain-text summary of
+        // what the client selected in it (flight option, activities). The
+        // request itself stays a completely normal reservation request; both
+        // columns are simply left out when this install has no offers yet
+        // (migration 064 not applied) or the offer isn't a real, bookable
+        // offer of the active partner.
+        [$packageColumns, $packageParams] = self::packageInsertColumnsAndParams($input, (int) $partner['id']);
+        $columns = [...$columns, ...$packageColumns];
+        $params = [...$params, ...$packageParams];
 
         try {
             $stmt = $pdo->prepare(
@@ -2127,6 +2189,55 @@ final class ReservationsController extends Controller
             'currency' => $breakdown['currency'],
             'total_traveler' => round($breakdown['room_total'] + $breakdown['extra_person_total'], 2),
         ];
+    }
+
+    /**
+     * Full, authoritative price breakdown for a stay computed *without ever
+     * calling the Lodgify API*: rates come from lodgify_cache only (see
+     * computeItemQuote()'s $cacheOnly flag and
+     * LodgifyClient::getRatesFromCache()). Used by the "Offres Complètes"
+     * pages (App\Packages::searchAccommodations()), which must stay purely
+     * local. Returns null whenever the cache can't price the whole stay, so
+     * a property is never shown with an incomplete price.
+     *
+     * @param array<int, array{type?: string, nationality?: string}> $guests
+     * @return array{room_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, total_traveler: float, nights: int, currency: string}|null
+     */
+    public static function cacheOnlyStayQuote(
+        int $partnerId,
+        int $propertyId,
+        ?array $property,
+        string $checkin,
+        \DateTimeImmutable $checkoutDate,
+        int $adults,
+        int $totalGuests,
+        int $countedGuests,
+        array $guests
+    ): ?array {
+        $partner = self::fetchPartner($partnerId);
+        $quoteData = self::computeItemQuote(
+            $propertyId,
+            $property,
+            $checkin,
+            $checkoutDate,
+            $adults,
+            $totalGuests,
+            $countedGuests,
+            $guests,
+            null,
+            null,
+            true
+        );
+        if ($quoteData === null) {
+            return null;
+        }
+        return self::computeQuoteBreakdown(
+            $quoteData,
+            (float) ($partner['markup_percent'] ?? 0),
+            (float) ($quoteData['vat_rate'] ?? 0),
+            $quoteData['room_base_before_commission'] ?? null,
+            $quoteData['extra_person_base_before_commission'] ?? null
+        );
     }
 
     /**
