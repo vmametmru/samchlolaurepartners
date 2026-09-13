@@ -798,9 +798,18 @@ final class Packages
             if ($availabilityMap === [] || $rateMap === []) {
                 continue;
             }
+            // This app's own confirmed reservations overlapping the scanned
+            // window, read once per property: every date combination tested
+            // below is then evaluated in memory, never with one SQL query
+            // per combination.
+            $reservedRanges = ReservationsController::localReservedRanges(
+                $propertyId,
+                $windowStart->format('Y-m-d'),
+                $windowEnd->format('Y-m-d')
+            );
 
             if (self::stayCoveredByCache($availabilityMap, $rateMap, $checkinDate, $nights)
-                && ReservationsController::isPropertyLocallyAvailable($propertyId, $checkin, $checkout)
+                && ReservationsController::rangesFreeOf($reservedRanges, $checkin, $checkout)
             ) {
                 $quote = ReservationsController::cacheOnlyStayQuote(
                     (int) $partner['id'],
@@ -827,7 +836,7 @@ final class Packages
                 $altCheckinText = $altCheckin->format('Y-m-d');
                 $altCheckoutDate = $altCheckin->modify('+' . $altNights . ' days');
                 $altCheckoutText = $altCheckoutDate->format('Y-m-d');
-                if (!ReservationsController::isPropertyLocallyAvailable($propertyId, $altCheckinText, $altCheckoutText)) {
+                if (!ReservationsController::rangesFreeOf($reservedRanges, $altCheckinText, $altCheckoutText)) {
                     continue;
                 }
                 $alternativeCandidates[] = [

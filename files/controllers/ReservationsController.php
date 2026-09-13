@@ -2206,6 +2206,55 @@ final class ReservationsController extends Controller
         return ((int) $stmt->fetchColumn()) === 0;
     }
 
+    /**
+     * Every CONFIRMED local reservation of $propertyId overlapping
+     * [$from, $to), as plain Y-m-d ranges. Read once for a whole date window
+     * so a caller testing many date combinations for the same property (the
+     * "Offres Complètes" fallback search, App\Packages::
+     * searchAccommodations()) can evaluate them in memory with
+     * rangesFreeOf(), instead of issuing one isPropertyLocallyAvailable()
+     * query per combination.
+     *
+     * @return array<int, array{checkin: string, checkout: string}>
+     */
+    public static function localReservedRanges(int $propertyId, string $from, string $to): array
+    {
+        $stmt = Database::connection()->prepare(
+            'SELECT rr.checkin_date, rr.checkout_date FROM reservations res
+             INNER JOIN reservation_requests rr ON rr.id = res.request_id
+             WHERE res.cancelled_at IS NULL
+               AND rr.property_id = ?
+               AND rr.checkin_date < ?
+               AND rr.checkout_date > ?'
+        );
+        $stmt->execute([(string) $propertyId, $to, $from]);
+        $ranges = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
+            $ranges[] = [
+                'checkin' => substr((string) $row['checkin_date'], 0, 10),
+                'checkout' => substr((string) $row['checkout_date'], 0, 10),
+            ];
+        }
+        return $ranges;
+    }
+
+    /**
+     * Whether [$checkin, $checkout) overlaps none of the ranges returned by
+     * localReservedRanges() — the in-memory equivalent of
+     * isPropertyLocallyAvailable().
+     *
+     * @param array<int, array{checkin: string, checkout: string}> $ranges
+     */
+    public static function rangesFreeOf(array $ranges, string $checkin, string $checkout): bool
+    {
+        foreach ($ranges as $range) {
+            if ($range['checkin'] < $checkout && $range['checkout'] > $checkin) {
+                return false;
+            }
+        }
+        return true;
+    }
+
 
     /**
      * Computes just the traveler-facing total (currency + total_traveler)
