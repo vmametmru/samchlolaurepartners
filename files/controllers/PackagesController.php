@@ -319,7 +319,7 @@ final class PackagesController extends Controller
         // Re-checked at submission time, never only when the page was
         // rendered: the offer may have expired or run out of stock while the
         // client was filling the form.
-        if (!Packages::isBookable($package, $params['persons'])) {
+if (!Packages::isBookable($package, $params['adults'] + $params['children_3to12'] + $params['children_under3'])) {
             self::json([
                 'error' => 'Conflict',
                 'message' => 'Cette offre n\'est plus disponible (expirée ou complète).',
