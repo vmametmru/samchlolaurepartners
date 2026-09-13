@@ -150,7 +150,7 @@ final class PackagesController extends Controller
         $user = self::requirePartnerUser();
         $partnerId = (int) $user['partner_id'];
         $status = (string) ($_POST['status'] ?? '');
-        $ok = PackageRequests::updateStatus($id, $status, PackageRequests::scopeIdsForPartner($partnerId));
+        $ok = PackageRequests::updateStatus($id, $status, [$partnerId]);
         self::redirect('/partner/offres/demandes', $ok ? 'Statut mis à jour.' : 'Demande introuvable.', $ok ? 'success' : 'error');
     }
 
