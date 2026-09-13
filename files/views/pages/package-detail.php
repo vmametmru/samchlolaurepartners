@@ -246,16 +246,18 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
     </div>
   </div>
 
-  <!-- Running total of the offer, pinned at the bottom of the screen as soon
-       as an accommodation is chosen: it starts from the accommodation (plus
-       the flight option) and is recomputed server-side every time an option
-       of the next steps is ticked. -->
-  <div class="package-total-bar" data-package-total-bar hidden>
-    <div class="container package-total-bar-inner">
-      <span data-package-total-bar-label class="muted"></span>
+  <!-- Floating recap of the offer, shown over the page as soon as an
+       accommodation is chosen: the chosen bien, the options already retained
+       (default ones included) and the running total, all recomputed
+       server-side every time an option of the next steps is ticked. -->
+  <aside class="package-total-bar" data-package-total-bar hidden>
+    <p class="package-total-bar-title">Votre offre</p>
+    <ul class="package-total-bar-lines" data-package-total-bar-lines></ul>
+    <p class="package-total-bar-total">
+      <span>Total</span>
       <strong data-package-total-bar-amount></strong>
-    </div>
-  </div>
+    </p>
+  </aside>
 </section>
 
 <script>
@@ -272,7 +274,7 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
     var requestRecap = page.querySelector('[data-package-request-recap]');
     var searchStatus = page.querySelector('[data-package-search-status]');
     var totalBar = page.querySelector('[data-package-total-bar]');
-    var totalBarLabel = page.querySelector('[data-package-total-bar-label]');
+    var totalBarLines = page.querySelector('[data-package-total-bar-lines]');
     var totalBarAmount = page.querySelector('[data-package-total-bar-amount]');
     // One single accommodation chosen, or several accommodations sharing the
     // same address when the party is too big for one of them.
@@ -476,6 +478,29 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
       return body;
     }
 
+    /**
+     * "Inclus dans ce prix" : labels only (chambre, ménage, taxe de séjour,
+     * options par défaut) — an offer is sold as a whole, so no line ever
+     * carries its own amount.
+     */
+    function includesList(labels) {
+      var wrapper = document.createElement('div');
+      if (!labels || labels.length === 0) { return wrapper; }
+      wrapper.className = 'package-includes';
+      var title = document.createElement('p');
+      title.className = 'muted';
+      title.textContent = 'Inclus dans ce prix :';
+      wrapper.appendChild(title);
+      var list = document.createElement('ul');
+      labels.forEach(function (label) {
+        var item = document.createElement('li');
+        item.textContent = label;
+        list.appendChild(item);
+      });
+      wrapper.appendChild(list);
+      return wrapper;
+    }
+
     function entryCard(entry, currency, isAlternative) {
       var card = document.createElement('article');
       card.className = 'card package-result-card';
@@ -514,15 +539,17 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
         + (isAlternative && entry.nights_lost > 0 ? ' (' + entry.nights_lost + ' nuit(s) de moins que demandé)' : '');
       body.appendChild(dates);
 
-      // At this first step only the flight and the accommodation are known,
-      // so the card shows that partial total; the sticky bar below then
-      // follows the full all-inclusive total as options get picked.
-      if (!pricesHidden && entry.total_flight_stay !== null && entry.total_flight_stay !== undefined) {
+      // Price of everything the client already gets at this first step: the
+      // stay (nightly rate for the party, ménage, taxe de séjour) plus the
+      // offer's default options. The floating recap then follows the full
+      // all-inclusive total as further options get picked.
+      if (!pricesHidden && entry.total_base !== null && entry.total_base !== undefined) {
         var total = document.createElement('p');
         var strong = document.createElement('strong');
-        strong.textContent = 'Total Vol + Hébergement : ' + money(entry.total_flight_stay, entry.currency || currency);
+        strong.textContent = 'Total Vol + Hébergement : ' + money(entry.total_base, entry.currency || currency);
         total.appendChild(strong);
         body.appendChild(total);
+        body.appendChild(includesList(entry.includes));
       }
 
       var actions = document.createElement('div');
@@ -563,6 +590,30 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
       actions.appendChild(detailButton);
 
       return card;
+    }
+
+    /**
+     * Drops the accommodation the client had chosen and everything computed
+     * from it (same-address selection, floating recap, unlocked steps), then
+     * brings them back to the accommodation step.
+     */
+    function clearSelection() {
+      if (selected === null && selectedGroupIds.length === 0) { return; }
+      selected = null;
+      selectedGroupIds = [];
+      selectedGroupIndex = null;
+      groupSelection = null;
+      groupStay = null;
+      results.innerHTML = '';
+      results.hidden = true;
+      alternatives.innerHTML = '';
+      alternatives.hidden = true;
+      groupsBlock.innerHTML = '';
+      groupsBlock.hidden = true;
+      resultCards = [];
+      if (requestBlock) { requestBlock.hidden = true; }
+      searchStatus.textContent = 'Relancez la recherche pour voir les hébergements disponibles.';
+      showStep(0);
     }
 
     function markSelection() {
@@ -642,10 +693,11 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
             : count + ' bien(s) sélectionné(s) — capacité ' + (unlimited ? 'suffisante' : capacity + ' / ' + required + ' personne(s)');
           totalLine.textContent = '';
           if (selectedGroupIndex === groupIndex && groupSelection && !pricesHidden
-            && groupSelection.total_flight_stay !== null && groupSelection.total_flight_stay !== undefined) {
+            && groupSelection.total_base !== null && groupSelection.total_base !== undefined) {
             var strong = document.createElement('strong');
-            strong.textContent = 'Total Vol + Hébergement : ' + money(groupSelection.total_flight_stay, groupSelection.currency || data.currency);
+            strong.textContent = 'Total Vol + Hébergement : ' + money(groupSelection.total_base, groupSelection.currency || data.currency);
             totalLine.appendChild(strong);
+            totalLine.appendChild(includesList(groupSelection.includes));
           }
         }
 
@@ -838,6 +890,16 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
     var searchButton = page.querySelector('[data-package-search]');
     if (searchButton) { searchButton.addEventListener('click', search); }
 
+    // Changing a search criterion (dates, nombre de personnes…) invalidates
+    // the bien already chosen: its price and even its availability depend on
+    // those criteria, so the selection is dropped instead of being carried
+    // over to a stay the client never validated.
+    page.querySelectorAll('[data-package-checkin], [data-package-checkout], [data-package-adults],'
+      + ' [data-package-children], [data-package-babies]').forEach(function (field) {
+      field.addEventListener('change', clearSelection);
+      field.addEventListener('input', clearSelection);
+    });
+
     // Steps: Hébergement, Vol (when the offer has flight options), Transport,
     // Activités then Restauration. Hidden panels keep their inputs in the DOM,
     // so the whole selection is always read by searchPayload().
@@ -934,24 +996,50 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
      */
     function refreshTotalBar() {
       if (!totalBar) { return; }
-      var total = null;
-      var totalCurrency = '';
-      if (!pricesHidden) {
-        if (selectedGroupIds.length > 0 && groupSelection) {
-          total = groupSelection.total_all_in;
-          totalCurrency = groupSelection.currency;
-        } else if (selected !== null) {
-          total = selected.total_all_in;
-          totalCurrency = selected.currency;
-        }
-      }
-      if (total === null || total === undefined) {
+      var chosen = selectedGroupIds.length > 0 ? groupSelection : selected;
+      if (!chosen) {
         totalBar.hidden = true;
         return;
       }
       totalBar.hidden = false;
-      if (totalBarLabel) { totalBarLabel.textContent = 'Total de votre offre'; }
-      if (totalBarAmount) { totalBarAmount.textContent = money(total, totalCurrency); }
+      if (totalBarLines) {
+        totalBarLines.innerHTML = '';
+        // The chosen bien first, then everything already retained: the
+        // offer's default options and the ones ticked since.
+        var lines = selectedGroupIds.length > 0
+          ? [selectedGroupIds.length + ' biens à la même adresse'
+              + (groupStay && groupStay.location ? ' (' + groupStay.location + ')' : '')]
+          : [selected.name];
+        (chosen.includes || []).forEach(function (label) { lines.push(label); });
+        selectedOptionLabels().forEach(function (label) { lines.push(label); });
+        lines.forEach(function (label) {
+          var item = document.createElement('li');
+          item.textContent = label;
+          totalBarLines.appendChild(item);
+        });
+      }
+      if (totalBarAmount) {
+        totalBarAmount.textContent = pricesHidden ? 'Sur demande' : money(chosen.total_all_in, chosen.currency);
+      }
+    }
+
+    /**
+     * Labels of the *optional* options the traveller has ticked on the
+     * following steps. The default ones — including the flight, whichever is
+     * chosen — are already listed by the server in "includes", so the
+     * floating recap mirrors the current choice without repeating a line.
+     */
+    function selectedOptionLabels() {
+      var labels = [];
+      [['transports', 'Transport'], ['activities', 'Activité'], ['meals', 'Restauration']].forEach(function (block) {
+        page.querySelectorAll('[data-package-extra="' + block[0] + '"]').forEach(function (input) {
+          if (!input.checked || input.disabled) { return; }
+          var card = input.closest('.package-option-card');
+          var name = card ? card.querySelector('h3') : null;
+          if (name) { labels.push(block[1] + ' : ' + name.textContent); }
+        });
+      });
+      return labels;
     }
 
     function stayDates() {

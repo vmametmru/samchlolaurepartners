@@ -253,14 +253,42 @@ final class PackagesController extends Controller
         );
 
         $pricesHidden = self::pricesHidden($partner);
+        // What every accommodation price already contains, spelled out for
+        // the client: the stay itself (nightly rate for the party, cleaning
+        // fee, tourist tax) plus the offer's default options. Only labels are
+        // listed — never the amount of a single line — so the offer keeps
+        // being sold as a whole.
+        $baseIncludes = static function (array $entry) use ($extras, $params): array {
+            $labels = [
+                'Hébergement : ' . (int) $entry['nights'] . ' nuit(s), tarif chambre pour '
+                    . $params['persons'] . ' personne(s)',
+            ];
+            if ((float) ($entry['cleaning_total'] ?? 0) > 0) {
+                $labels[] = 'Frais de ménage';
+            }
+            if ((float) ($entry['tourist_tax_total'] ?? 0) > 0) {
+                $labels[] = 'Taxe de séjour';
+            }
+            if ($extras['flight'] !== null) {
+                $labels[] = 'Vol : ' . (string) $extras['flight']['label'];
+            }
+            foreach (['transports' => 'Transport', 'activities' => 'Activité', 'meals' => 'Restauration'] as $block => $title) {
+                foreach ($extras[$block] as $extra) {
+                    if ((int) ($extra['is_mandatory'] ?? 0) === 1) {
+                        $labels[] = $title . ' : ' . Packages::text($extra, 'label');
+                    }
+                }
+            }
+            return $labels;
+        };
         // An offer is sold as a whole: the public page only ever shows
         // aggregated figures — the "Total Vol + Hébergement" of the first
-        // step (accommodation + chosen/default flight option) and the
+        // step (accommodation + default options of the other steps) and the
         // all-inclusive running total of the whole offer. The per-line
         // amounts (each activity, meal, transport…) are deliberately not
         // exposed here, so no detailed price can leak to the client through
         // this endpoint.
-        $decorate = static function (array $entry) use ($extras, $pricesHidden): array {
+        $decorate = static function (array $entry) use ($extras, $pricesHidden, $baseIncludes): array {
             return [
                 'property_id' => (int) $entry['property_id'],
                 'name' => (string) $entry['name'],
@@ -276,9 +304,12 @@ final class PackagesController extends Controller
                 'total_all_in' => $pricesHidden
                     ? null
                     : round((float) $entry['total_stay'] + (float) $extras['total'], 2),
-                'total_flight_stay' => $pricesHidden
+                // Stay + everything the client already gets by default, i.e.
+                // the figure shown on the accommodation card.
+                'total_base' => $pricesHidden
                     ? null
-                    : round((float) $entry['total_stay'] + (float) $extras['flight_total'], 2),
+                    : round((float) $entry['total_stay'] + (float) $extras['base_total'], 2),
+                'includes' => $baseIncludes($entry),
             ];
         };
 
@@ -325,9 +356,20 @@ final class PackagesController extends Controller
                     'total_all_in' => $pricesHidden
                         ? null
                         : round((float) $quotedSelection['total_stay'] + (float) $extras['total'], 2),
-                    'total_flight_stay' => $pricesHidden
+                    'total_base' => $pricesHidden
                         ? null
-                        : round((float) $quotedSelection['total_stay'] + (float) $extras['flight_total'], 2),
+                        : round((float) $quotedSelection['total_stay'] + (float) $extras['base_total'], 2),
+                    'includes' => $baseIncludes([
+                        'nights' => (int) ($quotedSelection['items'][0]['nights'] ?? 0),
+                        'cleaning_total' => array_sum(array_map(
+                            static fn (array $item): float => (float) ($item['quote']['cleaning_total'] ?? 0),
+                            $quotedSelection['items']
+                        )),
+                        'tourist_tax_total' => array_sum(array_map(
+                            static fn (array $item): float => (float) ($item['quote']['tourist_tax_total'] ?? 0),
+                            $quotedSelection['items']
+                        )),
+                    ]),
                 ];
             }
         }
@@ -487,7 +529,7 @@ final class PackagesController extends Controller
      * @param array<string, mixed> $package
      * @param array<string, mixed> $partner
      * @param array<string, mixed> $params searchParams()
-     * @param array{flight: array<string, mixed>|null, flight_total: float, transports: array<int, array<string, mixed>>, activities: array<int, array<string, mixed>>, meals: array<int, array<string, mixed>>, total: float} $extras
+     * @param array{flight: array<string, mixed>|null, flight_total: float, base_total: float, transports: array<int, array<string, mixed>>, activities: array<int, array<string, mixed>>, meals: array<int, array<string, mixed>>, total: float} $extras
      * @param array<string, mixed> $search searchAccommodations() for the same dates/party
      * @param array<int, int> $propertyIds
      */
@@ -764,7 +806,7 @@ final class PackagesController extends Controller
      * total.
      *
      * @param array<string, mixed> $package
-     * @param array{flight: array<string, mixed>|null, flight_total: float, transports: array<int, array<string, mixed>>, activities: array<int, array<string, mixed>>, meals: array<int, array<string, mixed>>, total: float} $extras
+     * @param array{flight: array<string, mixed>|null, flight_total: float, base_total: float, transports: array<int, array<string, mixed>>, activities: array<int, array<string, mixed>>, meals: array<int, array<string, mixed>>, total: float} $extras
      * @param array<int, array<string, mixed>> $stays
      */
     private static function summaryText(

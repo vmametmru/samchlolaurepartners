@@ -659,16 +659,19 @@ final class Packages
      * total, for the client's current selection. Mandatory transports/
      * activities/meals are always counted, whatever the client ticked.
      *
-     * 'flight_total' is exposed on its own because the accommodation step
-     * quotes a "Total Vol + Hébergement" per property (the running total of
-     * the whole offer is only shown in the page's total bar, once the
-     * accommodation is chosen).
+     * 'base_total' is exposed on its own because the accommodation step
+     * quotes, for each property, the price of everything the client gets
+     * without choosing anything: the stay itself plus the offer's default
+     * flight option and every mandatory transport/activity/meal. The running
+     * total of the whole offer (that base plus the options ticked afterwards)
+     * is shown in the page's floating recap, once the accommodation is
+     * chosen.
      *
      * @param array<string, mixed> $package fully loaded offer (find())
      * @param array<int, int> $selectedActivityIds
      * @param array<int, int> $selectedMealIds
      * @param array<int, int> $selectedTransportIds
-     * @return array{flight: array<string, mixed>|null, flight_total: float, transports: array<int, array<string, mixed>>, activities: array<int, array<string, mixed>>, meals: array<int, array<string, mixed>>, total: float}
+     * @return array{flight: array<string, mixed>|null, flight_total: float, base_total: float, transports: array<int, array<string, mixed>>, activities: array<int, array<string, mixed>>, meals: array<int, array<string, mixed>>, total: float}
      * @throws HttpException when $flightId is not one of this offer's flights
      */
     public static function extrasSelection(
@@ -708,6 +711,9 @@ final class Packages
 
         $flightTotal = $flight !== null ? self::lineTotal($flight, $persons) : 0.0;
         $total = $flightTotal;
+        // Everything the client gets without picking anything: the default
+        // flight option plus the mandatory lines of the other steps.
+        $baseTotal = $flightTotal;
         $selection = ['transports' => [], 'activities' => [], 'meals' => []];
         $selectedIds = [
             'transports' => $selectedTransportIds,
@@ -722,6 +728,9 @@ final class Packages
                 }
                 $extra['line_total'] = self::lineTotal($extra, $persons);
                 $total += $extra['line_total'];
+                if ($isMandatory) {
+                    $baseTotal += $extra['line_total'];
+                }
                 $selection[$block][] = $extra;
             }
         }
@@ -729,6 +738,7 @@ final class Packages
         return [
             'flight' => $flight,
             'flight_total' => round($flightTotal, 2),
+            'base_total' => round($baseTotal, 2),
             'transports' => $selection['transports'],
             'activities' => $selection['activities'],
             'meals' => $selection['meals'],
