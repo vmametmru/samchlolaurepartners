@@ -863,6 +863,17 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .package-option-card .card-body p { margin: 0; font-size: .9rem; }
 @media (max-width: 980px) { .package-options-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 760px) { .package-options-grid { grid-template-columns: 1fr; } }
+/* Admin "Offre Complète" form (package-form.php): each block (Informations,
+   Vol, Hébergement, Transport, Activités, Restauration) is its own titled
+   card instead of one continuous list of fields, and every flight/extra row
+   is itself a lighter, tinted sub-card so repeated options stay visually
+   distinct as more are added. */
+.package-admin-section .section-title { display: flex; align-items: center; gap: .5rem; }
+.package-admin-row { background: var(--c-bg-muted, #f9fafb); border-style: dashed; }
+.package-admin-row-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .75rem; margin-top: .75rem; padding-top: .75rem; border-top: 1px solid var(--border); }
+.package-admin-photo-field { display: flex; align-items: flex-end; gap: 1rem; flex-wrap: wrap; }
+.package-admin-photo-preview { max-width: 160px; border-radius: .75rem; }
+.package-variance-badge { align-self: flex-start; background: #e0e7ff; color: #3730a3; }
 /* What an accommodation's price already contains (labels only). */
 .package-includes { margin-top: .25rem; }
 .package-includes p { margin: 0; font-size: .85rem; }

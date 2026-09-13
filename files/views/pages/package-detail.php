@@ -4,9 +4,13 @@
  * available accommodations (searched in the local cache only), activities
  * and meal plans, then the reservation request form.
  *
- * An offer is sold as a whole: no individual price (flight, activity, meal,
- * accommodation) is ever printed here — only the all-inclusive total
- * returned by the search endpoint.
+ * An offer is sold as a whole: no absolute individual price (flight,
+ * activity, meal, accommodation) is ever printed here — only the
+ * all-inclusive total returned by the search endpoint. The one exception is
+ * the "variance" shown on each Vol/Transport/Activités/Restauration option
+ * (see $formatVariance below): the price difference against that step's
+ * default/included option, so the client sees the cost impact of switching
+ * without the offer's absolute prices being exposed.
  */
 $e = static fn (mixed $value): string => \App\View::e($value);
 $t = static fn (array $row, string $field): string => \App\Packages::text($row, $field);
@@ -19,6 +23,20 @@ $extraBlocks = [
     'meals' => ['title' => 'Restauration', 'rows' => $package['meals'] ?? [], 'included' => 'Incluse dans l\'offre', 'optional' => 'Ajouter cette formule', 'none' => 'Sans formule repas'],
 ];
 $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('Y-m-d');
+// Renders the price difference of an option against its step's baseline
+// (the default flight, or 0 for an optional transport/activity/meal since
+// mandatory ones are already counted in the base price): "Inclus" when it
+// matches the baseline, "+123,00 €" / "-123,00 €" otherwise. Hidden
+// altogether when this partner's prices are hidden.
+$formatVariance = static function (float $variance) use ($pricesHidden): ?string {
+    if ($pricesHidden) {
+        return null;
+    }
+    if (abs($variance) < 0.005) {
+        return 'Inclus';
+    }
+    return ($variance > 0 ? '+' : '−') . number_format(abs($variance), 2, ',', ' ') . ' €';
+};
 ?>
 <section class="container section-lg" data-package-page data-package-id="<?= (int) $package['id'] ?>" data-prices-hidden="<?= $pricesHidden ? '1' : '0' ?>">
   <?php if (!$bookable): ?>
@@ -87,25 +105,53 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
       <div data-package-step-panel="<?= $e($stepKey) ?>"<?= $index === 0 ? '' : ' hidden' ?>>
         <?php if ($stepKey === 'flight'): ?>
           <!-- One block per flight option, 3 per line (see
-               .package-options-grid). No option is pre-selected: the client
-               must pick one before the step's button unlocks. -->
+               .package-options-grid). The flight marked "Option conseillée"
+               (is_default) is pre-selected so the block reflects the choice
+               already used to compute the running total; the client can
+               still switch to another option. Each card also shows its price
+               variance against that default option (see $formatVariance),
+               mirroring Packages::extrasSelection()'s own fallback to the
+               first flight when none is marked default. -->
+          <?php
+            $flightDefault = null;
+            foreach ($flights as $candidate) {
+                if ((int) ($candidate['is_default'] ?? 0) === 1) {
+                    $flightDefault = $candidate;
+                    break;
+                }
+            }
+            if ($flightDefault === null && $flights !== []) {
+                $flightDefault = $flights[0];
+            }
+            $flightDefaultPrice = $flightDefault !== null ? (float) $flightDefault['price'] : 0.0;
+          ?>
           <div class="package-options-grid">
             <?php foreach ($flights as $flight): ?>
-              <label class="card card-body package-option-card">
-                <span class="inline-check">
-                  <input type="radio" name="package_flight" value="<?= (int) $flight['id'] ?>" data-package-flight>
-                  <strong><?= $e((string) $flight['label']) ?></strong>
-                </span>
-                <?php if (!empty($flight['airline']) || !empty($flight['cabin_class'])): ?>
-                  <span class="muted">
-                    <?= $e((string) ($flight['airline'] ?? '')) ?>
-                    <?php if (!empty($flight['cabin_class'])): ?> (<?= $e((string) $flight['cabin_class']) ?>)<?php endif; ?>
+              <label class="card package-option-card">
+                <?php if (!empty($flight['photo_url'])): ?>
+                  <div class="property-card-image"><img src="<?= $e($flight['photo_url']) ?>" alt="<?= $e((string) $flight['label']) ?>" loading="lazy"></div>
+                <?php endif; ?>
+                <div class="card-body">
+                  <span class="inline-check">
+                    <input type="radio" name="package_flight" value="<?= (int) $flight['id'] ?>" data-package-flight
+                      <?= (int) ($flight['is_default'] ?? 0) === 1 ? 'checked' : '' ?>>
+                    <strong><?= $e((string) $flight['label']) ?></strong>
                   </span>
-                <?php endif; ?>
-                <?php if ((int) ($flight['is_default'] ?? 0) === 1): ?>
-                  <span class="muted">Option conseillée</span>
-                <?php endif; ?>
-                <?php if (!empty($flight['description'])): ?><small class="muted"><?= nl2br($e((string) $flight['description'])) ?></small><?php endif; ?>
+                  <?php if (!empty($flight['airline']) || !empty($flight['cabin_class'])): ?>
+                    <span class="muted">
+                      <?= $e((string) ($flight['airline'] ?? '')) ?>
+                      <?php if (!empty($flight['cabin_class'])): ?> (<?= $e((string) $flight['cabin_class']) ?>)<?php endif; ?>
+                    </span>
+                  <?php endif; ?>
+                  <?php if ((int) ($flight['is_default'] ?? 0) === 1): ?>
+                    <span class="muted">Option conseillée</span>
+                  <?php endif; ?>
+                  <?php $flightVariance = $formatVariance((float) $flight['price'] - $flightDefaultPrice); ?>
+                  <?php if ($flightVariance !== null): ?>
+                    <span class="badge package-variance-badge">Variance : <?= $e($flightVariance) ?></span>
+                  <?php endif; ?>
+                  <?php if (!empty($flight['description'])): ?><small class="muted"><?= nl2br($e((string) $flight['description'])) ?></small><?php endif; ?>
+                </div>
               </label>
             <?php endforeach; ?>
           </div>
@@ -117,6 +163,36 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
               <label><span>Adultes</span><input class="input" type="number" min="1" step="1" value="2" data-package-adults></label>
               <label><span>Enfants (3-12 ans)</span><input class="input" type="number" min="0" step="1" value="0" data-package-children></label>
               <label><span>Bébés (moins de 3 ans)</span><input class="input" type="number" min="0" step="1" value="0" data-package-babies></label>
+              <!-- Used to compute the tourist tax (see Packages::guestsForNationality()):
+                   a Mauricien party is exempt, everyone else is taxable. -->
+              <div class="stack-sm" data-package-nationalities>
+                <div class="inline-check">
+                  <input type="checkbox" id="packageSameNat" data-package-same-nationality checked>
+                  <label for="packageSameNat">Même nationalité pour tous</label>
+                </div>
+                <div data-package-uniform-nationality-wrap>
+                  <label><span>Nationalité (tous)</span>
+                    <select class="input" data-package-uniform-nationality>
+                      <option value="">Sélectionner...</option>
+                      <?php foreach (['Mauricienne', 'Française', 'Britannique', 'Allemande', 'Italienne', 'Espagnole', 'Belge', 'Suisse', 'Américaine', 'Australienne', 'Autre'] as $nationalityOption): ?>
+                        <option value="<?= $e($nationalityOption) ?>"><?= $e($nationalityOption) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </label>
+                </div>
+                <div class="stack-sm" data-package-nationality-list hidden></div>
+                <template data-package-nationality-template>
+                  <label>
+                    <span></span>
+                    <select class="input" data-package-nationality-select>
+                      <option value="">Sélectionner...</option>
+                      <?php foreach (['Mauricienne', 'Française', 'Britannique', 'Allemande', 'Italienne', 'Espagnole', 'Belge', 'Suisse', 'Américaine', 'Australienne', 'Autre'] as $nationalityOption): ?>
+                        <option value="<?= $e($nationalityOption) ?>"><?= $e($nationalityOption) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </label>
+                </template>
+              </div>
             </div>
             <div class="button-row mt-16">
               <button class="btn-primary" type="button" data-package-search>Rechercher</button>
@@ -154,6 +230,17 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
                   <h3><?= $e($t($extra, 'label')) ?></h3>
                   <?php $extraDescription = $t($extra, 'description'); ?>
                   <?php if ($extraDescription !== ''): ?><p><?= nl2br($e($extraDescription)) ?></p><?php endif; ?>
+                  <?php
+                    // Mandatory extras are always included in the base price
+                    // (variance 0, same as the default flight); an optional
+                    // one's variance is simply the extra cost of ticking it,
+                    // since nothing prevents leaving it unselected (see
+                    // $formatVariance at the top of this file).
+                    $extraVariance = $formatVariance($mandatory ? 0.0 : (float) $extra['price']);
+                  ?>
+                  <?php if ($extraVariance !== null): ?>
+                    <span class="badge package-variance-badge">Variance : <?= $e($extraVariance) ?></span>
+                  <?php endif; ?>
                   <label class="inline-check">
                     <input type="checkbox" value="<?= (int) $extra['id'] ?>" data-package-extra="<?= $e($stepKey) ?>"
                       <?= $mandatory ? 'checked disabled' : '' ?>>
@@ -293,6 +380,13 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
     function money(amount, currency) {
       if (amount === null || amount === undefined) { return ''; }
       return Number(amount).toFixed(2).replace('.', ',') + ' ' + (currency || 'EUR');
+    }
+
+    function displayDate(isoDate) {
+      var text = String(isoDate || '');
+      var parts = text.split('-');
+      if (parts.length !== 3) { return text; }
+      return parts[2] + '/' + parts[1] + '/' + parts[0];
     }
 
     // Tabs of the "Voir le bien" modal (description / équipements /
@@ -460,13 +554,95 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
         .map(function (input) { return input.value; });
     }
 
+    function partyCounts() {
+      return {
+        adults: Math.max(0, Number(value('[data-package-adults]') || 0)),
+        children3to12: Math.max(0, Number(value('[data-package-children]') || 0)),
+        babies: Math.max(0, Number(value('[data-package-babies]') || 0))
+      };
+    }
+
+    function renderPackageNationalities() {
+      var wrap = page.querySelector('[data-package-nationalities]');
+      if (!wrap) { return; }
+      var sameCheckbox = wrap.querySelector('[data-package-same-nationality]');
+      var uniformWrap = wrap.querySelector('[data-package-uniform-nationality-wrap]');
+      var uniformSelect = wrap.querySelector('[data-package-uniform-nationality]');
+      var list = wrap.querySelector('[data-package-nationality-list]');
+      var template = wrap.querySelector('[data-package-nationality-template]');
+      if (!sameCheckbox || !uniformWrap || !uniformSelect || !list || !template) { return; }
+      var counts = partyCounts();
+      var existing = Array.prototype.slice.call(list.querySelectorAll('[data-package-nationality-select]')).map(function (select) {
+        return { type: select.getAttribute('data-type') || '', nationality: select.value || '' };
+      });
+      var same = sameCheckbox.checked;
+      uniformWrap.hidden = !same;
+      list.hidden = same;
+      list.innerHTML = '';
+      if (same) { return; }
+      var entries = [];
+      for (var i = 0; i < counts.adults; i += 1) {
+        entries.push({ type: 'adult', label: 'Adulte ' + (i + 1) + ' — Nationalité' });
+      }
+      for (var b = 0; b < counts.babies; b += 1) {
+        entries.push({ type: 'child_under3', label: 'Enfant (< 3 ans) ' + (b + 1) + ' — Nationalité' });
+      }
+      for (var c = 0; c < counts.children3to12; c += 1) {
+        entries.push({ type: 'child', label: 'Enfant (3-12 ans) ' + (c + 1) + ' — Nationalité' });
+      }
+      entries.forEach(function (entry, index) {
+        var node = template.content.firstElementChild.cloneNode(true);
+        node.querySelector('span').textContent = entry.label;
+        var select = node.querySelector('[data-package-nationality-select]');
+        select.setAttribute('data-type', entry.type);
+        if (existing[index] && existing[index].type === entry.type) {
+          select.value = existing[index].nationality;
+        } else if (uniformSelect.value) {
+          select.value = uniformSelect.value;
+        }
+        list.appendChild(node);
+      });
+    }
+
+    function collectPackageGuests() {
+      var wrap = page.querySelector('[data-package-nationalities]');
+      if (!wrap) { return []; }
+      var counts = partyCounts();
+      var sameCheckbox = wrap.querySelector('[data-package-same-nationality]');
+      if (sameCheckbox && sameCheckbox.checked) {
+        var uniform = wrap.querySelector('[data-package-uniform-nationality]');
+        var nationality = uniform ? (uniform.value || '') : '';
+        return []
+          .concat(Array.from({ length: counts.adults }, function () { return { type: 'adult', nationality: nationality }; }))
+          .concat(Array.from({ length: counts.children3to12 }, function () { return { type: 'child', nationality: nationality }; }))
+          .concat(Array.from({ length: counts.babies }, function () { return { type: 'child_under3', nationality: nationality }; }));
+      }
+      return Array.prototype.slice.call(wrap.querySelectorAll('[data-package-nationality-select]')).map(function (select) {
+        return {
+          type: select.getAttribute('data-type') || 'adult',
+          nationality: select.value || ''
+        };
+      });
+    }
+
+    function selectedPackageNationality(guests) {
+      var filled = guests.filter(function (guest) { return (guest.nationality || '').trim() !== ''; });
+      if (filled.length === 0 || filled.length !== guests.length) { return ''; }
+      var first = filled[0].nationality;
+      var same = filled.every(function (guest) { return guest.nationality === first; });
+      return same ? first : '';
+    }
+
     function searchPayload() {
       var body = new URLSearchParams();
+      var guests = collectPackageGuests();
       body.set('checkin_date', value('[data-package-checkin]'));
       body.set('checkout_date', value('[data-package-checkout]'));
       body.set('adults', value('[data-package-adults]') || '0');
       body.set('children_3to12', value('[data-package-children]') || '0');
       body.set('children_under3', value('[data-package-babies]') || '0');
+      body.set('nationality', selectedPackageNationality(guests));
+      body.set('guests_json', JSON.stringify(guests));
       var flight = page.querySelector('[data-package-flight]:checked');
       if (flight) { body.set('flight_id', flight.value); }
       selectedExtraIds('transports').forEach(function (id) { body.append('transport_ids[]', id); });
@@ -479,25 +655,67 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
     }
 
     /**
-     * "Inclus dans ce prix" : labels only (chambre, ménage, taxe de séjour,
-     * options par défaut) — an offer is sold as a whole, so no line ever
-     * carries its own amount.
+     * "Inclus dans ce prix" : labels only (chambre, ménage, options par
+     * défaut) — an offer is sold as a whole, so no line ever carries its own
+     * amount. The tourist tax is never listed here: it is never part of any
+     * total (see touristTaxNote() below).
      */
-    function includesList(labels) {
+    function includesList(labels, preselectedLabels) {
       var wrapper = document.createElement('div');
-      if (!labels || labels.length === 0) { return wrapper; }
+      var hasIncludes = labels && labels.length > 0;
+      var hasPreselected = preselectedLabels && preselectedLabels.length > 0;
+      if (!hasIncludes && !hasPreselected) { return wrapper; }
       wrapper.className = 'package-includes';
-      var title = document.createElement('p');
-      title.className = 'muted';
-      title.textContent = 'Inclus dans ce prix :';
-      wrapper.appendChild(title);
-      var list = document.createElement('ul');
-      labels.forEach(function (label) {
-        var item = document.createElement('li');
-        item.textContent = label;
-        list.appendChild(item);
-      });
-      wrapper.appendChild(list);
+      if (hasIncludes) {
+        var title = document.createElement('p');
+        title.className = 'muted';
+        var titleUnderline = document.createElement('u');
+        titleUnderline.textContent = 'Inclus dans ce prix :';
+        title.appendChild(titleUnderline);
+        wrapper.appendChild(title);
+        var list = document.createElement('ul');
+        labels.forEach(function (label) {
+          var item = document.createElement('li');
+          item.textContent = label;
+          list.appendChild(item);
+        });
+        wrapper.appendChild(list);
+      }
+      if (hasPreselected) {
+        var preselectedTitle = document.createElement('p');
+        preselectedTitle.className = 'muted';
+        var preselectedUnderline = document.createElement('u');
+        preselectedUnderline.textContent = 'Options Présélectionnée(s)';
+        preselectedTitle.appendChild(preselectedUnderline);
+        wrapper.appendChild(preselectedTitle);
+        var preselectedList = document.createElement('ul');
+        preselectedLabels.forEach(function (label) {
+          var item = document.createElement('li');
+          item.textContent = label;
+          preselectedList.appendChild(item);
+        });
+        wrapper.appendChild(preselectedList);
+      }
+      return wrapper;
+    }
+
+    /**
+     * "NB: Taxe Touristique (non comprise dans le total à régler à votre
+     * arrivée)" with the amount computed from the party's declared
+     * nationality — shown just above the "Choisir ce bien" button, never
+     * folded into any total (see Packages::guestsForNationality()).
+     */
+    function touristTaxNote(entry, currency) {
+      var wrapper = document.createElement('div');
+      if (!entry.tourist_tax_total) { return wrapper; }
+      var spacer = document.createElement('p');
+      spacer.innerHTML = '&nbsp;';
+      wrapper.appendChild(spacer);
+      var note = document.createElement('p');
+      note.className = 'muted';
+      note.textContent = 'NB: Taxe Touristique (non comprise dans le total à régler à votre arrivée) : '
+        + money(entry.tourist_tax_total, entry.currency || currency);
+      wrapper.appendChild(note);
       return wrapper;
     }
 
@@ -535,21 +753,23 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
       }
 
       var dates = document.createElement('p');
-      dates.textContent = 'Du ' + entry.checkin + ' au ' + entry.checkout + ' — ' + entry.nights + ' nuit(s)'
+      dates.textContent = 'Du ' + displayDate(entry.checkin) + ' au ' + displayDate(entry.checkout) + ' — ' + entry.nights + ' nuit(s)'
         + (isAlternative && entry.nights_lost > 0 ? ' (' + entry.nights_lost + ' nuit(s) de moins que demandé)' : '');
       body.appendChild(dates);
 
       // Price of everything the client already gets at this first step: the
-      // stay (nightly rate for the party, ménage, taxe de séjour) plus the
-      // offer's default options. The floating recap then follows the full
-      // all-inclusive total as further options get picked.
+      // stay (nightly rate for the party, ménage) plus the offer's default
+      // options — tourist tax excluded (see touristTaxNote()). The floating
+      // recap then follows the full all-inclusive total as further options
+      // get picked.
       if (!pricesHidden && entry.total_base !== null && entry.total_base !== undefined) {
         var total = document.createElement('p');
         var strong = document.createElement('strong');
-        strong.textContent = 'Total Vol + Hébergement : ' + money(entry.total_base, entry.currency || currency);
+        strong.textContent = 'Total Offre : ' + money(entry.total_base, entry.currency || currency);
         total.appendChild(strong);
         body.appendChild(total);
-        body.appendChild(includesList(entry.includes));
+        body.appendChild(includesList(entry.includes, entry.preselected));
+        body.appendChild(touristTaxNote(entry, currency));
       }
 
       var actions = document.createElement('div');
@@ -695,9 +915,10 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
           if (selectedGroupIndex === groupIndex && groupSelection && !pricesHidden
             && groupSelection.total_base !== null && groupSelection.total_base !== undefined) {
             var strong = document.createElement('strong');
-            strong.textContent = 'Total Vol + Hébergement : ' + money(groupSelection.total_base, groupSelection.currency || data.currency);
+            strong.textContent = 'Total Offre : ' + money(groupSelection.total_base, groupSelection.currency || data.currency);
             totalLine.appendChild(strong);
-            totalLine.appendChild(includesList(groupSelection.includes));
+            totalLine.appendChild(includesList(groupSelection.includes, groupSelection.preselected));
+            totalLine.appendChild(touristTaxNote(groupSelection, data.currency));
           }
         }
 
@@ -895,10 +1116,27 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
     // those criteria, so the selection is dropped instead of being carried
     // over to a stay the client never validated.
     page.querySelectorAll('[data-package-checkin], [data-package-checkout], [data-package-adults],'
-      + ' [data-package-children], [data-package-babies]').forEach(function (field) {
+      + ' [data-package-children], [data-package-babies], [data-package-same-nationality],'
+      + ' [data-package-uniform-nationality]').forEach(function (field) {
       field.addEventListener('change', clearSelection);
       field.addEventListener('input', clearSelection);
     });
+    page.addEventListener('change', function (event) {
+      var target = event.target;
+      if (!target || !target.matches || !target.matches('[data-package-nationality-select]')) { return; }
+      clearSelection();
+    });
+    page.addEventListener('input', function (event) {
+      var target = event.target;
+      if (!target || !target.matches || !target.matches('[data-package-nationality-select]')) { return; }
+      clearSelection();
+    });
+    page.querySelectorAll('[data-package-adults], [data-package-children], [data-package-babies], [data-package-same-nationality], [data-package-uniform-nationality]')
+      .forEach(function (field) {
+        field.addEventListener('change', renderPackageNationalities);
+        field.addEventListener('input', renderPackageNationalities);
+      });
+    renderPackageNationalities();
 
     // Steps: Hébergement, Vol (when the offer has flight options), Transport,
     // Activités then Restauration. Hidden panels keep their inputs in the DOM,
@@ -1011,6 +1249,7 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
               + (groupStay && groupStay.location ? ' (' + groupStay.location + ')' : '')]
           : [selected.name];
         (chosen.includes || []).forEach(function (label) { lines.push(label); });
+        (chosen.preselected || []).forEach(function (label) { lines.push(label); });
         selectedOptionLabels().forEach(function (label) { lines.push(label); });
         lines.forEach(function (label) {
           var item = document.createElement('li');
