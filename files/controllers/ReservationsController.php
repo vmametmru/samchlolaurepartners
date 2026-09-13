@@ -299,30 +299,29 @@ final class ReservationsController extends Controller
     }
 
     /**
-     * Extra INSERT columns tying a reservation request to an "Offre
-     * Complète" (App\Packages) it was submitted from. Returns empty arrays —
-     * i.e. changes nothing at all — for every ordinary request, for installs
-     * where migration 064 hasn't applied, and whenever the offer of the
-     * server-side context isn't (or is no longer) a real, currently bookable
-     * offer of the active partner.
-     *
-     * @return array{0: array<int, string>, 1: array<int, mixed>}
+     * The offer the request being created comes from, or 0 for every
+     * ordinary request and for installs where migration 064 hasn't applied
+     * (the package columns simply don't exist there).
      */
-    private static function packageInsertColumnsAndParams(int $partnerId): array
+    private static function requestedPackageId(): int
     {
         $packageId = (int) (self::$packageContext['id'] ?? 0);
         if ($packageId <= 0 || !Database::columnExists('reservation_requests', 'package_id')) {
-            return [[], []];
+            return 0;
         }
-        try {
-            $package = Packages::findForPartner($partnerId, $packageId);
-        } catch (Throwable $e) {
-            error_log('Packages: failed to resolve package ' . $packageId . ': ' . $e->getMessage());
-            return [[], []];
-        }
-        if ($package === null || !Packages::isBookable($package)) {
-            return [[], []];
-        }
+        return $packageId;
+    }
+
+    /**
+     * Extra INSERT columns tying a reservation request to an "Offre
+     * Complète" (App\Packages) it was submitted from. Only ever called once
+     * the offer has been locked and re-checked inside the transaction that
+     * performs the INSERT.
+     *
+     * @return array{0: array<int, string>, 1: array<int, mixed>}
+     */
+    private static function packageInsertColumnsAndParams(int $packageId): array
+    {
         $columns = ['package_id'];
         $params = [$packageId];
         if (Database::columnExists('reservation_requests', 'package_summary')) {
@@ -1017,11 +1016,40 @@ final class ReservationsController extends Controller
         // an ordinary /api/reservations/request submission can't relabel
         // itself as an offer. The request itself stays a completely normal
         // reservation request; both columns are simply left out when this
-        // install has no offers yet (migration 064 not applied) or the offer
-        // isn't a real, bookable offer of the active partner.
-        [$packageColumns, $packageParams] = self::packageInsertColumnsAndParams((int) $partner['id']);
-        $columns = [...$columns, ...$packageColumns];
-        $params = [...$params, ...$packageParams];
+        // install has no offers yet (migration 064 not applied). When an
+        // offer *is* claimed, its "still active, not expired, enough stock
+        // left" check and the INSERT that consumes that stock run inside one
+        // transaction, with the offer row locked: two clients submitting the
+        // last unit at the same time can no longer both pass the check, and a
+        // request that can no longer be tied to a bookable offer is rejected
+        // with a 409 instead of silently becoming an ordinary reservation
+        // without the offer's columns.
+        $packageId = self::requestedPackageId();
+        $inTransaction = false;
+        if ($packageId > 0) {
+            try {
+                $pdo->beginTransaction();
+                $inTransaction = true;
+                $package = Packages::lockForStock($pdo, (int) $partner['id'], $packageId);
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                error_log('Packages: failed to resolve package ' . $packageId . ': ' . $e->getMessage());
+                self::json(['error' => 'Internal Server Error', 'message' => 'Failed to submit request'], 500);
+            }
+            if ($package === null
+                || !Packages::isBookable($package, $adults + (int) ($input['children'] ?? 0))) {
+                $pdo->rollBack();
+                self::json([
+                    'error' => 'Conflict',
+                    'message' => 'Cette offre n\'est plus disponible (expirée ou complète).',
+                ], 409);
+            }
+            [$packageColumns, $packageParams] = self::packageInsertColumnsAndParams($packageId);
+            $columns = [...$columns, ...$packageColumns];
+            $params = [...$params, ...$packageParams];
+        }
 
         try {
             $stmt = $pdo->prepare(
@@ -1030,7 +1058,14 @@ final class ReservationsController extends Controller
             );
             $stmt->execute($params);
             $id = (int) $pdo->lastInsertId();
+            if ($inTransaction) {
+                $pdo->commit();
+                $inTransaction = false;
+            }
         } catch (Throwable $e) {
+            if ($inTransaction && $pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
             error_log((string) $e);
             self::json(['error' => 'Internal Server Error', 'message' => 'Failed to submit request'], 500);
         }

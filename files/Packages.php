@@ -155,6 +155,28 @@ final class Packages
         return $package;
     }
 
+    /**
+     * The offer, re-read with its row locked inside the caller's
+     * transaction, so an "enough stock left" check and the reservation
+     * INSERT that consumes that stock cannot interleave with a concurrent
+     * submission of the same offer (two clients taking the last unit).
+     * Returns null when the offer doesn't exist or isn't this partner's.
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function lockForStock(PDO $pdo, int $partnerId, int $packageId): ?array
+    {
+        if ($packageId <= 0 || !self::tablesReady()) {
+            return null;
+        }
+        $stmt = $pdo->prepare('SELECT id FROM packages WHERE id = ? FOR UPDATE');
+        $stmt->execute([$packageId]);
+        if ($stmt->fetchColumn() === false) {
+            return null;
+        }
+        return self::findForPartner($partnerId, $packageId);
+    }
+
     /** @return array<int, array<string, mixed>> */
     public static function flightsFor(int $packageId): array
     {
