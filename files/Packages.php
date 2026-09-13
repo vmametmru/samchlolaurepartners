@@ -471,11 +471,15 @@ final class Packages
     private static function replaceFlights(int $packageId, array $input): void
     {
         $pdo = Database::connection();
+        $existingPhotos = [];
+        foreach (self::flightsFor($packageId) as $flight) {
+            $existingPhotos[(int) $flight['id']] = (string) ($flight['photo_url'] ?? '');
+        }
         $pdo->prepare('DELETE FROM package_flights WHERE package_id = ?')->execute([$packageId]);
         $rows = is_array($input['flights'] ?? null) ? $input['flights'] : [];
         $stmt = $pdo->prepare(
-            'INSERT INTO package_flights (package_id, label, airline, cabin_class, description, price_mode, price, is_default, position)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO package_flights (package_id, label, airline, cabin_class, description, photo_url, price_mode, price, is_default, position)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $position = 0;
         $defaultSeen = false;
@@ -492,12 +496,24 @@ final class Packages
             if ($isDefault) {
                 $defaultSeen = true;
             }
+            $photoUrl = self::nullableText($row['photo_url'] ?? null, 500);
+            if ($photoUrl === null) {
+                $previousId = (int) ($row['id'] ?? 0);
+                $photoUrl = $previousId > 0 && ($existingPhotos[$previousId] ?? '') !== ''
+                    ? $existingPhotos[$previousId]
+                    : null;
+            }
+            $uploaded = self::storeExtraPhoto('flights', (string) $key);
+            if ($uploaded !== null) {
+                $photoUrl = $uploaded;
+            }
             $stmt->execute([
                 $packageId,
                 $label,
                 self::nullableText($row['airline'] ?? null, 190),
                 self::nullableText($row['cabin_class'] ?? null, 190),
                 self::nullableText($row['description'] ?? null),
+                $photoUrl,
                 self::priceMode($row['price_mode'] ?? null),
                 self::money($row['price'] ?? 0),
                 $isDefault ? 1 : 0,
@@ -584,8 +600,9 @@ final class Packages
     }
 
     /**
-     * Saves an uploaded extra photo ("activities[{key}][photo]" or
-     * "meals[{key}][photo]" file input) under images/packages/ and returns
+     * Saves an uploaded extra photo ("activities[{key}][photo]",
+     * "meals[{key}][photo]", "transports[{key}][photo]" or
+     * "flights[{key}][photo]" file input) under images/packages/ and returns
      * its public URL, or null when no (valid) file was sent.
      */
     private static function storeExtraPhoto(string $inputKey, string $key): ?string
