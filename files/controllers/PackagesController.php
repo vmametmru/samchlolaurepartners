@@ -158,7 +158,7 @@ final class PackagesController extends Controller
     {
         $user = self::requirePartnerUser();
         $partnerId = (int) $user['partner_id'];
-        PackageRequests::delete($id, PackageRequests::scopeIdsForPartner($partnerId));
+        PackageRequests::delete($id, [$partnerId]);
         self::redirect('/partner/offres/demandes', 'Demande supprimée.');
     }
 
