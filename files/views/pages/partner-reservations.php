@@ -21,7 +21,7 @@ $statusOptions = ['pending' => 'Ouverte (En attente)', 'confirmed' => 'Confirmé
         <tr><td colspan="6" class="empty-row">Aucune demande</td></tr>
       <?php else: foreach ($reservations as $reservation): $status = (string) $reservation['status']; $rid = (int) $reservation['id']; ?>
         <tr>
-          <td><a class="text-link" href="/partner/reservations/<?= $rid ?>"><?= \App\View::e($reservation['client_name']) ?></a><br><small><?= \App\View::e($reservation['client_email']) ?></small></td>
+          <td><a class="text-link" href="/partner/reservations/<?= $rid ?>"><?= \App\View::e($reservation['client_name']) ?></a><?php if (!empty($reservation['package_id'])): ?> <a class="icon-btn" title="Rattachée à l'offre complète : <?= \App\View::e((string) ($reservation['package_title'] ?? '')) ?>" href="/partner/offres/<?= (int) $reservation['package_id'] ?>">📦</a><?php endif; ?><br><small><?= \App\View::e($reservation['client_email']) ?></small></td>
           <td><?= \App\View::e($reservation['property_name'] ?: '—') ?></td>
           <td><?= \App\View::e($reservation['checkin_date']) ?> → <?= \App\View::e($reservation['checkout_date']) ?></td>
           <td><?= (int) $reservation['adults'] ?>A · <?= (int) $reservation['children'] ?>E</td>

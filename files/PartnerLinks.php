@@ -119,6 +119,25 @@ final class PartnerLinks
     }
 
     /**
+     * @return int[] Partner ids that are hierarchical "principals" (parents)
+     * of $partnerId, i.e. $partnerId is one of their children. Used by
+     * App\PackageRequests to look up whether $partnerId's parent has opted
+     * into forcing its own offer requests onto $partnerId's page (see
+     * partners.packages_force_child_visibility,
+     * db/migrations/068_create_package_requests.sql).
+     */
+    public static function principalPartnerIds(int $partnerId): array
+    {
+        $ids = [];
+        foreach (self::rawLinksFor($partnerId) as $link) {
+            if ($link['type'] === 'hierarchical' && !$link['is_principal']) {
+                $ids[] = $link['other_id'];
+            }
+        }
+        return $ids;
+    }
+
+    /**
      * Full partner rows (id, name, subdomain) that $partnerId can actually
      * SWITCH INTO — used both to populate the partner-facing "linked
      * accounts" switcher in the navbar and to authorize

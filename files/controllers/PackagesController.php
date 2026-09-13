@@ -11,6 +11,8 @@ use App\Flash;
 use App\HttpException;
 use App\LodgifyClient;
 use App\Packages;
+use App\PackageRequests;
+use App\PartnerLinks;
 use App\Tenant;
 use App\View;
 use PDO;
@@ -90,6 +92,108 @@ final class PackagesController extends Controller
         self::redirect('/partner/offres', 'Offre supprimée.');
     }
 
+    // ── Partner: offer requests log ──────────────────────────────────────
+
+    /**
+     * @return string[] Status filter selected via ?status[]=... on
+     * /partner/offres/demandes and /admin/offres/demandes, defaulting to
+     * every status when none is given (same pattern as
+     * partner-reservations.php's $selectedStatuses).
+     */
+    private static function selectedRequestStatuses(): array
+    {
+        $requested = array_values(array_intersect(
+            (array) ($_GET['status'] ?? []),
+            PackageRequests::STATUSES
+        ));
+        return $requested !== [] ? $requested : PackageRequests::STATUSES;
+    }
+
+    public static function partnerRequestsIndex(): void
+    {
+        $user = self::requirePartnerUser();
+        $partnerId = (int) $user['partner_id'];
+        $statuses = self::selectedRequestStatuses();
+        $scopeIds = PackageRequests::scopeIdsForPartner($partnerId);
+        View::render('pages/package-requests-list', [
+            'pageTitle' => 'Demandes d\'Offres Complètes',
+            'requests' => PackageRequests::listForPartnerIds($scopeIds, $statuses),
+            'basePath' => '/partner/offres/demandes',
+            'isAdmin' => false,
+            'showPartnerColumn' => count($scopeIds) > 1,
+            'selectedStatuses' => $statuses,
+            'canForceChildVisibility' => PartnerLinks::childPartnerIds($partnerId) !== [],
+            'forceChildVisibility' => self::forceChildVisibility($partnerId),
+        ]);
+    }
+
+    public static function partnerRequestView(int $id): void
+    {
+        $user = self::requirePartnerUser();
+        $partnerId = (int) $user['partner_id'];
+        $request = PackageRequests::find($id, PackageRequests::scopeIdsForPartner($partnerId));
+        if ($request === null) {
+            throw new HttpException(404, 'Not Found', 'Demande introuvable');
+        }
+        View::render('pages/package-request-detail', [
+            'pageTitle' => 'Demande d\'Offre Complète',
+            'request' => $request,
+            'reservations' => PackageRequests::reservationRequestsFor($id),
+            'basePath' => '/partner/offres/demandes',
+            'reservationBasePath' => '/partner/reservations',
+            'isAdmin' => false,
+        ]);
+    }
+
+    public static function partnerRequestStatus(int $id): never
+    {
+        $user = self::requirePartnerUser();
+        $partnerId = (int) $user['partner_id'];
+        $status = (string) ($_POST['status'] ?? '');
+        $ok = PackageRequests::updateStatus($id, $status, PackageRequests::scopeIdsForPartner($partnerId));
+        self::redirect('/partner/offres/demandes', $ok ? 'Statut mis à jour.' : 'Demande introuvable.', $ok ? 'success' : 'error');
+    }
+
+    public static function partnerRequestDelete(int $id): never
+    {
+        $user = self::requirePartnerUser();
+        $partnerId = (int) $user['partner_id'];
+        PackageRequests::delete($id, PackageRequests::scopeIdsForPartner($partnerId));
+        self::redirect('/partner/offres/demandes', 'Demande supprimée.');
+    }
+
+    /**
+     * Self-service toggle for a "Parent" partner: forces its own offer
+     * requests to additionally appear on its "Child" partners' own
+     * /partner/offres/demandes page (partners.packages_force_child_visibility,
+     * db/migrations/068_create_package_requests.sql). Only meaningful for a
+     * partner that actually has children (PartnerLinks::childPartnerIds());
+     * silently ignored otherwise.
+     */
+    public static function partnerForceChildVisibility(): never
+    {
+        $user = self::requirePartnerUser();
+        $partnerId = (int) $user['partner_id'];
+        if (PartnerLinks::childPartnerIds($partnerId) !== [] && Database::columnExists('partners', 'packages_force_child_visibility')) {
+            $enabled = (string) ($_POST['enabled'] ?? '') === '1' ? 1 : 0;
+            Database::connection()
+                ->prepare('UPDATE partners SET packages_force_child_visibility = ? WHERE id = ?')
+                ->execute([$enabled, $partnerId]);
+        }
+        self::redirect('/partner/offres/demandes', 'Préférence mise à jour.');
+    }
+
+    private static function forceChildVisibility(int $partnerId): bool
+    {
+        if (!Database::columnExists('partners', 'packages_force_child_visibility')) {
+            return false;
+        }
+        $stmt = Database::connection()->prepare('SELECT packages_force_child_visibility FROM partners WHERE id = ? LIMIT 1');
+        $stmt->execute([$partnerId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row !== false && (int) ($row['packages_force_child_visibility'] ?? 0) === 1;
+    }
+
     // ── Admin: management (every partner's offers) ────────────────────────
 
     public static function adminIndex(): void
@@ -161,6 +265,57 @@ final class PackagesController extends Controller
             Flash::set($newValue === 1 ? 'Offres Complètes activées pour ce partenaire.' : 'Offres Complètes désactivées pour ce partenaire.');
         }
         self::redirect('/admin/partners/' . $partnerId . '/edit');
+    }
+
+    // ── Admin: offer requests log (every partner's requests) ─────────────
+
+    public static function adminRequestsIndex(): void
+    {
+        self::requireAdminUser();
+        $partnerId = (int) ($_GET['partner_id'] ?? 0);
+        $statuses = self::selectedRequestStatuses();
+        View::render('pages/package-requests-list', [
+            'pageTitle' => 'Demandes d\'Offres Complètes',
+            'requests' => PackageRequests::listAll($partnerId > 0 ? $partnerId : null, $statuses),
+            'basePath' => '/admin/offres/demandes',
+            'isAdmin' => true,
+            'showPartnerColumn' => true,
+            'selectedStatuses' => $statuses,
+            'partners' => self::partnersWithPackagesEnabled(),
+            'selectedPartnerId' => $partnerId,
+        ]);
+    }
+
+    public static function adminRequestView(int $id): void
+    {
+        self::requireAdminUser();
+        $request = PackageRequests::find($id);
+        if ($request === null) {
+            throw new HttpException(404, 'Not Found', 'Demande introuvable');
+        }
+        View::render('pages/package-request-detail', [
+            'pageTitle' => 'Demande d\'Offre Complète',
+            'request' => $request,
+            'reservations' => PackageRequests::reservationRequestsFor($id),
+            'basePath' => '/admin/offres/demandes',
+            'reservationBasePath' => '/admin/reservations',
+            'isAdmin' => true,
+        ]);
+    }
+
+    public static function adminRequestStatus(int $id): never
+    {
+        self::requireAdminUser();
+        $status = (string) ($_POST['status'] ?? '');
+        $ok = PackageRequests::updateStatus($id, $status);
+        self::redirect('/admin/offres/demandes', $ok ? 'Statut mis à jour.' : 'Demande introuvable.', $ok ? 'success' : 'error');
+    }
+
+    public static function adminRequestDelete(int $id): never
+    {
+        self::requireAdminUser();
+        PackageRequests::delete($id);
+        self::redirect('/admin/offres/demandes', 'Demande supprimée.');
     }
 
     // ── Public pages ──────────────────────────────────────────────────────
@@ -539,7 +694,13 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
         // stock and the property/dates, so an ordinary reservation request
         // must not be able to claim a package_id of its own.
         unset($_POST['package_id'], $_POST['package_summary']);
-        ReservationsController::setPackageContext((int) $package['id'], $summary);
+        $packageRequestId = PackageRequests::log(
+            (int) $package['id'],
+            (int) $partner['id'],
+            (string) ($_POST['client_name'] ?? ''),
+            (string) ($_POST['client_email'] ?? '')
+        );
+        ReservationsController::setPackageContext((int) $package['id'], $summary, $packageRequestId);
 
         ReservationsController::requestReservation();
     }
@@ -604,7 +765,13 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
             (string) ($_POST['message'] ?? '') . "\n\n" . $summary
         );
         unset($_POST['package_id'], $_POST['package_summary'], $_POST['items']);
-        ReservationsController::setPackageContext((int) $package['id'], $summary);
+        $packageRequestId = PackageRequests::log(
+            (int) $package['id'],
+            (int) $partner['id'],
+            (string) ($_POST['client_name'] ?? ''),
+            (string) ($_POST['client_email'] ?? '')
+        );
+        ReservationsController::setPackageContext((int) $package['id'], $summary, $packageRequestId);
         ReservationsController::setPackageItems(array_map(
             static fn (array $item): array => [
                 'property_id' => (int) $item['property_id'],

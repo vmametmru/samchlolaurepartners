@@ -285,7 +285,7 @@ final class ReservationsController extends Controller
      * the offer, its stock, the chosen property and the dates have actually
      * been validated against the offer's own rules.
      *
-     * @var array{id: int, summary: string}|null
+     * @var array{id: int, summary: string, request_id: int}|null
      */
     private static ?array $packageContext = null;
 
@@ -293,11 +293,16 @@ final class ReservationsController extends Controller
      * Declares that the reservation request about to be created comes from
      * the given offer, with the server-built summary of what the client
      * selected in it. Called by PackagesController::publicRequest() right
-     * before it hands over to requestReservation().
+     * before it hands over to requestReservation(). $packageRequestId is the
+     * App\PackageRequests log entry (db/migrations/068_create_package_requests.sql)
+     * this reservation request belongs to, 0 when the log table isn't
+     * available yet or logging failed — never blocks the submission.
      */
-    public static function setPackageContext(int $packageId, string $summary): void
+    public static function setPackageContext(int $packageId, string $summary, int $packageRequestId = 0): void
     {
-        self::$packageContext = $packageId > 0 ? ['id' => $packageId, 'summary' => $summary] : null;
+        self::$packageContext = $packageId > 0
+            ? ['id' => $packageId, 'summary' => $summary, 'request_id' => $packageRequestId]
+            : null;
     }
 
     /**
@@ -351,6 +356,11 @@ final class ReservationsController extends Controller
             $summary = trim(strip_tags((string) (self::$packageContext['summary'] ?? '')));
             $columns[] = 'package_summary';
             $params[] = $summary === '' ? null : mb_substr($summary, 0, 4000);
+        }
+        $packageRequestId = (int) (self::$packageContext['request_id'] ?? 0);
+        if ($packageRequestId > 0 && Database::columnExists('reservation_requests', 'package_request_id')) {
+            $columns[] = 'package_request_id';
+            $params[] = $packageRequestId;
         }
         return [$columns, $params];
     }
@@ -2847,12 +2857,17 @@ final class ReservationsController extends Controller
 
     public static function listForPartner(int $partnerId): array
     {
+        $packageJoin = Database::columnExists('reservation_requests', 'package_id') && Database::tableExists('packages')
+            ? 'LEFT JOIN packages pk ON pk.id = rr.package_id'
+            : '';
+        $packageTitle = $packageJoin !== '' ? 'pk.title AS package_title,' : '';
         $stmt = Database::connection()->prepare(
-            'SELECT rr.*, r.id AS reservation_id, r.confirmed_at, r.cancelled_at, r.notes
+            "SELECT rr.*, {$packageTitle} r.id AS reservation_id, r.confirmed_at, r.cancelled_at, r.notes
              FROM reservation_requests rr
              LEFT JOIN reservations r ON r.request_id = rr.id
+             {$packageJoin}
              WHERE rr.partner_id = ?
-             ORDER BY rr.created_at DESC'
+             ORDER BY rr.created_at DESC"
         );
         $stmt->execute([$partnerId]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
