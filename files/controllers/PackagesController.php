@@ -309,9 +309,9 @@ final class PackagesController extends Controller
                 'day_shift' => (int) $entry['day_shift'],
                 'nights_lost' => (int) $entry['nights_lost'],
                 'currency' => (string) $entry['currency'],
-                'total_all_in' => $pricesHidden
-                    ? null
-                    : round((float) $entry['total_stay'] + (float) $extras['total'], 2),
+'total_all_in' => $pricesHidden
+    ? null
+    : round((float) $entry['total_traveler'] + (float) $extras['total'], 2),
                 // Stay (tourist tax excluded) + everything the client
                 // already gets by default, i.e. the figure shown on the
                 // accommodation card. The tourist tax is surfaced
