@@ -20,7 +20,7 @@ $badgeClasses = [
     \App\PackageRequests::STATUS_CANCELLED => 'cancelled',
 ];
 $showPartnerColumn = !empty($showPartnerColumn);
-$colCount = 4 + ($showPartnerColumn ? 1 : 0) + ($isAdmin ? 1 : 0);
+$colCount = 5 + ($showPartnerColumn ? 1 : 0);
 ?>
 <section class="container section-lg">
   <div class="property-detail-header">
