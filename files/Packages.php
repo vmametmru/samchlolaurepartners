@@ -805,10 +805,6 @@ final class Packages
                 if (!ReservationsController::isPropertyLocallyAvailable($propertyId, $altCheckinText, $altCheckoutText)) {
                     continue;
                 }
-                $indicativeTotal = 0.0;
-                for ($offset = 0; $offset < $altNights; $offset++) {
-                    $indicativeTotal += $rateMap[$altCheckin->modify('+' . $offset . ' days')->format('Y-m-d')];
-                }
                 $alternativeCandidates[] = [
                     'property' => $property,
                     'property_id' => $propertyId,
@@ -818,7 +814,6 @@ final class Packages
                     'nights' => $altNights,
                     'day_shift' => $dayShift,
                     'nights_lost' => $nightsLost,
-                    'indicative_total' => round($indicativeTotal, 2),
                 ];
             }
         }
@@ -829,40 +824,57 @@ final class Packages
         }
 
         // Closest first: smallest date shift, then fewest nights lost, then
-        // cheapest. Only the few best candidates get an authoritative quote.
-        usort($alternativeCandidates, static function (array $a, array $b): int {
-            return [abs($a['day_shift']), $a['nights_lost'], $a['indicative_total']]
-                <=> [abs($b['day_shift']), $b['nights_lost'], $b['indicative_total']];
+        // cheapest. The price tiebreak must compare the same all-in total the
+        // results expose (markup, extra persons, cleaning and tourist tax
+        // included), so candidates are quoted group by group — one group per
+        // (date shift, nights lost) pair — and each group is ordered on its
+        // authoritative total before being kept.
+        $groupedCandidates = [];
+        foreach ($alternativeCandidates as $candidate) {
+            $groupedCandidates[abs($candidate['day_shift']) . ':' . $candidate['nights_lost']][] = $candidate;
+        }
+        uksort($groupedCandidates, static function (string $a, string $b): int {
+            return array_map('intval', explode(':', $a)) <=> array_map('intval', explode(':', $b));
         });
 
         $alternatives = [];
-        foreach ($alternativeCandidates as $candidate) {
+        foreach ($groupedCandidates as $group) {
             if (count($alternatives) >= self::FALLBACK_MAX_RESULTS) {
                 break;
             }
-            $quote = ReservationsController::cacheOnlyStayQuote(
-                (int) $partner['id'],
-                $candidate['property_id'],
-                $candidate['property'],
-                $candidate['checkin'],
-                $candidate['checkout_date'],
-                $adults,
-                $totalGuests,
-                $countedGuests,
-                []
-            );
-            if ($quote === null) {
-                continue;
+            $quoted = [];
+            foreach ($group as $candidate) {
+                $quote = ReservationsController::cacheOnlyStayQuote(
+                    (int) $partner['id'],
+                    $candidate['property_id'],
+                    $candidate['property'],
+                    $candidate['checkin'],
+                    $candidate['checkout_date'],
+                    $adults,
+                    $totalGuests,
+                    $countedGuests,
+                    []
+                );
+                if ($quote === null) {
+                    continue;
+                }
+                $quoted[] = self::accommodationEntry(
+                    $candidate['property'],
+                    $quote,
+                    $candidate['checkin'],
+                    $candidate['checkout'],
+                    $candidate['nights'],
+                    $candidate['day_shift'],
+                    $candidate['nights_lost']
+                );
             }
-            $alternatives[] = self::accommodationEntry(
-                $candidate['property'],
-                $quote,
-                $candidate['checkin'],
-                $candidate['checkout'],
-                $candidate['nights'],
-                $candidate['day_shift'],
-                $candidate['nights_lost']
-            );
+            usort($quoted, static fn (array $a, array $b): int => $a['total_stay'] <=> $b['total_stay']);
+            foreach ($quoted as $entry) {
+                if (count($alternatives) >= self::FALLBACK_MAX_RESULTS) {
+                    break;
+                }
+                $alternatives[] = $entry;
+            }
         }
 
         return ['nights' => $nights, 'matches' => [], 'alternatives' => $alternatives];
