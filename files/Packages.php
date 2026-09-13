@@ -808,7 +808,7 @@ final class Packages
 
         $countedGuests = $adults + $children3to12;
         $totalGuests = $countedGuests + $childrenUnder3;
-        $guests = self::guestsForNationality($adults, $children3to12, $nationality);
+        $guests = self::guestsForNationality($adults, $children3to12, $childrenUnder3, $nationality);
         if ($countedGuests < 1) {
             return $empty;
         }
@@ -1198,7 +1198,7 @@ final class Packages
                 $share['adults'],
                 $shareCounted + $share['children_under3'],
                 $shareCounted,
-                self::guestsForNationality($share['adults'], $share['children_3to12'], $nationality)
+                self::guestsForNationality($share['adults'], $share['children_3to12'], $share['children_under3'], $nationality)
             );
             if ($quote === null) {
                 return null;
@@ -1445,7 +1445,7 @@ final class Packages
      *
      * @return array<int, array{type: string, nationality: string}>
      */
-    private static function guestsForNationality(int $adults, int $children3to12, string $nationality): array
+    private static function guestsForNationality(int $adults, int $children3to12, int $childrenUnder3, string $nationality): array
     {
         $nationality = trim($nationality);
         if ($nationality === '') {
@@ -1457,6 +1457,9 @@ final class Packages
         }
         for ($i = 0; $i < $children3to12; $i++) {
             $guests[] = ['type' => 'child', 'nationality' => $nationality];
+        }
+        for ($i = 0; $i < $childrenUnder3; $i++) {
+            $guests[] = ['type' => 'child_under3', 'nationality' => $nationality];
         }
         return $guests;
     }
