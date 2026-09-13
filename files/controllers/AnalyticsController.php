@@ -158,7 +158,8 @@ final class AnalyticsController extends Controller
 
         $filters = self::readFilters();
         $where = self::buildWhereClause($filters);
-        $kpiWhere = self::excludeAnomalies($where);
+        // KPIs/charts must never count admin visits, even on the admin's own page.
+        $kpiWhere = self::excludeAdminVisits(self::excludeAnomalies($where));
 
         View::render('pages/analytics', [
             'pageTitle' => 'Analyse',
@@ -320,7 +321,7 @@ final class AnalyticsController extends Controller
             throw new HttpException(403, 'Forbidden', 'Accès réservé.');
         }
 
-        $pdfData = self::generatePdfReport($filters, $partnerId, $role === 'partner', $partnerId !== null ? self::partnerScopeIds($partnerId) : null);
+        $pdfData = self::generatePdfReport($filters, $partnerId, $partnerId !== null ? self::partnerScopeIds($partnerId) : null);
 
         header('Content-Type: application/pdf');
         header('Content-Disposition: attachment; filename="rapport-analytics-' . date('Y-m-d') . '.pdf"');
@@ -506,7 +507,7 @@ final class AnalyticsController extends Controller
                 $filters['date_from'] = $now->modify('-7 days')->format('Y-m-d');
                 $filters['date_to'] = $now->format('Y-m-d');
 
-                $pdfData = self::generatePdfReport($filters, (int) $schedule['partner_id'], false, self::partnerScopeIds((int) $schedule['partner_id']));
+                $pdfData = self::generatePdfReport($filters, (int) $schedule['partner_id'], self::partnerScopeIds((int) $schedule['partner_id']));
 
                 $partnerRow = [
                     'name' => $schedule['p_name'],
@@ -859,7 +860,7 @@ final class AnalyticsController extends Controller
      * approach: renders an HTML document and wraps it in a basic PDF structure.
      * No external library needed.
      */
-    public static function generatePdfReport(array $filters, ?int $partnerId = null, bool $excludeAdmin = false, ?array $partnerScopeIds = null): string
+    public static function generatePdfReport(array $filters, ?int $partnerId = null, ?array $partnerScopeIds = null): string
     {
         if (!Database::tableExists('page_visits')) {
             return self::buildSimplePdf('Rapport d\'analyse', 'Aucune donnée disponible.');
@@ -867,10 +868,8 @@ final class AnalyticsController extends Controller
 
         $pdo = Database::connection();
         $where = self::buildWhereClause($filters, $partnerScopeIds);
-        if ($excludeAdmin) {
-            $where = self::excludeAdminVisits($where);
-        }
-        $kpiWhere = self::excludeAnomalies($where);
+        // KPIs/aggregate tables in this report must never count admin visits.
+        $kpiWhere = self::excludeAdminVisits(self::excludeAnomalies($where));
         $kpis = self::computeKpis($pdo, $kpiWhere);
         $visitsByCountry = self::visitsByCountry($pdo, $kpiWhere);
         $visitsByPage = self::visitsByPage($pdo, $kpiWhere);
@@ -904,7 +903,6 @@ final class AnalyticsController extends Controller
             ['Visiteurs uniques', (int) $kpis['unique_visitors']],
             ['Visites clients', (int) $kpis['client_visits']],
             ['Visites partenaires', (int) $kpis['partner_visits']],
-            ['Visites admin', (int) $kpis['admin_visits']],
             ['Durée moyenne', (int) $kpis['avg_duration'] . 's'],
             ['Pays', (int) $kpis['countries']],
             ['Pages vues', (int) $kpis['pages_viewed']],

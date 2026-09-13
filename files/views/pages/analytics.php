@@ -61,9 +61,6 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
     <div class="card card-body"><p>Visiteurs uniques</p><strong><?= (int) $kpis['unique_visitors'] ?></strong></div>
     <div class="card card-body"><p>Visites clients</p><strong class="accent-ok"><?= (int) $kpis['client_visits'] ?></strong></div>
     <div class="card card-body"><p>Visites partenaires</p><strong class="accent-warn"><?= (int) $kpis['partner_visits'] ?></strong></div>
-    <?php if ($isAdmin): ?>
-      <div class="card card-body"><p>Visites admin</p><strong><?= (int) $kpis['admin_visits'] ?></strong></div>
-    <?php endif; ?>
     <div class="card card-body"><p>Durée moy.</p><strong><?= (int) $kpis['avg_duration'] ?>s</strong></div>
     <div class="card card-body"><p>Pays</p><strong><?= (int) $kpis['countries'] ?></strong></div>
     <div class="card card-body"><p>Pages vues</p><strong><?= (int) $kpis['pages_viewed'] ?></strong></div>
@@ -99,7 +96,7 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
     <?php else: ?>
       <div class="table-responsive">
         <table class="data-table">
-          <thead><tr><th>Page</th><th>Partenaire</th><th>Visites</th><th>Durée moy.</th><th>Clients</th><th>Partenaires</th><?php if ($isAdmin): ?><th>Admin</th><?php endif; ?></tr></thead>
+          <thead><tr><th>Page</th><th>Partenaire</th><th>Visites</th><th>Durée moy.</th><th>Clients</th><th>Partenaires</th></tr></thead>
           <tbody>
             <?php foreach ($visitsByPage as $row): ?>
               <tr>
@@ -109,7 +106,6 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
                 <td><?= (int) ($row['avg_duration'] ?? 0) ?>s</td>
                 <td><?= (int) $row['client_visits'] ?></td>
                 <td><?= (int) $row['partner_visits'] ?></td>
-                <?php if ($isAdmin): ?><td><?= (int) $row['admin_visits'] ?></td><?php endif; ?>
               </tr>
             <?php endforeach; ?>
           </tbody>
@@ -281,7 +277,7 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
   <?php endif; ?>
 </section>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" integrity="sha384-OLBgp1GsljhM2TJ+sbHjaiH9txEUvgdDTAzHv2P24donTt6/529l+9Ua0vFImLlb" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.js" integrity="sha384-G436+Z2nlA8+PNoeRvWdxKbvOf8E/y+lYxqht2iBwNHTQDV5CJr3+AGVj8fGZi5t" crossorigin="anonymous"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   var visitsByDate = <?= json_encode($visitsByDate, JSON_UNESCAPED_UNICODE) ?>;
@@ -323,9 +319,6 @@ document.addEventListener('DOMContentLoaded', function () {
         { label: 'Clients', data: visitsByDate.map(function (r) { return parseInt(r.clients); }), borderColor: '#22c55e', backgroundColor: 'transparent', tension: 0.3 },
         { label: 'Partenaires', data: visitsByDate.map(function (r) { return parseInt(r.partners); }), borderColor: '#f59e0b', backgroundColor: 'transparent', tension: 0.3 }
       ];
-      if (isAdmin) {
-        datasets.push({ label: 'Admin', data: visitsByDate.map(function (r) { return parseInt(r.admins); }), borderColor: '#6366f1', backgroundColor: 'transparent', tension: 0.3 });
-      }
       new Chart(ctxDate, {
         type: 'line',
         data: {
@@ -392,11 +385,6 @@ document.addEventListener('DOMContentLoaded', function () {
       var pieLabels = ['Clients', 'Partenaires'];
       var pieData = [parseInt(kpis.client_visits) || 0, parseInt(kpis.partner_visits) || 0];
       var pieColors = ['#22c55e', '#f59e0b'];
-      if (isAdmin) {
-        pieLabels.push('Admin');
-        pieData.push(parseInt(kpis.admin_visits) || 0);
-        pieColors.push('#6366f1');
-      }
       new Chart(ctxType, {
         type: 'pie',
         data: {
