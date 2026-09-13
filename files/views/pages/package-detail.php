@@ -571,10 +571,21 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
     });
 
     if (requestForm) {
+      // A second submit before the first response would create a duplicate
+      // request and consume the package stock twice: block submissions while
+      // one is in flight and only release the form when it fails.
+      var requestPending = false;
       requestForm.addEventListener('submit', function (event) {
         event.preventDefault();
-        if (!selected) { return; }
+        if (!selected || requestPending) { return; }
         var status = page.querySelector('[data-package-request-status]');
+        var submitButton = requestForm.querySelector('[type="submit"]');
+        requestPending = true;
+        if (submitButton) { submitButton.disabled = true; }
+        var releaseRequest = function () {
+          requestPending = false;
+          if (submitButton) { submitButton.disabled = false; }
+        };
         var body = searchPayload();
         body.set('property_id', String(selected.property_id));
         body.set('checkin_date', selected.checkin);
@@ -592,6 +603,7 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
         }).then(function (result) {
           if (!result.ok) {
             status.textContent = (result.payload && result.payload.message) || 'Envoi impossible.';
+            releaseRequest();
             return;
           }
           status.textContent = '';
@@ -600,6 +612,7 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
           requestRecap.textContent = 'Votre demande a bien été envoyée. Notre équipe vous répondra rapidement.';
         }).catch(function () {
           status.textContent = 'Envoi impossible pour le moment.';
+          releaseRequest();
         });
       });
     }
