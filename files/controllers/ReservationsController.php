@@ -632,6 +632,11 @@ final class ReservationsController extends Controller
      * (extra_persons_count === 0, e.g. exactly min_people guests selected):
      * the agency can still manually add an extra-person charge for that
      * stay, clamped up to 0 (no Lodgify floor to enforce in that case).
+     * @param array<int, array<string, mixed>>|null $cachedRates Raw nightly
+     * rate rows (LodgifyClient::getRatesFromCache() shape) already loaded by
+     * the caller for exactly this stay. When provided, no rate lookup is
+     * performed at all here; used by the "Offres Complètes" search, which
+     * reads the cache once per property and then prices several stays.
      * @return array{nights: int, currency: string, room_total: float, room_base_before_commission: float, is_price_forced: bool, forced_total_price: float|null, extra_person_total: float, extra_person_base_before_commission: float, is_extra_person_price_forced: bool, forced_extra_person_total: float|null, extra_person_fee_rate: float, extra_persons_count: int, cleaning_total: float, tourist_tax_total: float, tourist_tax_rate: float, total_without_tax: float, vat_rate: float}|null
      */
     private static function computeItemQuote(
@@ -645,7 +650,8 @@ final class ReservationsController extends Controller
         array $guests,
         ?float $forcedTotalPrice = null,
         ?float $forcedExtraPersonTotal = null,
-        bool $cacheOnly = false
+        bool $cacheOnly = false,
+        ?array $cachedRates = null
     ): ?array {
         $nights = (int) (new \DateTimeImmutable($checkin))->diff($checkoutDate)->days;
         $pdo = Database::connection();
@@ -674,7 +680,7 @@ final class ReservationsController extends Controller
             ? ($manualVatRate ?? 0.0)
             : PageController::resolveVatRate($lodgifyClient, $propertyId, $manualVatRate);
         try {
-            $rates = PageController::publicRates($lodgifyClient, $propertyId, $checkin, $checkoutDate->modify('-1 day')->format('Y-m-d'), $vatRate, $cacheOnly);
+            $rates = PageController::publicRates($lodgifyClient, $propertyId, $checkin, $checkoutDate->modify('-1 day')->format('Y-m-d'), $vatRate, $cacheOnly, $cachedRates);
         } catch (Throwable $e) {
             error_log((string) $e);
             return null;
@@ -2225,6 +2231,11 @@ final class ReservationsController extends Controller
      * a property is never shown with an incomplete price.
      *
      * @param array<int, array{type?: string, nationality?: string}> $guests
+     * @param array<int, array<string, mixed>>|null $cachedRates Raw nightly
+     * rate rows for this exact stay, already read from lodgify_cache by the
+     * caller. Lets Packages::searchAccommodations() reuse the single
+     * per-property cache read instead of triggering one more cache scan per
+     * quoted candidate.
      * @return array{room_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, total_traveler: float, nights: int, currency: string}|null
      */
     public static function cacheOnlyStayQuote(
@@ -2236,7 +2247,8 @@ final class ReservationsController extends Controller
         int $adults,
         int $totalGuests,
         int $countedGuests,
-        array $guests
+        array $guests,
+        ?array $cachedRates = null
     ): ?array {
         $partner = self::fetchPartner($partnerId);
         $quoteData = self::computeItemQuote(
@@ -2250,7 +2262,8 @@ final class ReservationsController extends Controller
             $guests,
             null,
             null,
-            true
+            true,
+            $cachedRates
         );
         if ($quoteData === null) {
             return null;

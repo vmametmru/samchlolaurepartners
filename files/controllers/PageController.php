@@ -4446,14 +4446,18 @@ TEXT;
         return $prefix . ' mis à jour le ' . $date->format('d/m/Y') . ' à ' . $date->format('H:i') . ' (GMT + 4)';
     }
 
-    public static function publicRates(LodgifyClient $client, int $propertyId, string $from, string $to, float $vatRate = 0.0, bool $cacheOnly = false): array
+    public static function publicRates(LodgifyClient $client, int $propertyId, string $from, string $to, float $vatRate = 0.0, bool $cacheOnly = false, ?array $rawRatesOverride = null): array
     {
         // $cacheOnly is used by reservationDatesAvailabilityFragment() (the
         // "Modifier les Dates" modal), which must never itself trigger a
         // live Lodgify call — see LodgifyClient::getRatesFromCache().
-        $rawRates = $cacheOnly
+        // $rawRatesOverride lets a caller that already read the cache for a
+        // wider window (App\Packages::searchAccommodations() reads
+        // availability and rates once per property) hand over the nightly
+        // rows for this stay, avoiding one extra cache-table scan per quote.
+        $rawRates = $rawRatesOverride ?? ($cacheOnly
             ? $client->getRatesFromCache($propertyId, $from, $to)
-            : $client->getRates($propertyId, $from, $to, 2);
+            : $client->getRates($propertyId, $from, $to, 2));
         // The public property page must show the tenant's marked-up price, not
         // the raw Lodgify price: markup_percent was previously hardcoded to 0
         // here, so the margin configured for the current partner (resolved from

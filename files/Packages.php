@@ -766,9 +766,11 @@ final class Packages
                 }
             }
             $rateMap = [];
+            $rateRows = [];
             foreach ($client->getRatesFromCache($propertyId, $windowStart->format('Y-m-d'), $windowEnd->format('Y-m-d')) as $rate) {
                 if (isset($rate['date_from'])) {
                     $rateMap[(string) $rate['date_from']] = (float) ($rate['price_per_night'] ?? 0);
+                    $rateRows[(string) $rate['date_from']] = $rate;
                 }
             }
             if ($availabilityMap === [] || $rateMap === []) {
@@ -787,7 +789,8 @@ final class Packages
                     $adults,
                     $totalGuests,
                     $countedGuests,
-                    []
+                    [],
+                    self::stayRateRows($rateRows, $checkinDate, $nights)
                 );
                 if ($quote !== null) {
                     $matches[] = self::accommodationEntry($property, $quote, $checkin, $checkout, $nights, 0, 0);
@@ -814,6 +817,7 @@ final class Packages
                     'nights' => $altNights,
                     'day_shift' => $dayShift,
                     'nights_lost' => $nightsLost,
+                    'rates' => self::stayRateRows($rateRows, $altCheckin, $altNights),
                 ];
             }
         }
@@ -853,7 +857,8 @@ final class Packages
                     $adults,
                     $totalGuests,
                     $countedGuests,
-                    []
+                    [],
+                    $candidate['rates']
                 );
                 if ($quote === null) {
                     continue;
@@ -927,6 +932,28 @@ final class Packages
             }
         }
         return true;
+    }
+
+    /**
+     * Nightly rate rows of a stay, taken from the rows already read once for
+     * the whole fallback window, so pricing a candidate never re-reads the
+     * cache. Only meaningful for stays validated by stayCoveredByCache(): any
+     * missing night is skipped, leaving fewer rows than nights so
+     * ReservationsController::cacheOnlyStayQuote() refuses to price the stay.
+     *
+     * @param array<string, array<string, mixed>> $rateRows keyed by date_from
+     * @return array<int, array<string, mixed>>
+     */
+    private static function stayRateRows(array $rateRows, \DateTimeImmutable $checkinDate, int $nights): array
+    {
+        $rows = [];
+        for ($offset = 0; $offset < $nights; $offset++) {
+            $day = $checkinDate->modify('+' . $offset . ' days')->format('Y-m-d');
+            if (isset($rateRows[$day])) {
+                $rows[] = $rateRows[$day];
+            }
+        }
+        return $rows;
     }
 
     /**
