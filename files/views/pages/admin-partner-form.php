@@ -63,4 +63,13 @@
       <noscript><button type="submit" class="btn-secondary">Enregistrer</button></noscript>
     </form>
   <?php endif; ?>
+  <?php if ($editing && \App\Database::columnExists('partners', 'packages_visible')): ?>
+    <form method="post" action="/admin/partners/<?= (int) $partnerData['id'] ?>/packages-toggle" class="mt-16">
+      <label class="inline-check">
+        <input type="checkbox" onchange="this.form.submit()" <?= !empty($partnerData['packages_visible']) && (int) $partnerData['packages_visible'] === 1 ? 'checked' : '' ?>>
+        Autoriser ce partenaire à créer des Offres Complètes (vol + hébergement + activités)
+      </label>
+      <noscript><button type="submit" class="btn-secondary">Enregistrer</button></noscript>
+    </form>
+  <?php endif; ?>
 </section>

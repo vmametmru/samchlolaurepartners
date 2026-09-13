@@ -1178,6 +1178,30 @@ final class LodgifyClient
         return $this->cacheGet('lodgify:v2:properties', true) ?? [];
     }
 
+    /**
+     * Local-database-only variant of getProperty(): used by the offer pages'
+     * "Voir le bien" modal (PackagesController::publicProperty()), which must
+     * never itself trigger a live Lodgify call. Returns the last cached
+     * property fiche even if expired (stale); when the single-property cache
+     * entry was never populated (it is only written by the manual sync and by
+     * visits to /properties/{id}), falls back to the matching entry of the
+     * cached property list, which always carries at least the name, the
+     * description and one photo.
+     */
+    public function getPropertyFromCache(int $propertyId): ?array
+    {
+        $property = $this->cacheGet('lodgify:v2:property:' . $propertyId, true);
+        if (is_array($property) && $property !== []) {
+            return $property;
+        }
+        foreach ($this->getPropertiesFromCache() as $item) {
+            if (is_array($item) && (int) ($item['id'] ?? 0) === $propertyId) {
+                return $item;
+            }
+        }
+        return null;
+    }
+
     private function fetchAvailability(int $propertyId, string $from, string $to): array
     {
         // Lodgify's real v2 endpoint expects "start"/"end" query params (not

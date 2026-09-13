@@ -16,6 +16,7 @@ use App\controllers\EmailTemplatesController;
 use App\controllers\FeesController;
 use App\controllers\GalleryController;
 use App\controllers\LodgifyController;
+use App\controllers\PackagesController;
 use App\controllers\PageController;
 use App\controllers\PartnersController;
 use App\controllers\ReservationsController;
@@ -187,6 +188,12 @@ try {
             LodgifyController::rates((int) $matches[1]);
         case route($method, $path, 'POST', '#^/api/lodgify/sync$#'):
             LodgifyController::sync();
+        case route($method, $path, 'POST', '#^/api/packages/(\d+)/search$#', $matches):
+            PackagesController::publicSearch((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/api/packages/(\d+)/request$#', $matches):
+            PackagesController::publicRequest((int) $matches[1]);
+        case route($method, $path, 'GET', '#^/api/packages/(\d+)/properties/(\d+)$#', $matches):
+            PackagesController::publicProperty((int) $matches[1], (int) $matches[2]);
         case route($method, $path, 'POST', '#^/api/analytics/track$#'):
             AnalyticsController::track();
         case route($method, $path, 'POST', '#^/api/analytics/track-duration$#'):
@@ -335,6 +342,25 @@ try {
             break;
         case route($method, $path, 'POST', '#^/partner/gallery/(\d+)/zip$#', $matches):
             GalleryController::partnerDownloadZip((int) $matches[1]);
+        case route($method, $path, 'GET', '#^/offres$#'):
+            PackagesController::publicIndex();
+            break;
+        case route($method, $path, 'GET', '#^/offres/(\d+)$#', $matches):
+            PackagesController::publicDetail((int) $matches[1]);
+            break;
+        case route($method, $path, 'GET', '#^/partner/offres$#'):
+            PackagesController::partnerIndex();
+            break;
+        case route($method, $path, 'GET', '#^/partner/offres/nouvelle$#'):
+            PackagesController::partnerForm(null);
+            break;
+        case route($method, $path, 'GET', '#^/partner/offres/(\d+)$#', $matches):
+            PackagesController::partnerForm((int) $matches[1]);
+            break;
+        case route($method, $path, 'POST', '#^/partner/offres$#'):
+            PackagesController::partnerSave();
+        case route($method, $path, 'POST', '#^/partner/offres/(\d+)/delete$#', $matches):
+            PackagesController::partnerDelete((int) $matches[1]);
         case route($method, $path, 'GET', '#^/partner/analytics$#'):
             AnalyticsController::page();
             break;
@@ -493,6 +519,21 @@ try {
         case route($method, $path, 'GET', '#^/admin/diagnostic$#'):
             PageController::adminDiagnostic();
             break;
+        case route($method, $path, 'GET', '#^/admin/offres$#'):
+            PackagesController::adminIndex();
+            break;
+        case route($method, $path, 'GET', '#^/admin/offres/nouvelle$#'):
+            PackagesController::adminForm(null);
+            break;
+        case route($method, $path, 'GET', '#^/admin/offres/(\d+)$#', $matches):
+            PackagesController::adminForm((int) $matches[1]);
+            break;
+        case route($method, $path, 'POST', '#^/admin/offres$#'):
+            PackagesController::adminSave();
+        case route($method, $path, 'POST', '#^/admin/offres/(\d+)/delete$#', $matches):
+            PackagesController::adminDelete((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/admin/partners/(\d+)/packages-toggle$#', $matches):
+            PackagesController::adminTogglePartner((int) $matches[1]);
         case route($method, $path, 'GET', '#^/admin/analytics$#'):
             AnalyticsController::page();
             break;
