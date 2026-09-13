@@ -11,6 +11,7 @@ use App\I18n;
 use App\LodgifyClient;
 use App\Mailer;
 use App\Packages;
+use App\PackageRequests;
 use App\Settings;
 use App\Tenant;
 use App\View;
@@ -1691,7 +1692,12 @@ final class ReservationsController extends Controller
         // must not turn an otherwise-successful confirmation into a 500.
         try {
             $partner = self::fetchPartner($partnerId);
-            self::sendReservationStatusEmail($partner, $request, 'RESERVATION_CONFIRMED', $notes);
+            self::sendReservationStatusEmail(
+                $partner,
+                $request,
+                ((int) ($request['package_id'] ?? 0) > 0) ? 'PACKAGE_REQUEST_CONFIRMED' : 'RESERVATION_CONFIRMED',
+                $notes
+            );
         } catch (Throwable $e) {
             error_log('Failed to send reservation confirmation email: ' . $e);
         }
@@ -1748,7 +1754,12 @@ final class ReservationsController extends Controller
         // must not turn an otherwise-successful cancellation into a 500.
         try {
             $partner = self::fetchPartner($partnerId);
-            self::sendReservationStatusEmail($partner, $request, 'RESERVATION_CANCELLED', null);
+            self::sendReservationStatusEmail(
+                $partner,
+                $request,
+                ((int) ($request['package_id'] ?? 0) > 0) ? 'PACKAGE_REQUEST_CANCELLED' : 'RESERVATION_CANCELLED',
+                null
+            );
         } catch (Throwable $e) {
             error_log('Failed to send reservation cancellation email: ' . $e);
         }
@@ -3011,7 +3022,33 @@ final class ReservationsController extends Controller
             'lien_demande_partenaire' => self::partnerReservationLink((int) ($input['id'] ?? 0)),
         ];
         $variables += self::stayVariables($checkin, $checkout, $childBreakdown['under3'], $childBreakdown['from3to12'], (int) ($input['adults'] ?? 0));
-        $variables += self::requestQuoteVariables($input, $itemCount, (float) ($partner['markup_percent'] ?? 0));
+        $markupPercent = (float) ($partner['markup_percent'] ?? 0);
+        $variables += self::requestQuoteVariables($input, $itemCount, $markupPercent);
+        // "Offres Complètes" (App\Packages): whether this request came from
+        // an offer is tracked in self::$packageContext (server-side only,
+        // see setPackageContext()), never from the submitted payload. It
+        // switches both the template types below and adds the
+        // {{offre_titre}}/{{offre_recap_bloc}}/{{commission_offres_completes}}/
+        // {{total_a_payer_samchlolaure_offres_completes}} variables.
+        $isPackageRequest = self::$packageContext !== null;
+        $accommodationBreakdown = self::computeQuoteBreakdown([
+            'room_total' => $input['quote_room_total'] ?? 0,
+            'extra_person_total' => $input['quote_extra_person_total'] ?? 0,
+            'cleaning_total' => $input['quote_cleaning_total'] ?? 0,
+            'tourist_tax_total' => $input['quote_tourist_tax_total'] ?? 0,
+            'nights' => $input['quote_nights'] ?? 0,
+            'currency' => $input['quote_currency'] ?? 'EUR',
+        ], $markupPercent, (float) ($input['quote_vat_rate'] ?? 0), isset($input['quote_room_base_before_commission'])
+            ? (float) $input['quote_room_base_before_commission']
+            : null, isset($input['quote_extra_person_base_before_commission'])
+            ? (float) $input['quote_extra_person_base_before_commission']
+            : null);
+        $variables += self::packageOfferVariables(
+            $partner,
+            (int) (self::$packageContext['request_id'] ?? 0),
+            self::$packageContext['summary'] ?? null,
+            $accommodationBreakdown
+        );
         $signature = self::signatureVariables((int) ($partner['id'] ?? 0));
         $variables += $signature['variables'];
         $embeds = $photo['embed'] !== null ? [$photo['embed']] : [];
@@ -3030,7 +3067,9 @@ final class ReservationsController extends Controller
         // The partner/host-facing copy always stays in French: the visitor's
         // site language reflects the *guest's* language, not the partner's,
         // so {{useful_info}} is rebuilt in French for this copy too.
-        $partnerTemplate = self::findEmailTemplate($pdo, (int) $partner['id'], 'REQUEST_RECEIVED_PARTNER', I18n::DEFAULT_LANGUAGE);
+        $partnerTemplateType = $isPackageRequest ? 'PACKAGE_REQUEST_RECEIVED_PARTNER' : 'REQUEST_RECEIVED_PARTNER';
+        $clientTemplateType = $isPackageRequest ? 'PACKAGE_REQUEST_RECEIVED_CLIENT' : 'REQUEST_RECEIVED_CLIENT';
+        $partnerTemplate = self::findEmailTemplate($pdo, (int) $partner['id'], $partnerTemplateType, I18n::DEFAULT_LANGUAGE);
         $partnerVariables = $variables;
         if ($guestLanguage !== I18n::DEFAULT_LANGUAGE) {
             $partnerVariables['useful_info'] = self::usefulInfoButtonHtml((int) ($input['property_id'] ?? 0), I18n::DEFAULT_LANGUAGE);
@@ -3046,13 +3085,13 @@ final class ReservationsController extends Controller
                 Mailer::sendRawEmail($partner, (string) $partner['email'], 'Nouvelle demande de réservation - ' . $variables['nom_client'], '<p>Nouvelle demande de ' . htmlspecialchars($variables['nom_client']) . ' (' . htmlspecialchars($variables['email_client']) . ') pour ' . htmlspecialchars($variables['hebergement'] !== '' ? $variables['hebergement'] : 'hébergement non spécifié') . ' du ' . htmlspecialchars($variables['date_arrivee']) . ' au ' . htmlspecialchars($variables['date_depart']) . '.</p>' . $variables['tarif_bloc'], [], $clientReplyTo);
             }
         } catch (Throwable $e) {
-            error_log('Failed to send REQUEST_RECEIVED_PARTNER email to partner #' . (int) ($partner['id'] ?? 0) . ' (' . (string) ($partner['email'] ?? '') . '): ' . $e);
+            error_log('Failed to send ' . $partnerTemplateType . ' email to partner #' . (int) ($partner['id'] ?? 0) . ' (' . (string) ($partner['email'] ?? '') . '): ' . $e);
         }
 
         // The guest-facing copy is sent in whatever language they browsed the
         // site in (I18n::current() at submission time), falling back to the
         // partner's French template if no translated variant exists yet.
-        $clientTemplate = self::findEmailTemplate($pdo, (int) $partner['id'], 'REQUEST_RECEIVED_CLIENT', $guestLanguage);
+        $clientTemplate = self::findEmailTemplate($pdo, (int) $partner['id'], $clientTemplateType, $guestLanguage);
         // Partner-only variables (commission, amount owed to SamChloLaure)
         // must never reach the client, even if a partner mistakenly inserted
         // one into their client-facing template — see redactPartnerOnlyVariables().
@@ -3074,7 +3113,7 @@ final class ReservationsController extends Controller
                 Mailer::sendRawEmail($partner, (string) $input['client_email'], 'Confirmation de votre demande - ' . (string) $partner['name'], '<p>Bonjour ' . htmlspecialchars((string) $input['client_name']) . ',</p><p>Nous avons bien reçu votre demande de réservation pour ' . htmlspecialchars((string) ($input['property_name'] ?? 'l\'hébergement')) . ' du ' . htmlspecialchars((string) $input['checkin_date']) . ' au ' . htmlspecialchars((string) $input['checkout_date']) . '.</p>' . $variables['tarif_bloc'] . '<p>Nous vous contacterons très prochainement.</p><p>Cordialement,<br>' . htmlspecialchars((string) $partner['name']) . '</p>', [], $partnerReplyTo);
             }
         } catch (Throwable $e) {
-            error_log('Failed to send REQUEST_RECEIVED_CLIENT email to ' . (string) ($input['client_email'] ?? '') . ': ' . $e);
+            error_log('Failed to send ' . $clientTemplateType . ' email to ' . (string) ($input['client_email'] ?? '') . ': ' . $e);
         }
     }
 
@@ -3242,8 +3281,9 @@ final class ReservationsController extends Controller
         // cancellation emails reuse the exact same {{tarif_*}}/{{total_voyageur}}
         // variables as the initial request email, without a live (and
         // possibly since-changed) Lodgify rate re-fetch.
+        $accommodationBreakdown = null;
         if (($request['quote_room_total'] ?? null) !== null) {
-            $variables += self::buildQuoteVariables(self::computeQuoteBreakdown([
+            $accommodationBreakdown = self::computeQuoteBreakdown([
                 'room_total' => $request['quote_room_total'] ?? 0,
                 'extra_person_total' => $request['quote_extra_person_total'] ?? 0,
                 'cleaning_total' => $request['quote_cleaning_total'] ?? 0,
@@ -3254,8 +3294,19 @@ final class ReservationsController extends Controller
                 ? (float) $request['quote_room_base_before_commission']
                 : null, isset($request['quote_extra_person_base_before_commission'])
                 ? (float) $request['quote_extra_person_base_before_commission']
-                : null));
+                : null);
+            $variables += self::buildQuoteVariables($accommodationBreakdown);
         }
+        // "Offres Complètes": adds {{offre_titre}}/{{offre_recap_bloc}}/
+        // {{commission_offres_completes}}/{{total_a_payer_samchlolaure_offres_completes}},
+        // all empty when this request wasn't made from an offer (see
+        // packageOfferVariables()).
+        $variables += self::packageOfferVariables(
+            $partner,
+            (int) ($request['package_request_id'] ?? 0),
+            (string) ($request['package_summary'] ?? ''),
+            $accommodationBreakdown
+        );
         $signature = self::signatureVariables((int) ($partner['id'] ?? 0));
         $variables += $signature['variables'];
         $embeds = $photo['embed'] !== null ? [$photo['embed']] : [];
@@ -3648,6 +3699,71 @@ final class ReservationsController extends Controller
     private static function toMoneyValue(mixed $value): float
     {
         return round((float) $value, 2);
+    }
+
+    /**
+     * "Offres Complètes" email variables ({{offre_titre}}, {{offre_recap_bloc}},
+     * {{commission_offres_completes}}, {{total_a_payer_samchlolaure_offres_completes}}
+     * — see View::emailTemplateVariableCatalog()): empty strings when the
+     * request wasn't made from an offer (or its App\PackageRequests log
+     * entry is unavailable), so these variables are always safe to
+     * reference in a template regardless of provenance.
+     *
+     * @param array<string, mixed> $partner
+     * @param array{total_traveler?: float, commission_total?: float, currency?: string}|null $accommodationBreakdown the same breakdown buildQuoteVariables() uses, for the accommodation share of the payout
+     */
+    private static function packageOfferVariables(
+        array $partner,
+        int $packageRequestId,
+        ?string $summaryText,
+        ?array $accommodationBreakdown
+    ): array {
+        $empty = [
+            'offre_titre' => '',
+            'offre_recap_bloc' => '',
+            'commission_offres_completes' => '',
+            'total_a_payer_samchlolaure_offres_completes' => '',
+        ];
+        if ($packageRequestId <= 0) {
+            return $empty;
+        }
+        $packageRequest = PackageRequests::find($packageRequestId);
+        if ($packageRequest === null) {
+            return $empty;
+        }
+        $accommodationPayout = $accommodationBreakdown !== null
+            ? (float) ($accommodationBreakdown['total_traveler'] ?? 0) - (float) ($accommodationBreakdown['commission_total'] ?? 0)
+            : 0.0;
+        $currency = (string) ($accommodationBreakdown['currency'] ?? 'EUR');
+        $vars = PackageRequests::commissionVariables($partner, $packageRequest, $accommodationPayout, $currency);
+        $vars['offre_titre'] = (string) ($packageRequest['package_title'] ?? '');
+        $vars['offre_recap_bloc'] = self::packageRecapBlocHtml($summaryText);
+        return $vars;
+    }
+
+    /**
+     * Renders the offer's plain-text recap (PackagesController::summaryText(),
+     * stored as reservation_requests.package_summary and passed in-memory via
+     * self::$packageContext['summary']) as a simple bullet list — never
+     * revealing any per-line price, only whatever single "Total" line
+     * summaryText() already included, matching the "offer sold as whole"
+     * rule (see the class-level {{offre_recap_bloc}} catalog entry).
+     */
+    private static function packageRecapBlocHtml(?string $summaryText): string
+    {
+        $summaryText = trim((string) $summaryText);
+        if ($summaryText === '') {
+            return '';
+        }
+        $lines = array_filter(array_map('trim', explode("\n", $summaryText)), static fn (string $line): bool => $line !== '');
+        $html = '<div style="padding:12px 24px 16px;">'
+            . '<p style="margin:0 0 10px;font-weight:bold;font-size:14px;color:#111827;">Récapitulatif de l\'offre :</p>'
+            . '<ul style="margin:0;padding-left:18px;font-size:14px;color:#374151;">';
+        foreach ($lines as $line) {
+            $html .= '<li>' . htmlspecialchars($line) . '</li>';
+        }
+        $html .= '</ul></div>';
+        return $html;
     }
 
     public static function formatMoneyFr(float $amount, string $currency): string

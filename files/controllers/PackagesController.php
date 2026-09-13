@@ -694,11 +694,16 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
         // stock and the property/dates, so an ordinary reservation request
         // must not be able to claim a package_id of its own.
         unset($_POST['package_id'], $_POST['package_summary']);
+        [$transportTotal, $activityTotal, $mealTotal] = self::extrasStepTotals($extras);
         $packageRequestId = PackageRequests::log(
             (int) $package['id'],
             (int) $partner['id'],
             (string) ($_POST['client_name'] ?? ''),
-            (string) ($_POST['client_email'] ?? '')
+            (string) ($_POST['client_email'] ?? ''),
+            (float) ($extras['flight_total'] ?? 0),
+            $transportTotal,
+            $activityTotal,
+            $mealTotal
         );
         ReservationsController::setPackageContext((int) $package['id'], $summary, $packageRequestId);
 
@@ -765,11 +770,16 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
             (string) ($_POST['message'] ?? '') . "\n\n" . $summary
         );
         unset($_POST['package_id'], $_POST['package_summary'], $_POST['items']);
+        [$transportTotal, $activityTotal, $mealTotal] = self::extrasStepTotals($extras);
         $packageRequestId = PackageRequests::log(
             (int) $package['id'],
             (int) $partner['id'],
             (string) ($_POST['client_name'] ?? ''),
-            (string) ($_POST['client_email'] ?? '')
+            (string) ($_POST['client_email'] ?? ''),
+            (float) ($extras['flight_total'] ?? 0),
+            $transportTotal,
+            $activityTotal,
+            $mealTotal
         );
         ReservationsController::setPackageContext((int) $package['id'], $summary, $packageRequestId);
         ReservationsController::setPackageItems(array_map(
@@ -1056,6 +1066,29 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
             array_slice($childGuests, 0, $children3to12),
             array_slice($babyGuests, 0, $childrenUnder3)
         );
+    }
+
+    /**
+     * Sums each non-flight step's line_total from Packages::extrasSelection()
+     * (transports/activities/meals), for the per-step commission owed by the
+     * partner on an "Offre Complète" (see PackageRequests::log()/
+     * commissionVariables(), migration 069). Flight total is already exposed
+     * directly as $extras['flight_total'].
+     *
+     * @param array{transports: array<int, array<string, mixed>>, activities: array<int, array<string, mixed>>, meals: array<int, array<string, mixed>>} $extras
+     * @return array{0: float, 1: float, 2: float} [transport_total, activity_total, meal_total]
+     */
+    private static function extrasStepTotals(array $extras): array
+    {
+        $sum = static fn (array $items): float => array_sum(array_map(
+            static fn (array $item): float => (float) ($item['line_total'] ?? 0),
+            $items
+        ));
+        return [
+            $sum($extras['transports'] ?? []),
+            $sum($extras['activities'] ?? []),
+            $sum($extras['meals'] ?? []),
+        ];
     }
 
     /**

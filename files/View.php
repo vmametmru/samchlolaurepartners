@@ -419,7 +419,7 @@ final class View
      */
     public static function clientFacingTemplateTypes(): array
     {
-        return ['REQUEST_RECEIVED_CLIENT', 'RESERVATION_CONFIRMED', 'RESERVATION_CANCELLED', 'RESERVATION_REOPENED', 'RESERVATION_MODIFIED_CLIENT', 'REMINDER_CLIENT'];
+        return ['REQUEST_RECEIVED_CLIENT', 'RESERVATION_CONFIRMED', 'RESERVATION_CANCELLED', 'RESERVATION_REOPENED', 'RESERVATION_MODIFIED_CLIENT', 'REMINDER_CLIENT', 'PACKAGE_REQUEST_RECEIVED_CLIENT', 'PACKAGE_REQUEST_CONFIRMED', 'PACKAGE_REQUEST_CANCELLED'];
     }
 
     public static function isClientFacingTemplateType(string $type): bool
@@ -486,6 +486,10 @@ final class View
             ['key' => 'copier_le_lien', 'description' => 'Copier le Lien / Copy link : identique à {{lien_demande_client}}, le même lien (/r/{token}) que celui copié par le bouton "🔗 Copier le lien"/"🔗 Copy link" affiché au client et au partenaire. Utilisable dans les templates client comme partenaire', 'partnerOnly' => false],
             ['key' => 'lien_demande_partenaire', 'description' => 'Lien direct vers la fiche de la demande de réservation dans l\'espace partenaire (/partner/reservations/{id}) ; nécessite d\'être connecté en tant que partenaire', 'partnerOnly' => true],
             ['key' => 'detail_modification', 'description' => 'Liste (déjà mise en forme) de ce qui a changé lors de la modification de la demande : dates, voyageurs, hébergement et tarif total (vide si rien de tout cela n\'a changé)', 'partnerOnly' => false],
+            ['key' => 'offre_titre', 'description' => 'Titre de l\'Offre Complète (App\\Packages) à l\'origine de la demande (vide si la demande n\'a pas été faite depuis une offre)', 'partnerOnly' => false],
+            ['key' => 'offre_recap_bloc', 'description' => 'Bloc récapitulatif déjà mis en forme des options choisies dans l\'Offre Complète (Vol, Transport, Activités, Restauration), sans jamais afficher leur prix individuel — l\'offre restant vendue en bloc. Vide si la demande n\'a pas été faite depuis une offre', 'partnerOnly' => false],
+            ['key' => 'commission_offres_completes', 'description' => 'Commission due par le partenaire sur cette Offre Complète, calculée à partir des % de commission Vol/Transport/Activités/Restauration configurés pour ce partenaire (Total Vol × %Vol + Total Transport × %Transport + Total Activités × %Activités + Total Restauration × %Restauration). Vide si la demande n\'a pas été faite depuis une offre (information partenaire uniquement)', 'partnerOnly' => true],
+            ['key' => 'total_a_payer_samchlolaure_offres_completes', 'description' => 'Total à payer à SamChloLaure pour cette Offre Complète : {{paiement_a_samchlolaure}} (hébergement) + {{commission_offres_completes}}. Vide si la demande n\'a pas été faite depuis une offre (information partenaire uniquement)', 'partnerOnly' => true],
         ];
     }
 

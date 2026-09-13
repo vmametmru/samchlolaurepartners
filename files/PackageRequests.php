@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App;
 
+use App\controllers\ReservationsController;
 use PDO;
 
 /**
@@ -35,24 +36,83 @@ final class PackageRequests
     /**
      * Logs a new offer submission and returns its id, or 0 when migration
      * 068 hasn't applied yet (never blocks the reservation request flow).
+     *
+     * $flightTotal/$transportTotal/$activityTotal/$mealTotal (migration 069)
+     * are the offer's non-accommodation step totals as actually selected by
+     * the client (Packages::extrasSelection()'s 'flight_total' plus the sum
+     * of each block's 'line_total'), snapshotted here so the commission owed
+     * on this specific request (see commissionVariables()) never drifts if
+     * the offer's own prices are edited afterwards.
      */
-    public static function log(int $packageId, int $partnerId, ?string $clientName, ?string $clientEmail): int
-    {
+    public static function log(
+        int $packageId,
+        int $partnerId,
+        ?string $clientName,
+        ?string $clientEmail,
+        float $flightTotal = 0.0,
+        float $transportTotal = 0.0,
+        float $activityTotal = 0.0,
+        float $mealTotal = 0.0
+    ): int {
         if ($packageId <= 0 || $partnerId <= 0 || !self::tableReady()) {
             return 0;
         }
-        $stmt = Database::connection()->prepare(
-            'INSERT INTO package_requests (package_id, partner_id, status, client_name, client_email)
-             VALUES (?, ?, ?, ?, ?)'
-        );
-        $stmt->execute([
+        $hasStepTotals = Database::columnExists('package_requests', 'flight_total');
+        $columns = ['package_id', 'partner_id', 'status', 'client_name', 'client_email'];
+        $params = [
             $packageId,
             $partnerId,
             self::STATUS_OPEN,
             $clientName !== null && trim($clientName) !== '' ? mb_substr(trim($clientName), 0, 190) : null,
             $clientEmail !== null && trim($clientEmail) !== '' ? mb_substr(trim($clientEmail), 0, 190) : null,
-        ]);
+        ];
+        if ($hasStepTotals) {
+            $columns = [...$columns, 'flight_total', 'transport_total', 'activity_total', 'meal_total'];
+            $params = [...$params, round($flightTotal, 2), round($transportTotal, 2), round($activityTotal, 2), round($mealTotal, 2)];
+        }
+        $stmt = Database::connection()->prepare(
+            'INSERT INTO package_requests (' . implode(', ', $columns) . ')
+             VALUES (' . implode(', ', array_fill(0, count($params), '?')) . ')'
+        );
+        $stmt->execute($params);
         return (int) Database::connection()->lastInsertId();
+    }
+
+    /**
+     * "Commissions Offres Complète"/"Total à payer à SamChloLaure - Offres
+     * Complètes" email variables (migration 069): the commission owed by
+     * the partner on the offer's Vol/Transport/Activités/Restauration steps
+     * (never on the accommodation itself, which already has its own
+     * markup_percent-based commission — see
+     * ReservationsController::buildQuoteVariables()'s commission_partenaire/
+     * paiement_a_samchlolaure), plus the resulting total payable to
+     * SamChloLaure once the accommodation payout is added.
+     *
+     * @param array<string, mixed> $partner
+     * @param array<string, mixed>|null $packageRequest self::find()'s row, or null when this request wasn't made from an offer
+     * @return array{commission_offres_completes: string, total_a_payer_samchlolaure_offres_completes: string}
+     */
+    public static function commissionVariables(
+        array $partner,
+        ?array $packageRequest,
+        float $accommodationPayoutToSamChloLaure,
+        string $currency
+    ): array {
+        if ($packageRequest === null) {
+            return [
+                'commission_offres_completes' => '',
+                'total_a_payer_samchlolaure_offres_completes' => '',
+            ];
+        }
+        $commission = ((float) ($packageRequest['flight_total'] ?? 0) * (float) ($partner['packages_commission_flight_percent'] ?? 0) / 100)
+            + ((float) ($packageRequest['transport_total'] ?? 0) * (float) ($partner['packages_commission_transport_percent'] ?? 0) / 100)
+            + ((float) ($packageRequest['activity_total'] ?? 0) * (float) ($partner['packages_commission_activity_percent'] ?? 0) / 100)
+            + ((float) ($packageRequest['meal_total'] ?? 0) * (float) ($partner['packages_commission_meal_percent'] ?? 0) / 100);
+        $total = $accommodationPayoutToSamChloLaure + $commission;
+        return [
+            'commission_offres_completes' => ReservationsController::formatMoneyFr(round($commission, 2), $currency),
+            'total_a_payer_samchlolaure_offres_completes' => ReservationsController::formatMoneyFr(round($total, 2), $currency),
+        ];
     }
 
     /**
