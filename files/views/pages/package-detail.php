@@ -87,13 +87,16 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
       <div data-package-step-panel="<?= $e($stepKey) ?>"<?= $index === 0 ? '' : ' hidden' ?>>
         <?php if ($stepKey === 'flight'): ?>
           <!-- One block per flight option, 3 per line (see
-               .package-options-grid). No option is pre-selected: the client
-               must pick one before the step's button unlocks. -->
+               .package-options-grid). The flight marked "Option conseillée"
+               (is_default) is pre-selected so the block reflects the choice
+               already used to compute the running total; the client can
+               still switch to another option. -->
           <div class="package-options-grid">
             <?php foreach ($flights as $flight): ?>
               <label class="card card-body package-option-card">
                 <span class="inline-check">
-                  <input type="radio" name="package_flight" value="<?= (int) $flight['id'] ?>" data-package-flight>
+                  <input type="radio" name="package_flight" value="<?= (int) $flight['id'] ?>" data-package-flight
+                    <?= (int) ($flight['is_default'] ?? 0) === 1 ? 'checked' : '' ?>>
                   <strong><?= $e((string) $flight['label']) ?></strong>
                 </span>
                 <?php if (!empty($flight['airline']) || !empty($flight['cabin_class'])): ?>
