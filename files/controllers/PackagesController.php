@@ -379,7 +379,138 @@ final class PackagesController extends Controller
         ReservationsController::requestReservation();
     }
 
+    /**
+     * Presentation of one accommodation of an offer, for the "Voir le bien"
+     * modal: photos, description, equipment and a plain availability
+     * calendar. Deliberately price-free — an offer is sold as a whole, so
+     * neither this payload nor its calendar ever exposes a nightly rate
+     * (the calendar partial is rendered with no rates at all and with
+     * $hidePricesForVisitor = true). Like every other offer endpoint it
+     * reads the local cache only, never the Lodgify API.
+     */
+    public static function publicProperty(int $id, int $propertyId): never
+    {
+        $partner = Tenant::current();
+        if (!Packages::enabledForPartner($partner)) {
+            self::json(['error' => 'Not Found'], 404);
+        }
+        $package = Packages::findForPartner((int) $partner['id'], $id);
+        if ($package === null || (!Packages::isBookable($package) && !Auth::isPartnerOrAdmin())) {
+            self::json(['error' => 'Not Found'], 404);
+        }
+        // The property must both belong to the offer and be visible to the
+        // active partner: the modal must never become a way to look at a
+        // property the partner isn't allowed to see.
+        if ((int) ($package['all_properties'] ?? 1) !== 1
+            && !in_array($propertyId, array_map('intval', $package['property_ids'] ?? []), true)) {
+            self::json(['error' => 'Not Found'], 404);
+        }
+
+        $client = new LodgifyClient();
+        try {
+            $visible = PageController::publicVisibleProperties($client->getPropertiesFromCache(), $partner);
+        } catch (Throwable $e) {
+            error_log('Packages: failed to read cached properties: ' . $e->getMessage());
+            self::json(['error' => 'Service Unavailable'], 503);
+        }
+        $isVisible = false;
+        foreach ($visible as $item) {
+            if ((int) ($item['id'] ?? 0) === $propertyId) {
+                $isVisible = true;
+                break;
+            }
+        }
+        if (!$isVisible) {
+            self::json(['error' => 'Not Found'], 404);
+        }
+
+        $property = $client->getPropertyFromCache($propertyId);
+        if ($property === null) {
+            self::json(['error' => 'Not Found'], 404);
+        }
+
+        $images = [];
+        foreach (($property['images'] ?? []) as $image) {
+            $url = is_array($image) ? (string) ($image['url'] ?? '') : '';
+            if ($url !== '') {
+                $images[] = ['url' => $url, 'text' => is_array($image) ? ($image['text'] ?? null) : null];
+            }
+        }
+        $amenities = [];
+        foreach (($property['amenities_by_category'] ?? []) as $category => $names) {
+            if (is_array($names) && $names !== []) {
+                $amenities[(string) $category] = array_values(array_map('strval', $names));
+            }
+        }
+        if ($amenities === []) {
+            $flat = [];
+            foreach (($property['amenities'] ?? []) as $amenity) {
+                $name = is_array($amenity) ? (string) ($amenity['name'] ?? '') : (string) $amenity;
+                if ($name !== '') {
+                    $flat[] = $name;
+                }
+            }
+            if ($flat !== []) {
+                $amenities[''] = $flat;
+            }
+        }
+
+        self::json([
+            'data' => [
+                'property_id' => $propertyId,
+                'name' => View::localized($property, 'name'),
+                'description' => View::localized($property, 'description'),
+                'bedrooms' => (int) ($property['bedrooms'] ?? 0),
+                'bathrooms' => (int) ($property['bathrooms'] ?? 0),
+                'max_guests' => (int) ($property['max_guests'] ?? 0),
+                'images' => $images,
+                'amenities' => $amenities,
+                'calendar_html' => self::availabilityCalendarHtml($client, $propertyId, isset($_GET['anchor']) ? (string) $_GET['anchor'] : null),
+            ],
+        ]);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────
+
+    /**
+     * Renders the shared calendar partial for the "Voir le bien" modal:
+     * 4 months anchored on the requested arrival month, availability read
+     * from the local cache only (never the Lodgify API) and no rates at all,
+     * so not a single price can appear inside an offer page.
+     */
+    private static function availabilityCalendarHtml(LodgifyClient $client, int $propertyId, ?string $anchorDate): string
+    {
+        $calendarMonths = 4;
+        try {
+            $anchor = ($anchorDate !== null && $anchorDate !== '')
+                ? new \DateTimeImmutable($anchorDate)
+                : new \DateTimeImmutable('today');
+        } catch (Throwable $e) {
+            $anchor = new \DateTimeImmutable('today');
+        }
+        $monthStart = $anchor->modify('first day of this month');
+        if ($monthStart < new \DateTimeImmutable('first day of this month')) {
+            $monthStart = new \DateTimeImmutable('first day of this month');
+        }
+        $rangeStart = $monthStart->format('Y-m-d');
+        $rangeEnd = $monthStart->modify('+' . $calendarMonths . ' months')->modify('-1 day')->format('Y-m-d');
+
+        $availability = [];
+        try {
+            $availability = $client->getAvailabilityFromCache($propertyId, $rangeStart, $rangeEnd);
+        } catch (Throwable $e) {
+            error_log('Packages: failed to read cached availability for property ' . $propertyId . ': ' . $e->getMessage());
+        }
+
+        // Variables consumed by files/views/partials/calendar-body.php.
+        $rates = [];
+        $hidePricesForVisitor = true;
+        $today = date('Y-m-d');
+        $calendarStart = $rangeStart;
+        ob_start();
+        require BASE_PATH . '/files/views/partials/calendar-body.php';
+        return (string) ob_get_clean();
+    }
 
     /** @return array<string, mixed> */
     private static function requirePublicPartner(): array

@@ -192,6 +192,8 @@ try {
             PackagesController::publicSearch((int) $matches[1]);
         case route($method, $path, 'POST', '#^/api/packages/(\d+)/request$#', $matches):
             PackagesController::publicRequest((int) $matches[1]);
+        case route($method, $path, 'GET', '#^/api/packages/(\d+)/properties/(\d+)$#', $matches):
+            PackagesController::publicProperty((int) $matches[1], (int) $matches[2]);
         case route($method, $path, 'POST', '#^/api/analytics/track$#'):
             AnalyticsController::track();
         case route($method, $path, 'POST', '#^/api/analytics/track-duration$#'):

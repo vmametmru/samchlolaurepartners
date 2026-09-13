@@ -832,3 +832,11 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .mt-8 { margin-top: 0.5rem; }
 .mt-16 { margin-top: 1rem; }
 .text-muted { color: #6b7280; font-size: 0.875rem; }
+.package-results-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.package-result-card { display: flex; flex-direction: column; }
+.package-result-card .card-body { display: flex; flex-direction: column; gap: .4rem; flex: 1; }
+.package-result-card .card-body h3 { margin: 0; font-size: 1.05rem; }
+.package-result-card .card-body p { margin: 0; font-size: .9rem; }
+.package-result-card .button-row { margin-top: auto; padding-top: .6rem; flex-wrap: wrap; }
+@media (max-width: 980px) { .package-results-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .package-results-grid { grid-template-columns: 1fr; } }
