@@ -26,9 +26,11 @@ final class ReservationsController extends Controller
      * only physically host a limited number of babies (cots/car seats),
      * capped at 2. Kept as a single constant so quote()/requestReservation()
      * (single property) and requestMultiple() (per active property, in its
-     * date-by-date capacity loop) stay in sync.
+     * date-by-date capacity loop) stay in sync. Also read by
+     * App\Packages::allocateParty() when an offer's party is spread over
+     * several properties at the same address.
      */
-    private const MAX_BABIES_PER_PROPERTY = 2;
+    public const MAX_BABIES_PER_PROPERTY = 2;
 
     /**
      * Whether the current visitor is allowed to manually force the nightly
@@ -297,6 +299,27 @@ final class ReservationsController extends Controller
     {
         self::$packageContext = $packageId > 0 ? ['id' => $packageId, 'summary' => $summary] : null;
     }
+
+    /**
+     * Server-built items of a multi-property offer request: the party of an
+     * "Offre Complète" too big for a single accommodation is spread over
+     * several properties at the same address, one reservation request per
+     * property. Set by PackagesController::publicRequest() right before it
+     * hands over to requestMultiple(), which then uses these items as-is:
+     * the offer, the properties, the dates, the way the party is split and
+     * every price have already been validated and computed cache-only there
+     * (an offer page must never trigger a Lodgify API call), and none of it
+     * may come from the payload.
+     *
+     * @param array<int, array{property_id: int, property_name: string, checkin_date: string, checkout_date: string, adults: int, children_3to12: int, children_under3: int, quote: array<string, mixed>|null}> $items
+     */
+    public static function setPackageItems(array $items): void
+    {
+        self::$packageItems = $items === [] ? null : $items;
+    }
+
+    /** @var array<int, array<string, mixed>>|null */
+    private static ?array $packageItems = null;
 
     /**
      * The offer the request being created comes from, or 0 for every
@@ -1133,6 +1156,12 @@ final class ReservationsController extends Controller
      * before insert: adults + children 3-12 must fit within the active
      * properties' combined max_guests for that date, and babies must also
      * respect the max-2-per-property rule on every night.
+     *
+     * Also used by the "Offres Complètes" pages when a party is spread over
+     * several properties at the same address: the items are then handed over
+     * server-side (setPackageItems()), already validated, already priced
+     * cache-only and carrying their own share of the party, and each created
+     * request is tied to the offer exactly like the single-property flow.
      */
     public static function requestMultiple(): never
     {
@@ -1168,7 +1197,7 @@ final class ReservationsController extends Controller
         }
         $skipEmail = self::canForcePrice() && (string) ($input['no_client_email'] ?? '') === '1';
 
-        if ($clientName === '' || $adults < 1 || $items === []) {
+        if ($clientName === '' || $adults < 1 || ($items === [] && self::$packageItems === null)) {
             self::json(['error' => 'Bad Request', 'message' => 'Required fields missing'], 400);
         }
         if (!$skipPhone && $clientPhone === '') {
@@ -1187,6 +1216,15 @@ final class ReservationsController extends Controller
         $capacityByProperty = [];
         $earliestCheckin = null;
         $latestCheckout = null;
+        // An "Offre Complète" hands its items over server-side: they are
+        // already validated, already priced from the local cache only and
+        // each carries its own share of the party, so none of the payload
+        // parsing, the live Lodgify capacity lookup nor the night-by-night
+        // capacity check below applies to them.
+        $packageItems = self::$packageItems;
+        if ($packageItems !== null) {
+            $items = [];
+        }
         foreach ($items as $item) {
             if (!is_array($item)) {
                 self::json(['error' => 'Bad Request', 'message' => 'Invalid item in selection'], 400);
@@ -1258,6 +1296,12 @@ final class ReservationsController extends Controller
                 'property_name' => $propertyName,
                 'checkin_date' => $checkinDate->format('Y-m-d'),
                 'checkout_date' => $checkoutDate->format('Y-m-d'),
+                // The Calendrier cart books the whole party in every selected
+                // property (each item is its own booking for that party);
+                // offer items carry their own share instead, see below.
+                'adults' => $adults,
+                'children_3to12' => $children3to12,
+                'children_under3' => $childrenUnder3,
                 'quote' => $itemQuote,
             ];
             if ($earliestCheckin === null || $checkinDate < $earliestCheckin) {
@@ -1309,6 +1353,10 @@ final class ReservationsController extends Controller
             }
         }
 
+        if ($packageItems !== null) {
+            $normalizedItems = $packageItems;
+        }
+
         $partner = self::requirePartnerContext();
         $pdo = Database::connection();
         $createdIds = [];
@@ -1347,11 +1395,36 @@ final class ReservationsController extends Controller
                 }
                 $columns = [...$columns, ...$quoteColumnNames];
             }
+            // "Offres Complètes": same rule as requestReservation() — the
+            // offer is locked and re-checked for the whole party inside this
+            // very transaction, so two clients submitting the last units at
+            // the same time can't both pass, and every created request keeps
+            // the offer's provenance.
+            $packageColumns = [];
+            $packageParams = [];
+            $packageId = self::requestedPackageId();
+            if ($packageId > 0) {
+                $package = Packages::lockForStock($pdo, (int) $partner['id'], $packageId);
+                if ($package === null || !Packages::isBookable($package, $adults + $children)) {
+                    $pdo->rollBack();
+                    self::json([
+                        'error' => 'Conflict',
+                        'message' => 'Cette offre n\'est plus disponible (expirée ou complète).',
+                    ], 409);
+                }
+                [$packageColumns, $packageParams] = self::packageInsertColumnsAndParams($packageId);
+                $columns = [...$columns, ...$packageColumns];
+            }
             $stmt = $pdo->prepare(
                 'INSERT INTO reservation_requests (' . implode(', ', $columns) . ')
                  VALUES (' . implode(', ', array_fill(0, count($columns), '?')) . ')'
             );
             foreach ($normalizedItems as $item) {
+                // Each item carries the share of the party it actually hosts:
+                // the whole party for the Calendrier cart, the properties'
+                // own share for a multi-property offer selection.
+                $itemChildrenUnder3 = (int) ($item['children_under3'] ?? $childrenUnder3);
+                $itemChildren3to12 = (int) ($item['children_3to12'] ?? $children3to12);
                 $params = [
                     (int) $partner['id'],
                     (string) $item['property_id'],
@@ -1361,12 +1434,12 @@ final class ReservationsController extends Controller
                     $clientPhone,
                     $item['checkin_date'],
                     $item['checkout_date'],
-                    $adults,
-                    $children,
+                    (int) ($item['adults'] ?? $adults),
+                    $itemChildrenUnder3 + $itemChildren3to12,
                 ];
                 if ($breakdownColumns !== null) {
-                    $params[] = $childrenUnder3;
-                    $params[] = $children3to12;
+                    $params[] = $itemChildrenUnder3;
+                    $params[] = $itemChildren3to12;
                 }
                 if ($hasLanguageColumn) {
                     $params[] = $requestLanguage;
@@ -1401,6 +1474,9 @@ final class ReservationsController extends Controller
                         $params[] = $itemBreakdown['vat_rate'];
                     }
                 }
+                foreach ($packageParams as $packageParam) {
+                    $params[] = $packageParam;
+                }
                 $stmt->execute($params);
                 $createdIds[] = (int) $pdo->lastInsertId();
             }
@@ -1421,6 +1497,8 @@ final class ReservationsController extends Controller
             // fetched for this item; degrade to a zeroed quote (via the ??
             // fallbacks below) instead of accessing array offsets on null.
             $quote = $item['quote'] ?? [];
+            $itemChildrenUnder3 = (int) ($item['children_under3'] ?? $childrenUnder3);
+            $itemChildren3to12 = (int) ($item['children_3to12'] ?? $children3to12);
             try {
                 self::sendRequestEmails($partner, [
                     'id' => $createdIds[$itemIndex] ?? 0,
@@ -1430,10 +1508,10 @@ final class ReservationsController extends Controller
                     'client_phone' => $clientPhone,
                     'checkin_date' => $item['checkin_date'],
                     'checkout_date' => $item['checkout_date'],
-                    'adults' => $adults,
-                    'children' => $children,
-                    'children_under3' => $childrenUnder3,
-                    'children_3to12' => $children3to12,
+                    'adults' => (int) ($item['adults'] ?? $adults),
+                    'children' => $itemChildrenUnder3 + $itemChildren3to12,
+                    'children_under3' => $itemChildrenUnder3,
+                    'children_3to12' => $itemChildren3to12,
                     'property_name' => $item['property_name'],
                     'message' => $message,
                     'guests' => $input['guests'] ?? [],

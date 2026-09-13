@@ -711,9 +711,16 @@ final class Packages
      * by at most 2 nights, ranked by how close they stay to the original
      * request.
      *
+     * A party too big for any single property isn't left empty-handed: every
+     * property available for the exact requested dates is also grouped by its
+     * manual "Emplacement" (see PageController::manualLodgifyColumnsByPropertyId()),
+     * and any address whose properties together can host everyone is returned
+     * as a "groups" entry, so the client can book several properties at that
+     * same address in one go (see quoteSelection()).
+     *
      * @param array<string, mixed> $package fully loaded offer (find())
      * @param array<string, mixed> $partner
-     * @return array{nights: int, matches: array<int, array<string, mixed>>, alternatives: array<int, array<string, mixed>>}
+     * @return array{nights: int, matches: array<int, array<string, mixed>>, alternatives: array<int, array<string, mixed>>, groups: array<int, array<string, mixed>>}
      */
     public static function searchAccommodations(
         array $package,
@@ -724,7 +731,7 @@ final class Packages
         int $children3to12,
         int $childrenUnder3
     ): array {
-        $empty = ['nights' => 0, 'matches' => [], 'alternatives' => []];
+        $empty = ['nights' => 0, 'matches' => [], 'alternatives' => [], 'groups' => []];
         try {
             $checkinDate = new \DateTimeImmutable($checkin);
             $checkoutDate = new \DateTimeImmutable($checkout);
@@ -768,6 +775,10 @@ final class Packages
 
         $matches = [];
         $alternativeCandidates = [];
+        // Properties available for the *exact* requested dates, whatever
+        // their own capacity: a party too big for any single one of them can
+        // still be hosted by several properties sharing the same address.
+        $groupCandidates = [];
         foreach ($properties as $property) {
             $propertyId = (int) ($property['id'] ?? 0);
             if ($propertyId <= 0) {
@@ -777,9 +788,7 @@ final class Packages
                 continue;
             }
             $maxGuests = (int) ($property['max_guests'] ?? 0);
-            if ($maxGuests > 0 && $countedGuests > $maxGuests) {
-                continue;
-            }
+            $fitsParty = $maxGuests <= 0 || $countedGuests <= $maxGuests;
 
             $availabilityMap = [];
             foreach ($client->getAvailabilityFromCache($propertyId, $windowStart->format('Y-m-d'), $windowEnd->format('Y-m-d')) as $day) {
@@ -811,21 +820,36 @@ final class Packages
             if (self::stayCoveredByCache($availabilityMap, $rateMap, $checkinDate, $nights)
                 && ReservationsController::rangesFreeOf($reservedRanges, $checkin, $checkout)
             ) {
-                $quote = ReservationsController::cacheOnlyStayQuote(
-                    (int) $partner['id'],
-                    $propertyId,
-                    $property,
-                    $checkin,
-                    $checkoutDate,
-                    $adults,
-                    $totalGuests,
-                    $countedGuests,
-                    [],
-                    self::stayRateRows($rateRows, $checkinDate, $nights)
-                );
-                if ($quote !== null) {
-                    $matches[] = self::accommodationEntry($property, $quote, $checkin, $checkout, $nights, 0, 0);
+                $groupCandidates[] = [
+                    'property' => $property,
+                    'property_id' => $propertyId,
+                    'max_guests' => $maxGuests,
+                ];
+                if ($fitsParty) {
+                    $quote = ReservationsController::cacheOnlyStayQuote(
+                        (int) $partner['id'],
+                        $propertyId,
+                        $property,
+                        $checkin,
+                        $checkoutDate,
+                        $adults,
+                        $totalGuests,
+                        $countedGuests,
+                        [],
+                        self::stayRateRows($rateRows, $checkinDate, $nights)
+                    );
+                    if ($quote !== null) {
+                        $matches[] = self::accommodationEntry($property, $quote, $checkin, $checkout, $nights, 0, 0);
+                    }
                 }
+            }
+
+            // Nearby-date alternatives are only ever proposed for a property
+            // that could host the whole party on its own: a smaller one is
+            // only relevant combined with others, which the same-address
+            // groups below handle for the requested dates.
+            if (!$fitsParty) {
+                continue;
             }
 
             foreach (self::fallbackCombinations($checkinDate, $nights, $today) as $combination) {
@@ -855,7 +879,17 @@ final class Packages
 
         if ($matches !== []) {
             usort($matches, static fn (array $a, array $b): int => $a['total_stay'] <=> $b['total_stay']);
-            return ['nights' => $nights, 'matches' => $matches, 'alternatives' => []];
+            return ['nights' => $nights, 'matches' => $matches, 'alternatives' => [], 'groups' => []];
+        }
+
+        // No single property can host the party for those dates: propose the
+        // addresses where several properties of the offer, taken together,
+        // can. Prices are deliberately not computed here — the client first
+        // picks which properties they want, then the whole selection is
+        // quoted as one by quoteSelection().
+        $groups = self::sameAddressGroups($groupCandidates, $countedGuests, $childrenUnder3, $checkin, $checkout, $nights);
+        if ($groups !== []) {
+            return ['nights' => $nights, 'matches' => [], 'alternatives' => [], 'groups' => $groups];
         }
 
         // Closest first: smallest date shift, then fewest nights lost, then
@@ -913,7 +947,302 @@ final class Packages
             }
         }
 
-        return ['nights' => $nights, 'matches' => [], 'alternatives' => $alternatives];
+        return ['nights' => $nights, 'matches' => [], 'alternatives' => $alternatives, 'groups' => []];
+    }
+
+    /**
+     * Addresses ("Emplacement", the manual column of the "Biens Lodgify"
+     * table) where several properties of the offer, all available for the
+     * exact requested dates, can together host a party no single property
+     * can take. Only addresses holding at least two such properties and
+     * enough combined capacity are returned.
+     *
+     * @param array<int, array{property: array<string, mixed>, property_id: int, max_guests: int}> $candidates
+     * @return array<int, array{location: string, capacity: int, properties: array<int, array<string, mixed>>}>
+     */
+    private static function sameAddressGroups(
+        array $candidates,
+        int $countedGuests,
+        int $childrenUnder3,
+        string $checkin,
+        string $checkout,
+        int $nights
+    ): array {
+        if (count($candidates) < 2) {
+            return [];
+        }
+        $locations = PageController::manualLodgifyColumnsByPropertyId(
+            array_map(static fn (array $candidate): int => $candidate['property_id'], $candidates)
+        );
+
+        $byLocation = [];
+        foreach ($candidates as $candidate) {
+            $location = trim((string) ($locations[$candidate['property_id']]['location'] ?? ''));
+            if ($location === '') {
+                continue;
+            }
+            $key = mb_strtolower($location);
+            $byLocation[$key]['location'] = $byLocation[$key]['location'] ?? $location;
+            $byLocation[$key]['candidates'][] = $candidate;
+        }
+
+        $groups = [];
+        foreach ($byLocation as $entry) {
+            $groupCandidates = $entry['candidates'];
+            if (count($groupCandidates) < 2) {
+                continue;
+            }
+            $capacity = 0;
+            $unlimited = false;
+            foreach ($groupCandidates as $candidate) {
+                if ($candidate['max_guests'] <= 0) {
+                    $unlimited = true;
+                    continue;
+                }
+                $capacity += $candidate['max_guests'];
+            }
+            if (!$unlimited && $capacity < $countedGuests) {
+                continue;
+            }
+            // Babies need a cot in a property of their own beyond two per
+            // property, exactly like the ordinary multi-property flow.
+            if ($childrenUnder3 > count($groupCandidates) * ReservationsController::MAX_BABIES_PER_PROPERTY) {
+                continue;
+            }
+            usort(
+                $groupCandidates,
+                static fn (array $a, array $b): int => $b['max_guests'] <=> $a['max_guests']
+            );
+            $properties = [];
+            foreach ($groupCandidates as $candidate) {
+                $property = $candidate['property'];
+                $properties[] = [
+                    'property_id' => $candidate['property_id'],
+                    'name' => View::localized($property, 'name'),
+                    'image_url' => $property['images'][0]['url'] ?? null,
+                    'bedrooms' => (int) ($property['bedrooms'] ?? 0),
+                    'max_guests' => $candidate['max_guests'],
+                    'checkin' => $checkin,
+                    'checkout' => $checkout,
+                    'nights' => $nights,
+                ];
+            }
+            $groups[] = [
+                'location' => (string) $entry['location'],
+                'capacity' => $unlimited ? 0 : $capacity,
+                'properties' => $properties,
+            ];
+        }
+
+        usort($groups, static fn (array $a, array $b): int => count($b['properties']) <=> count($a['properties']));
+        return $groups;
+    }
+
+    /**
+     * Prices a multi-property selection of an offer: the properties must all
+     * belong to one same-address group returned by searchAccommodations()
+     * for those dates, and together be able to host the whole party, which is
+     * then spread over them (allocateParty()). Each property is quoted for
+     * the guests it actually hosts — cache-only, like every other offer
+     * lookup — and the accommodation totals are summed into one figure, the
+     * offer being sold as a whole.
+     *
+     * @param array<string, mixed> $package
+     * @param array<string, mixed> $partner
+     * @param array<int, int> $propertyIds
+     * @param array{groups: array<int, array<string, mixed>>}|null $search result of searchAccommodations() for the very same dates/party, reused instead of scanning again
+     * @return array{items: array<int, array<string, mixed>>, total_stay: float, currency: string, location: string}|null
+     */
+    public static function quoteSelection(
+        array $package,
+        array $partner,
+        array $propertyIds,
+        string $checkin,
+        string $checkout,
+        int $adults,
+        int $children3to12,
+        int $childrenUnder3,
+        ?array $search = null
+    ): ?array {
+        $propertyIds = array_values(array_unique(array_map('intval', $propertyIds)));
+        if (count($propertyIds) < 2) {
+            return null;
+        }
+        $search ??= self::searchAccommodations($package, $partner, $checkin, $checkout, $adults, $children3to12, $childrenUnder3);
+        $group = null;
+        foreach ($search['groups'] as $candidateGroup) {
+            $groupIds = array_map(
+                static fn (array $property): int => (int) $property['property_id'],
+                $candidateGroup['properties']
+            );
+            if (array_diff($propertyIds, $groupIds) === []) {
+                $group = $candidateGroup;
+                break;
+            }
+        }
+        if ($group === null) {
+            return null;
+        }
+
+        $capacities = [];
+        $selected = [];
+        foreach ($group['properties'] as $property) {
+            $propertyId = (int) $property['property_id'];
+            if (!in_array($propertyId, $propertyIds, true)) {
+                continue;
+            }
+            $capacities[$propertyId] = (int) $property['max_guests'];
+            $selected[$propertyId] = $property;
+        }
+        $allocation = self::allocateParty($capacities, $adults, $children3to12, $childrenUnder3);
+        if ($allocation === null) {
+            return null;
+        }
+
+        try {
+            $checkoutDate = new \DateTimeImmutable($checkout);
+        } catch (Throwable $e) {
+            return null;
+        }
+        $client = new LodgifyClient();
+        $propertiesById = [];
+        try {
+            foreach ($client->getPropertiesFromCache() as $row) {
+                $propertiesById[(int) ($row['id'] ?? 0)] = $row;
+            }
+        } catch (Throwable $e) {
+            error_log('Packages: failed to read cached properties for a multi-property selection: ' . $e->getMessage());
+            return null;
+        }
+        $items = [];
+        $total = 0.0;
+        $currency = 'EUR';
+        foreach ($allocation as $propertyId => $share) {
+            $property = $propertiesById[$propertyId] ?? null;
+            $shareCounted = $share['adults'] + $share['children_3to12'];
+            $quote = ReservationsController::cacheOnlyStayQuote(
+                (int) $partner['id'],
+                $propertyId,
+                $property,
+                $checkin,
+                $checkoutDate,
+                $share['adults'],
+                $shareCounted + $share['children_under3'],
+                $shareCounted,
+                []
+            );
+            if ($quote === null) {
+                return null;
+            }
+            $stayTotal = round((float) ($quote['total_traveler'] ?? 0) + (float) ($quote['tourist_tax_total'] ?? 0), 2);
+            $currency = (string) ($quote['currency'] ?? $currency);
+            $total += $stayTotal;
+            $items[] = [
+                'property_id' => $propertyId,
+                'name' => (string) $selected[$propertyId]['name'],
+                'checkin' => $checkin,
+                'checkout' => $checkout,
+                'nights' => (int) $selected[$propertyId]['nights'],
+                'adults' => $share['adults'],
+                'children_3to12' => $share['children_3to12'],
+                'children_under3' => $share['children_under3'],
+                'quote' => $quote,
+                'total_stay' => $stayTotal,
+            ];
+        }
+
+        return [
+            'items' => $items,
+            'total_stay' => round($total, 2),
+            'currency' => $currency,
+            'location' => (string) $group['location'],
+        ];
+    }
+
+    /**
+     * Spreads a party over the selected properties: every property hosts at
+     * least one person (and one adult whenever there are enough adults),
+     * nobody exceeds a property's max_guests and no property takes more than
+     * ReservationsController::MAX_BABIES_PER_PROPERTY babies. Returns null
+     * when the selection simply cannot hold the party (too few or too many
+     * properties).
+     *
+     * @param array<int, int> $capacities max_guests per property id (0 = unknown)
+     * @return array<int, array{adults: int, children_3to12: int, children_under3: int}>|null
+     */
+    private static function allocateParty(array $capacities, int $adults, int $children3to12, int $childrenUnder3): ?array
+    {
+        $counted = $adults + $children3to12;
+        $propertyCount = count($capacities);
+        if ($propertyCount === 0 || $counted < $propertyCount) {
+            return null;
+        }
+        // Biggest properties first, so the party is spread over as few
+        // rooms as possible; an unknown capacity (0) is treated as "can take
+        // whatever is left".
+        $effective = [];
+        foreach ($capacities as $propertyId => $capacity) {
+            $effective[$propertyId] = $capacity > 0 ? $capacity : $counted;
+        }
+        arsort($effective);
+
+        $seats = [];
+        foreach ($effective as $propertyId => $capacity) {
+            $seats[$propertyId] = 1;
+        }
+        $remaining = $counted - $propertyCount;
+        foreach ($effective as $propertyId => $capacity) {
+            if ($remaining <= 0) {
+                break;
+            }
+            $take = min($remaining, $capacity - 1);
+            if ($take <= 0) {
+                continue;
+            }
+            $seats[$propertyId] += $take;
+            $remaining -= $take;
+        }
+        if ($remaining > 0) {
+            return null;
+        }
+
+        $allocation = [];
+        foreach ($seats as $propertyId => $count) {
+            $allocation[$propertyId] = ['adults' => 0, 'children_3to12' => 0, 'children_under3' => 0];
+        }
+        $adultsLeft = $adults;
+        if ($adultsLeft >= $propertyCount) {
+            foreach ($allocation as $propertyId => $share) {
+                $allocation[$propertyId]['adults'] = 1;
+                $adultsLeft--;
+            }
+        }
+        foreach ($seats as $propertyId => $count) {
+            $free = $count - $allocation[$propertyId]['adults'];
+            $take = min($adultsLeft, $free);
+            $allocation[$propertyId]['adults'] += $take;
+            $adultsLeft -= $take;
+        }
+        $childrenLeft = $children3to12;
+        foreach ($seats as $propertyId => $count) {
+            $free = $count - $allocation[$propertyId]['adults'];
+            $take = min($childrenLeft, $free);
+            $allocation[$propertyId]['children_3to12'] += $take;
+            $childrenLeft -= $take;
+        }
+        $babiesLeft = $childrenUnder3;
+        foreach ($seats as $propertyId => $count) {
+            if ($babiesLeft <= 0) {
+                break;
+            }
+            $take = min($babiesLeft, ReservationsController::MAX_BABIES_PER_PROPERTY);
+            $allocation[$propertyId]['children_under3'] = $take;
+            $babiesLeft -= $take;
+        }
+        if ($adultsLeft > 0 || $childrenLeft > 0 || $babiesLeft > 0) {
+            return null;
+        }
+        return $allocation;
     }
 
     /**

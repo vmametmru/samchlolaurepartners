@@ -273,6 +273,44 @@ final class PackagesController extends Controller
             $rows
         );
 
+        // Party too big for any single accommodation: the offer proposes the
+        // addresses where several of its properties can host everyone
+        // together. Only the combined total of the properties the client has
+        // actually ticked is priced — still one single all-inclusive figure.
+        $selectedPropertyIds = [];
+        foreach ((array) ($_POST['property_ids'] ?? []) as $selectedId) {
+            $selectedId = (int) $selectedId;
+            if ($selectedId > 0) {
+                $selectedPropertyIds[] = $selectedId;
+            }
+        }
+        $selection = null;
+        if ($search['groups'] !== [] && count(array_unique($selectedPropertyIds)) >= 2) {
+            $quotedSelection = Packages::quoteSelection(
+                $package,
+                $partner,
+                $selectedPropertyIds,
+                $params['checkin'],
+                $params['checkout'],
+                $params['adults'],
+                $params['children_3to12'],
+                $params['children_under3'],
+                $search
+            );
+            if ($quotedSelection !== null) {
+                $selection = [
+                    'property_ids' => array_map(
+                        static fn (array $item): int => (int) $item['property_id'],
+                        $quotedSelection['items']
+                    ),
+                    'currency' => (string) $quotedSelection['currency'],
+                    'total_all_in' => $pricesHidden
+                        ? null
+                        : round((float) $quotedSelection['total_stay'] + (float) $extras['total'], 2),
+                ];
+            }
+        }
+
         self::json([
             'data' => [
                 'nights' => $search['nights'],
@@ -289,6 +327,8 @@ final class PackagesController extends Controller
                 ],
                 'matches' => array_map($decorate, $search['matches']),
                 'alternatives' => array_map($decorate, $search['alternatives']),
+                'groups' => $search['groups'],
+                'selection' => $selection,
             ],
         ]);
     }
@@ -300,6 +340,12 @@ final class PackagesController extends Controller
      * the ordinary ReservationsController::requestReservation() flow, so it
      * ends up in /partner/reservations and /admin/reservations with the same
      * emails and the same /r/{token} client link as any other request.
+     *
+     * A party too big for a single accommodation can instead pick several
+     * properties at one same address (property_ids[]): the whole selection is
+     * re-validated and re-priced here, the party is spread over the chosen
+     * properties, and one reservation request per property is created by
+     * ReservationsController::requestMultiple().
      */
     public static function publicRequest(int $id): never
     {
@@ -330,6 +376,14 @@ final class PackagesController extends Controller
         }
 
         $propertyId = (int) ($_POST['property_id'] ?? 0);
+        $selectedPropertyIds = [];
+        foreach ((array) ($_POST['property_ids'] ?? []) as $selectedId) {
+            $selectedId = (int) $selectedId;
+            if ($selectedId > 0) {
+                $selectedPropertyIds[] = $selectedId;
+            }
+        }
+        $selectedPropertyIds = array_values(array_unique($selectedPropertyIds));
         $search = Packages::searchAccommodations(
             $package,
             $partner,
@@ -339,6 +393,19 @@ final class PackagesController extends Controller
             $params['children_3to12'],
             $params['children_under3']
         );
+
+        $extras = Packages::extrasSelection(
+            $package,
+            $params['flight_id'],
+            $params['activity_ids'],
+            $params['meal_ids'],
+            $params['persons']
+        );
+
+        if (count($selectedPropertyIds) >= 2) {
+            self::requestSameAddressSelection($package, $partner, $params, $extras, $search, $selectedPropertyIds);
+        }
+
         $match = null;
         foreach ($search['matches'] as $candidate) {
             if ((int) $candidate['property_id'] === $propertyId) {
@@ -353,14 +420,6 @@ final class PackagesController extends Controller
             ], 409);
         }
 
-        $extras = Packages::extrasSelection(
-            $package,
-            $params['flight_id'],
-            $params['activity_ids'],
-            $params['meal_ids'],
-            $params['persons']
-        );
-
         // Hand over to the standard reservation-request flow: it validates
         // the client fields, prices the stay, stores the request and sends
         // every existing email. $_POST is completed (never replaced) with
@@ -373,7 +432,14 @@ final class PackagesController extends Controller
         $_POST['children'] = (string) ($params['children_3to12'] + $params['children_under3']);
         $_POST['children_under3'] = (string) $params['children_under3'];
         $_POST['children_3to12'] = (string) $params['children_3to12'];
-        $summary = self::summaryText($package, $extras, $match, $params['persons']);
+        $summary = self::summaryText(
+            $package,
+            $extras,
+            [$match],
+            (float) $match['total_stay'],
+            (string) ($match['currency'] ?? 'EUR'),
+            $params['persons']
+        );
         $_POST['message'] = trim(
             (string) ($_POST['message'] ?? '') . "\n\n" . $summary
         );
@@ -385,6 +451,81 @@ final class PackagesController extends Controller
         ReservationsController::setPackageContext((int) $package['id'], $summary);
 
         ReservationsController::requestReservation();
+    }
+
+    /**
+     * Multi-property branch of publicRequest(): the client picked several
+     * properties at the same address because no single one could host the
+     * whole party. The selection is re-validated and re-priced server-side
+     * (cache-only, like every offer lookup), the party is spread over the
+     * properties, and one reservation request per property is created by the
+     * ordinary multi-request flow.
+     *
+     * @param array<string, mixed> $package
+     * @param array<string, mixed> $partner
+     * @param array<string, mixed> $params searchParams()
+     * @param array{flight: array<string, mixed>|null, activities: array<int, array<string, mixed>>, meals: array<int, array<string, mixed>>, total: float} $extras
+     * @param array<string, mixed> $search searchAccommodations() for the same dates/party
+     * @param array<int, int> $propertyIds
+     */
+    private static function requestSameAddressSelection(
+        array $package,
+        array $partner,
+        array $params,
+        array $extras,
+        array $search,
+        array $propertyIds
+    ): never {
+        $selection = Packages::quoteSelection(
+            $package,
+            $partner,
+            $propertyIds,
+            $params['checkin'],
+            $params['checkout'],
+            $params['adults'],
+            $params['children_3to12'],
+            $params['children_under3'],
+            $search
+        );
+        if ($selection === null) {
+            self::json([
+                'error' => 'Conflict',
+                'message' => 'Cette sélection de biens n\'est plus disponible pour ces dates.',
+            ], 409);
+        }
+
+        $summary = self::summaryText(
+            $package,
+            $extras,
+            $selection['items'],
+            (float) $selection['total_stay'],
+            (string) $selection['currency'],
+            $params['persons']
+        );
+        $_POST['adults'] = (string) $params['adults'];
+        $_POST['children'] = (string) ($params['children_3to12'] + $params['children_under3']);
+        $_POST['children_under3'] = (string) $params['children_under3'];
+        $_POST['children_3to12'] = (string) $params['children_3to12'];
+        $_POST['message'] = trim(
+            (string) ($_POST['message'] ?? '') . "\n\n" . $summary
+        );
+        unset($_POST['package_id'], $_POST['package_summary'], $_POST['items']);
+        ReservationsController::setPackageContext((int) $package['id'], $summary);
+        ReservationsController::setPackageItems(array_map(
+            static fn (array $item): array => [
+                'property_id' => (int) $item['property_id'],
+                'property_name' => (string) $item['name'],
+                'checkin_date' => (string) $item['checkin'],
+                'checkout_date' => (string) $item['checkout'],
+                'adults' => (int) $item['adults'],
+                'children_3to12' => (int) $item['children_3to12'],
+                'children_under3' => (int) $item['children_under3'],
+                'quote' => $item['quote'],
+            ],
+            $selection['items']
+        ));
+
+        ReservationsController::requestMultiple();
     }
 
     /**
@@ -594,15 +735,22 @@ final class PackagesController extends Controller
      *
      * An offer is sold as a package: the recap lists what it contains but
      * only ever quotes one figure, the all-inclusive total (the same rule as
-     * the public page).
+     * the public page). A party spread over several properties at the same
+     * address lists one "Hébergement" line per property, still with a single
+     * total.
      *
      * @param array<string, mixed> $package
      * @param array{flight: array<string, mixed>|null, activities: array<int, array<string, mixed>>, meals: array<int, array<string, mixed>>, total: float} $extras
-     * @param array<string, mixed> $match
+     * @param array<int, array<string, mixed>> $stays
      */
-    private static function summaryText(array $package, array $extras, array $match, int $persons): string
-    {
-        $currency = (string) ($match['currency'] ?? 'EUR');
+    private static function summaryText(
+        array $package,
+        array $extras,
+        array $stays,
+        float $stayTotal,
+        string $currency,
+        int $persons
+    ): string {
         $lines = ['Offre Complète : ' . (string) $package['title']];
         if ($extras['flight'] !== null) {
             $flight = $extras['flight'];
@@ -613,8 +761,18 @@ final class PackagesController extends Controller
             ], static fn (string $value): bool => trim($value) !== '');
             $lines[] = 'Vol : ' . implode(' — ', $details);
         }
-        $lines[] = 'Hébergement : ' . (string) $match['name']
-            . ' du ' . (string) $match['checkin'] . ' au ' . (string) $match['checkout'];
+        foreach ($stays as $stay) {
+            $line = 'Hébergement : ' . (string) $stay['name']
+                . ' du ' . (string) $stay['checkin'] . ' au ' . (string) $stay['checkout'];
+            // Multi-property selection: say who stays where, the party having
+            // been spread over the properties server-side.
+            if (count($stays) > 1 && isset($stay['adults'])) {
+                $line .= ' (' . (int) $stay['adults'] . ' adulte(s)'
+                    . ', ' . (int) ($stay['children_3to12'] ?? 0) . ' enfant(s) 3-12 ans'
+                    . ', ' . (int) ($stay['children_under3'] ?? 0) . ' bébé(s))';
+            }
+            $lines[] = $line;
+        }
         foreach (['activities' => 'Activité', 'meals' => 'Restauration'] as $block => $label) {
             foreach ($extras[$block] as $extra) {
                 $lines[] = $label . ' : ' . (string) $extra['label']
@@ -622,7 +780,7 @@ final class PackagesController extends Controller
             }
         }
         $lines[] = 'Total de l\'offre tout compris : '
-            . self::amount(round((float) $match['total_stay'] + (float) $extras['total'], 2), $currency)
+            . self::amount(round($stayTotal + (float) $extras['total'], 2), $currency)
             . ' pour ' . $persons . ' personne(s).';
 
         return implode("\n", $lines);
