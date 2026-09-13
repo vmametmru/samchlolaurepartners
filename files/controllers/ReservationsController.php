@@ -276,20 +276,41 @@ final class ReservationsController extends Controller
     }
 
     /**
+     * Offer ("Offre Complète") provenance of the request being created, set
+     * server-side only. It is NEVER read from the submitted payload: the
+     * package columns must only ever be written by
+     * PackagesController::publicRequest(), which is the single place where
+     * the offer, its stock, the chosen property and the dates have actually
+     * been validated against the offer's own rules.
+     *
+     * @var array{id: int, summary: string}|null
+     */
+    private static ?array $packageContext = null;
+
+    /**
+     * Declares that the reservation request about to be created comes from
+     * the given offer, with the server-built summary of what the client
+     * selected in it. Called by PackagesController::publicRequest() right
+     * before it hands over to requestReservation().
+     */
+    public static function setPackageContext(int $packageId, string $summary): void
+    {
+        self::$packageContext = $packageId > 0 ? ['id' => $packageId, 'summary' => $summary] : null;
+    }
+
+    /**
      * Extra INSERT columns tying a reservation request to an "Offre
      * Complète" (App\Packages) it was submitted from. Returns empty arrays —
      * i.e. changes nothing at all — for every ordinary request, for installs
-     * where migration 064 hasn't applied, and whenever the submitted
-     * package_id isn't a real, currently bookable offer of the active
-     * partner (the client-submitted summary is never trusted as-is: it is
-     * stripped of any markup and length-capped).
+     * where migration 064 hasn't applied, and whenever the offer of the
+     * server-side context isn't (or is no longer) a real, currently bookable
+     * offer of the active partner.
      *
-     * @param array<string, mixed> $input
      * @return array{0: array<int, string>, 1: array<int, mixed>}
      */
-    private static function packageInsertColumnsAndParams(array $input, int $partnerId): array
+    private static function packageInsertColumnsAndParams(int $partnerId): array
     {
-        $packageId = (int) ($input['package_id'] ?? 0);
+        $packageId = (int) (self::$packageContext['id'] ?? 0);
         if ($packageId <= 0 || !Database::columnExists('reservation_requests', 'package_id')) {
             return [[], []];
         }
@@ -305,7 +326,7 @@ final class ReservationsController extends Controller
         $columns = ['package_id'];
         $params = [$packageId];
         if (Database::columnExists('reservation_requests', 'package_summary')) {
-            $summary = trim(strip_tags((string) ($input['package_summary'] ?? '')));
+            $summary = trim(strip_tags((string) (self::$packageContext['summary'] ?? '')));
             $columns[] = 'package_summary';
             $params[] = $summary === '' ? null : mb_substr($summary, 0, 4000);
         }
@@ -984,12 +1005,15 @@ final class ReservationsController extends Controller
 
         // "Offres Complètes" (App\Packages): a request submitted from an
         // offer page carries the offer's id plus a plain-text summary of
-        // what the client selected in it (flight option, activities). The
-        // request itself stays a completely normal reservation request; both
-        // columns are simply left out when this install has no offers yet
-        // (migration 064 not applied) or the offer isn't a real, bookable
-        // offer of the active partner.
-        [$packageColumns, $packageParams] = self::packageInsertColumnsAndParams($input, (int) $partner['id']);
+        // what the client selected in it (flight option, activities). That
+        // provenance comes from the server-side context set by
+        // PackagesController::publicRequest() — never from the payload — so
+        // an ordinary /api/reservations/request submission can't relabel
+        // itself as an offer. The request itself stays a completely normal
+        // reservation request; both columns are simply left out when this
+        // install has no offers yet (migration 064 not applied) or the offer
+        // isn't a real, bookable offer of the active partner.
+        [$packageColumns, $packageParams] = self::packageInsertColumnsAndParams((int) $partner['id']);
         $columns = [...$columns, ...$packageColumns];
         $params = [...$params, ...$packageParams];
 

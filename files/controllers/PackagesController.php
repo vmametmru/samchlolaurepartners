@@ -370,11 +370,16 @@ if (!Packages::isBookable($package, $params['adults'] + $params['children_3to12'
         $_POST['children'] = (string) ($params['children_3to12'] + $params['children_under3']);
         $_POST['children_under3'] = (string) $params['children_under3'];
         $_POST['children_3to12'] = (string) $params['children_3to12'];
-        $_POST['package_id'] = (string) $package['id'];
-        $_POST['package_summary'] = self::summaryText($package, $extras, $match, $params['persons']);
+        $summary = self::summaryText($package, $extras, $match, $params['persons']);
         $_POST['message'] = trim(
-            (string) ($_POST['message'] ?? '') . "\n\n" . $_POST['package_summary']
+            (string) ($_POST['message'] ?? '') . "\n\n" . $summary
         );
+        // The offer provenance itself is handed over out-of-band, never
+        // through $_POST: only this endpoint has validated the offer, its
+        // stock and the property/dates, so an ordinary reservation request
+        // must not be able to claim a package_id of its own.
+        unset($_POST['package_id'], $_POST['package_summary']);
+        ReservationsController::setPackageContext((int) $package['id'], $summary);
 
         ReservationsController::requestReservation();
     }
