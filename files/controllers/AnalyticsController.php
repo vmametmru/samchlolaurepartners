@@ -147,6 +147,7 @@ final class AnalyticsController extends Controller
                 'visitsByHour' => [],
                 'visits' => [],
                 'filters' => self::defaultFilters(),
+                'countryOptions' => [],
                 'reportSchedule' => null,
                 'reportSchedules' => [],
             ]);
@@ -172,6 +173,7 @@ final class AnalyticsController extends Controller
             'visitsByHour' => self::visitsByHour($pdo, $kpiWhere),
             'visits' => self::recentVisits($pdo, $where, 200),
             'filters' => $filters,
+            'countryOptions' => self::distinctCountries($pdo),
             'reportSchedule' => null,
             'reportSchedules' => self::getAllReportSchedules($pdo),
         ]);
@@ -213,6 +215,7 @@ final class AnalyticsController extends Controller
                 'visitsByHour' => [],
                 'visits' => [],
                 'filters' => self::defaultFilters(),
+                'countryOptions' => [],
                 'reportSchedule' => self::getReportSchedule($pdo, $partnerId),
             ]);
             return;
@@ -239,6 +242,7 @@ final class AnalyticsController extends Controller
             'visitsByHour' => self::visitsByHour($pdo, $kpiWhere),
             'visits' => self::recentVisits($pdo, $where, 200),
             'filters' => $filters,
+            'countryOptions' => self::distinctCountries($pdo, $partnerScopeIds),
             'reportSchedule' => $reportSchedule,
         ]);
     }
@@ -418,6 +422,20 @@ final class AnalyticsController extends Controller
     }
 
     /**
+     * Builds the redirect target after an admin analytics action, keeping
+     * the admin back on /admin/analytics with whatever filters were posted
+     * along (mirroring PageController::adminReservationsRedirectUrl()).
+     */
+    private static function adminAnalyticsRedirectUrl(): string
+    {
+        $redirect = trim((string) ($_POST['redirect_to'] ?? ''));
+        if ($redirect !== '' && str_starts_with($redirect, '/admin/analytics') && !str_contains($redirect, '://')) {
+            return $redirect;
+        }
+        return '/admin/analytics';
+    }
+
+    /**
      * POST /admin/analytics/{id}/delete
      * Delete a single analytics row.
      */
@@ -427,7 +445,30 @@ final class AnalyticsController extends Controller
         if (Database::tableExists('page_visits')) {
             Database::connection()->prepare('DELETE FROM page_visits WHERE id = ?')->execute([$visitId]);
         }
-        self::redirect('/admin/analytics', 'Entrée supprimée.');
+        self::redirect(self::adminAnalyticsRedirectUrl(), 'Entrée supprimée.');
+    }
+
+    /**
+     * POST /admin/analytics/bulk-delete
+     * Delete several analytics rows selected via checkboxes on
+     * /admin/analytics in one action (mirroring
+     * PageController::adminDeleteReservationsBatch()).
+     */
+    public static function adminBulkDeleteVisits(): never
+    {
+        Auth::requireUser(true);
+        $ids = array_values(array_unique(array_filter(array_map('intval', (array) ($_POST['ids'] ?? [])), fn ($id) => $id > 0)));
+        $deleted = 0;
+        if ($ids !== [] && Database::tableExists('page_visits')) {
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $stmt = Database::connection()->prepare("DELETE FROM page_visits WHERE id IN ($placeholders)");
+            $stmt->execute($ids);
+            $deleted = $stmt->rowCount();
+        }
+        $message = $deleted > 0
+            ? ($deleted > 1 ? $deleted . ' entrées supprimées.' : '1 entrée supprimée.')
+            : 'Aucune entrée sélectionnée.';
+        self::redirect(self::adminAnalyticsRedirectUrl(), $message, $deleted > 0 ? 'success' : 'error');
     }
 
     /**
@@ -439,12 +480,12 @@ final class AnalyticsController extends Controller
         Auth::requireUser(true);
         $partnerId = (int) ($_POST['partner_id'] ?? 0);
         if ($partnerId <= 0) {
-            self::redirect('/admin/analytics', 'Partenaire invalide.', 'error');
+            self::redirect(self::adminAnalyticsRedirectUrl(), 'Partenaire invalide.', 'error');
         }
         if (Database::tableExists('page_visits')) {
             Database::connection()->prepare('DELETE FROM page_visits WHERE partner_id = ?')->execute([$partnerId]);
         }
-        self::redirect('/admin/analytics', 'Toutes les données analytiques du partenaire ont été supprimées.');
+        self::redirect(self::adminAnalyticsRedirectUrl(), 'Toutes les données analytiques du partenaire ont été supprimées.');
     }
 
     /**
@@ -780,6 +821,30 @@ final class AnalyticsController extends Controller
         }
         $stmt = $pdo->prepare($sql);
         $stmt->execute($where['params']);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    private static function distinctCountries(PDO $pdo, ?array $partnerScopeIds = null): array
+    {
+        if (!Database::tableExists('page_visits')) {
+            return [];
+        }
+        $conditions = ["pv.country_code IS NOT NULL", "pv.country_code != ''"];
+        $params = [];
+        if ($partnerScopeIds !== null) {
+            if ($partnerScopeIds === []) {
+                return [];
+            }
+            $placeholders = implode(',', array_fill(0, count($partnerScopeIds), '?'));
+            $conditions[] = "pv.partner_id IN ($placeholders)";
+            foreach ($partnerScopeIds as $scopedId) {
+                $params[] = (int) $scopedId;
+            }
+        }
+        $sql = 'SELECT DISTINCT pv.country_code, pv.country_name FROM page_visits pv WHERE '
+            . implode(' AND ', $conditions) . ' ORDER BY pv.country_name';
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 

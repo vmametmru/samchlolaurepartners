@@ -506,6 +506,8 @@ try {
             AnalyticsController::adminToggleAnalytics((int) $matches[1]);
         case route($method, $path, 'POST', '#^/admin/analytics/purge-partner$#'):
             AnalyticsController::adminPurgePartner();
+        case route($method, $path, 'POST', '#^/admin/analytics/bulk-delete$#'):
+            AnalyticsController::adminBulkDeleteVisits();
         case route($method, $path, 'POST', '#^/admin/analytics/report-schedule/(\d+)/delete$#', $matches):
             AnalyticsController::adminDeleteReportSchedule((int) $matches[1]);
         case route($method, $path, 'POST', '#^/admin/analytics/(\d+)/delete$#', $matches):

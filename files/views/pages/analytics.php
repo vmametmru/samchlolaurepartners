@@ -6,6 +6,7 @@ $scheduleTime = (string) ($reportSchedule['time_of_day'] ?? '08:00');
 $filterAction = $isAdmin ? '/admin/analytics' : '/partner/analytics';
 $exportCsvUrl = $filterAction . '/export?' . http_build_query($filters);
 $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
+$currentUrl = $_SERVER['REQUEST_URI'] ?? $filterAction;
 ?>
 <section class="container section-lg">
   <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;">
@@ -44,7 +45,14 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
           <option value="admin" <?= $filters['visitor_type'] === 'admin' ? 'selected' : '' ?>>Admin</option>
         </select>
       </label>
-      <label><span>Pays</span><input class="input" type="text" name="country" value="<?= \App\View::e($filters['country']) ?>" placeholder="Code ou nom"></label>
+      <label><span>Pays</span>
+        <select class="input" name="country">
+          <option value="">Tous</option>
+          <?php foreach ($countryOptions as $c): ?>
+            <option value="<?= \App\View::e($c['country_code']) ?>" <?= $filters['country'] === (string) $c['country_code'] ? 'selected' : '' ?>><?= \App\View::e($c['country_name'] ?: $c['country_code']) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </label>
       <label><span>Page (URL)</span><input class="input" type="text" name="page" value="<?= \App\View::e($filters['page']) ?>" placeholder="/properties, /contact..."></label>
     </div>
     <div class="button-row mt-8">
@@ -73,7 +81,7 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
       <canvas id="chart-visits-date" height="250"></canvas>
     </div>
     <div class="card card-body">
-      <h2 class="card-header">Visites par heure</h2>
+      <h2 class="card-header">Visites par heure <span class="text-muted" style="font-weight:400;font-size:.8em;">(GMT+4)</span></h2>
       <canvas id="chart-visits-hour" height="250"></canvas>
     </div>
   </div>
@@ -140,35 +148,51 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
     <?php if ($visits === []): ?>
       <p class="empty-state">Aucune donnée.</p>
     <?php else: ?>
-      <div class="table-responsive">
-        <table class="data-table" id="analytics-visits-table">
-          <thead><tr><th>Date/Heure</th><th>Partenaire</th><th>Page</th><th>Type</th><th>Pays</th><th>Durée</th><th>IP</th><?php if ($isAdmin): ?><th>Actions</th><?php endif; ?></tr></thead>
-          <tbody>
-            <?php foreach (array_slice($visits, 0, 50) as $row): ?>
-              <?php $isAnomaly = \App\controllers\AnalyticsController::isAnomaly($row); ?>
-              <tr>
-                <td><?= \App\View::e($row['visited_at']) ?></td>
-                <td><?= \App\View::e($row['partner_name'] ?? '—') ?></td>
-                <td title="<?= \App\View::e($row['page_url']) ?>"><?= \App\View::e($row['page_title'] ?: $row['page_url']) ?></td>
-                <td><span class="badge badge-<?= \App\View::e($row['visitor_type']) ?>"><?= \App\View::e(ucfirst($row['visitor_type'])) ?></span></td>
-                <td><?= \App\View::e($row['country_name'] ?: ($row['country_code'] ?: '—')) ?></td>
-                <td>
-                  <?= $row['duration_seconds'] !== null ? (int) $row['duration_seconds'] . 's' : '—' ?>
-                  <?php if ($isAnomaly): ?> <span class="badge badge-anomaly" title="Durée anormalement longue (> 15 min) : exclue des KPIs">Anomalie</span><?php endif; ?>
-                </td>
-                <td><?= \App\View::e($row['ip_address'] ?: '—') ?></td>
-                <?php if ($isAdmin): ?>
-                  <td class="nowrap">
-                    <form method="post" action="/admin/analytics/<?= (int) $row['id'] ?>/delete" style="display:inline;" onsubmit="return confirm('Supprimer cette entrée ?');">
-                      <button type="submit" class="btn-sm btn-danger" title="Supprimer">✕</button>
-                    </form>
+      <?php if ($isAdmin): ?>
+        <?php foreach (array_slice($visits, 0, 50) as $row): $vid = (int) $row['id']; ?>
+          <form method="post" action="/admin/analytics/<?= $vid ?>/delete" id="analytics-delete-form-<?= $vid ?>" class="inline-form" onsubmit="return confirm('Supprimer cette entrée ?');">
+            <input type="hidden" name="redirect_to" value="<?= \App\View::e($currentUrl) ?>">
+          </form>
+        <?php endforeach; ?>
+      <?php endif; ?>
+      <form method="post" action="/admin/analytics/bulk-delete" id="analytics-bulk-delete-form" onsubmit="return confirm('Supprimer les entrées sélectionnées ?');">
+        <input type="hidden" name="redirect_to" value="<?= \App\View::e($currentUrl) ?>">
+        <div class="table-responsive">
+          <table class="data-table" id="analytics-visits-table">
+            <thead><tr><?php if ($isAdmin): ?><th><input type="checkbox" id="analytics-visits-select-all"></th><?php endif; ?><th>Date/Heure</th><th>Partenaire</th><th>Page</th><th>Type</th><th>Pays</th><th>Durée</th><th>IP</th><?php if ($isAdmin): ?><th>Actions</th><?php endif; ?></tr></thead>
+            <tbody>
+              <?php foreach (array_slice($visits, 0, 50) as $row): ?>
+                <?php $isAnomaly = \App\controllers\AnalyticsController::isAnomaly($row); ?>
+                <tr>
+                  <?php if ($isAdmin): ?>
+                    <td><input type="checkbox" name="ids[]" value="<?= (int) $row['id'] ?>" class="analytics-visit-row-checkbox"></td>
+                  <?php endif; ?>
+                  <td><?= \App\View::e($row['visited_at']) ?></td>
+                  <td><?= \App\View::e($row['partner_name'] ?? '—') ?></td>
+                  <td title="<?= \App\View::e($row['page_url']) ?>"><?= \App\View::e($row['page_title'] ?: $row['page_url']) ?></td>
+                  <td><span class="badge badge-<?= \App\View::e($row['visitor_type']) ?>"><?= \App\View::e(ucfirst($row['visitor_type'])) ?></span></td>
+                  <td><?= \App\View::e($row['country_name'] ?: ($row['country_code'] ?: '—')) ?></td>
+                  <td>
+                    <?= $row['duration_seconds'] !== null ? (int) $row['duration_seconds'] . 's' : '—' ?>
+                    <?php if ($isAnomaly): ?> <span class="badge badge-anomaly" title="Durée anormalement longue (> 15 min) : exclue des KPIs">Anomalie</span><?php endif; ?>
                   </td>
-                <?php endif; ?>
-              </tr>
-            <?php endforeach; ?>
-          </tbody>
-        </table>
-      </div>
+                  <td><?= \App\View::e($row['ip_address'] ?: '—') ?></td>
+                  <?php if ($isAdmin): ?>
+                    <td class="nowrap">
+                      <button type="submit" form="analytics-delete-form-<?= (int) $row['id'] ?>" class="btn-sm btn-danger" title="Supprimer">✕</button>
+                    </td>
+                  <?php endif; ?>
+                </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+        </div>
+        <?php if ($isAdmin): ?>
+          <div class="button-row mt-8">
+            <button type="submit" class="btn-secondary danger">🗑️ Effacer la sélection</button>
+          </div>
+        <?php endif; ?>
+      </form>
     <?php endif; ?>
   </div>
 
@@ -347,7 +371,17 @@ document.addEventListener('DOMContentLoaded', function () {
           labels: hourLabels,
           datasets: [{ label: 'Visites', data: hourData, backgroundColor: 'rgba(230,30,77,0.6)', borderColor: '#E61E4D', borderWidth: 1 }]
         },
-        options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { display: false },
+            tooltip: { callbacks: { title: function (items) { return items.length ? items[0].label : ''; } } }
+          },
+          scales: {
+            x: { title: { display: true, text: 'Heure (GMT+4)' } },
+            y: { beginAtZero: true }
+          }
+        }
       });
     } catch (e) { console.error('chart-visits-hour', e); }
   }
@@ -396,4 +430,15 @@ document.addEventListener('DOMContentLoaded', function () {
     } catch (e) { console.error('chart-visits-type', e); }
   }
 });
+</script>
+<script>
+  (function () {
+    var selectAll = document.getElementById('analytics-visits-select-all');
+    if (!selectAll) { return; }
+    selectAll.addEventListener('change', function () {
+      document.querySelectorAll('.analytics-visit-row-checkbox').forEach(function (checkbox) {
+        checkbox.checked = selectAll.checked;
+      });
+    });
+  })();
 </script>
