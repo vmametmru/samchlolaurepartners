@@ -101,6 +101,24 @@ final class PartnerLinks
     }
 
     /**
+     * @return int[] Partner ids that are hierarchical "children" of $partnerId,
+     * i.e. $partnerId is their principal. Used both to grant the principal
+     * visibility over its children's analytics data (AnalyticsController)
+     * and, more generally, anywhere a principal needs to know which
+     * accounts it oversees.
+     */
+    public static function childPartnerIds(int $partnerId): array
+    {
+        $ids = [];
+        foreach (self::rawLinksFor($partnerId) as $link) {
+            if ($link['type'] === 'hierarchical' && $link['is_principal']) {
+                $ids[] = $link['other_id'];
+            }
+        }
+        return $ids;
+    }
+
+    /**
      * Full partner rows (id, name, subdomain) that $partnerId can actually
      * SWITCH INTO — used both to populate the partner-facing "linked
      * accounts" switcher in the navbar and to authorize
@@ -130,6 +148,89 @@ final class PartnerLinks
         );
         $stmt->execute($ids);
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Full partner rows $partnerId's "linked accounts" navbar menu should
+     * offer, given the account it actually logged into originally
+     * ($homePartnerId — see Auth's home_partner_id session claim). While
+     * browsing its OWN account ($homePartnerId === $partnerId) this is just
+     * linkedPartners($partnerId), same as before. But once switched into a
+     * hierarchical CHILD account, $partnerId alone would see nothing (a
+     * child has no switch targets of its own by design) — so instead this
+     * offers the same accounts $homePartnerId itself could reach (its
+     * siblings/children), plus $homePartnerId itself so the user can switch
+     * back, fixing the "stuck as a child" navigation dead-end.
+     *
+     * @return array<int, array{id: int, name: string, subdomain: ?string}>
+     */
+    public static function switchableAccounts(int $partnerId, int $homePartnerId): array
+    {
+        if ($homePartnerId === $partnerId) {
+            return self::linkedPartners($partnerId);
+        }
+
+        $accounts = [];
+        foreach (self::linkedPartners($homePartnerId) as $partner) {
+            if ((int) $partner['id'] !== $partnerId) {
+                $accounts[(int) $partner['id']] = $partner;
+            }
+        }
+        $stmt = Database::connection()->prepare('SELECT id, name, subdomain FROM partners WHERE id = ? LIMIT 1');
+        $stmt->execute([$homePartnerId]);
+        $home = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($home) {
+            $accounts[$homePartnerId] = $home;
+        }
+
+        $list = array_values($accounts);
+        usort($list, static fn (array $a, array $b): int => strcmp((string) $a['name'], (string) $b['name']));
+        return $list;
+    }
+
+    /**
+     * Whether a session currently acting as $partnerId (having originally
+     * logged into $homePartnerId) is authorized to switch into
+     * $targetPartnerId — the same rule set as switchableAccounts(), used to
+     * authorize PageController::partnerSwitchAccount() so a child session
+     * can only reach accounts its home account could reach (or the home
+     * account itself), never an arbitrary id typed into the URL.
+     */
+    public static function canSwitchTo(int $partnerId, int $homePartnerId, int $targetPartnerId): bool
+    {
+        if ($homePartnerId === $partnerId) {
+            return self::areLinked($partnerId, $targetPartnerId);
+        }
+        if ($targetPartnerId === $homePartnerId) {
+            return true;
+        }
+        return self::areLinked($homePartnerId, $targetPartnerId);
+    }
+
+    /**
+     * Computes the home_partner_id the NEW session should carry after a
+     * switch from $partnerId (whose session's current home is
+     * $homePartnerId) into $targetPartnerId. Returns null once back at the
+     * genuinely-logged-in account (whether by switching back to it, or via
+     * a "direct"/symmetric link — those stay mutually reachable on their
+     * own, same as before this hierarchical home-tracking existed), and
+     * otherwise keeps tracking the same home so navigation among a
+     * principal's children keeps working across multiple hops.
+     */
+    public static function homeAfterSwitch(int $partnerId, int $homePartnerId, int $targetPartnerId): ?int
+    {
+        if ($targetPartnerId === $homePartnerId) {
+            return null;
+        }
+        if ($homePartnerId !== $partnerId) {
+            return $homePartnerId;
+        }
+        foreach (self::rawLinksFor($partnerId) as $link) {
+            if ($link['other_id'] === $targetPartnerId) {
+                return ($link['type'] === 'hierarchical' && $link['is_principal']) ? $partnerId : null;
+            }
+        }
+        return null;
     }
 
     /**

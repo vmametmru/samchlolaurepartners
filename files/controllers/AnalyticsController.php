@@ -9,6 +9,7 @@ use App\Controller;
 use App\Database;
 use App\HttpException;
 use App\Mailer;
+use App\PartnerLinks;
 use App\Settings;
 use App\Tenant;
 use App\View;
@@ -19,6 +20,14 @@ final class AnalyticsController extends Controller
     /** All analytics times are displayed in Mauritius time (GMT+4). */
     private const TZ = 'Indian/Mauritius';
     private const TZ_OFFSET = '+04:00';
+
+    /**
+     * A visit is flagged as an "Anomalie" (e.g. a tab left open/idle rather
+     * than genuine browsing) once its duration exceeds this threshold, and
+     * such visits are excluded from KPIs/charts while still being listed
+     * (tagged) in the visits table/exports.
+     */
+    private const ANOMALY_DURATION_SECONDS = 900; // 15 minutes
 
     // ── Visit tracking (called from JS beacon) ──────────────────────
 
@@ -138,6 +147,7 @@ final class AnalyticsController extends Controller
                 'visitsByHour' => [],
                 'visits' => [],
                 'filters' => self::defaultFilters(),
+                'countryOptions' => [],
                 'reportSchedule' => null,
                 'reportSchedules' => [],
             ]);
@@ -149,18 +159,21 @@ final class AnalyticsController extends Controller
 
         $filters = self::readFilters();
         $where = self::buildWhereClause($filters);
+        // KPIs/charts must never count admin visits, even on the admin's own page.
+        $kpiWhere = self::excludeAdminVisits(self::excludeAnomalies($where));
 
         View::render('pages/analytics', [
             'pageTitle' => 'Analyse',
             'isAdmin' => true,
             'partners' => $partners,
-            'kpis' => self::computeKpis($pdo, $where),
-            'visitsByCountry' => self::visitsByCountry($pdo, $where),
-            'visitsByDate' => self::visitsByDate($pdo, $where),
-            'visitsByPage' => self::visitsByPage($pdo, $where),
-            'visitsByHour' => self::visitsByHour($pdo, $where),
+            'kpis' => self::computeKpis($pdo, $kpiWhere),
+            'visitsByCountry' => self::visitsByCountry($pdo, $kpiWhere),
+            'visitsByDate' => self::visitsByDate($pdo, $kpiWhere),
+            'visitsByPage' => self::visitsByPage($pdo, $kpiWhere),
+            'visitsByHour' => self::visitsByHour($pdo, $kpiWhere),
             'visits' => self::recentVisits($pdo, $where, 200),
             'filters' => $filters,
+            'countryOptions' => self::distinctCountries($pdo),
             'reportSchedule' => null,
             'reportSchedules' => self::getAllReportSchedules($pdo),
         ]);
@@ -202,6 +215,7 @@ final class AnalyticsController extends Controller
                 'visitsByHour' => [],
                 'visits' => [],
                 'filters' => self::defaultFilters(),
+                'countryOptions' => [],
                 'reportSchedule' => self::getReportSchedule($pdo, $partnerId),
             ]);
             return;
@@ -209,9 +223,11 @@ final class AnalyticsController extends Controller
 
         $filters = self::readFilters();
         $filters['partner_id'] = (string) $partnerId; // Force partner scope
-        $where = self::buildWhereClause($filters);
+        $partnerScopeIds = self::partnerScopeIds($partnerId);
+        $where = self::buildWhereClause($filters, $partnerScopeIds);
         // Partners must not see admin visits
         $where = self::excludeAdminVisits($where);
+        $kpiWhere = self::excludeAnomalies($where);
 
         $reportSchedule = self::getReportSchedule($pdo, $partnerId);
 
@@ -219,13 +235,14 @@ final class AnalyticsController extends Controller
             'pageTitle' => 'Analyse',
             'isAdmin' => false,
             'partners' => [],
-            'kpis' => self::computeKpis($pdo, $where),
-            'visitsByCountry' => self::visitsByCountry($pdo, $where),
-            'visitsByDate' => self::visitsByDate($pdo, $where),
-            'visitsByPage' => self::visitsByPage($pdo, $where),
-            'visitsByHour' => self::visitsByHour($pdo, $where),
+            'kpis' => self::computeKpis($pdo, $kpiWhere),
+            'visitsByCountry' => self::visitsByCountry($pdo, $kpiWhere),
+            'visitsByDate' => self::visitsByDate($pdo, $kpiWhere),
+            'visitsByPage' => self::visitsByPage($pdo, $kpiWhere),
+            'visitsByHour' => self::visitsByHour($pdo, $kpiWhere),
             'visits' => self::recentVisits($pdo, $where, 200),
             'filters' => $filters,
+            'countryOptions' => self::distinctCountries($pdo, $partnerScopeIds),
             'reportSchedule' => $reportSchedule,
         ]);
     }
@@ -256,7 +273,7 @@ final class AnalyticsController extends Controller
             throw new HttpException(404, 'Not Found', 'Pas de données.');
         }
 
-        $where = self::buildWhereClause($filters);
+        $where = self::buildWhereClause($filters, $role === 'partner' ? self::partnerScopeIds($partnerId) : null);
         if ($role === 'partner') {
             $where = self::excludeAdminVisits($where);
         }
@@ -267,7 +284,7 @@ final class AnalyticsController extends Controller
         header('Content-Disposition: attachment; filename="analytics-' . date('Y-m-d') . '.csv"');
         $out = fopen('php://output', 'w');
         fwrite($out, "\xEF\xBB\xBF"); // BOM for Excel
-        fputcsv($out, ['Date/Heure', 'Page', 'Type visiteur', 'Pays', 'Durée (s)', 'IP', 'Navigateur', 'Référent']);
+        fputcsv($out, ['Date/Heure', 'Page', 'Type visiteur', 'Pays', 'Durée (s)', 'Anomalie', 'IP', 'Navigateur', 'Référent']);
         foreach ($rows as $row) {
             fputcsv($out, [
                 $row['visited_at'],
@@ -275,6 +292,7 @@ final class AnalyticsController extends Controller
                 $row['visitor_type'],
                 $row['country_name'] ?: $row['country_code'],
                 $row['duration_seconds'],
+                self::isAnomaly($row) ? 'Oui' : 'Non',
                 $row['ip_address'],
                 $row['user_agent'],
                 $row['referrer'],
@@ -307,7 +325,7 @@ final class AnalyticsController extends Controller
             throw new HttpException(403, 'Forbidden', 'Accès réservé.');
         }
 
-        $pdfData = self::generatePdfReport($filters, $partnerId, $role === 'partner');
+        $pdfData = self::generatePdfReport($filters, $partnerId, $partnerId !== null ? self::partnerScopeIds($partnerId) : null);
 
         header('Content-Type: application/pdf');
         header('Content-Disposition: attachment; filename="rapport-analytics-' . date('Y-m-d') . '.pdf"');
@@ -404,6 +422,20 @@ final class AnalyticsController extends Controller
     }
 
     /**
+     * Builds the redirect target after an admin analytics action, keeping
+     * the admin back on /admin/analytics with whatever filters were posted
+     * along (mirroring PageController::adminReservationsRedirectUrl()).
+     */
+    private static function adminAnalyticsRedirectUrl(): string
+    {
+        $redirect = trim((string) ($_POST['redirect_to'] ?? ''));
+        if ($redirect !== '' && str_starts_with($redirect, '/admin/analytics') && !str_contains($redirect, '://')) {
+            return $redirect;
+        }
+        return '/admin/analytics';
+    }
+
+    /**
      * POST /admin/analytics/{id}/delete
      * Delete a single analytics row.
      */
@@ -413,7 +445,30 @@ final class AnalyticsController extends Controller
         if (Database::tableExists('page_visits')) {
             Database::connection()->prepare('DELETE FROM page_visits WHERE id = ?')->execute([$visitId]);
         }
-        self::redirect('/admin/analytics', 'Entrée supprimée.');
+        self::redirect(self::adminAnalyticsRedirectUrl(), 'Entrée supprimée.');
+    }
+
+    /**
+     * POST /admin/analytics/bulk-delete
+     * Delete several analytics rows selected via checkboxes on
+     * /admin/analytics in one action (mirroring
+     * PageController::adminDeleteReservationsBatch()).
+     */
+    public static function adminBulkDeleteVisits(): never
+    {
+        Auth::requireUser(true);
+        $ids = array_values(array_unique(array_filter(array_map('intval', (array) ($_POST['ids'] ?? [])), fn ($id) => $id > 0)));
+        $deleted = 0;
+        if ($ids !== [] && Database::tableExists('page_visits')) {
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $stmt = Database::connection()->prepare("DELETE FROM page_visits WHERE id IN ($placeholders)");
+            $stmt->execute($ids);
+            $deleted = $stmt->rowCount();
+        }
+        $message = $deleted > 0
+            ? ($deleted > 1 ? $deleted . ' entrées supprimées.' : '1 entrée supprimée.')
+            : 'Aucune entrée sélectionnée.';
+        self::redirect(self::adminAnalyticsRedirectUrl(), $message, $deleted > 0 ? 'success' : 'error');
     }
 
     /**
@@ -425,12 +480,12 @@ final class AnalyticsController extends Controller
         Auth::requireUser(true);
         $partnerId = (int) ($_POST['partner_id'] ?? 0);
         if ($partnerId <= 0) {
-            self::redirect('/admin/analytics', 'Partenaire invalide.', 'error');
+            self::redirect(self::adminAnalyticsRedirectUrl(), 'Partenaire invalide.', 'error');
         }
         if (Database::tableExists('page_visits')) {
             Database::connection()->prepare('DELETE FROM page_visits WHERE partner_id = ?')->execute([$partnerId]);
         }
-        self::redirect('/admin/analytics', 'Toutes les données analytiques du partenaire ont été supprimées.');
+        self::redirect(self::adminAnalyticsRedirectUrl(), 'Toutes les données analytiques du partenaire ont été supprimées.');
     }
 
     /**
@@ -493,7 +548,7 @@ final class AnalyticsController extends Controller
                 $filters['date_from'] = $now->modify('-7 days')->format('Y-m-d');
                 $filters['date_to'] = $now->format('Y-m-d');
 
-                $pdfData = self::generatePdfReport($filters, (int) $schedule['partner_id']);
+                $pdfData = self::generatePdfReport($filters, (int) $schedule['partner_id'], self::partnerScopeIds((int) $schedule['partner_id']));
 
                 $partnerRow = [
                     'name' => $schedule['p_name'],
@@ -591,7 +646,7 @@ final class AnalyticsController extends Controller
             'date_to' => date('Y-m-d'),
             'partner_id' => '',
             'visitor_type' => '',
-            'country' => '',
+            'country' => [],
             'page' => '',
         ];
     }
@@ -603,15 +658,41 @@ final class AnalyticsController extends Controller
             'date_to' => trim((string) ($_GET['date_to'] ?? date('Y-m-d'))),
             'partner_id' => trim((string) ($_GET['partner_id'] ?? '')),
             'visitor_type' => trim((string) ($_GET['visitor_type'] ?? '')),
-            'country' => trim((string) ($_GET['country'] ?? '')),
+            'country' => self::readCountryFilter(),
             'page' => trim((string) ($_GET['page'] ?? '')),
         ];
     }
 
     /**
+     * The "Pays" filter is a multi-select tickbox dropdown (country[] in the
+     * query string); normalizes it to a de-duplicated list of non-empty
+     * country codes, also accepting a legacy single ?country= string value
+     * for backward compatibility with older bookmarked/shared links.
+     *
+     * @return string[]
+     */
+    private static function readCountryFilter(): array
+    {
+        $raw = $_GET['country'] ?? [];
+        if (!is_array($raw)) {
+            $raw = $raw !== '' ? [$raw] : [];
+        }
+        $values = array_map(static fn ($value) => trim((string) $value), $raw);
+        return array_values(array_unique(array_filter($values, static fn ($value) => $value !== '')));
+    }
+
+    /**
+     * @param int[]|null $partnerScopeIds When given, scopes to `pv.partner_id
+     *        IN (...)` these ids instead of the single $filters['partner_id']
+     *        — used for a partner (as opposed to admin) view so a
+     *        hierarchical principal sees its own visits AND its children's
+     *        (see partnerScopeIds()), rather than only its own subdomain's
+     *        traffic (which, for a principal whose visitors mostly browse
+     *        its children's own subdomains, could leave the whole page —
+     *        KPIs and charts alike — looking blank).
      * @return array{sql: string, params: array}
      */
-    private static function buildWhereClause(array $filters): array
+    private static function buildWhereClause(array $filters, ?array $partnerScopeIds = null): array
     {
         $conditions = [];
         $params = [];
@@ -624,7 +705,17 @@ final class AnalyticsController extends Controller
             $conditions[] = 'pv.visited_at <= ?';
             $params[] = gmdate('Y-m-d H:i:s', strtotime($filters['date_to'] . ' 23:59:59') - 4 * 3600);
         }
-        if ($filters['partner_id'] !== '') {
+        if ($partnerScopeIds !== null) {
+            if ($partnerScopeIds === []) {
+                $conditions[] = '0 = 1';
+            } else {
+                $placeholders = implode(',', array_fill(0, count($partnerScopeIds), '?'));
+                $conditions[] = "pv.partner_id IN ($placeholders)";
+                foreach ($partnerScopeIds as $scopedId) {
+                    $params[] = (int) $scopedId;
+                }
+            }
+        } elseif ($filters['partner_id'] !== '') {
             $conditions[] = 'pv.partner_id = ?';
             $params[] = (int) $filters['partner_id'];
         }
@@ -632,10 +723,12 @@ final class AnalyticsController extends Controller
             $conditions[] = 'pv.visitor_type = ?';
             $params[] = $filters['visitor_type'];
         }
-        if ($filters['country'] !== '') {
-            $conditions[] = '(pv.country_code = ? OR pv.country_name LIKE ?)';
-            $params[] = $filters['country'];
-            $params[] = '%' . $filters['country'] . '%';
+        if ($filters['country'] !== []) {
+            $placeholders = implode(',', array_fill(0, count($filters['country']), '?'));
+            $conditions[] = "pv.country_code IN ($placeholders)";
+            foreach ($filters['country'] as $countryCode) {
+                $params[] = $countryCode;
+            }
         }
         if ($filters['page'] !== '') {
             $conditions[] = 'pv.page_url LIKE ?';
@@ -644,6 +737,19 @@ final class AnalyticsController extends Controller
 
         $sql = $conditions !== [] ? 'WHERE ' . implode(' AND ', $conditions) : '';
         return ['sql' => $sql, 'params' => $params];
+    }
+
+    /**
+     * Partner ids whose page_visits a hierarchical principal's analytics
+     * view should include: itself plus every partner it is principal over
+     * (see PartnerLinks::childPartnerIds()) — a "Parent" partner account
+     * must be able to see all of its "Child" accounts' data here.
+     *
+     * @return int[]
+     */
+    private static function partnerScopeIds(int $partnerId): array
+    {
+        return array_merge([$partnerId], PartnerLinks::childPartnerIds($partnerId));
     }
 
     /**
@@ -658,6 +764,33 @@ final class AnalyticsController extends Controller
             $where['sql'] = "WHERE pv.visitor_type != 'admin'";
         }
         return $where;
+    }
+
+    /**
+     * Adds a condition to exclude "Anomalie" visits (duration above
+     * ANOMALY_DURATION_SECONDS, e.g. a tab left open/idle) from KPIs and
+     * charts. Used everywhere KPIs/charts are computed; NOT used for the
+     * recent-visits listing/exports, which must still show these rows
+     * (tagged as "Anomalie") rather than hide them.
+     */
+    private static function excludeAnomalies(array $where): array
+    {
+        $condition = 'COALESCE(pv.duration_seconds, 0) <= ' . self::ANOMALY_DURATION_SECONDS;
+        if ($where['sql'] !== '') {
+            $where['sql'] .= ' AND ' . $condition;
+        } else {
+            $where['sql'] = 'WHERE ' . $condition;
+        }
+        return $where;
+    }
+
+    /**
+     * Whether a visit row should be flagged as an "Anomalie" (active on a
+     * page without navigating for more than ANOMALY_DURATION_SECONDS).
+     */
+    public static function isAnomaly(array $row): bool
+    {
+        return (int) ($row['duration_seconds'] ?? 0) > self::ANOMALY_DURATION_SECONDS;
     }
 
     private static function emptyKpis(): array
@@ -708,6 +841,30 @@ final class AnalyticsController extends Controller
         }
         $stmt = $pdo->prepare($sql);
         $stmt->execute($where['params']);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    private static function distinctCountries(PDO $pdo, ?array $partnerScopeIds = null): array
+    {
+        if (!Database::tableExists('page_visits')) {
+            return [];
+        }
+        $conditions = ["pv.country_code IS NOT NULL", "pv.country_code != ''"];
+        $params = [];
+        if ($partnerScopeIds !== null) {
+            if ($partnerScopeIds === []) {
+                return [];
+            }
+            $placeholders = implode(',', array_fill(0, count($partnerScopeIds), '?'));
+            $conditions[] = "pv.partner_id IN ($placeholders)";
+            foreach ($partnerScopeIds as $scopedId) {
+                $params[] = (int) $scopedId;
+            }
+        }
+        $sql = 'SELECT DISTINCT pv.country_code, pv.country_name FROM page_visits pv WHERE '
+            . implode(' AND ', $conditions) . ' ORDER BY pv.country_name';
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
@@ -788,20 +945,19 @@ final class AnalyticsController extends Controller
      * approach: renders an HTML document and wraps it in a basic PDF structure.
      * No external library needed.
      */
-    public static function generatePdfReport(array $filters, ?int $partnerId = null, bool $excludeAdmin = false): string
+    public static function generatePdfReport(array $filters, ?int $partnerId = null, ?array $partnerScopeIds = null): string
     {
         if (!Database::tableExists('page_visits')) {
             return self::buildSimplePdf('Rapport d\'analyse', 'Aucune donnée disponible.');
         }
 
         $pdo = Database::connection();
-        $where = self::buildWhereClause($filters);
-        if ($excludeAdmin) {
-            $where = self::excludeAdminVisits($where);
-        }
-        $kpis = self::computeKpis($pdo, $where);
-        $visitsByCountry = self::visitsByCountry($pdo, $where);
-        $visitsByPage = self::visitsByPage($pdo, $where);
+        $where = self::buildWhereClause($filters, $partnerScopeIds);
+        // KPIs/aggregate tables in this report must never count admin visits.
+        $kpiWhere = self::excludeAdminVisits(self::excludeAnomalies($where));
+        $kpis = self::computeKpis($pdo, $kpiWhere);
+        $visitsByCountry = self::visitsByCountry($pdo, $kpiWhere);
+        $visitsByPage = self::visitsByPage($pdo, $kpiWhere);
 
         $partnerName = 'Toutes les données';
         $logoUrl = '';
@@ -832,7 +988,6 @@ final class AnalyticsController extends Controller
             ['Visiteurs uniques', (int) $kpis['unique_visitors']],
             ['Visites clients', (int) $kpis['client_visits']],
             ['Visites partenaires', (int) $kpis['partner_visits']],
-            ['Visites admin', (int) $kpis['admin_visits']],
             ['Durée moyenne', (int) $kpis['avg_duration'] . 's'],
             ['Pays', (int) $kpis['countries']],
             ['Pages vues', (int) $kpis['pages_viewed']],

@@ -800,10 +800,13 @@ final class PageController extends Controller
         $user = self::requirePartnerUser();
         $requests = ReservationsController::listForPartner((int) $user['partner_id']);
         $partner = PartnersController::formData((int) $user['partner_id']);
+        $analyticsVisible = Database::columnExists('partners', 'analytics_visible')
+            && (int) ($partner['analytics_visible'] ?? 0) === 1;
         View::render('pages/partner-dashboard', [
             'pageTitle' => 'Tableau de Bord partenaire',
             'requests' => $requests,
             'catalogPdfUrl' => (string) ($partner['catalog_pdf_url'] ?? ''),
+            'analyticsVisible' => $analyticsVisible,
         ]);
     }
 
@@ -1992,13 +1995,22 @@ final class PageController extends Controller
      * two partners were explicitly linked by an admin, and lands on the
      * target partner's own dashboard (partner_id-scoped, unrelated to the
      * public "Code Partenaire" deep-linking cookie/URL fragment mechanism).
+     *
+     * Authorization and the resulting session's "home" account are both
+     * resolved against home_partner_id (the account this browser session
+     * really logged into), not just the CURRENT partner_id — otherwise a
+     * principal that switched into one hierarchical child would be stuck
+     * there, unable to reach its siblings or switch back, since a child has
+     * no switch targets of its own (see PartnerLinks::canSwitchTo()/
+     * homeAfterSwitch()).
      */
     public static function partnerSwitchAccount(int $targetPartnerId): never
     {
         $user = self::requirePartnerUser();
         $currentPartnerId = (int) $user['partner_id'];
+        $homePartnerId = (int) ($user['home_partner_id'] ?? $currentPartnerId);
 
-        if (!PartnerLinks::areLinked($currentPartnerId, $targetPartnerId)) {
+        if (!PartnerLinks::canSwitchTo($currentPartnerId, $homePartnerId, $targetPartnerId)) {
             self::redirect('/partner/dashboard', "Ce compte n'est pas lié au vôtre.", 'error');
         }
 
@@ -2007,7 +2019,8 @@ final class PageController extends Controller
             self::redirect('/partner/dashboard', "Ce partenaire lié n'a pas encore de compte utilisateur.", 'error');
         }
 
-        Auth::switchToUser((int) $targetUsers[0]['id']);
+        $newHomePartnerId = PartnerLinks::homeAfterSwitch($currentPartnerId, $homePartnerId, $targetPartnerId);
+        Auth::switchToUser((int) $targetUsers[0]['id'], $newHomePartnerId);
         self::redirect('/partner/dashboard');
     }
 

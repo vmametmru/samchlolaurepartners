@@ -45,9 +45,15 @@ final class Auth
      * were explicitly linked by an admin. From the browser's point of view
      * this is a normal logout + login into the other account, just
      * automatic. Returns the new session's user payload, or null if
-     * $userId doesn't exist.
+     * $userId doesn't exist. $homePartnerId records which partner account
+     * the browser is really "coming from" for this chain of switches (see
+     * establishSession()'s home_partner_id claim) — PageController::
+     * partnerSwitchAccount() works out the right value via
+     * PartnerLinks::homeAfterSwitch() so a principal that hopped into one
+     * hierarchical child can keep switching to its siblings, or back to the
+     * principal, instead of getting stuck once "inside" that child account.
      */
-    public static function switchToUser(int $userId): ?array
+    public static function switchToUser(int $userId, ?int $homePartnerId = null): ?array
     {
         $stmt = Database::connection()->prepare(
             'SELECT u.*, p.id AS partner_id_val, p.name AS partner_name,
@@ -64,7 +70,7 @@ final class Auth
             return null;
         }
 
-        return self::establishSession($user, 'switched');
+        return self::establishSession($user, 'switched', $homePartnerId);
     }
 
     /**
@@ -80,9 +86,15 @@ final class Auth
      * the admin "qui est connecté" dashboard panel. $endPriorSessionReason,
      * when given, first ends whatever session the CURRENT cookie belonged
      * to (used by switchToUser() to close the old partner's session with
-     * reason "switched" rather than leaving it dangling).
+     * reason "switched" rather than leaving it dangling). $homePartnerId,
+     * for a "switched" session, records the partner id the browser should
+     * be treated as having really logged in as (see the home_partner_id
+     * claim in userPayload()/switchToUser()'s doc comment); null defaults
+     * it to the target user's own partner_id, i.e. "this IS the home
+     * account" (used by login() and by a switch landing back on the home
+     * account).
      */
-    private static function establishSession(array $user, ?string $endPriorSessionReason = null): array
+    private static function establishSession(array $user, ?string $endPriorSessionReason = null, ?int $homePartnerId = null): array
     {
         if ($endPriorSessionReason !== null) {
             $priorSid = self::currentSessionId();
@@ -97,6 +109,9 @@ final class Auth
 
         $sessionId = bin2hex(random_bytes(16));
         $payload = self::userPayload($user);
+        if ($homePartnerId !== null) {
+            $payload['home_partner_id'] = $homePartnerId;
+        }
         $payload['sid'] = $sessionId;
         self::setAuthCookie(self::issueToken($payload));
         UserSessions::start((int) $user['id'], $sessionId, self::clientIp(), self::clientUserAgent());
@@ -354,9 +369,16 @@ final class Auth
 
     private static function userPayload(array $user): array
     {
+        $partnerId = $user['partner_id'] !== null ? (int) $user['partner_id'] : null;
         return [
             'id' => (int) $user['id'],
-            'partner_id' => $user['partner_id'] !== null ? (int) $user['partner_id'] : null,
+            'partner_id' => $partnerId,
+            // Which partner account this session is really logged in as —
+            // defaults to the user's own partner (i.e. not currently
+            // switched elsewhere); establishSession() overrides this for a
+            // "switched" session that should keep tracking a different
+            // home (see PartnerLinks::homeAfterSwitch()).
+            'home_partner_id' => $partnerId,
             'email' => (string) $user['email'],
             'first_name' => $user['first_name'] !== null ? (string) $user['first_name'] : null,
             'last_name' => $user['last_name'] !== null ? (string) $user['last_name'] : null,
@@ -393,6 +415,15 @@ final class Auth
         $sid = self::currentSessionId();
         if ($sid !== null) {
             $payload['sid'] = $sid;
+        }
+        // Preserve whichever home_partner_id the current session already
+        // carries (e.g. while switched into a hierarchical child account),
+        // otherwise userPayload()'s default of "own partner" would silently
+        // reset it and break switching back/among siblings after a profile
+        // update.
+        $current = self::user();
+        if ($current !== null && isset($current['home_partner_id'])) {
+            $payload['home_partner_id'] = $current['home_partner_id'];
         }
         self::setAuthCookie(self::issueToken($payload));
     }

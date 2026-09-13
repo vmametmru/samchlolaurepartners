@@ -6,6 +6,7 @@ $scheduleTime = (string) ($reportSchedule['time_of_day'] ?? '08:00');
 $filterAction = $isAdmin ? '/admin/analytics' : '/partner/analytics';
 $exportCsvUrl = $filterAction . '/export?' . http_build_query($filters);
 $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
+$currentUrl = $_SERVER['REQUEST_URI'] ?? $filterAction;
 ?>
 <section class="container section-lg">
   <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;">
@@ -44,7 +45,25 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
           <option value="admin" <?= $filters['visitor_type'] === 'admin' ? 'selected' : '' ?>>Admin</option>
         </select>
       </label>
-      <label><span>Pays</span><input class="input" type="text" name="country" value="<?= \App\View::e($filters['country']) ?>" placeholder="Code ou nom"></label>
+      <label><span>Pays</span>
+        <div class="tickbox-dropdown" data-tickbox-dropdown>
+          <button type="button" class="input tickbox-dropdown-toggle" data-tickbox-dropdown-toggle aria-haspopup="true" aria-expanded="false">
+            <span data-tickbox-dropdown-label><?= $countryOptions === [] ? 'Aucun pays' : ($filters['country'] === [] ? 'Tous' : count($filters['country']) . ' pays sélectionné(s)') ?></span>
+          </button>
+          <div class="tickbox-dropdown-panel" data-tickbox-dropdown-panel hidden>
+            <?php if ($countryOptions === []): ?>
+              <p class="empty-state" style="margin:.5rem;">Aucun pays.</p>
+            <?php else: ?>
+              <?php foreach ($countryOptions as $c): ?>
+                <label class="tickbox-dropdown-item">
+                  <input type="checkbox" name="country[]" value="<?= \App\View::e($c['country_code']) ?>" <?= in_array((string) $c['country_code'], $filters['country'], true) ? 'checked' : '' ?>>
+                  <?= \App\View::e($c['country_name'] ?: $c['country_code']) ?>
+                </label>
+              <?php endforeach; ?>
+            <?php endif; ?>
+          </div>
+        </div>
+      </label>
       <label><span>Page (URL)</span><input class="input" type="text" name="page" value="<?= \App\View::e($filters['page']) ?>" placeholder="/properties, /contact..."></label>
     </div>
     <div class="button-row mt-8">
@@ -61,9 +80,6 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
     <div class="card card-body"><p>Visiteurs uniques</p><strong><?= (int) $kpis['unique_visitors'] ?></strong></div>
     <div class="card card-body"><p>Visites clients</p><strong class="accent-ok"><?= (int) $kpis['client_visits'] ?></strong></div>
     <div class="card card-body"><p>Visites partenaires</p><strong class="accent-warn"><?= (int) $kpis['partner_visits'] ?></strong></div>
-    <?php if ($isAdmin): ?>
-      <div class="card card-body"><p>Visites admin</p><strong><?= (int) $kpis['admin_visits'] ?></strong></div>
-    <?php endif; ?>
     <div class="card card-body"><p>Durée moy.</p><strong><?= (int) $kpis['avg_duration'] ?>s</strong></div>
     <div class="card card-body"><p>Pays</p><strong><?= (int) $kpis['countries'] ?></strong></div>
     <div class="card card-body"><p>Pages vues</p><strong><?= (int) $kpis['pages_viewed'] ?></strong></div>
@@ -76,7 +92,7 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
       <canvas id="chart-visits-date" height="250"></canvas>
     </div>
     <div class="card card-body">
-      <h2 class="card-header">Visites par heure</h2>
+      <h2 class="card-header">Visites par heure <span class="text-muted" style="font-weight:400;font-size:.8em;">(GMT+4)</span></h2>
       <canvas id="chart-visits-hour" height="250"></canvas>
     </div>
   </div>
@@ -99,7 +115,7 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
     <?php else: ?>
       <div class="table-responsive">
         <table class="data-table">
-          <thead><tr><th>Page</th><th>Partenaire</th><th>Visites</th><th>Durée moy.</th><th>Clients</th><th>Partenaires</th><?php if ($isAdmin): ?><th>Admin</th><?php endif; ?></tr></thead>
+          <thead><tr><th>Page</th><th>Partenaire</th><th>Visites</th><th>Durée moy.</th><th>Clients</th><th>Partenaires</th></tr></thead>
           <tbody>
             <?php foreach ($visitsByPage as $row): ?>
               <tr>
@@ -109,7 +125,6 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
                 <td><?= (int) ($row['avg_duration'] ?? 0) ?>s</td>
                 <td><?= (int) $row['client_visits'] ?></td>
                 <td><?= (int) $row['partner_visits'] ?></td>
-                <?php if ($isAdmin): ?><td><?= (int) $row['admin_visits'] ?></td><?php endif; ?>
               </tr>
             <?php endforeach; ?>
           </tbody>
@@ -144,31 +159,51 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
     <?php if ($visits === []): ?>
       <p class="empty-state">Aucune donnée.</p>
     <?php else: ?>
-      <div class="table-responsive">
-        <table class="data-table" id="analytics-visits-table">
-          <thead><tr><th>Date/Heure</th><th>Partenaire</th><th>Page</th><th>Type</th><th>Pays</th><th>Durée</th><th>IP</th><?php if ($isAdmin): ?><th>Actions</th><?php endif; ?></tr></thead>
-          <tbody>
-            <?php foreach (array_slice($visits, 0, 50) as $row): ?>
-              <tr>
-                <td><?= \App\View::e($row['visited_at']) ?></td>
-                <td><?= \App\View::e($row['partner_name'] ?? '—') ?></td>
-                <td title="<?= \App\View::e($row['page_url']) ?>"><?= \App\View::e($row['page_title'] ?: $row['page_url']) ?></td>
-                <td><span class="badge badge-<?= \App\View::e($row['visitor_type']) ?>"><?= \App\View::e(ucfirst($row['visitor_type'])) ?></span></td>
-                <td><?= \App\View::e($row['country_name'] ?: ($row['country_code'] ?: '—')) ?></td>
-                <td><?= $row['duration_seconds'] !== null ? (int) $row['duration_seconds'] . 's' : '—' ?></td>
-                <td><?= \App\View::e($row['ip_address'] ?: '—') ?></td>
-                <?php if ($isAdmin): ?>
-                  <td class="nowrap">
-                    <form method="post" action="/admin/analytics/<?= (int) $row['id'] ?>/delete" style="display:inline;" onsubmit="return confirm('Supprimer cette entrée ?');">
-                      <button type="submit" class="btn-sm btn-danger" title="Supprimer">✕</button>
-                    </form>
+      <?php if ($isAdmin): ?>
+        <?php foreach (array_slice($visits, 0, 50) as $row): $vid = (int) $row['id']; ?>
+          <form method="post" action="/admin/analytics/<?= $vid ?>/delete" id="analytics-delete-form-<?= $vid ?>" class="inline-form" onsubmit="return confirm('Supprimer cette entrée ?');">
+            <input type="hidden" name="redirect_to" value="<?= \App\View::e($currentUrl) ?>">
+          </form>
+        <?php endforeach; ?>
+      <?php endif; ?>
+      <form method="post" action="/admin/analytics/bulk-delete" id="analytics-bulk-delete-form" onsubmit="return confirm('Supprimer les entrées sélectionnées ?');">
+        <input type="hidden" name="redirect_to" value="<?= \App\View::e($currentUrl) ?>">
+        <div class="table-responsive">
+          <table class="data-table" id="analytics-visits-table">
+            <thead><tr><?php if ($isAdmin): ?><th><input type="checkbox" id="analytics-visits-select-all"></th><?php endif; ?><th>Date/Heure</th><th>Partenaire</th><th>Page</th><th>Type</th><th>Pays</th><th>Durée</th><th>IP</th><?php if ($isAdmin): ?><th>Actions</th><?php endif; ?></tr></thead>
+            <tbody>
+              <?php foreach (array_slice($visits, 0, 50) as $row): ?>
+                <?php $isAnomaly = \App\controllers\AnalyticsController::isAnomaly($row); ?>
+                <tr>
+                  <?php if ($isAdmin): ?>
+                    <td><input type="checkbox" name="ids[]" value="<?= (int) $row['id'] ?>" class="analytics-visit-row-checkbox"></td>
+                  <?php endif; ?>
+                  <td><?= \App\View::e($row['visited_at']) ?></td>
+                  <td><?= \App\View::e($row['partner_name'] ?? '—') ?></td>
+                  <td title="<?= \App\View::e($row['page_url']) ?>"><?= \App\View::e($row['page_title'] ?: $row['page_url']) ?></td>
+                  <td><span class="badge badge-<?= \App\View::e($row['visitor_type']) ?>"><?= \App\View::e(ucfirst($row['visitor_type'])) ?></span></td>
+                  <td><?= \App\View::e($row['country_name'] ?: ($row['country_code'] ?: '—')) ?></td>
+                  <td>
+                    <?= $row['duration_seconds'] !== null ? (int) $row['duration_seconds'] . 's' : '—' ?>
+                    <?php if ($isAnomaly): ?> <span class="badge badge-anomaly" title="Durée anormalement longue (> 15 min) : exclue des KPIs">Anomalie</span><?php endif; ?>
                   </td>
-                <?php endif; ?>
-              </tr>
-            <?php endforeach; ?>
-          </tbody>
-        </table>
-      </div>
+                  <td><?= \App\View::e($row['ip_address'] ?: '—') ?></td>
+                  <?php if ($isAdmin): ?>
+                    <td class="nowrap">
+                      <button type="submit" form="analytics-delete-form-<?= (int) $row['id'] ?>" class="btn-sm btn-danger" title="Supprimer">✕</button>
+                    </td>
+                  <?php endif; ?>
+                </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+        </div>
+        <?php if ($isAdmin): ?>
+          <div class="button-row mt-8">
+            <button type="submit" class="btn-secondary danger">🗑️ Effacer la sélection</button>
+          </div>
+        <?php endif; ?>
+      </form>
     <?php endif; ?>
   </div>
 
@@ -277,7 +312,7 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
   <?php endif; ?>
 </section>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" integrity="sha384-OLBgp1GsljhM2TJ+sbHjaiH9txEUvgdDTAzHv2P24donTt6/529l+9Ua0vFImLlb" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.js" integrity="sha384-G436+Z2nlA8+PNoeRvWdxKbvOf8E/y+lYxqht2iBwNHTQDV5CJr3+AGVj8fGZi5t" crossorigin="anonymous"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   var visitsByDate = <?= json_encode($visitsByDate, JSON_UNESCAPED_UNICODE) ?>;
@@ -312,88 +347,155 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // Visits by date chart
   var ctxDate = document.getElementById('chart-visits-date');
-  if (ctxDate && visitsByDate.length > 0) {
-    var datasets = [
-      { label: 'Total', data: visitsByDate.map(function (r) { return parseInt(r.total); }), borderColor: '#E61E4D', backgroundColor: 'rgba(230,30,77,0.1)', fill: true, tension: 0.3 },
-      { label: 'Clients', data: visitsByDate.map(function (r) { return parseInt(r.clients); }), borderColor: '#22c55e', backgroundColor: 'transparent', tension: 0.3 },
-      { label: 'Partenaires', data: visitsByDate.map(function (r) { return parseInt(r.partners); }), borderColor: '#f59e0b', backgroundColor: 'transparent', tension: 0.3 }
-    ];
-    if (isAdmin) {
-      datasets.push({ label: 'Admin', data: visitsByDate.map(function (r) { return parseInt(r.admins); }), borderColor: '#6366f1', backgroundColor: 'transparent', tension: 0.3 });
-    }
-    new Chart(ctxDate, {
-      type: 'line',
-      data: {
-        labels: visitsByDate.map(function (r) { return r.visit_date; }),
-        datasets: datasets
-      },
-      options: { responsive: true, plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true } } }
-    });
+  if (ctxDate && visitsByDate.length > 0 && typeof Chart !== 'undefined') {
+    try {
+      var datasets = [
+        { label: 'Total', data: visitsByDate.map(function (r) { return parseInt(r.total); }), borderColor: '#E61E4D', backgroundColor: 'rgba(230,30,77,0.1)', fill: true, tension: 0.3 },
+        { label: 'Clients', data: visitsByDate.map(function (r) { return parseInt(r.clients); }), borderColor: '#22c55e', backgroundColor: 'transparent', tension: 0.3 },
+        { label: 'Partenaires', data: visitsByDate.map(function (r) { return parseInt(r.partners); }), borderColor: '#f59e0b', backgroundColor: 'transparent', tension: 0.3 }
+      ];
+      new Chart(ctxDate, {
+        type: 'line',
+        data: {
+          labels: visitsByDate.map(function (r) { return r.visit_date; }),
+          datasets: datasets
+        },
+        options: { responsive: true, plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true } } }
+      });
+    } catch (e) { console.error('chart-visits-date', e); }
   }
 
   // Visits by hour chart
   var ctxHour = document.getElementById('chart-visits-hour');
-  if (ctxHour && visitsByHour.length > 0) {
-    var hourLabels = [];
-    var hourData = [];
-    for (var h = 0; h < 24; h++) {
-      hourLabels.push(h + 'h');
-      var found = visitsByHour.find(function (r) { return parseInt(r.visit_hour) === h; });
-      hourData.push(found ? parseInt(found.visits) : 0);
-    }
-    new Chart(ctxHour, {
-      type: 'bar',
-      data: {
-        labels: hourLabels,
-        datasets: [{ label: 'Visites', data: hourData, backgroundColor: 'rgba(230,30,77,0.6)', borderColor: '#E61E4D', borderWidth: 1 }]
-      },
-      options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
-    });
+  if (ctxHour && visitsByHour.length > 0 && typeof Chart !== 'undefined') {
+    try {
+      var hourLabels = [];
+      var hourData = [];
+      for (var h = 0; h < 24; h++) {
+        hourLabels.push(h + 'h');
+        var found = visitsByHour.find(function (r) { return parseInt(r.visit_hour) === h; });
+        hourData.push(found ? parseInt(found.visits) : 0);
+      }
+      new Chart(ctxHour, {
+        type: 'bar',
+        data: {
+          labels: hourLabels,
+          datasets: [{ label: 'Visites', data: hourData, backgroundColor: 'rgba(230,30,77,0.6)', borderColor: '#E61E4D', borderWidth: 1 }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { display: false },
+            tooltip: { callbacks: { title: function (items) { return items.length ? items[0].label : ''; } } }
+          },
+          scales: {
+            x: { title: { display: true, text: 'Heure (GMT+4)' } },
+            y: { beginAtZero: true }
+          }
+        }
+      });
+    } catch (e) { console.error('chart-visits-hour', e); }
   }
 
   // Visits by country — Leaflet world map with circle markers
   var mapEl = document.getElementById('map-visits-country');
   if (mapEl && visitsByCountry.length > 0 && typeof L !== 'undefined') {
-    var map = L.map(mapEl, { scrollWheelZoom: false });
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(map);
-    var maxVisits = Math.max.apply(null, visitsByCountry.map(function (r) { return parseInt(r.visits); }));
-    var bounds = [];
-    visitsByCountry.forEach(function (r) {
-      var code = (r.country_code || '').toUpperCase();
-      var coords = countryCoords[code];
-      if (!coords) return;
-      var visits = parseInt(r.visits);
-      var radius = Math.max(6, Math.min(40, (visits / maxVisits) * 40));
-      var marker = L.circleMarker([coords[0], coords[1]], {
-        radius: radius, fillColor: '#E61E4D', color: '#fff', weight: 1, fillOpacity: 0.7
-      }).addTo(map);
-      marker.bindPopup('<strong>' + (r.country_name || code) + '</strong><br>' + visits + ' visite' + (visits > 1 ? 's' : ''));
-      bounds.push([coords[0], coords[1]]);
-    });
-    if (bounds.length > 0) {
-      map.fitBounds(bounds, { padding: [20, 20], maxZoom: 5 });
-    }
+    try {
+      var map = L.map(mapEl, { scrollWheelZoom: false });
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(map);
+      var maxVisits = Math.max.apply(null, visitsByCountry.map(function (r) { return parseInt(r.visits); }));
+      var bounds = [];
+      visitsByCountry.forEach(function (r) {
+        var code = (r.country_code || '').toUpperCase();
+        var coords = countryCoords[code];
+        if (!coords) return;
+        var visits = parseInt(r.visits);
+        var radius = Math.max(6, Math.min(40, (visits / maxVisits) * 40));
+        var marker = L.circleMarker([coords[0], coords[1]], {
+          radius: radius, fillColor: '#E61E4D', color: '#fff', weight: 1, fillOpacity: 0.7
+        }).addTo(map);
+        marker.bindPopup('<strong>' + (r.country_name || code) + '</strong><br>' + visits + ' visite' + (visits > 1 ? 's' : ''));
+        bounds.push([coords[0], coords[1]]);
+      });
+      if (bounds.length > 0) {
+        map.fitBounds(bounds, { padding: [20, 20], maxZoom: 5 });
+      }
+    } catch (e) { console.error('map-visits-country', e); }
   }
 
   // Visitor type chart
   var ctxType = document.getElementById('chart-visits-type');
-  if (ctxType) {
-    var pieLabels = ['Clients', 'Partenaires'];
-    var pieData = [parseInt(kpis.client_visits) || 0, parseInt(kpis.partner_visits) || 0];
-    var pieColors = ['#22c55e', '#f59e0b'];
-    if (isAdmin) {
-      pieLabels.push('Admin');
-      pieData.push(parseInt(kpis.admin_visits) || 0);
-      pieColors.push('#6366f1');
-    }
-    new Chart(ctxType, {
-      type: 'pie',
-      data: {
-        labels: pieLabels,
-        datasets: [{ data: pieData, backgroundColor: pieColors }]
-      },
-      options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
-    });
+  if (ctxType && typeof Chart !== 'undefined') {
+    try {
+      var pieLabels = ['Clients', 'Partenaires'];
+      var pieData = [parseInt(kpis.client_visits) || 0, parseInt(kpis.partner_visits) || 0];
+      var pieColors = ['#22c55e', '#f59e0b'];
+      new Chart(ctxType, {
+        type: 'pie',
+        data: {
+          labels: pieLabels,
+          datasets: [{ data: pieData, backgroundColor: pieColors }]
+        },
+        options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+      });
+    } catch (e) { console.error('chart-visits-type', e); }
   }
 });
+</script>
+<script>
+  (function () {
+    var selectAll = document.getElementById('analytics-visits-select-all');
+    if (selectAll) {
+      selectAll.addEventListener('change', function () {
+        document.querySelectorAll('.analytics-visit-row-checkbox').forEach(function (checkbox) {
+          checkbox.checked = selectAll.checked;
+        });
+      });
+    }
+
+    document.querySelectorAll('[data-tickbox-dropdown]').forEach(function (dropdown) {
+      var toggle = dropdown.querySelector('[data-tickbox-dropdown-toggle]');
+      var panel = dropdown.querySelector('[data-tickbox-dropdown-panel]');
+      var label = dropdown.querySelector('[data-tickbox-dropdown-label]');
+      if (!toggle || !panel) { return; }
+
+      var updateLabel = function () {
+        if (!label) { return; }
+        var checked = panel.querySelectorAll('input[type="checkbox"]:checked');
+        var total = panel.querySelectorAll('input[type="checkbox"]');
+        if (total.length === 0) {
+          label.textContent = 'Aucun pays';
+        } else if (checked.length === 0) {
+          label.textContent = 'Tous';
+        } else {
+          label.textContent = checked.length + ' pays sélectionné(s)';
+        }
+      };
+
+      toggle.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var isHidden = panel.hasAttribute('hidden');
+        document.querySelectorAll('[data-tickbox-dropdown-panel]').forEach(function (p) { p.setAttribute('hidden', ''); });
+        if (isHidden) {
+          panel.removeAttribute('hidden');
+          toggle.setAttribute('aria-expanded', 'true');
+        } else {
+          toggle.setAttribute('aria-expanded', 'false');
+        }
+      });
+
+      panel.addEventListener('change', updateLabel);
+    });
+
+    document.addEventListener('click', function (e) {
+      document.querySelectorAll('[data-tickbox-dropdown]').forEach(function (dropdown) {
+        if (!dropdown.contains(e.target)) {
+          var panel = dropdown.querySelector('[data-tickbox-dropdown-panel]');
+          var toggle = dropdown.querySelector('[data-tickbox-dropdown-toggle]');
+          if (panel) { panel.setAttribute('hidden', ''); }
+          if (toggle) { toggle.setAttribute('aria-expanded', 'false'); }
+        }
+      });
+    });
+  })();
 </script>
