@@ -800,10 +800,13 @@ final class PageController extends Controller
         $user = self::requirePartnerUser();
         $requests = ReservationsController::listForPartner((int) $user['partner_id']);
         $partner = PartnersController::formData((int) $user['partner_id']);
+        $analyticsVisible = Database::columnExists('partners', 'analytics_visible')
+            && (int) ($partner['analytics_visible'] ?? 0) === 1;
         View::render('pages/partner-dashboard', [
             'pageTitle' => 'Tableau de Bord partenaire',
             'requests' => $requests,
             'catalogPdfUrl' => (string) ($partner['catalog_pdf_url'] ?? ''),
+            'analyticsVisible' => $analyticsVisible,
         ]);
     }
 
