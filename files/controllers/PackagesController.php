@@ -221,6 +221,18 @@ final class PackagesController extends Controller
         if ($params === null) {
             self::json(['error' => 'Bad Request', 'message' => 'Dates ou nombre de personnes invalides.'], 400);
         }
+        // Now that the requested party is known, re-check the stock for that
+        // exact headcount (the check above only knows "at least one unit
+        // left"): a persons-limited offer with a single place left must not
+        // return matches — and a request button — for two travellers.
+        if (!Auth::isPartnerOrAdmin()
+            && !Packages::isBookable($package, $params['adults'] + $params['children_3to12'] + $params['children_under3'])
+        ) {
+            self::json([
+                'error' => 'Conflict',
+                'message' => 'Cette offre n\'est plus disponible pour ce nombre de personnes (expirée ou complète).',
+            ], 409);
+        }
 
         $extras = Packages::extrasSelection(
             $package,

@@ -7,7 +7,24 @@
 -- (/partner/offres) nor the public pages exist until an admin explicitly
 -- enables the option for a given partner (mirrors analytics_visible, see
 -- db/migrations/060_add_analytics_visible_to_partners.sql).
-ALTER TABLE partners ADD COLUMN packages_visible TINYINT(1) NOT NULL DEFAULT 0;
+--
+-- Migrator::run() only records this file once *every* statement below has
+-- succeeded, so each ALTER is guarded against information_schema (same
+-- pattern as db/migrations/025_add_language_to_templates_and_requests.sql):
+-- a failure on a later statement would otherwise make the next run stop on
+-- a "Duplicate column" error here and never reach the rest of the schema.
+SET @packages_visible_exists = (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'partners' AND COLUMN_NAME = 'packages_visible'
+);
+SET @packages_visible_sql = IF(
+  @packages_visible_exists = 0,
+  'ALTER TABLE partners ADD COLUMN packages_visible TINYINT(1) NOT NULL DEFAULT 0',
+  'DO 0'
+);
+PREPARE packages_visible_stmt FROM @packages_visible_sql;
+EXECUTE packages_visible_stmt;
+DEALLOCATE PREPARE packages_visible_stmt;
 
 -- expires_at is stored in UTC like every other timestamp in this database,
 -- but is entered/displayed in GMT+4 (Île Maurice) on both the partner form
@@ -83,5 +100,45 @@ CREATE TABLE IF NOT EXISTS package_activities (
 -- request (same partner/admin screens, same emails, same /r/{token} link);
 -- these two columns only record which offer it came from and what the client
 -- selected in it. Existing requests keep NULL and behave exactly as before.
-ALTER TABLE reservation_requests ADD COLUMN package_id INT DEFAULT NULL;
-ALTER TABLE reservation_requests ADD COLUMN package_summary MEDIUMTEXT DEFAULT NULL;
+--
+-- package_id is indexed: Packages::usedStock() aggregates on it for every
+-- stock-limited offer (once per offer on the management/public lists), which
+-- would otherwise scan the whole reservation_requests table each time.
+SET @rr_package_id_exists = (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'reservation_requests' AND COLUMN_NAME = 'package_id'
+);
+SET @rr_package_id_sql = IF(
+  @rr_package_id_exists = 0,
+  'ALTER TABLE reservation_requests ADD COLUMN package_id INT DEFAULT NULL',
+  'DO 0'
+);
+PREPARE rr_package_id_stmt FROM @rr_package_id_sql;
+EXECUTE rr_package_id_stmt;
+DEALLOCATE PREPARE rr_package_id_stmt;
+
+SET @rr_package_summary_exists = (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'reservation_requests' AND COLUMN_NAME = 'package_summary'
+);
+SET @rr_package_summary_sql = IF(
+  @rr_package_summary_exists = 0,
+  'ALTER TABLE reservation_requests ADD COLUMN package_summary MEDIUMTEXT DEFAULT NULL',
+  'DO 0'
+);
+PREPARE rr_package_summary_stmt FROM @rr_package_summary_sql;
+EXECUTE rr_package_summary_stmt;
+DEALLOCATE PREPARE rr_package_summary_stmt;
+
+SET @rr_package_index_exists = (
+  SELECT COUNT(*) FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'reservation_requests' AND INDEX_NAME = 'idx_reservation_requests_package'
+);
+SET @rr_package_index_sql = IF(
+  @rr_package_index_exists = 0,
+  'ALTER TABLE reservation_requests ADD KEY idx_reservation_requests_package (package_id, status)',
+  'DO 0'
+);
+PREPARE rr_package_index_stmt FROM @rr_package_index_sql;
+EXECUTE rr_package_index_stmt;
+DEALLOCATE PREPARE rr_package_index_stmt;

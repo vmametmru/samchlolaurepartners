@@ -57,7 +57,14 @@ $stockLabels = [
       <tbody>
         <?php if ($packages === []): ?>
           <tr><td colspan="<?= $isAdmin ? 6 : 5 ?>" class="empty-row">Aucune offre pour le moment</td></tr>
-        <?php else: foreach ($packages as $package): $pid = (int) $package['id']; ?>
+        <?php else: foreach ($packages as $package): $pid = (int) $package['id'];
+          // The public page resolves its partner from the "Code Partenaire"
+          // cookie, never from the offer id: on the admin list (offers of
+          // every partner) the preview link must therefore carry the offer's
+          // own partner code, otherwise it 404s or previews another tenant.
+          $previewCode = trim((string) ($package['partner_code'] ?? ''));
+          $previewUrl = '/offres/' . $pid . ($previewCode !== '' ? '?partner=' . rawurlencode($previewCode) : '');
+        ?>
           <tr>
             <td>
               <?php if (!empty($package['photo_url'])): ?>
@@ -83,7 +90,7 @@ $stockLabels = [
             </td>
             <td class="reservation-actions">
               <a class="icon-btn" title="Modifier" href="<?= \App\View::e($basePath) ?>/<?= $pid ?>">✏️</a>
-              <a class="icon-btn" title="Voir la page publique" href="/offres/<?= $pid ?>" target="_blank" rel="noopener">👁️</a>
+              <a class="icon-btn" title="Voir la page publique" href="<?= \App\View::e($previewUrl) ?>" target="_blank" rel="noopener">👁️</a>
               <button type="submit" class="icon-btn icon-btn-danger" title="Supprimer" form="package-delete-<?= $pid ?>" onclick="return confirm('Supprimer définitivement cette offre ?');">🗑️</button>
             </td>
           </tr>

@@ -108,7 +108,7 @@ final class Packages
         if (!self::tablesReady()) {
             return [];
         }
-        $sql = 'SELECT p.*, pa.name AS partner_name FROM packages p
+        $sql = 'SELECT p.*, pa.name AS partner_name, pa.subdomain AS partner_code FROM packages p
                 INNER JOIN partners pa ON pa.id = p.partner_id';
         $params = [];
         if ($partnerId !== null && $partnerId > 0) {
@@ -788,7 +788,14 @@ final class Packages
                 continue;
             }
             $maxGuests = (int) ($property['max_guests'] ?? 0);
-            $fitsParty = $maxGuests <= 0 || $countedGuests <= $maxGuests;
+            // A single property must also respect the app-wide hard limit of
+            // ReservationsController::MAX_BABIES_PER_PROPERTY babies, which
+            // the reservation flow enforces at submission time: without it a
+            // party with 3+ babies would be shown an accommodation (and a
+            // request button) that every submission rejects. A bigger group
+            // of babies can still be hosted by the same-address groups below.
+            $fitsParty = ($maxGuests <= 0 || $countedGuests <= $maxGuests)
+                && $childrenUnder3 <= ReservationsController::MAX_BABIES_PER_PROPERTY;
 
             $availabilityMap = [];
             foreach ($client->getAvailabilityFromCache($propertyId, $windowStart->format('Y-m-d'), $windowEnd->format('Y-m-d')) as $day) {
@@ -796,15 +803,13 @@ final class Packages
                     $availabilityMap[(string) $day['date']] = !empty($day['available']);
                 }
             }
-            $rateMap = [];
             $rateRows = [];
             foreach ($client->getRatesFromCache($propertyId, $windowStart->format('Y-m-d'), $windowEnd->format('Y-m-d')) as $rate) {
                 if (isset($rate['date_from'])) {
-                    $rateMap[(string) $rate['date_from']] = (float) ($rate['price_per_night'] ?? 0);
                     $rateRows[(string) $rate['date_from']] = $rate;
                 }
             }
-            if ($availabilityMap === [] || $rateMap === []) {
+            if ($availabilityMap === [] || $rateRows === []) {
                 continue;
             }
             // This app's own confirmed reservations overlapping the scanned
@@ -817,7 +822,7 @@ final class Packages
                 $windowEnd->format('Y-m-d')
             );
 
-            if (self::stayCoveredByCache($availabilityMap, $rateMap, $checkinDate, $nights)
+            if (self::stayCoveredByCache($availabilityMap, $rateRows, $checkinDate, $nights)
                 && ReservationsController::rangesFreeOf($reservedRanges, $checkin, $checkout)
             ) {
                 $groupCandidates[] = [
@@ -854,7 +859,7 @@ final class Packages
 
             foreach (self::fallbackCombinations($checkinDate, $nights, $today) as $combination) {
                 [$altCheckin, $altNights, $dayShift, $nightsLost] = $combination;
-                if (!self::stayCoveredByCache($availabilityMap, $rateMap, $altCheckin, $altNights)) {
+                if (!self::stayCoveredByCache($availabilityMap, $rateRows, $altCheckin, $altNights)) {
                     continue;
                 }
                 $altCheckinText = $altCheckin->format('Y-m-d');
@@ -1277,19 +1282,29 @@ final class Packages
      * cached calendar and has a cached nightly rate. Missing cache data
      * always means "not offered", never "availability to be confirmed".
      *
+     * The arrival date's cached min_stay is enforced too — exactly like the
+     * ordinary calendar (files/views/partials/calendar-body.php) — so an
+     * offer can never propose (nor let a client request) a stay shorter than
+     * the minimum Lodgify sets for that date.
+     *
      * @param array<string, bool> $availabilityMap
-     * @param array<string, float> $rateMap
+     * @param array<string, array<string, mixed>> $rateRows raw cached rate rows keyed by date
      */
-    private static function stayCoveredByCache(array $availabilityMap, array $rateMap, \DateTimeImmutable $checkinDate, int $nights): bool
+    private static function stayCoveredByCache(array $availabilityMap, array $rateRows, \DateTimeImmutable $checkinDate, int $nights): bool
     {
         for ($offset = 0; $offset < $nights; $offset++) {
             $day = $checkinDate->modify('+' . $offset . ' days')->format('Y-m-d');
             if (!array_key_exists($day, $availabilityMap) || $availabilityMap[$day] !== true) {
                 return false;
             }
-            if (!array_key_exists($day, $rateMap) || $rateMap[$day] <= 0) {
+            if (!array_key_exists($day, $rateRows) || (float) ($rateRows[$day]['price_per_night'] ?? 0) <= 0) {
                 return false;
             }
+        }
+        $arrival = $checkinDate->format('Y-m-d');
+        $minStay = isset($rateRows[$arrival]['min_stay']) ? (int) $rateRows[$arrival]['min_stay'] : 0;
+        if ($minStay > 0 && $nights < $minStay) {
+            return false;
         }
         return true;
     }

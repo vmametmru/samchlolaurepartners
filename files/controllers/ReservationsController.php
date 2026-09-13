@@ -707,11 +707,29 @@ final class ReservationsController extends Controller
             error_log((string) $e);
             return null;
         }
-        // Cache-only callers must never price a stay from partial data: if
-        // the local cache doesn't hold a rate for every single night, the
+        // Cache-only callers must never price a stay from partial data: the
+        // local cache must hold one positive rate for every single night of
+        // the stay (a payload with enough rows but a missing/duplicated date
+        // is partial too), and only those rows are then used. Otherwise the
         // property is not offered at all rather than quoted too cheaply.
-        if ($cacheOnly && count($rates) < $nights) {
-            return null;
+        if ($cacheOnly) {
+            $ratesByDate = [];
+            foreach ($rates as $rate) {
+                $date = (string) ($rate['date_from'] ?? '');
+                if ($date !== '' && (float) ($rate['price_per_night'] ?? 0) > 0) {
+                    $ratesByDate[$date] = $rate;
+                }
+            }
+            $checkinDate = new \DateTimeImmutable($checkin);
+            $coveredRates = [];
+            for ($offset = 0; $offset < $nights; $offset++) {
+                $night = $checkinDate->modify('+' . $offset . ' days')->format('Y-m-d');
+                if (!isset($ratesByDate[$night])) {
+                    return null;
+                }
+                $coveredRates[] = $ratesByDate[$night];
+            }
+            $rates = $coveredRates;
         }
         $currency = $rates[0]['currency'] ?? 'EUR';
         $roomTotal = 0.0;
