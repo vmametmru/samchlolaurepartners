@@ -375,7 +375,7 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
                     'currency' => (string) $quotedSelection['currency'],
                     'total_all_in' => $pricesHidden
                         ? null
-                        : round((float) $quotedSelection['total_stay'] + (float) $extras['total'], 2),
+                        : round((float) $quotedSelection['total_stay'] - $selectionTouristTax + (float) $extras['total'], 2),
                     'total_base' => $pricesHidden
                         ? null
                         : round(
