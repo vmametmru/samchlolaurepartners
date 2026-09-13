@@ -13,7 +13,7 @@
 -- column" error from an earlier statement.
 CREATE TABLE IF NOT EXISTS package_requests (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  package_id INT NOT NULL,
+  package_id INT DEFAULT NULL,
   partner_id INT NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'open',
   client_name VARCHAR(190) DEFAULT NULL,
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS package_requests (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   KEY idx_package_requests_package (package_id),
   KEY idx_package_requests_partner_status (partner_id, status),
-  CONSTRAINT fk_package_requests_package FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE CASCADE,
+  CONSTRAINT fk_package_requests_package FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE SET NULL,
   CONSTRAINT fk_package_requests_partner FOREIGN KEY (partner_id) REFERENCES partners(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

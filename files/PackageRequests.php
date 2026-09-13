@@ -171,7 +171,7 @@ final class PackageRequests
             "SELECT pr.*, pk.title AS package_title, pt.name AS partner_name,
                     (SELECT COUNT(*) FROM reservation_requests rr WHERE rr.package_request_id = pr.id) AS request_count
              FROM package_requests pr
-             INNER JOIN packages pk ON pk.id = pr.package_id
+             LEFT JOIN packages pk ON pk.id = pr.package_id
              INNER JOIN partners pt ON pt.id = pr.partner_id
              WHERE {$where}
              ORDER BY pr.created_at DESC, pr.id DESC"
@@ -208,7 +208,7 @@ final class PackageRequests
             "SELECT pr.*, pk.title AS package_title, pt.name AS partner_name,
                     (SELECT COUNT(*) FROM reservation_requests rr WHERE rr.package_request_id = pr.id) AS request_count
              FROM package_requests pr
-             INNER JOIN packages pk ON pk.id = pr.package_id
+             LEFT JOIN packages pk ON pk.id = pr.package_id
              INNER JOIN partners pt ON pt.id = pr.partner_id
              {$where}
              ORDER BY pr.created_at DESC, pr.id DESC"
@@ -231,7 +231,7 @@ final class PackageRequests
         }
         $sql = 'SELECT pr.*, pk.title AS package_title, pt.name AS partner_name
                 FROM package_requests pr
-                INNER JOIN packages pk ON pk.id = pr.package_id
+                LEFT JOIN packages pk ON pk.id = pr.package_id
                 INNER JOIN partners pt ON pt.id = pr.partner_id
                 WHERE pr.id = ?';
         $params = [$id];
@@ -293,7 +293,7 @@ final class PackageRequests
     private static function decorate(array $row): array
     {
         $row['id'] = (int) $row['id'];
-        $row['package_id'] = (int) $row['package_id'];
+        $row['package_id'] = $row['package_id'] !== null ? (int) $row['package_id'] : null;
         $row['partner_id'] = (int) $row['partner_id'];
         $row['request_count'] = (int) ($row['request_count'] ?? 0);
         return $row;
