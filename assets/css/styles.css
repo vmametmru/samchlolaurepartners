@@ -848,3 +848,24 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .package-step.active .package-step-index { background: #2563eb; color: #fff; }
 .package-step.done { border-color: #16a34a; color: #166534; }
 .package-step.done .package-step-index { background: #16a34a; color: #fff; }
+.package-intro { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; align-items: start; }
+/* Half the height of the former full-width 4/3 photo, description alongside. */
+.package-intro-photo { aspect-ratio: 16 / 9; max-height: 18rem; border-radius: 1.25rem; }
+.package-intro-description { margin: 0; }
+@media (max-width: 760px) { .package-intro { grid-template-columns: 1fr; } }
+/* Flight/transport/activity/meal options: 3 blocks per line. */
+.package-options-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.package-option-card { display: flex; flex-direction: column; gap: .4rem; }
+.package-option-card .card-body { display: flex; flex-direction: column; gap: .4rem; }
+.package-option-card .card-body h3 { margin: 0; font-size: 1.05rem; }
+.package-option-card .card-body p { margin: 0; font-size: .9rem; }
+@media (max-width: 980px) { .package-options-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .package-options-grid { grid-template-columns: 1fr; } }
+/* Running total of the offer, always visible above the page content; the
+   page keeps room at the bottom so the bar never hides its last rows. */
+[data-package-page] { padding-bottom: 5rem; }
+.package-total-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 1200; background: #111827; color: #fff; padding: .75rem 0; box-shadow: 0 -4px 16px rgba(15, 23, 42, .25); }
+.package-total-bar[hidden] { display: none; }
+.package-total-bar-inner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.package-total-bar .muted { color: #d1d5db; }
+.package-total-bar strong { font-size: 1.15rem; }

@@ -1,19 +1,31 @@
 <?php declare(strict_types=1);
 /**
- * Create/edit an "Offre Complète": general information, then the three
- * blocks (Vol, Hébergement, Activités, Restauration) described on the
- * public page.
+ * Create/edit an "Offre Complète": general information, then the blocks
+ * (Hébergement, Vol, Transport, Activités, Restauration) shown step by step
+ * on the public page, in that same order.
  */
 $package = $package ?? null;
 $isAdmin = !empty($isAdmin);
 $basePath = (string) ($basePath ?? '/partner/offres');
 $flights = $package['flights'] ?? [];
+$transports = $package['transports'] ?? [];
 $activities = $package['activities'] ?? [];
 $meals = $package['meals'] ?? [];
-// "Activités" and "Restauration" share exactly the same row shape, so both
-// are rendered by the same loop. Restauration only appears once migration
-// 065 created its table.
-$extraBlocks = [
+// "Transport", "Activités" and "Restauration" share exactly the same row
+// shape, so all three are rendered by the same loop, in the order of the
+// public page's steps. Transport only appears once migration 066 created its
+// table, Restauration once migration 065 did.
+$extraBlocks = [];
+if (!empty($transportsEnabled)) {
+    $extraBlocks['transports'] = [
+        'title' => 'Transport',
+        'hint' => 'Transferts, location de voiture… : une option obligatoire est toujours incluse dans le prix, sinon le client peut la cocher ou non.',
+        'addLabel' => 'Ajouter une option de transport',
+        'removeLabel' => 'Supprimer cette option',
+        'mandatoryLabel' => 'Transport obligatoire (inclus dans le prix)',
+    ];
+}
+$extraBlocks += [
     'activities' => [
         'title' => 'Activités',
         'hint' => 'Une activité obligatoire est toujours incluse dans le prix ; sinon le client peut la cocher ou non.',
@@ -130,7 +142,8 @@ $e = static fn (mixed $value): string => \App\View::e($value);
     </div>
     <p class="muted">Lors d'une recherche sur la page publique, seuls les biens réellement disponibles pour les dates et le nombre de personnes demandés sont affichés.</p>
 
-<?php foreach ($extraBlocks as $blockKey => $block): $rows = $blockKey === 'meals' ? $meals : $activities; ?>
+<?php foreach ($extraBlocks as $blockKey => $block):
+      $rows = ['transports' => $transports, 'meals' => $meals, 'activities' => $activities][$blockKey]; ?>
       <h2 class="section-title"><?= $e($block['title']) ?></h2>
       <p class="muted"><?= $e($block['hint']) ?></p>
       <div data-package-rows="<?= $e($blockKey) ?>">
@@ -222,7 +235,7 @@ $e = static fn (mixed $value): string => \App\View::e($value);
     if (!form) { return; }
     // Row indexes only have to be unique within the submitted form: start
     // above the highest index already rendered server-side.
-    var nextIndex = <?= (int) (max(count($flights), count($activities), count($meals)) + 1) ?>;
+    var nextIndex = <?= (int) (max(count($flights), count($transports), count($activities), count($meals)) + 1) ?>;
 
     function addRow(kind) {
       var template = document.querySelector('[data-package-template="' + kind + '"]');

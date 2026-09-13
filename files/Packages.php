@@ -139,6 +139,7 @@ final class Packages
         }
         $package = self::decorate($row);
         $package['flights'] = self::flightsFor($id);
+        $package['transports'] = self::transportsFor($id);
         $package['activities'] = self::activitiesFor($id);
         $package['meals'] = self::mealsFor($id);
         $package['property_ids'] = self::propertyIdsFor($id);
@@ -213,6 +214,30 @@ final class Packages
         );
         $stmt->execute([$packageId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /**
+     * "Transport" entries (transfers, car hire…), proposed in their own step
+     * between "Vol" and "Activités". Guarded on its own, because an install
+     * that already had offers may not have run migration 066 yet.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public static function transportsFor(int $packageId): array
+    {
+        if (!self::transportsTableReady()) {
+            return [];
+        }
+        $stmt = Database::connection()->prepare(
+            'SELECT * FROM package_transports WHERE package_id = ? ORDER BY position ASC, id ASC'
+        );
+        $stmt->execute([$packageId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    public static function transportsTableReady(): bool
+    {
+        return Database::tableExists('package_transports');
     }
 
     public static function mealsTableReady(): bool
@@ -422,6 +447,9 @@ final class Packages
         self::replaceFlights($id, $input);
         self::replaceProperties($id, $allProperties === 1 ? [] : ($input['property_ids'] ?? []));
         self::replaceExtras($id, $input, 'package_activities', 'activities');
+        if (self::transportsTableReady()) {
+            self::replaceExtras($id, $input, 'package_transports', 'transports');
+        }
         if (self::mealsTableReady()) {
             self::replaceExtras($id, $input, 'package_meals', 'meals');
         }
@@ -495,9 +523,10 @@ final class Packages
     }
 
     /**
-     * Rewrites the optional/mandatory extras of one block (activities or
-     * meals): both tables share the same shape, so the same routine handles
-     * "activities[...]" and "meals[...]".
+     * Rewrites the optional/mandatory extras of one block (transports,
+     * activities or meals): the three tables share the same shape, so the
+     * same routine handles "transports[...]", "activities[...]" and
+     * "meals[...]".
      *
      * @param array<string, mixed> $input
      */
@@ -505,7 +534,11 @@ final class Packages
     {
         $pdo = Database::connection();
         $existingPhotos = [];
-        $existing = $inputKey === 'meals' ? self::mealsFor($packageId) : self::activitiesFor($packageId);
+        $existing = match ($inputKey) {
+            'meals' => self::mealsFor($packageId),
+            'transports' => self::transportsFor($packageId),
+            default => self::activitiesFor($packageId),
+        };
         foreach ($existing as $extra) {
             $existingPhotos[(int) $extra['id']] = (string) ($extra['photo_url'] ?? '');
         }
@@ -622,14 +655,20 @@ final class Packages
     }
 
     /**
-     * The flight option + activities + meals part of an offer's total, for
-     * the client's current selection. Mandatory activities/meals are always
-     * counted, whatever the client ticked.
+     * The flight option + transports + activities + meals part of an offer's
+     * total, for the client's current selection. Mandatory transports/
+     * activities/meals are always counted, whatever the client ticked.
+     *
+     * 'flight_total' is exposed on its own because the accommodation step
+     * quotes a "Total Vol + Hébergement" per property (the running total of
+     * the whole offer is only shown in the page's total bar, once the
+     * accommodation is chosen).
      *
      * @param array<string, mixed> $package fully loaded offer (find())
      * @param array<int, int> $selectedActivityIds
      * @param array<int, int> $selectedMealIds
-     * @return array{flight: array<string, mixed>|null, activities: array<int, array<string, mixed>>, meals: array<int, array<string, mixed>>, total: float}
+     * @param array<int, int> $selectedTransportIds
+     * @return array{flight: array<string, mixed>|null, flight_total: float, transports: array<int, array<string, mixed>>, activities: array<int, array<string, mixed>>, meals: array<int, array<string, mixed>>, total: float}
      * @throws HttpException when $flightId is not one of this offer's flights
      */
     public static function extrasSelection(
@@ -637,7 +676,8 @@ final class Packages
         ?int $flightId,
         array $selectedActivityIds,
         array $selectedMealIds,
-        int $persons
+        int $persons,
+        array $selectedTransportIds = []
     ): array {
         $flights = $package['flights'] ?? [];
         $flight = null;
@@ -666,9 +706,14 @@ final class Packages
             }
         }
 
-        $total = $flight !== null ? self::lineTotal($flight, $persons) : 0.0;
-        $selection = ['activities' => [], 'meals' => []];
-        $selectedIds = ['activities' => $selectedActivityIds, 'meals' => $selectedMealIds];
+        $flightTotal = $flight !== null ? self::lineTotal($flight, $persons) : 0.0;
+        $total = $flightTotal;
+        $selection = ['transports' => [], 'activities' => [], 'meals' => []];
+        $selectedIds = [
+            'transports' => $selectedTransportIds,
+            'activities' => $selectedActivityIds,
+            'meals' => $selectedMealIds,
+        ];
         foreach ($selection as $block => $_unused) {
             foreach (($package[$block] ?? []) as $extra) {
                 $isMandatory = (int) ($extra['is_mandatory'] ?? 0) === 1;
@@ -683,6 +728,8 @@ final class Packages
 
         return [
             'flight' => $flight,
+            'flight_total' => round($flightTotal, 2),
+            'transports' => $selection['transports'],
             'activities' => $selection['activities'],
             'meals' => $selection['meals'],
             'total' => round($total, 2),

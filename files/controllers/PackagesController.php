@@ -239,7 +239,8 @@ final class PackagesController extends Controller
             $params['flight_id'],
             $params['activity_ids'],
             $params['meal_ids'],
-            $params['persons']
+            $params['persons'],
+            $params['transport_ids']
         );
         $search = Packages::searchAccommodations(
             $package,
@@ -252,11 +253,13 @@ final class PackagesController extends Controller
         );
 
         $pricesHidden = self::pricesHidden($partner);
-        // An offer is sold as a whole: the public page only ever shows one
-        // figure, the all-inclusive total (accommodation + chosen flight +
-        // mandatory/ticked activities and meals). The per-line amounts are
-        // deliberately not exposed here, so no detailed price can leak to
-        // the client through this endpoint.
+        // An offer is sold as a whole: the public page only ever shows
+        // aggregated figures — the "Total Vol + Hébergement" of the first
+        // step (accommodation + chosen/default flight option) and the
+        // all-inclusive running total of the whole offer. The per-line
+        // amounts (each activity, meal, transport…) are deliberately not
+        // exposed here, so no detailed price can leak to the client through
+        // this endpoint.
         $decorate = static function (array $entry) use ($extras, $pricesHidden): array {
             return [
                 'property_id' => (int) $entry['property_id'],
@@ -273,6 +276,9 @@ final class PackagesController extends Controller
                 'total_all_in' => $pricesHidden
                     ? null
                     : round((float) $entry['total_stay'] + (float) $extras['total'], 2),
+                'total_flight_stay' => $pricesHidden
+                    ? null
+                    : round((float) $entry['total_stay'] + (float) $extras['flight_total'], 2),
             ];
         };
 
@@ -319,6 +325,9 @@ final class PackagesController extends Controller
                     'total_all_in' => $pricesHidden
                         ? null
                         : round((float) $quotedSelection['total_stay'] + (float) $extras['total'], 2),
+                    'total_flight_stay' => $pricesHidden
+                        ? null
+                        : round((float) $quotedSelection['total_stay'] + (float) $extras['flight_total'], 2),
                 ];
             }
         }
@@ -334,6 +343,7 @@ final class PackagesController extends Controller
                         'id' => (int) $extras['flight']['id'],
                         'label' => (string) $extras['flight']['label'],
                     ],
+                    'transports' => $extraLabels($extras['transports']),
                     'activities' => $extraLabels($extras['activities']),
                     'meals' => $extraLabels($extras['meals']),
                 ],
@@ -411,7 +421,8 @@ final class PackagesController extends Controller
             $params['flight_id'],
             $params['activity_ids'],
             $params['meal_ids'],
-            $params['persons']
+            $params['persons'],
+            $params['transport_ids']
         );
 
         if (count($selectedPropertyIds) >= 2) {
@@ -476,7 +487,7 @@ final class PackagesController extends Controller
      * @param array<string, mixed> $package
      * @param array<string, mixed> $partner
      * @param array<string, mixed> $params searchParams()
-     * @param array{flight: array<string, mixed>|null, activities: array<int, array<string, mixed>>, meals: array<int, array<string, mixed>>, total: float} $extras
+     * @param array{flight: array<string, mixed>|null, flight_total: float, transports: array<int, array<string, mixed>>, activities: array<int, array<string, mixed>>, meals: array<int, array<string, mixed>>, total: float} $extras
      * @param array<string, mixed> $search searchAccommodations() for the same dates/party
      * @param array<int, int> $propertyIds
      */
@@ -694,7 +705,7 @@ final class PackagesController extends Controller
 
     /**
      * @param array<string, mixed> $source
-     * @return array{checkin: string, checkout: string, adults: int, children_3to12: int, children_under3: int, persons: int, flight_id: ?int, activity_ids: array<int, int>, meal_ids: array<int, int>}|null
+     * @return array{checkin: string, checkout: string, adults: int, children_3to12: int, children_under3: int, persons: int, flight_id: ?int, transport_ids: array<int, int>, activity_ids: array<int, int>, meal_ids: array<int, int>}|null
      */
     private static function searchParams(array $source): ?array
     {
@@ -716,7 +727,7 @@ final class PackagesController extends Controller
             return null;
         }
         $flightId = (int) ($source['flight_id'] ?? 0);
-        $extraIds = ['activity_ids' => [], 'meal_ids' => []];
+        $extraIds = ['transport_ids' => [], 'activity_ids' => [], 'meal_ids' => []];
         foreach ($extraIds as $field => $_unused) {
             foreach ((array) ($source[$field] ?? []) as $extraId) {
                 $extraId = (int) $extraId;
@@ -736,6 +747,7 @@ final class PackagesController extends Controller
             // pricing, same rule as the accommodation capacity check.
             'persons' => $adults + $children3to12,
             'flight_id' => $flightId > 0 ? $flightId : null,
+            'transport_ids' => $extraIds['transport_ids'],
             'activity_ids' => $extraIds['activity_ids'],
             'meal_ids' => $extraIds['meal_ids'],
         ];
@@ -752,7 +764,7 @@ final class PackagesController extends Controller
      * total.
      *
      * @param array<string, mixed> $package
-     * @param array{flight: array<string, mixed>|null, activities: array<int, array<string, mixed>>, meals: array<int, array<string, mixed>>, total: float} $extras
+     * @param array{flight: array<string, mixed>|null, flight_total: float, transports: array<int, array<string, mixed>>, activities: array<int, array<string, mixed>>, meals: array<int, array<string, mixed>>, total: float} $extras
      * @param array<int, array<string, mixed>> $stays
      */
     private static function summaryText(
@@ -785,7 +797,7 @@ final class PackagesController extends Controller
             }
             $lines[] = $line;
         }
-        foreach (['activities' => 'Activité', 'meals' => 'Restauration'] as $block => $label) {
+        foreach (['transports' => 'Transport', 'activities' => 'Activité', 'meals' => 'Restauration'] as $block => $label) {
             foreach ($extras[$block] as $extra) {
                 $lines[] = $label . ' : ' . (string) $extra['label']
                     . ((int) ($extra['is_mandatory'] ?? 0) === 1 ? ' (incluse)' : '');
@@ -872,8 +884,10 @@ final class PackagesController extends Controller
             'properties' => self::selectableProperties($partner),
             'expiresAtInput' => $package === null ? '' : Packages::expiresAtLocalInput($package),
             // The "Restauration" block only shows up once migration 065 has
-            // been applied, so an install still on 064 keeps working.
+            // been applied, so an install still on 064 keeps working. Same
+            // rule for "Transport" (migration 066).
             'mealsEnabled' => Packages::mealsTableReady(),
+            'transportsEnabled' => Packages::transportsTableReady(),
         ]);
     }
 

@@ -11,9 +11,12 @@
 $e = static fn (mixed $value): string => \App\View::e($value);
 $t = static fn (array $row, string $field): string => \App\Packages::text($row, $field);
 $flights = $package['flights'] ?? [];
+// Optional blocks, in the order of the public steps that follow the
+// accommodation and the flight.
 $extraBlocks = [
-    'activities' => ['title' => 'Activités', 'rows' => $package['activities'] ?? [], 'included' => 'Incluse dans l\'offre', 'optional' => 'Ajouter cette activité'],
-    'meals' => ['title' => 'Restauration', 'rows' => $package['meals'] ?? [], 'included' => 'Incluse dans l\'offre', 'optional' => 'Ajouter cette formule'],
+    'transports' => ['title' => 'Transport', 'rows' => $package['transports'] ?? [], 'included' => 'Inclus dans l\'offre', 'optional' => 'Ajouter ce transport', 'none' => 'Sans transport'],
+    'activities' => ['title' => 'Activités', 'rows' => $package['activities'] ?? [], 'included' => 'Incluse dans l\'offre', 'optional' => 'Ajouter cette activité', 'none' => 'Sans activité'],
+    'meals' => ['title' => 'Restauration', 'rows' => $package['meals'] ?? [], 'included' => 'Incluse dans l\'offre', 'optional' => 'Ajouter cette formule', 'none' => 'Sans formule repas'],
 ];
 $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('Y-m-d');
 ?>
@@ -34,26 +37,34 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
     </div>
   </div>
 
-  <?php if (!empty($package['photo_url'])): ?>
-    <div class="property-card-image mt-16"><img src="<?= $e($package['photo_url']) ?>" alt="<?= $e($t($package, 'title')) ?>"></div>
-  <?php endif; ?>
-
   <?php $description = $t($package, 'description'); ?>
-  <?php if ($description !== ''): ?>
-    <div class="card card-body mt-16"><p><?= nl2br($e($description)) ?></p></div>
+  <?php if (!empty($package['photo_url']) || $description !== ''): ?>
+    <!-- Photo and description side by side: the main photo is capped to half
+         its previous height (see .package-intro-photo) so the offer's steps
+         stay visible without scrolling. On a narrow screen both blocks fall
+         back to one column. -->
+    <div class="package-intro mt-16">
+      <?php if (!empty($package['photo_url'])): ?>
+        <div class="property-card-image package-intro-photo"><img src="<?= $e($package['photo_url']) ?>" alt="<?= $e($t($package, 'title')) ?>"></div>
+      <?php endif; ?>
+      <?php if ($description !== ''): ?>
+        <div class="card card-body package-intro-description"><p><?= nl2br($e($description)) ?></p></div>
+      <?php endif; ?>
+    </div>
   <?php endif; ?>
 
   <?php
-  // The offer is filled in step by step, in the order it is sold: Vol (only
-  // when the offer has flight options), Hébergement, Activités then
-  // Restauration. Each step unlocks the next one, and the reservation form
-  // only appears once the last step is done. Steps with nothing to show are
-  // simply not rendered.
-  $steps = [];
+  // The offer is filled in step by step, in the order it is sold:
+  // Hébergement first (it drives the total shown in the page's total bar),
+  // then Vol, Transport, Activités and finally Restauration. Each step
+  // unlocks the next one — its "Étape suivante" button stays disabled until
+  // the step's choice is made — and the reservation form only appears once
+  // the last step is done. Steps with nothing to show are simply not
+  // rendered.
+  $steps = ['accommodation' => 'Hébergement'];
   if ($flights !== []) {
       $steps['flight'] = 'Vol';
   }
-  $steps['accommodation'] = 'Hébergement';
   foreach ($extraBlocks as $blockKey => $block) {
       if ($block['rows'] !== []) {
           $steps[$blockKey] = $block['title'];
@@ -75,17 +86,26 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
     <?php foreach ($stepKeys as $index => $stepKey): ?>
       <div data-package-step-panel="<?= $e($stepKey) ?>"<?= $index === 0 ? '' : ' hidden' ?>>
         <?php if ($stepKey === 'flight'): ?>
-          <div class="card card-body">
-            <?php foreach ($flights as $flightIndex => $flight): ?>
-              <label class="inline-check">
-                <input type="radio" name="package_flight" value="<?= (int) $flight['id'] ?>" data-package-flight
-                  <?= (int) ($flight['is_default'] ?? 0) === 1 || $flightIndex === 0 ? 'checked' : '' ?>>
-                <span>
+          <!-- One block per flight option, 3 per line (see
+               .package-options-grid). No option is pre-selected: the client
+               must pick one before the step's button unlocks. -->
+          <div class="package-options-grid">
+            <?php foreach ($flights as $flight): ?>
+              <label class="card card-body package-option-card">
+                <span class="inline-check">
+                  <input type="radio" name="package_flight" value="<?= (int) $flight['id'] ?>" data-package-flight>
                   <strong><?= $e((string) $flight['label']) ?></strong>
-                  <?php if (!empty($flight['airline'])): ?> — <?= $e((string) $flight['airline']) ?><?php endif; ?>
-                  <?php if (!empty($flight['cabin_class'])): ?> (<?= $e((string) $flight['cabin_class']) ?>)<?php endif; ?>
-                  <?php if (!empty($flight['description'])): ?><br><small class="muted"><?= nl2br($e((string) $flight['description'])) ?></small><?php endif; ?>
                 </span>
+                <?php if (!empty($flight['airline']) || !empty($flight['cabin_class'])): ?>
+                  <span class="muted">
+                    <?= $e((string) ($flight['airline'] ?? '')) ?>
+                    <?php if (!empty($flight['cabin_class'])): ?> (<?= $e((string) $flight['cabin_class']) ?>)<?php endif; ?>
+                  </span>
+                <?php endif; ?>
+                <?php if ((int) ($flight['is_default'] ?? 0) === 1): ?>
+                  <span class="muted">Option conseillée</span>
+                <?php endif; ?>
+                <?php if (!empty($flight['description'])): ?><small class="muted"><?= nl2br($e((string) $flight['description'])) ?></small><?php endif; ?>
               </label>
             <?php endforeach; ?>
           </div>
@@ -112,10 +132,21 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
                can be combined, so several of them are picked here. -->
           <div class="mt-16" data-package-groups hidden></div>
           <div class="mt-16" data-package-alternatives hidden></div>
-        <?php else: $block = $extraBlocks[$stepKey]; ?>
-          <div class="property-grid">
+        <?php else: $block = $extraBlocks[$stepKey];
+          // A step whose options are all mandatory leaves nothing to choose:
+          // its button is unlocked straight away. Otherwise the client must
+          // either tick at least one option or explicitly decline, so the
+          // "Étape suivante" button is never enabled before a choice.
+          $optionalCount = 0;
+          foreach ($block['rows'] as $extraRow) {
+              if ((int) ($extraRow['is_mandatory'] ?? 0) !== 1) {
+                  $optionalCount++;
+              }
+          }
+        ?>
+          <div class="package-options-grid">
             <?php foreach ($block['rows'] as $extra): $mandatory = (int) ($extra['is_mandatory'] ?? 0) === 1; ?>
-              <article class="card">
+              <article class="card package-option-card">
                 <?php if (!empty($extra['photo_url'])): ?>
                   <div class="property-card-image"><img src="<?= $e($extra['photo_url']) ?>" alt="<?= $e($t($extra, 'label')) ?>" loading="lazy"></div>
                 <?php endif; ?>
@@ -132,13 +163,21 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
               </article>
             <?php endforeach; ?>
           </div>
+          <?php if ($optionalCount > 0): ?>
+            <label class="inline-check mt-16">
+              <input type="checkbox" data-package-extra-none="<?= $e($stepKey) ?>">
+              <?= $e($block['none']) ?>
+            </label>
+          <?php endif; ?>
         <?php endif; ?>
 
         <div class="button-row mt-16">
           <?php if ($index > 0): ?>
             <button type="button" class="btn-secondary" data-package-step-prev>Retour</button>
           <?php endif; ?>
-          <button type="button" class="btn-primary" data-package-step-next>
+          <!-- Disabled until this step's choice is made (see stepError()
+               in the script below). -->
+          <button type="button" class="btn-primary" data-package-step-next disabled>
             <?= $index + 1 < $stepCount
               ? 'Étape suivante : ' . $e($steps[$stepKeys[$index + 1]])
               : 'Faire une demande de réservation' ?>
@@ -206,6 +245,17 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
       </div>
     </div>
   </div>
+
+  <!-- Running total of the offer, pinned at the bottom of the screen as soon
+       as an accommodation is chosen: it starts from the accommodation (plus
+       the flight option) and is recomputed server-side every time an option
+       of the next steps is ticked. -->
+  <div class="package-total-bar" data-package-total-bar hidden>
+    <div class="container package-total-bar-inner">
+      <span data-package-total-bar-label class="muted"></span>
+      <strong data-package-total-bar-amount></strong>
+    </div>
+  </div>
 </section>
 
 <script>
@@ -221,6 +271,9 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
     var requestForm = page.querySelector('[data-package-request-form]');
     var requestRecap = page.querySelector('[data-package-request-recap]');
     var searchStatus = page.querySelector('[data-package-search-status]');
+    var totalBar = page.querySelector('[data-package-total-bar]');
+    var totalBarLabel = page.querySelector('[data-package-total-bar-label]');
+    var totalBarAmount = page.querySelector('[data-package-total-bar-amount]');
     // One single accommodation chosen, or several accommodations sharing the
     // same address when the party is too big for one of them.
     var selected = null;
@@ -414,6 +467,7 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
       body.set('children_under3', value('[data-package-babies]') || '0');
       var flight = page.querySelector('[data-package-flight]:checked');
       if (flight) { body.set('flight_id', flight.value); }
+      selectedExtraIds('transports').forEach(function (id) { body.append('transport_ids[]', id); });
       selectedExtraIds('activities').forEach(function (id) { body.append('activity_ids[]', id); });
       selectedExtraIds('meals').forEach(function (id) { body.append('meal_ids[]', id); });
       // Same-address selection: the server prices the whole selection as one
@@ -460,12 +514,13 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
         + (isAlternative && entry.nights_lost > 0 ? ' (' + entry.nights_lost + ' nuit(s) de moins que demandé)' : '');
       body.appendChild(dates);
 
-      // One single figure: the offer is sold as a whole (vol + hébergement
-      // + activités + restauration), never broken down line by line.
-      if (!pricesHidden && entry.total_all_in !== null && entry.total_all_in !== undefined) {
+      // At this first step only the flight and the accommodation are known,
+      // so the card shows that partial total; the sticky bar below then
+      // follows the full all-inclusive total as options get picked.
+      if (!pricesHidden && entry.total_flight_stay !== null && entry.total_flight_stay !== undefined) {
         var total = document.createElement('p');
         var strong = document.createElement('strong');
-        strong.textContent = 'Total tout compris : ' + money(entry.total_all_in, entry.currency || currency);
+        strong.textContent = 'Total Vol + Hébergement : ' + money(entry.total_flight_stay, entry.currency || currency);
         total.appendChild(strong);
         body.appendChild(total);
       }
@@ -517,6 +572,7 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
         item.card.classList.toggle('is-selected', isSelected);
         item.button.textContent = isSelected ? 'Bien sélectionné ✓' : 'Choisir ce bien';
       });
+      refreshSteps();
     }
 
     /**
@@ -586,9 +642,9 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
             : count + ' bien(s) sélectionné(s) — capacité ' + (unlimited ? 'suffisante' : capacity + ' / ' + required + ' personne(s)');
           totalLine.textContent = '';
           if (selectedGroupIndex === groupIndex && groupSelection && !pricesHidden
-            && groupSelection.total_all_in !== null && groupSelection.total_all_in !== undefined) {
+            && groupSelection.total_flight_stay !== null && groupSelection.total_flight_stay !== undefined) {
             var strong = document.createElement('strong');
-            strong.textContent = 'Total tout compris : ' + money(groupSelection.total_all_in, groupSelection.currency || data.currency);
+            strong.textContent = 'Total Vol + Hébergement : ' + money(groupSelection.total_flight_stay, groupSelection.currency || data.currency);
             totalLine.appendChild(strong);
           }
         }
@@ -772,6 +828,7 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
         }
         searchStatus.textContent = '';
         render(result.payload.data);
+        refreshSteps();
       }).catch(function () {
         if (generation !== searchGeneration) { return; }
         searchStatus.textContent = 'Recherche impossible pour le moment.';
@@ -781,9 +838,9 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
     var searchButton = page.querySelector('[data-package-search]');
     if (searchButton) { searchButton.addEventListener('click', search); }
 
-    // Steps: Vol (when the offer has flight options), Hébergement, Activités
-    // then Restauration. Hidden panels keep their inputs in the DOM, so the
-    // flight/activity/meal selection is always read by searchPayload().
+    // Steps: Hébergement, Vol (when the offer has flight options), Transport,
+    // Activités then Restauration. Hidden panels keep their inputs in the DOM,
+    // so the whole selection is always read by searchPayload().
     var stepPanels = Array.prototype.slice.call(page.querySelectorAll('[data-package-step-panel]'));
     var stepItems = Array.prototype.slice.call(page.querySelectorAll('[data-package-step-item]'));
     var currentStep = 0;
@@ -808,6 +865,7 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
         item.classList.toggle('done', position < index);
       });
       clearStepError();
+      refreshSteps();
       if (requestBlock) { requestBlock.hidden = true; }
     }
 
@@ -831,10 +889,69 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
       return '';
     }
 
+    /**
+     * Error blocking a given step, i.e. the choice its client still has to
+     * make: an hébergement, a vol, and for every optional block either at
+     * least one ticked option or an explicit "sans …". A block with only
+     * mandatory options has no checkbox to tick and never blocks.
+     */
+    function stepError(index) {
+      var panel = stepPanels[index];
+      var key = panel.getAttribute('data-package-step-panel');
+      if (key === 'accommodation') { return accommodationStepError(); }
+      if (key === 'flight') {
+        return panel.querySelector('[data-package-flight]:checked') === null
+          ? 'Choisissez votre vol pour continuer.' : '';
+      }
+      var none = panel.querySelector('[data-package-extra-none]');
+      if (none === null) { return ''; }
+      if (none.checked) { return ''; }
+      var ticked = Array.prototype.slice.call(panel.querySelectorAll('[data-package-extra]'))
+        .some(function (input) { return input.checked && !input.disabled; });
+      return ticked ? '' : 'Choisissez une option pour continuer.';
+    }
+
     function currentStepError() {
-      var key = stepPanels[currentStep].getAttribute('data-package-step-panel');
-      // Vol has a default option, activités and restauration are optional.
-      return key === 'accommodation' ? accommodationStepError() : '';
+      return stepError(currentStep);
+    }
+
+    /**
+     * Keeps every "Étape suivante" button locked until its own step's choice
+     * is made, and refreshes the running total pinned at the bottom.
+     */
+    function refreshSteps() {
+      stepPanels.forEach(function (panel, index) {
+        var nextButton = panel.querySelector('[data-package-step-next]');
+        if (nextButton) { nextButton.disabled = stepError(index) !== ''; }
+      });
+      refreshTotalBar();
+    }
+
+    /**
+     * Running total of the offer: it appears as soon as an hébergement is
+     * chosen (from the accommodation and the flight) and follows every option
+     * ticked afterwards, since each change re-runs the server-side search.
+     */
+    function refreshTotalBar() {
+      if (!totalBar) { return; }
+      var total = null;
+      var totalCurrency = '';
+      if (!pricesHidden) {
+        if (selectedGroupIds.length > 0 && groupSelection) {
+          total = groupSelection.total_all_in;
+          totalCurrency = groupSelection.currency;
+        } else if (selected !== null) {
+          total = selected.total_all_in;
+          totalCurrency = selected.currency;
+        }
+      }
+      if (total === null || total === undefined) {
+        totalBar.hidden = true;
+        return;
+      }
+      totalBar.hidden = false;
+      if (totalBarLabel) { totalBarLabel.textContent = 'Total de votre offre'; }
+      if (totalBarAmount) { totalBarAmount.textContent = money(total, totalCurrency); }
     }
 
     function stayDates() {
@@ -892,7 +1009,30 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
     // instead of leaving a stale price (and a stale selection) on screen.
     page.querySelectorAll('[data-package-flight], [data-package-extra]').forEach(function (input) {
       input.addEventListener('change', function () {
+        // Ticking an option means the client does not decline that block.
+        var panel = input.closest('[data-package-step-panel]');
+        var none = panel ? panel.querySelector('[data-package-extra-none]') : null;
+        if (none && input.checked) { none.checked = false; }
+        refreshSteps();
         if (!results.hidden || !alternatives.hidden || !groupsBlock.hidden) { search(); }
+      });
+    });
+
+    // "Sans transport/activité/formule": an explicit refusal, exclusive with
+    // the block's optional options.
+    page.querySelectorAll('[data-package-extra-none]').forEach(function (none) {
+      none.addEventListener('change', function () {
+        if (none.checked) {
+          var panel = none.closest('[data-package-step-panel]');
+          var changed = false;
+          if (panel) {
+            panel.querySelectorAll('[data-package-extra]').forEach(function (input) {
+              if (input.checked && !input.disabled) { input.checked = false; changed = true; }
+            });
+          }
+          if (changed && (!results.hidden || !alternatives.hidden || !groupsBlock.hidden)) { search(); }
+        }
+        refreshSteps();
       });
     });
 
