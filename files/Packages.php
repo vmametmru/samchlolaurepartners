@@ -61,10 +61,13 @@ final class Packages
     /** Whether the admin enabled the "Offres Complètes" option for a partner. */
     public static function enabledForPartner(?array $partner): bool
     {
-        if (!is_array($partner) || !self::tablesReady()) {
+        // Cheapest check first: the navbar calls this on every single page
+        // render, and an absent/0 flag (every partner until an admin enables
+        // the option) must not cost the tablesReady() SHOW TABLES queries.
+        if (!is_array($partner) || (int) ($partner['packages_visible'] ?? 0) !== 1) {
             return false;
         }
-        return (int) ($partner['packages_visible'] ?? 0) === 1;
+        return self::tablesReady();
     }
 
     public static function enabledForPartnerId(int $partnerId): bool
