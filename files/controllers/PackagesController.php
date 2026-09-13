@@ -277,7 +277,8 @@ final class PackagesController extends Controller
         $preselectedOptions = static function () use ($extras): array {
             $labels = [];
             if ($extras['flight'] !== null) {
-                $labels[] = 'Vol : ' . (string) $extras['flight']['label'] . ' (Option par défaut)';
+$labels[] = 'Vol : ' . (string) $extras['flight']['label']
+                    . ((int) ($extras['flight']['is_default'] ?? 0) === 1 ? ' (Option par défaut)' : '');
             }
             foreach (['transports' => 'Transport', 'activities' => 'Activité', 'meals' => 'Restauration'] as $block => $title) {
                 foreach ($extras[$block] as $extra) {
