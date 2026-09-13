@@ -1192,6 +1192,7 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
               + (groupStay && groupStay.location ? ' (' + groupStay.location + ')' : '')]
           : [selected.name];
         (chosen.includes || []).forEach(function (label) { lines.push(label); });
+        (chosen.preselected || []).forEach(function (label) { lines.push(label); });
         selectedOptionLabels().forEach(function (label) { lines.push(label); });
         lines.forEach(function (label) {
           var item = document.createElement('li');
