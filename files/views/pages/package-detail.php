@@ -4,9 +4,13 @@
  * available accommodations (searched in the local cache only), activities
  * and meal plans, then the reservation request form.
  *
- * An offer is sold as a whole: no individual price (flight, activity, meal,
- * accommodation) is ever printed here — only the all-inclusive total
- * returned by the search endpoint.
+ * An offer is sold as a whole: no absolute individual price (flight,
+ * activity, meal, accommodation) is ever printed here — only the
+ * all-inclusive total returned by the search endpoint. The one exception is
+ * the "variance" shown on each Vol/Transport/Activités/Restauration option
+ * (see $formatVariance below): the price difference against that step's
+ * default/included option, so the client sees the cost impact of switching
+ * without the offer's absolute prices being exposed.
  */
 $e = static fn (mixed $value): string => \App\View::e($value);
 $t = static fn (array $row, string $field): string => \App\Packages::text($row, $field);
@@ -19,6 +23,20 @@ $extraBlocks = [
     'meals' => ['title' => 'Restauration', 'rows' => $package['meals'] ?? [], 'included' => 'Incluse dans l\'offre', 'optional' => 'Ajouter cette formule', 'none' => 'Sans formule repas'],
 ];
 $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('Y-m-d');
+// Renders the price difference of an option against its step's baseline
+// (the default flight, or 0 for an optional transport/activity/meal since
+// mandatory ones are already counted in the base price): "Inclus" when it
+// matches the baseline, "+123,00 €" / "-123,00 €" otherwise. Hidden
+// altogether when this partner's prices are hidden.
+$formatVariance = static function (float $variance) use ($pricesHidden): ?string {
+    if ($pricesHidden) {
+        return null;
+    }
+    if (abs($variance) < 0.005) {
+        return 'Inclus';
+    }
+    return ($variance > 0 ? '+' : '−') . number_format(abs($variance), 2, ',', ' ') . ' €';
+};
 ?>
 <section class="container section-lg" data-package-page data-package-id="<?= (int) $package['id'] ?>" data-prices-hidden="<?= $pricesHidden ? '1' : '0' ?>">
   <?php if (!$bookable): ?>
@@ -90,25 +108,50 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
                .package-options-grid). The flight marked "Option conseillée"
                (is_default) is pre-selected so the block reflects the choice
                already used to compute the running total; the client can
-               still switch to another option. -->
+               still switch to another option. Each card also shows its price
+               variance against that default option (see $formatVariance),
+               mirroring Packages::extrasSelection()'s own fallback to the
+               first flight when none is marked default. -->
+          <?php
+            $flightDefault = null;
+            foreach ($flights as $candidate) {
+                if ((int) ($candidate['is_default'] ?? 0) === 1) {
+                    $flightDefault = $candidate;
+                    break;
+                }
+            }
+            if ($flightDefault === null && $flights !== []) {
+                $flightDefault = $flights[0];
+            }
+            $flightDefaultPrice = $flightDefault !== null ? (float) $flightDefault['price'] : 0.0;
+          ?>
           <div class="package-options-grid">
             <?php foreach ($flights as $flight): ?>
-              <label class="card card-body package-option-card">
-                <span class="inline-check">
-                  <input type="radio" name="package_flight" value="<?= (int) $flight['id'] ?>" data-package-flight
-                    <?= (int) ($flight['is_default'] ?? 0) === 1 ? 'checked' : '' ?>>
-                  <strong><?= $e((string) $flight['label']) ?></strong>
-                </span>
-                <?php if (!empty($flight['airline']) || !empty($flight['cabin_class'])): ?>
-                  <span class="muted">
-                    <?= $e((string) ($flight['airline'] ?? '')) ?>
-                    <?php if (!empty($flight['cabin_class'])): ?> (<?= $e((string) $flight['cabin_class']) ?>)<?php endif; ?>
+              <label class="card package-option-card">
+                <?php if (!empty($flight['photo_url'])): ?>
+                  <div class="property-card-image"><img src="<?= $e($flight['photo_url']) ?>" alt="<?= $e((string) $flight['label']) ?>" loading="lazy"></div>
+                <?php endif; ?>
+                <div class="card-body">
+                  <span class="inline-check">
+                    <input type="radio" name="package_flight" value="<?= (int) $flight['id'] ?>" data-package-flight
+                      <?= (int) ($flight['is_default'] ?? 0) === 1 ? 'checked' : '' ?>>
+                    <strong><?= $e((string) $flight['label']) ?></strong>
                   </span>
-                <?php endif; ?>
-                <?php if ((int) ($flight['is_default'] ?? 0) === 1): ?>
-                  <span class="muted">Option conseillée</span>
-                <?php endif; ?>
-                <?php if (!empty($flight['description'])): ?><small class="muted"><?= nl2br($e((string) $flight['description'])) ?></small><?php endif; ?>
+                  <?php if (!empty($flight['airline']) || !empty($flight['cabin_class'])): ?>
+                    <span class="muted">
+                      <?= $e((string) ($flight['airline'] ?? '')) ?>
+                      <?php if (!empty($flight['cabin_class'])): ?> (<?= $e((string) $flight['cabin_class']) ?>)<?php endif; ?>
+                    </span>
+                  <?php endif; ?>
+                  <?php if ((int) ($flight['is_default'] ?? 0) === 1): ?>
+                    <span class="muted">Option conseillée</span>
+                  <?php endif; ?>
+                  <?php $flightVariance = $formatVariance((float) $flight['price'] - $flightDefaultPrice); ?>
+                  <?php if ($flightVariance !== null): ?>
+                    <span class="badge package-variance-badge">Variance : <?= $e($flightVariance) ?></span>
+                  <?php endif; ?>
+                  <?php if (!empty($flight['description'])): ?><small class="muted"><?= nl2br($e((string) $flight['description'])) ?></small><?php endif; ?>
+                </div>
               </label>
             <?php endforeach; ?>
           </div>
@@ -187,6 +230,17 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
                   <h3><?= $e($t($extra, 'label')) ?></h3>
                   <?php $extraDescription = $t($extra, 'description'); ?>
                   <?php if ($extraDescription !== ''): ?><p><?= nl2br($e($extraDescription)) ?></p><?php endif; ?>
+                  <?php
+                    // Mandatory extras are always included in the base price
+                    // (variance 0, same as the default flight); an optional
+                    // one's variance is simply the extra cost of ticking it,
+                    // since nothing prevents leaving it unselected (see
+                    // $formatVariance at the top of this file).
+                    $extraVariance = $formatVariance($mandatory ? 0.0 : (float) $extra['price']);
+                  ?>
+                  <?php if ($extraVariance !== null): ?>
+                    <span class="badge package-variance-badge">Variance : <?= $e($extraVariance) ?></span>
+                  <?php endif; ?>
                   <label class="inline-check">
                     <input type="checkbox" value="<?= (int) $extra['id'] ?>" data-package-extra="<?= $e($stepKey) ?>"
                       <?= $mandatory ? 'checked disabled' : '' ?>>
