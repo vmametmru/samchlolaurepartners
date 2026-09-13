@@ -646,7 +646,7 @@ final class AnalyticsController extends Controller
             'date_to' => date('Y-m-d'),
             'partner_id' => '',
             'visitor_type' => '',
-            'country' => '',
+            'country' => [],
             'page' => '',
         ];
     }
@@ -658,9 +658,27 @@ final class AnalyticsController extends Controller
             'date_to' => trim((string) ($_GET['date_to'] ?? date('Y-m-d'))),
             'partner_id' => trim((string) ($_GET['partner_id'] ?? '')),
             'visitor_type' => trim((string) ($_GET['visitor_type'] ?? '')),
-            'country' => trim((string) ($_GET['country'] ?? '')),
+            'country' => self::readCountryFilter(),
             'page' => trim((string) ($_GET['page'] ?? '')),
         ];
+    }
+
+    /**
+     * The "Pays" filter is a multi-select tickbox dropdown (country[] in the
+     * query string); normalizes it to a de-duplicated list of non-empty
+     * country codes, also accepting a legacy single ?country= string value
+     * for backward compatibility with older bookmarked/shared links.
+     *
+     * @return string[]
+     */
+    private static function readCountryFilter(): array
+    {
+        $raw = $_GET['country'] ?? [];
+        if (!is_array($raw)) {
+            $raw = $raw !== '' ? [$raw] : [];
+        }
+        $values = array_map(static fn ($value) => trim((string) $value), $raw);
+        return array_values(array_unique(array_filter($values, static fn ($value) => $value !== '')));
     }
 
     /**
@@ -705,10 +723,12 @@ final class AnalyticsController extends Controller
             $conditions[] = 'pv.visitor_type = ?';
             $params[] = $filters['visitor_type'];
         }
-        if ($filters['country'] !== '') {
-            $conditions[] = '(pv.country_code = ? OR pv.country_name LIKE ?)';
-            $params[] = $filters['country'];
-            $params[] = '%' . $filters['country'] . '%';
+        if ($filters['country'] !== []) {
+            $placeholders = implode(',', array_fill(0, count($filters['country']), '?'));
+            $conditions[] = "pv.country_code IN ($placeholders)";
+            foreach ($filters['country'] as $countryCode) {
+                $params[] = $countryCode;
+            }
         }
         if ($filters['page'] !== '') {
             $conditions[] = 'pv.page_url LIKE ?';

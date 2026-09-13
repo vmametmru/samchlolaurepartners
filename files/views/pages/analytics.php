@@ -46,12 +46,23 @@ $currentUrl = $_SERVER['REQUEST_URI'] ?? $filterAction;
         </select>
       </label>
       <label><span>Pays</span>
-        <select class="input" name="country">
-          <option value="">Tous</option>
-          <?php foreach ($countryOptions as $c): ?>
-            <option value="<?= \App\View::e($c['country_code']) ?>" <?= $filters['country'] === (string) $c['country_code'] ? 'selected' : '' ?>><?= \App\View::e($c['country_name'] ?: $c['country_code']) ?></option>
-          <?php endforeach; ?>
-        </select>
+        <div class="tickbox-dropdown" data-tickbox-dropdown>
+          <button type="button" class="input tickbox-dropdown-toggle" data-tickbox-dropdown-toggle aria-haspopup="true" aria-expanded="false">
+            <span data-tickbox-dropdown-label><?= $countryOptions === [] ? 'Aucun pays' : ($filters['country'] === [] ? 'Tous' : count($filters['country']) . ' pays sélectionné(s)') ?></span>
+          </button>
+          <div class="tickbox-dropdown-panel" data-tickbox-dropdown-panel hidden>
+            <?php if ($countryOptions === []): ?>
+              <p class="empty-state" style="margin:.5rem;">Aucun pays.</p>
+            <?php else: ?>
+              <?php foreach ($countryOptions as $c): ?>
+                <label class="tickbox-dropdown-item">
+                  <input type="checkbox" name="country[]" value="<?= \App\View::e($c['country_code']) ?>" <?= in_array((string) $c['country_code'], $filters['country'], true) ? 'checked' : '' ?>>
+                  <?= \App\View::e($c['country_name'] ?: $c['country_code']) ?>
+                </label>
+              <?php endforeach; ?>
+            <?php endif; ?>
+          </div>
+        </div>
       </label>
       <label><span>Page (URL)</span><input class="input" type="text" name="page" value="<?= \App\View::e($filters['page']) ?>" placeholder="/properties, /contact..."></label>
     </div>
@@ -434,10 +445,56 @@ document.addEventListener('DOMContentLoaded', function () {
 <script>
   (function () {
     var selectAll = document.getElementById('analytics-visits-select-all');
-    if (!selectAll) { return; }
-    selectAll.addEventListener('change', function () {
-      document.querySelectorAll('.analytics-visit-row-checkbox').forEach(function (checkbox) {
-        checkbox.checked = selectAll.checked;
+    if (selectAll) {
+      selectAll.addEventListener('change', function () {
+        document.querySelectorAll('.analytics-visit-row-checkbox').forEach(function (checkbox) {
+          checkbox.checked = selectAll.checked;
+        });
+      });
+    }
+
+    document.querySelectorAll('[data-tickbox-dropdown]').forEach(function (dropdown) {
+      var toggle = dropdown.querySelector('[data-tickbox-dropdown-toggle]');
+      var panel = dropdown.querySelector('[data-tickbox-dropdown-panel]');
+      var label = dropdown.querySelector('[data-tickbox-dropdown-label]');
+      if (!toggle || !panel) { return; }
+
+      var updateLabel = function () {
+        if (!label) { return; }
+        var checked = panel.querySelectorAll('input[type="checkbox"]:checked');
+        var total = panel.querySelectorAll('input[type="checkbox"]');
+        if (total.length === 0) {
+          label.textContent = 'Aucun pays';
+        } else if (checked.length === 0) {
+          label.textContent = 'Tous';
+        } else {
+          label.textContent = checked.length + ' pays sélectionné(s)';
+        }
+      };
+
+      toggle.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var isHidden = panel.hasAttribute('hidden');
+        document.querySelectorAll('[data-tickbox-dropdown-panel]').forEach(function (p) { p.setAttribute('hidden', ''); });
+        if (isHidden) {
+          panel.removeAttribute('hidden');
+          toggle.setAttribute('aria-expanded', 'true');
+        } else {
+          toggle.setAttribute('aria-expanded', 'false');
+        }
+      });
+
+      panel.addEventListener('change', updateLabel);
+    });
+
+    document.addEventListener('click', function (e) {
+      document.querySelectorAll('[data-tickbox-dropdown]').forEach(function (dropdown) {
+        if (!dropdown.contains(e.target)) {
+          var panel = dropdown.querySelector('[data-tickbox-dropdown-panel]');
+          var toggle = dropdown.querySelector('[data-tickbox-dropdown-toggle]');
+          if (panel) { panel.setAttribute('hidden', ''); }
+          if (toggle) { toggle.setAttribute('aria-expanded', 'false'); }
+        }
       });
     });
   })();
