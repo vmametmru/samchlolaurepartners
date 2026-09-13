@@ -9,6 +9,7 @@ use App\Controller;
 use App\Database;
 use App\HttpException;
 use App\Mailer;
+use App\PartnerLinks;
 use App\Settings;
 use App\Tenant;
 use App\View;
@@ -209,7 +210,8 @@ final class AnalyticsController extends Controller
 
         $filters = self::readFilters();
         $filters['partner_id'] = (string) $partnerId; // Force partner scope
-        $where = self::buildWhereClause($filters);
+        $partnerScopeIds = self::partnerScopeIds($partnerId);
+        $where = self::buildWhereClause($filters, $partnerScopeIds);
         // Partners must not see admin visits
         $where = self::excludeAdminVisits($where);
 
@@ -256,7 +258,7 @@ final class AnalyticsController extends Controller
             throw new HttpException(404, 'Not Found', 'Pas de données.');
         }
 
-        $where = self::buildWhereClause($filters);
+        $where = self::buildWhereClause($filters, $role === 'partner' ? self::partnerScopeIds($partnerId) : null);
         if ($role === 'partner') {
             $where = self::excludeAdminVisits($where);
         }
@@ -307,7 +309,7 @@ final class AnalyticsController extends Controller
             throw new HttpException(403, 'Forbidden', 'Accès réservé.');
         }
 
-        $pdfData = self::generatePdfReport($filters, $partnerId, $role === 'partner');
+        $pdfData = self::generatePdfReport($filters, $partnerId, $role === 'partner', $partnerId !== null ? self::partnerScopeIds($partnerId) : null);
 
         header('Content-Type: application/pdf');
         header('Content-Disposition: attachment; filename="rapport-analytics-' . date('Y-m-d') . '.pdf"');
@@ -493,7 +495,7 @@ final class AnalyticsController extends Controller
                 $filters['date_from'] = $now->modify('-7 days')->format('Y-m-d');
                 $filters['date_to'] = $now->format('Y-m-d');
 
-                $pdfData = self::generatePdfReport($filters, (int) $schedule['partner_id']);
+                $pdfData = self::generatePdfReport($filters, (int) $schedule['partner_id'], false, self::partnerScopeIds((int) $schedule['partner_id']));
 
                 $partnerRow = [
                     'name' => $schedule['p_name'],
@@ -609,9 +611,17 @@ final class AnalyticsController extends Controller
     }
 
     /**
+     * @param int[]|null $partnerScopeIds When given, scopes to `pv.partner_id
+     *        IN (...)` these ids instead of the single $filters['partner_id']
+     *        — used for a partner (as opposed to admin) view so a
+     *        hierarchical principal sees its own visits AND its children's
+     *        (see partnerScopeIds()), rather than only its own subdomain's
+     *        traffic (which, for a principal whose visitors mostly browse
+     *        its children's own subdomains, could leave the whole page —
+     *        KPIs and charts alike — looking blank).
      * @return array{sql: string, params: array}
      */
-    private static function buildWhereClause(array $filters): array
+    private static function buildWhereClause(array $filters, ?array $partnerScopeIds = null): array
     {
         $conditions = [];
         $params = [];
@@ -624,7 +634,17 @@ final class AnalyticsController extends Controller
             $conditions[] = 'pv.visited_at <= ?';
             $params[] = gmdate('Y-m-d H:i:s', strtotime($filters['date_to'] . ' 23:59:59') - 4 * 3600);
         }
-        if ($filters['partner_id'] !== '') {
+        if ($partnerScopeIds !== null) {
+            if ($partnerScopeIds === []) {
+                $conditions[] = '0 = 1';
+            } else {
+                $placeholders = implode(',', array_fill(0, count($partnerScopeIds), '?'));
+                $conditions[] = "pv.partner_id IN ($placeholders)";
+                foreach ($partnerScopeIds as $scopedId) {
+                    $params[] = (int) $scopedId;
+                }
+            }
+        } elseif ($filters['partner_id'] !== '') {
             $conditions[] = 'pv.partner_id = ?';
             $params[] = (int) $filters['partner_id'];
         }
@@ -644,6 +664,19 @@ final class AnalyticsController extends Controller
 
         $sql = $conditions !== [] ? 'WHERE ' . implode(' AND ', $conditions) : '';
         return ['sql' => $sql, 'params' => $params];
+    }
+
+    /**
+     * Partner ids whose page_visits a hierarchical principal's analytics
+     * view should include: itself plus every partner it is principal over
+     * (see PartnerLinks::childPartnerIds()) — a "Parent" partner account
+     * must be able to see all of its "Child" accounts' data here.
+     *
+     * @return int[]
+     */
+    private static function partnerScopeIds(int $partnerId): array
+    {
+        return array_merge([$partnerId], PartnerLinks::childPartnerIds($partnerId));
     }
 
     /**
@@ -788,14 +821,14 @@ final class AnalyticsController extends Controller
      * approach: renders an HTML document and wraps it in a basic PDF structure.
      * No external library needed.
      */
-    public static function generatePdfReport(array $filters, ?int $partnerId = null, bool $excludeAdmin = false): string
+    public static function generatePdfReport(array $filters, ?int $partnerId = null, bool $excludeAdmin = false, ?array $partnerScopeIds = null): string
     {
         if (!Database::tableExists('page_visits')) {
             return self::buildSimplePdf('Rapport d\'analyse', 'Aucune donnée disponible.');
         }
 
         $pdo = Database::connection();
-        $where = self::buildWhereClause($filters);
+        $where = self::buildWhereClause($filters, $partnerScopeIds);
         if ($excludeAdmin) {
             $where = self::excludeAdminVisits($where);
         }

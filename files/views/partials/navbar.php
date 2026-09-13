@@ -106,7 +106,8 @@ $minimalHeader = !empty($minimalHeader);
         <?php
         $linkedPartners = [];
         if (is_array($user) && ($user['role'] ?? '') === 'partner' && !empty($user['partner_id'])) {
-            $linkedPartners = \App\PartnerLinks::linkedPartners((int) $user['partner_id']);
+            $homePartnerId = (int) ($user['home_partner_id'] ?? $user['partner_id']);
+            $linkedPartners = \App\PartnerLinks::switchableAccounts((int) $user['partner_id'], $homePartnerId);
         }
         ?>
         <?php if ($linkedPartners !== []): ?>
