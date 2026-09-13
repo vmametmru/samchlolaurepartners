@@ -137,6 +137,7 @@ final class Packages
         $package = self::decorate($row);
         $package['flights'] = self::flightsFor($id);
         $package['activities'] = self::activitiesFor($id);
+        $package['meals'] = self::mealsFor($id);
         $package['property_ids'] = self::propertyIdsFor($id);
         return $package;
     }
@@ -169,6 +170,29 @@ final class Packages
         );
         $stmt->execute([$packageId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /**
+     * "Restauration" entries. Guarded on its own, because an install that
+     * already had offers may not have run migration 065 yet.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public static function mealsFor(int $packageId): array
+    {
+        if (!self::mealsTableReady()) {
+            return [];
+        }
+        $stmt = Database::connection()->prepare(
+            'SELECT * FROM package_meals WHERE package_id = ? ORDER BY position ASC, id ASC'
+        );
+        $stmt->execute([$packageId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    public static function mealsTableReady(): bool
+    {
+        return Database::tableExists('package_meals');
     }
 
     /** @return array<int, int> */
@@ -372,7 +396,10 @@ final class Packages
 
         self::replaceFlights($id, $input);
         self::replaceProperties($id, $allProperties === 1 ? [] : ($input['property_ids'] ?? []));
-        self::replaceActivities($id, $input);
+        self::replaceExtras($id, $input, 'package_activities', 'activities');
+        if (self::mealsTableReady()) {
+            self::replaceExtras($id, $input, 'package_meals', 'meals');
+        }
 
         return $id;
     }
@@ -442,18 +469,25 @@ final class Packages
         }
     }
 
-    /** @param array<string, mixed> $input */
-    private static function replaceActivities(int $packageId, array $input): void
+    /**
+     * Rewrites the optional/mandatory extras of one block (activities or
+     * meals): both tables share the same shape, so the same routine handles
+     * "activities[...]" and "meals[...]".
+     *
+     * @param array<string, mixed> $input
+     */
+    private static function replaceExtras(int $packageId, array $input, string $table, string $inputKey): void
     {
         $pdo = Database::connection();
         $existingPhotos = [];
-        foreach (self::activitiesFor($packageId) as $activity) {
-            $existingPhotos[(int) $activity['id']] = (string) ($activity['photo_url'] ?? '');
+        $existing = $inputKey === 'meals' ? self::mealsFor($packageId) : self::activitiesFor($packageId);
+        foreach ($existing as $extra) {
+            $existingPhotos[(int) $extra['id']] = (string) ($extra['photo_url'] ?? '');
         }
-        $pdo->prepare('DELETE FROM package_activities WHERE package_id = ?')->execute([$packageId]);
-        $rows = is_array($input['activities'] ?? null) ? $input['activities'] : [];
+        $pdo->prepare('DELETE FROM ' . $table . ' WHERE package_id = ?')->execute([$packageId]);
+        $rows = is_array($input[$inputKey] ?? null) ? $input[$inputKey] : [];
         $stmt = $pdo->prepare(
-            'INSERT INTO package_activities (package_id, label, label_en, description, description_en, photo_url, price_mode, price, is_mandatory, position)
+            'INSERT INTO ' . $table . ' (package_id, label, label_en, description, description_en, photo_url, price_mode, price, is_mandatory, position)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $position = 0;
@@ -472,7 +506,7 @@ final class Packages
                     ? $existingPhotos[$previousId]
                     : null;
             }
-            $uploaded = self::storeActivityPhoto((string) $key);
+            $uploaded = self::storeExtraPhoto($inputKey, (string) $key);
             if ($uploaded !== null) {
                 $photoUrl = $uploaded;
             }
@@ -492,13 +526,13 @@ final class Packages
     }
 
     /**
-     * Saves an uploaded activity photo (activities[{key}][photo] file input)
-     * under images/packages/ and returns its public URL, or null when no
-     * (valid) file was sent.
+     * Saves an uploaded extra photo ("activities[{key}][photo]" or
+     * "meals[{key}][photo]" file input) under images/packages/ and returns
+     * its public URL, or null when no (valid) file was sent.
      */
-    private static function storeActivityPhoto(string $key): ?string
+    private static function storeExtraPhoto(string $inputKey, string $key): ?string
     {
-        $files = $_FILES['activities'] ?? null;
+        $files = $_FILES[$inputKey] ?? null;
         if (!is_array($files) || !isset($files['tmp_name'][$key]['photo'])) {
             return null;
         }
@@ -563,16 +597,22 @@ final class Packages
     }
 
     /**
-     * The flight option + activities part of an offer's total, for the
-     * client's current selection. Mandatory activities are always counted,
-     * whatever the client ticked.
+     * The flight option + activities + meals part of an offer's total, for
+     * the client's current selection. Mandatory activities/meals are always
+     * counted, whatever the client ticked.
      *
      * @param array<string, mixed> $package fully loaded offer (find())
      * @param array<int, int> $selectedActivityIds
-     * @return array{flight: array<string, mixed>|null, activities: array<int, array<string, mixed>>, total: float}
+     * @param array<int, int> $selectedMealIds
+     * @return array{flight: array<string, mixed>|null, activities: array<int, array<string, mixed>>, meals: array<int, array<string, mixed>>, total: float}
      */
-    public static function extrasSelection(array $package, ?int $flightId, array $selectedActivityIds, int $persons): array
-    {
+    public static function extrasSelection(
+        array $package,
+        ?int $flightId,
+        array $selectedActivityIds,
+        array $selectedMealIds,
+        int $persons
+    ): array {
         $flights = $package['flights'] ?? [];
         $flight = null;
         foreach ($flights as $candidate) {
@@ -594,20 +634,24 @@ final class Packages
         }
 
         $total = $flight !== null ? self::lineTotal($flight, $persons) : 0.0;
-        $selected = [];
-        foreach (($package['activities'] ?? []) as $activity) {
-            $isMandatory = (int) ($activity['is_mandatory'] ?? 0) === 1;
-            if (!$isMandatory && !in_array((int) $activity['id'], $selectedActivityIds, true)) {
-                continue;
+        $selection = ['activities' => [], 'meals' => []];
+        $selectedIds = ['activities' => $selectedActivityIds, 'meals' => $selectedMealIds];
+        foreach ($selection as $block => $_unused) {
+            foreach (($package[$block] ?? []) as $extra) {
+                $isMandatory = (int) ($extra['is_mandatory'] ?? 0) === 1;
+                if (!$isMandatory && !in_array((int) $extra['id'], $selectedIds[$block], true)) {
+                    continue;
+                }
+                $extra['line_total'] = self::lineTotal($extra, $persons);
+                $total += $extra['line_total'];
+                $selection[$block][] = $extra;
             }
-            $activity['line_total'] = self::lineTotal($activity, $persons);
-            $total += $activity['line_total'];
-            $selected[] = $activity;
         }
 
         return [
             'flight' => $flight,
-            'activities' => $selected,
+            'activities' => $selection['activities'],
+            'meals' => $selection['meals'],
             'total' => round($total, 2),
         ];
     }

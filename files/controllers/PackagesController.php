@@ -226,6 +226,7 @@ final class PackagesController extends Controller
             $package,
             $params['flight_id'],
             $params['activity_ids'],
+            $params['meal_ids'],
             $params['persons']
         );
         $search = Packages::searchAccommodations(
@@ -239,16 +240,38 @@ final class PackagesController extends Controller
         );
 
         $pricesHidden = self::pricesHidden($partner);
+        // An offer is sold as a whole: the public page only ever shows one
+        // figure, the all-inclusive total (accommodation + chosen flight +
+        // mandatory/ticked activities and meals). The per-line amounts are
+        // deliberately not exposed here, so no detailed price can leak to
+        // the client through this endpoint.
         $decorate = static function (array $entry) use ($extras, $pricesHidden): array {
-            $entry['extras_total'] = $extras['total'];
-            $entry['total_all_in'] = round($entry['total_stay'] + $extras['total'], 2);
-            if ($pricesHidden) {
-                foreach (['room_total', 'extra_person_total', 'cleaning_total', 'tourist_tax_total', 'total_stay', 'extras_total', 'total_all_in'] as $field) {
-                    $entry[$field] = null;
-                }
-            }
-            return $entry;
+            return [
+                'property_id' => (int) $entry['property_id'],
+                'name' => (string) $entry['name'],
+                'image_url' => $entry['image_url'] ?? null,
+                'bedrooms' => (int) $entry['bedrooms'],
+                'max_guests' => (int) $entry['max_guests'],
+                'checkin' => (string) $entry['checkin'],
+                'checkout' => (string) $entry['checkout'],
+                'nights' => (int) $entry['nights'],
+                'day_shift' => (int) $entry['day_shift'],
+                'nights_lost' => (int) $entry['nights_lost'],
+                'currency' => (string) $entry['currency'],
+                'total_all_in' => $pricesHidden
+                    ? null
+                    : round((float) $entry['total_stay'] + (float) $extras['total'], 2),
+            ];
         };
+
+        $extraLabels = static fn (array $rows): array => array_map(
+            static fn (array $row): array => [
+                'id' => (int) $row['id'],
+                'label' => Packages::text($row, 'label'),
+                'is_mandatory' => (int) ($row['is_mandatory'] ?? 0) === 1,
+            ],
+            $rows
+        );
 
         self::json([
             'data' => [
@@ -260,14 +283,9 @@ final class PackagesController extends Controller
                     'flight' => $extras['flight'] === null ? null : [
                         'id' => (int) $extras['flight']['id'],
                         'label' => (string) $extras['flight']['label'],
-                        'total' => $pricesHidden ? null : Packages::lineTotal($extras['flight'], $params['persons']),
                     ],
-                    'activities' => array_map(static fn (array $activity): array => [
-                        'id' => (int) $activity['id'],
-                        'label' => (string) $activity['label'],
-                        'total' => $pricesHidden ? null : (float) $activity['line_total'],
-                    ], $extras['activities']),
-                    'total' => $pricesHidden ? null : $extras['total'],
+                    'activities' => $extraLabels($extras['activities']),
+                    'meals' => $extraLabels($extras['meals']),
                 ],
                 'matches' => array_map($decorate, $search['matches']),
                 'alternatives' => array_map($decorate, $search['alternatives']),
@@ -332,7 +350,13 @@ final class PackagesController extends Controller
             ], 409);
         }
 
-        $extras = Packages::extrasSelection($package, $params['flight_id'], $params['activity_ids'], $params['persons']);
+        $extras = Packages::extrasSelection(
+            $package,
+            $params['flight_id'],
+            $params['activity_ids'],
+            $params['meal_ids'],
+            $params['persons']
+        );
 
         // Hand over to the standard reservation-request flow: it validates
         // the client fields, prices the stay, stores the request and sends
@@ -378,7 +402,7 @@ final class PackagesController extends Controller
 
     /**
      * @param array<string, mixed> $source
-     * @return array{checkin: string, checkout: string, adults: int, children_3to12: int, children_under3: int, persons: int, flight_id: ?int, activity_ids: array<int, int>}|null
+     * @return array{checkin: string, checkout: string, adults: int, children_3to12: int, children_under3: int, persons: int, flight_id: ?int, activity_ids: array<int, int>, meal_ids: array<int, int>}|null
      */
     private static function searchParams(array $source): ?array
     {
@@ -400,11 +424,13 @@ final class PackagesController extends Controller
             return null;
         }
         $flightId = (int) ($source['flight_id'] ?? 0);
-        $activityIds = [];
-        foreach ((array) ($source['activity_ids'] ?? []) as $activityId) {
-            $activityId = (int) $activityId;
-            if ($activityId > 0) {
-                $activityIds[] = $activityId;
+        $extraIds = ['activity_ids' => [], 'meal_ids' => []];
+        foreach ($extraIds as $field => $_unused) {
+            foreach ((array) ($source[$field] ?? []) as $extraId) {
+                $extraId = (int) $extraId;
+                if ($extraId > 0) {
+                    $extraIds[$field][] = $extraId;
+                }
             }
         }
 
@@ -418,7 +444,8 @@ final class PackagesController extends Controller
             // pricing, same rule as the accommodation capacity check.
             'persons' => $adults + $children3to12,
             'flight_id' => $flightId > 0 ? $flightId : null,
-            'activity_ids' => $activityIds,
+            'activity_ids' => $extraIds['activity_ids'],
+            'meal_ids' => $extraIds['meal_ids'],
         ];
     }
 
@@ -426,8 +453,12 @@ final class PackagesController extends Controller
      * Plain-text recap of what the client selected, stored on the request
      * and appended to its message so the agency sees the whole offer.
      *
+     * An offer is sold as a package: the recap lists what it contains but
+     * only ever quotes one figure, the all-inclusive total (the same rule as
+     * the public page).
+     *
      * @param array<string, mixed> $package
-     * @param array{flight: array<string, mixed>|null, activities: array<int, array<string, mixed>>, total: float} $extras
+     * @param array{flight: array<string, mixed>|null, activities: array<int, array<string, mixed>>, meals: array<int, array<string, mixed>>, total: float} $extras
      * @param array<string, mixed> $match
      */
     private static function summaryText(array $package, array $extras, array $match, int $persons): string
@@ -441,18 +472,17 @@ final class PackagesController extends Controller
                 (string) ($flight['airline'] ?? ''),
                 (string) ($flight['cabin_class'] ?? ''),
             ], static fn (string $value): bool => trim($value) !== '');
-            $lines[] = 'Vol : ' . implode(' — ', $details)
-                . ' (' . self::amount(Packages::lineTotal($flight, $persons), $currency) . ')';
+            $lines[] = 'Vol : ' . implode(' — ', $details);
         }
         $lines[] = 'Hébergement : ' . (string) $match['name']
-            . ' du ' . (string) $match['checkin'] . ' au ' . (string) $match['checkout']
-            . ' (' . self::amount((float) $match['total_stay'], $currency) . ' tout compris)';
-        foreach ($extras['activities'] as $activity) {
-            $lines[] = 'Activité : ' . (string) $activity['label']
-                . ((int) ($activity['is_mandatory'] ?? 0) === 1 ? ' (incluse)' : '')
-                . ' (' . self::amount((float) $activity['line_total'], $currency) . ')';
+            . ' du ' . (string) $match['checkin'] . ' au ' . (string) $match['checkout'];
+        foreach (['activities' => 'Activité', 'meals' => 'Restauration'] as $block => $label) {
+            foreach ($extras[$block] as $extra) {
+                $lines[] = $label . ' : ' . (string) $extra['label']
+                    . ((int) ($extra['is_mandatory'] ?? 0) === 1 ? ' (incluse)' : '');
+            }
         }
-        $lines[] = 'Total de l\'offre : '
+        $lines[] = 'Total de l\'offre tout compris : '
             . self::amount(round((float) $match['total_stay'] + (float) $extras['total'], 2), $currency)
             . ' pour ' . $persons . ' personne(s).';
 
