@@ -249,16 +249,18 @@ final class PackagesController extends Controller
             $params['checkout'],
             $params['adults'],
             $params['children_3to12'],
-            $params['children_under3']
+            $params['children_under3'],
+            $params['nationality']
         );
 
         $pricesHidden = self::pricesHidden($partner);
         // What every accommodation price already contains, spelled out for
         // the client: the stay itself (nightly rate for the party, cleaning
-        // fee, tourist tax) plus the offer's default options. Only labels are
-        // listed — never the amount of a single line — so the offer keeps
-        // being sold as a whole.
-        $baseIncludes = static function (array $entry) use ($extras, $params): array {
+        // fee) — the tourist tax is never part of any total (it is paid
+        // on-site) and is shown separately (see 'tourist_tax_total' below).
+        // Only labels are listed — never the amount of a single line — so
+        // the offer keeps being sold as a whole.
+        $baseIncludes = static function (array $entry) use ($params): array {
             $labels = [
                 'Hébergement : ' . (int) $entry['nights'] . ' nuit(s), tarif chambre pour '
                     . $params['persons'] . ' personne(s)',
@@ -266,29 +268,35 @@ final class PackagesController extends Controller
             if ((float) ($entry['cleaning_total'] ?? 0) > 0) {
                 $labels[] = 'Frais de ménage';
             }
-            if ((float) ($entry['tourist_tax_total'] ?? 0) > 0) {
-                $labels[] = 'Taxe de séjour';
-            }
+            return $labels;
+        };
+        // Options retained by default (the chosen flight and every
+        // mandatory transport/activité/repas), listed separately under
+        // "Options Présélectionnée(s)" — same rule as $baseIncludes: labels
+        // only, never a per-line amount.
+        $preselectedOptions = static function () use ($extras): array {
+            $labels = [];
             if ($extras['flight'] !== null) {
-                $labels[] = 'Vol : ' . (string) $extras['flight']['label'];
+                $labels[] = 'Vol : ' . (string) $extras['flight']['label'] . ' (Option par défaut)';
             }
             foreach (['transports' => 'Transport', 'activities' => 'Activité', 'meals' => 'Restauration'] as $block => $title) {
                 foreach ($extras[$block] as $extra) {
                     if ((int) ($extra['is_mandatory'] ?? 0) === 1) {
-                        $labels[] = $title . ' : ' . Packages::text($extra, 'label');
+                        $labels[] = $title . ' : ' . Packages::text($extra, 'label') . ' (Option par défaut)';
                     }
                 }
             }
             return $labels;
         };
+        $preselected = $preselectedOptions();
         // An offer is sold as a whole: the public page only ever shows
-        // aggregated figures — the "Total Vol + Hébergement" of the first
-        // step (accommodation + default options of the other steps) and the
-        // all-inclusive running total of the whole offer. The per-line
-        // amounts (each activity, meal, transport…) are deliberately not
-        // exposed here, so no detailed price can leak to the client through
-        // this endpoint.
-        $decorate = static function (array $entry) use ($extras, $pricesHidden, $baseIncludes): array {
+        // aggregated figures — the "Total Offre" of the first step
+        // (accommodation + default options of the other steps, tourist tax
+        // excluded) and the all-inclusive running total of the whole offer.
+        // The per-line amounts (each activity, meal, transport…) are
+        // deliberately not exposed here, so no detailed price can leak to
+        // the client through this endpoint.
+        $decorate = static function (array $entry) use ($extras, $pricesHidden, $baseIncludes, $preselected): array {
             return [
                 'property_id' => (int) $entry['property_id'],
                 'name' => (string) $entry['name'],
@@ -304,12 +312,18 @@ final class PackagesController extends Controller
                 'total_all_in' => $pricesHidden
                     ? null
                     : round((float) $entry['total_stay'] + (float) $extras['total'], 2),
-                // Stay + everything the client already gets by default, i.e.
-                // the figure shown on the accommodation card.
+                // Stay (tourist tax excluded) + everything the client
+                // already gets by default, i.e. the figure shown on the
+                // accommodation card. The tourist tax is surfaced
+                // separately below, never folded into a total.
                 'total_base' => $pricesHidden
                     ? null
-                    : round((float) $entry['total_stay'] + (float) $extras['base_total'], 2),
+                    : round((float) $entry['total_traveler'] + (float) $extras['base_total'], 2),
+                'tourist_tax_total' => $pricesHidden
+                    ? null
+                    : round((float) $entry['tourist_tax_total'], 2),
                 'includes' => $baseIncludes($entry),
+                'preselected' => $preselected,
             ];
         };
 
@@ -344,9 +358,14 @@ final class PackagesController extends Controller
                 $params['adults'],
                 $params['children_3to12'],
                 $params['children_under3'],
-                $search
+                $search,
+                $params['nationality']
             );
             if ($quotedSelection !== null) {
+                $selectionTouristTax = array_sum(array_map(
+                    static fn (array $item): float => (float) ($item['quote']['tourist_tax_total'] ?? 0),
+                    $quotedSelection['items']
+                ));
                 $selection = [
                     'property_ids' => array_map(
                         static fn (array $item): int => (int) $item['property_id'],
@@ -358,18 +377,19 @@ final class PackagesController extends Controller
                         : round((float) $quotedSelection['total_stay'] + (float) $extras['total'], 2),
                     'total_base' => $pricesHidden
                         ? null
-                        : round((float) $quotedSelection['total_stay'] + (float) $extras['base_total'], 2),
+                        : round(
+                            (float) $quotedSelection['total_stay'] - $selectionTouristTax + (float) $extras['base_total'],
+                            2
+                        ),
+                    'tourist_tax_total' => $pricesHidden ? null : round($selectionTouristTax, 2),
                     'includes' => $baseIncludes([
                         'nights' => (int) ($quotedSelection['items'][0]['nights'] ?? 0),
                         'cleaning_total' => array_sum(array_map(
                             static fn (array $item): float => (float) ($item['quote']['cleaning_total'] ?? 0),
                             $quotedSelection['items']
                         )),
-                        'tourist_tax_total' => array_sum(array_map(
-                            static fn (array $item): float => (float) ($item['quote']['tourist_tax_total'] ?? 0),
-                            $quotedSelection['items']
-                        )),
                     ]),
+                    'preselected' => $preselected,
                 ];
             }
         }
@@ -455,7 +475,8 @@ final class PackagesController extends Controller
             $params['checkout'],
             $params['adults'],
             $params['children_3to12'],
-            $params['children_under3']
+            $params['children_under3'],
+            $params['nationality']
         );
 
         $extras = Packages::extrasSelection(
@@ -550,7 +571,8 @@ final class PackagesController extends Controller
             $params['adults'],
             $params['children_3to12'],
             $params['children_under3'],
-            $search
+            $search,
+            $params['nationality']
         );
         if ($selection === null) {
             self::json([
@@ -747,7 +769,7 @@ final class PackagesController extends Controller
 
     /**
      * @param array<string, mixed> $source
-     * @return array{checkin: string, checkout: string, adults: int, children_3to12: int, children_under3: int, persons: int, flight_id: ?int, transport_ids: array<int, int>, activity_ids: array<int, int>, meal_ids: array<int, int>}|null
+     * @return array{checkin: string, checkout: string, adults: int, children_3to12: int, children_under3: int, persons: int, nationality: string, flight_id: ?int, transport_ids: array<int, int>, activity_ids: array<int, int>, meal_ids: array<int, int>}|null
      */
     private static function searchParams(array $source): ?array
     {
@@ -756,6 +778,7 @@ final class PackagesController extends Controller
         $adults = max(0, (int) ($source['adults'] ?? 0));
         $children3to12 = max(0, (int) ($source['children_3to12'] ?? 0));
         $childrenUnder3 = max(0, (int) ($source['children_under3'] ?? 0));
+        $nationality = trim((string) ($source['nationality'] ?? ''));
         if ($checkin === '' || $checkout === '' || $adults < 1) {
             return null;
         }
@@ -788,6 +811,11 @@ final class PackagesController extends Controller
             // Babies are not charged as travellers in the offer's per-person
             // pricing, same rule as the accommodation capacity check.
             'persons' => $adults + $children3to12,
+            // Declared nationality for the whole party (offer page's
+            // "Nationalité" field), used to compute the tourist tax exactly
+            // like the ordinary property pages (see
+            // Packages::guestsForNationality()).
+            'nationality' => $nationality,
             'flight_id' => $flightId > 0 ? $flightId : null,
             'transport_ids' => $extraIds['transport_ids'],
             'activity_ids' => $extraIds['activity_ids'],

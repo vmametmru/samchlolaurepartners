@@ -777,6 +777,10 @@ final class Packages
      *
      * @param array<string, mixed> $package fully loaded offer (find())
      * @param array<string, mixed> $partner
+     * @param string $nationality Nationality declared for the whole party
+     * (offer page's "Nationalité" field), used to compute the tourist tax
+     * exactly like the ordinary property pages instead of the conservative
+     * "every adult is a foreigner" estimate (see guestsForNationality()).
      * @return array{nights: int, matches: array<int, array<string, mixed>>, alternatives: array<int, array<string, mixed>>, groups: array<int, array<string, mixed>>}
      */
     public static function searchAccommodations(
@@ -786,7 +790,8 @@ final class Packages
         string $checkout,
         int $adults,
         int $children3to12,
-        int $childrenUnder3
+        int $childrenUnder3,
+        string $nationality = ''
     ): array {
         $empty = ['nights' => 0, 'matches' => [], 'alternatives' => [], 'groups' => []];
         try {
@@ -803,6 +808,7 @@ final class Packages
 
         $countedGuests = $adults + $children3to12;
         $totalGuests = $countedGuests + $childrenUnder3;
+        $guests = self::guestsForNationality($adults, $children3to12, $nationality);
         if ($countedGuests < 1) {
             return $empty;
         }
@@ -897,7 +903,7 @@ final class Packages
                         $adults,
                         $totalGuests,
                         $countedGuests,
-                        [],
+                        $guests,
                         self::stayRateRows($rateRows, $checkinDate, $nights)
                     );
                     if ($quote !== null) {
@@ -984,7 +990,7 @@ final class Packages
                     $adults,
                     $totalGuests,
                     $countedGuests,
-                    [],
+                    $guests,
                     $candidate['rates']
                 );
                 if ($quote === null) {
@@ -1124,13 +1130,14 @@ final class Packages
         int $adults,
         int $children3to12,
         int $childrenUnder3,
-        ?array $search = null
+        ?array $search = null,
+        string $nationality = ''
     ): ?array {
         $propertyIds = array_values(array_unique(array_map('intval', $propertyIds)));
         if (count($propertyIds) < 2) {
             return null;
         }
-        $search ??= self::searchAccommodations($package, $partner, $checkin, $checkout, $adults, $children3to12, $childrenUnder3);
+        $search ??= self::searchAccommodations($package, $partner, $checkin, $checkout, $adults, $children3to12, $childrenUnder3, $nationality);
         $group = null;
         foreach ($search['groups'] as $candidateGroup) {
             $groupIds = array_map(
@@ -1191,7 +1198,7 @@ final class Packages
                 $share['adults'],
                 $shareCounted + $share['children_under3'],
                 $shareCounted,
-                []
+                self::guestsForNationality($share['adults'], $share['children_3to12'], $nationality)
             );
             if ($quote === null) {
                 return null;
@@ -1418,10 +1425,40 @@ final class Packages
             'extra_person_total' => (float) ($quote['extra_person_total'] ?? 0),
             'cleaning_total' => (float) ($quote['cleaning_total'] ?? 0),
             'tourist_tax_total' => (float) ($quote['tourist_tax_total'] ?? 0),
+            // Stay total *without* the tourist tax: the tax is paid on-site
+            // and must never be folded into a "Total" shown to the client
+            // (see PackagesController::publicSearch()'s $baseIncludes/
+            // total_base).
+            'total_traveler' => (float) ($quote['total_traveler'] ?? 0),
             // "Tout compris" for the accommodation part: what the traveller
             // pays for the stay, tourist tax included.
             'total_stay' => round((float) ($quote['total_traveler'] ?? 0) + (float) ($quote['tourist_tax_total'] ?? 0), 2),
         ];
+    }
+
+    /**
+     * Builds the {type, nationality} guest list computeItemQuote() expects,
+     * so the offer's tourist tax is computed from the party's declared
+     * nationality (offer page's "Nationalité" field) exactly like the
+     * ordinary property pages, instead of the conservative "every adult is a
+     * foreign, taxable guest" fallback used when no guest detail is given.
+     *
+     * @return array<int, array{type: string, nationality: string}>
+     */
+    private static function guestsForNationality(int $adults, int $children3to12, string $nationality): array
+    {
+        $nationality = trim($nationality);
+        if ($nationality === '') {
+            return [];
+        }
+        $guests = [];
+        for ($i = 0; $i < $adults; $i++) {
+            $guests[] = ['type' => 'adult', 'nationality' => $nationality];
+        }
+        for ($i = 0; $i < $children3to12; $i++) {
+            $guests[] = ['type' => 'child', 'nationality' => $nationality];
+        }
+        return $guests;
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────

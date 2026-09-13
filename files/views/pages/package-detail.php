@@ -117,6 +117,16 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
               <label><span>Adultes</span><input class="input" type="number" min="1" step="1" value="2" data-package-adults></label>
               <label><span>Enfants (3-12 ans)</span><input class="input" type="number" min="0" step="1" value="0" data-package-children></label>
               <label><span>Bébés (moins de 3 ans)</span><input class="input" type="number" min="0" step="1" value="0" data-package-babies></label>
+              <!-- Used to compute the tourist tax (see Packages::guestsForNationality()):
+                   a Mauricien party is exempt, everyone else is taxable. -->
+              <label><span>Nationalité</span>
+                <select class="input" data-package-nationality>
+                  <option value="">— Sélectionnez —</option>
+                  <?php foreach (['Mauricienne', 'Française', 'Britannique', 'Allemande', 'Italienne', 'Espagnole', 'Belge', 'Suisse', 'Américaine', 'Australienne', 'Autre'] as $nationalityOption): ?>
+                    <option value="<?= $e($nationalityOption) ?>"><?= $e($nationalityOption) ?></option>
+                  <?php endforeach; ?>
+                </select>
+              </label>
             </div>
             <div class="button-row mt-16">
               <button class="btn-primary" type="button" data-package-search>Rechercher</button>
@@ -467,6 +477,7 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
       body.set('adults', value('[data-package-adults]') || '0');
       body.set('children_3to12', value('[data-package-children]') || '0');
       body.set('children_under3', value('[data-package-babies]') || '0');
+      body.set('nationality', value('[data-package-nationality]') || '');
       var flight = page.querySelector('[data-package-flight]:checked');
       if (flight) { body.set('flight_id', flight.value); }
       selectedExtraIds('transports').forEach(function (id) { body.append('transport_ids[]', id); });
@@ -479,25 +490,67 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
     }
 
     /**
-     * "Inclus dans ce prix" : labels only (chambre, ménage, taxe de séjour,
-     * options par défaut) — an offer is sold as a whole, so no line ever
-     * carries its own amount.
+     * "Inclus dans ce prix" : labels only (chambre, ménage, options par
+     * défaut) — an offer is sold as a whole, so no line ever carries its own
+     * amount. The tourist tax is never listed here: it is never part of any
+     * total (see touristTaxNote() below).
      */
-    function includesList(labels) {
+    function includesList(labels, preselectedLabels) {
       var wrapper = document.createElement('div');
-      if (!labels || labels.length === 0) { return wrapper; }
+      var hasIncludes = labels && labels.length > 0;
+      var hasPreselected = preselectedLabels && preselectedLabels.length > 0;
+      if (!hasIncludes && !hasPreselected) { return wrapper; }
       wrapper.className = 'package-includes';
-      var title = document.createElement('p');
-      title.className = 'muted';
-      title.textContent = 'Inclus dans ce prix :';
-      wrapper.appendChild(title);
-      var list = document.createElement('ul');
-      labels.forEach(function (label) {
-        var item = document.createElement('li');
-        item.textContent = label;
-        list.appendChild(item);
-      });
-      wrapper.appendChild(list);
+      if (hasIncludes) {
+        var title = document.createElement('p');
+        title.className = 'muted';
+        var titleUnderline = document.createElement('u');
+        titleUnderline.textContent = 'Inclus dans ce prix :';
+        title.appendChild(titleUnderline);
+        wrapper.appendChild(title);
+        var list = document.createElement('ul');
+        labels.forEach(function (label) {
+          var item = document.createElement('li');
+          item.textContent = label;
+          list.appendChild(item);
+        });
+        wrapper.appendChild(list);
+      }
+      if (hasPreselected) {
+        var preselectedTitle = document.createElement('p');
+        preselectedTitle.className = 'muted';
+        var preselectedUnderline = document.createElement('u');
+        preselectedUnderline.textContent = 'Options Présélectionnée(s)';
+        preselectedTitle.appendChild(preselectedUnderline);
+        wrapper.appendChild(preselectedTitle);
+        var preselectedList = document.createElement('ul');
+        preselectedLabels.forEach(function (label) {
+          var item = document.createElement('li');
+          item.textContent = label;
+          preselectedList.appendChild(item);
+        });
+        wrapper.appendChild(preselectedList);
+      }
+      return wrapper;
+    }
+
+    /**
+     * "NB: Taxe Touristique (non comprise dans le total à régler à votre
+     * arrivée)" with the amount computed from the party's declared
+     * nationality — shown just above the "Choisir ce bien" button, never
+     * folded into any total (see Packages::guestsForNationality()).
+     */
+    function touristTaxNote(entry, currency) {
+      var wrapper = document.createElement('div');
+      if (!entry.tourist_tax_total) { return wrapper; }
+      var spacer = document.createElement('p');
+      spacer.innerHTML = '&nbsp;';
+      wrapper.appendChild(spacer);
+      var note = document.createElement('p');
+      note.className = 'muted';
+      note.textContent = 'NB: Taxe Touristique (non comprise dans le total à régler à votre arrivée) : '
+        + money(entry.tourist_tax_total, entry.currency || currency);
+      wrapper.appendChild(note);
       return wrapper;
     }
 
@@ -540,16 +593,18 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
       body.appendChild(dates);
 
       // Price of everything the client already gets at this first step: the
-      // stay (nightly rate for the party, ménage, taxe de séjour) plus the
-      // offer's default options. The floating recap then follows the full
-      // all-inclusive total as further options get picked.
+      // stay (nightly rate for the party, ménage) plus the offer's default
+      // options — tourist tax excluded (see touristTaxNote()). The floating
+      // recap then follows the full all-inclusive total as further options
+      // get picked.
       if (!pricesHidden && entry.total_base !== null && entry.total_base !== undefined) {
         var total = document.createElement('p');
         var strong = document.createElement('strong');
-        strong.textContent = 'Total Vol + Hébergement : ' + money(entry.total_base, entry.currency || currency);
+        strong.textContent = 'Total Offre : ' + money(entry.total_base, entry.currency || currency);
         total.appendChild(strong);
         body.appendChild(total);
-        body.appendChild(includesList(entry.includes));
+        body.appendChild(includesList(entry.includes, entry.preselected));
+        body.appendChild(touristTaxNote(entry, currency));
       }
 
       var actions = document.createElement('div');
@@ -695,9 +750,10 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
           if (selectedGroupIndex === groupIndex && groupSelection && !pricesHidden
             && groupSelection.total_base !== null && groupSelection.total_base !== undefined) {
             var strong = document.createElement('strong');
-            strong.textContent = 'Total Vol + Hébergement : ' + money(groupSelection.total_base, groupSelection.currency || data.currency);
+            strong.textContent = 'Total Offre : ' + money(groupSelection.total_base, groupSelection.currency || data.currency);
             totalLine.appendChild(strong);
-            totalLine.appendChild(includesList(groupSelection.includes));
+            totalLine.appendChild(includesList(groupSelection.includes, groupSelection.preselected));
+            totalLine.appendChild(touristTaxNote(groupSelection, data.currency));
           }
         }
 
@@ -895,7 +951,7 @@ $today = (new DateTimeImmutable('now', new DateTimeZone('Etc/GMT-4')))->format('
     // those criteria, so the selection is dropped instead of being carried
     // over to a stay the client never validated.
     page.querySelectorAll('[data-package-checkin], [data-package-checkout], [data-package-adults],'
-      + ' [data-package-children], [data-package-babies]').forEach(function (field) {
+      + ' [data-package-children], [data-package-babies], [data-package-nationality]').forEach(function (field) {
       field.addEventListener('change', clearSelection);
       field.addEventListener('input', clearSelection);
     });
