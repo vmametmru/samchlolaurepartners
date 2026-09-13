@@ -21,6 +21,14 @@ final class AnalyticsController extends Controller
     private const TZ = 'Indian/Mauritius';
     private const TZ_OFFSET = '+04:00';
 
+    /**
+     * A visit is flagged as an "Anomalie" (e.g. a tab left open/idle rather
+     * than genuine browsing) once its duration exceeds this threshold, and
+     * such visits are excluded from KPIs/charts while still being listed
+     * (tagged) in the visits table/exports.
+     */
+    private const ANOMALY_DURATION_SECONDS = 900; // 15 minutes
+
     // ── Visit tracking (called from JS beacon) ──────────────────────
 
     /**
@@ -150,16 +158,17 @@ final class AnalyticsController extends Controller
 
         $filters = self::readFilters();
         $where = self::buildWhereClause($filters);
+        $kpiWhere = self::excludeAnomalies($where);
 
         View::render('pages/analytics', [
             'pageTitle' => 'Analyse',
             'isAdmin' => true,
             'partners' => $partners,
-            'kpis' => self::computeKpis($pdo, $where),
-            'visitsByCountry' => self::visitsByCountry($pdo, $where),
-            'visitsByDate' => self::visitsByDate($pdo, $where),
-            'visitsByPage' => self::visitsByPage($pdo, $where),
-            'visitsByHour' => self::visitsByHour($pdo, $where),
+            'kpis' => self::computeKpis($pdo, $kpiWhere),
+            'visitsByCountry' => self::visitsByCountry($pdo, $kpiWhere),
+            'visitsByDate' => self::visitsByDate($pdo, $kpiWhere),
+            'visitsByPage' => self::visitsByPage($pdo, $kpiWhere),
+            'visitsByHour' => self::visitsByHour($pdo, $kpiWhere),
             'visits' => self::recentVisits($pdo, $where, 200),
             'filters' => $filters,
             'reportSchedule' => null,
@@ -214,6 +223,7 @@ final class AnalyticsController extends Controller
         $where = self::buildWhereClause($filters, $partnerScopeIds);
         // Partners must not see admin visits
         $where = self::excludeAdminVisits($where);
+        $kpiWhere = self::excludeAnomalies($where);
 
         $reportSchedule = self::getReportSchedule($pdo, $partnerId);
 
@@ -221,11 +231,11 @@ final class AnalyticsController extends Controller
             'pageTitle' => 'Analyse',
             'isAdmin' => false,
             'partners' => [],
-            'kpis' => self::computeKpis($pdo, $where),
-            'visitsByCountry' => self::visitsByCountry($pdo, $where),
-            'visitsByDate' => self::visitsByDate($pdo, $where),
-            'visitsByPage' => self::visitsByPage($pdo, $where),
-            'visitsByHour' => self::visitsByHour($pdo, $where),
+            'kpis' => self::computeKpis($pdo, $kpiWhere),
+            'visitsByCountry' => self::visitsByCountry($pdo, $kpiWhere),
+            'visitsByDate' => self::visitsByDate($pdo, $kpiWhere),
+            'visitsByPage' => self::visitsByPage($pdo, $kpiWhere),
+            'visitsByHour' => self::visitsByHour($pdo, $kpiWhere),
             'visits' => self::recentVisits($pdo, $where, 200),
             'filters' => $filters,
             'reportSchedule' => $reportSchedule,
@@ -269,7 +279,7 @@ final class AnalyticsController extends Controller
         header('Content-Disposition: attachment; filename="analytics-' . date('Y-m-d') . '.csv"');
         $out = fopen('php://output', 'w');
         fwrite($out, "\xEF\xBB\xBF"); // BOM for Excel
-        fputcsv($out, ['Date/Heure', 'Page', 'Type visiteur', 'Pays', 'Durée (s)', 'IP', 'Navigateur', 'Référent']);
+        fputcsv($out, ['Date/Heure', 'Page', 'Type visiteur', 'Pays', 'Durée (s)', 'Anomalie', 'IP', 'Navigateur', 'Référent']);
         foreach ($rows as $row) {
             fputcsv($out, [
                 $row['visited_at'],
@@ -277,6 +287,7 @@ final class AnalyticsController extends Controller
                 $row['visitor_type'],
                 $row['country_name'] ?: $row['country_code'],
                 $row['duration_seconds'],
+                self::isAnomaly($row) ? 'Oui' : 'Non',
                 $row['ip_address'],
                 $row['user_agent'],
                 $row['referrer'],
@@ -693,6 +704,33 @@ final class AnalyticsController extends Controller
         return $where;
     }
 
+    /**
+     * Adds a condition to exclude "Anomalie" visits (duration above
+     * ANOMALY_DURATION_SECONDS, e.g. a tab left open/idle) from KPIs and
+     * charts. Used everywhere KPIs/charts are computed; NOT used for the
+     * recent-visits listing/exports, which must still show these rows
+     * (tagged as "Anomalie") rather than hide them.
+     */
+    private static function excludeAnomalies(array $where): array
+    {
+        $condition = 'COALESCE(pv.duration_seconds, 0) <= ' . self::ANOMALY_DURATION_SECONDS;
+        if ($where['sql'] !== '') {
+            $where['sql'] .= ' AND ' . $condition;
+        } else {
+            $where['sql'] = 'WHERE ' . $condition;
+        }
+        return $where;
+    }
+
+    /**
+     * Whether a visit row should be flagged as an "Anomalie" (active on a
+     * page without navigating for more than ANOMALY_DURATION_SECONDS).
+     */
+    public static function isAnomaly(array $row): bool
+    {
+        return (int) ($row['duration_seconds'] ?? 0) > self::ANOMALY_DURATION_SECONDS;
+    }
+
     private static function emptyKpis(): array
     {
         return [
@@ -832,9 +870,10 @@ final class AnalyticsController extends Controller
         if ($excludeAdmin) {
             $where = self::excludeAdminVisits($where);
         }
-        $kpis = self::computeKpis($pdo, $where);
-        $visitsByCountry = self::visitsByCountry($pdo, $where);
-        $visitsByPage = self::visitsByPage($pdo, $where);
+        $kpiWhere = self::excludeAnomalies($where);
+        $kpis = self::computeKpis($pdo, $kpiWhere);
+        $visitsByCountry = self::visitsByCountry($pdo, $kpiWhere);
+        $visitsByPage = self::visitsByPage($pdo, $kpiWhere);
 
         $partnerName = 'Toutes les données';
         $logoUrl = '';

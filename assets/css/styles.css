@@ -822,6 +822,7 @@ label span, .label-inline { display: block; font-size: .92rem; font-weight: 600;
 .badge-client { background: #dcfce7; color: #166534; }
 .badge-partner { background: #fef3c7; color: #92400e; }
 .badge-admin { background: #e0e7ff; color: #3730a3; }
+.badge-anomaly { background: #fee2e2; color: #991b1b; }
 .mt-8 { margin-top: 0.5rem; }
 .mt-16 { margin-top: 1rem; }
 .text-muted { color: #6b7280; font-size: 0.875rem; }

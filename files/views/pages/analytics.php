@@ -149,13 +149,17 @@ $exportPdfUrl = $filterAction . '/pdf?' . http_build_query($filters);
           <thead><tr><th>Date/Heure</th><th>Partenaire</th><th>Page</th><th>Type</th><th>Pays</th><th>Durée</th><th>IP</th><?php if ($isAdmin): ?><th>Actions</th><?php endif; ?></tr></thead>
           <tbody>
             <?php foreach (array_slice($visits, 0, 50) as $row): ?>
+              <?php $isAnomaly = \App\controllers\AnalyticsController::isAnomaly($row); ?>
               <tr>
                 <td><?= \App\View::e($row['visited_at']) ?></td>
                 <td><?= \App\View::e($row['partner_name'] ?? '—') ?></td>
                 <td title="<?= \App\View::e($row['page_url']) ?>"><?= \App\View::e($row['page_title'] ?: $row['page_url']) ?></td>
                 <td><span class="badge badge-<?= \App\View::e($row['visitor_type']) ?>"><?= \App\View::e(ucfirst($row['visitor_type'])) ?></span></td>
                 <td><?= \App\View::e($row['country_name'] ?: ($row['country_code'] ?: '—')) ?></td>
-                <td><?= $row['duration_seconds'] !== null ? (int) $row['duration_seconds'] . 's' : '—' ?></td>
+                <td>
+                  <?= $row['duration_seconds'] !== null ? (int) $row['duration_seconds'] . 's' : '—' ?>
+                  <?php if ($isAnomaly): ?> <span class="badge badge-anomaly" title="Durée anormalement longue (> 15 min) : exclue des KPIs">Anomalie</span><?php endif; ?>
+                </td>
                 <td><?= \App\View::e($row['ip_address'] ?: '—') ?></td>
                 <?php if ($isAdmin): ?>
                   <td class="nowrap">
