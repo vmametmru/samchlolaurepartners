@@ -608,6 +608,7 @@ final class Packages
      * @param array<int, int> $selectedActivityIds
      * @param array<int, int> $selectedMealIds
      * @return array{flight: array<string, mixed>|null, activities: array<int, array<string, mixed>>, meals: array<int, array<string, mixed>>, total: float}
+     * @throws HttpException when $flightId is not one of this offer's flights
      */
     public static function extrasSelection(
         array $package,
@@ -618,13 +619,20 @@ final class Packages
     ): array {
         $flights = $package['flights'] ?? [];
         $flight = null;
-        foreach ($flights as $candidate) {
-            if ($flightId !== null && (int) $candidate['id'] === $flightId) {
-                $flight = $candidate;
-                break;
+        if ($flightId !== null) {
+            foreach ($flights as $candidate) {
+                if ((int) $candidate['id'] === $flightId) {
+                    $flight = $candidate;
+                    break;
+                }
             }
-        }
-        if ($flight === null && $flightId === null) {
+            // A flight option that does not belong to this offer means a
+            // tampered payload: refuse it instead of quoting (or creating)
+            // the request without that option's price.
+            if ($flight === null) {
+                throw new HttpException(400, 'Bad Request', 'Option de vol invalide pour cette offre.');
+            }
+        } else {
             foreach ($flights as $candidate) {
                 if ((int) ($candidate['is_default'] ?? 0) === 1) {
                     $flight = $candidate;
