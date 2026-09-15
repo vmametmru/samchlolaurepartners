@@ -3184,7 +3184,7 @@ final class ReservationsController extends Controller
             $totalChildrenUnder3 += (int) ($item['children_under3'] ?? 0);
         }
 
-        [$hebergementsTitres, $hebergementsImages] = self::packageAccommodationsMedia($items);
+        [$hebergementsTitres, $hebergementsImages, $hebergementImageUrl] = self::packageAccommodationsMedia($items);
         $photo = self::propertyPhotoTag($firstPropertyId, (string) ($firstItem['property_name'] ?? ''));
 
         $variables = [
@@ -3239,7 +3239,7 @@ final class ReservationsController extends Controller
             $packageRequestId,
             self::$packageContext['summary'] ?? null,
             $combinedBreakdown,
-            [$hebergementsTitres, $hebergementsImages]
+            [$hebergementsTitres, $hebergementsImages, $hebergementImageUrl]
         );
         $variables += $offerVariables;
 
@@ -3357,24 +3357,28 @@ final class ReservationsController extends Controller
      * created.
      *
      * @param array<int, array{property_id: int, property_name: string}> $items
-     * @return array{0: string, 1: string} [titles, imagesHtml]
+     * @return array{0: string, 1: string, 2: string} [titles, imagesHtml, firstPhotoUrl]
      */
     private static function packageAccommodationsMedia(array $items): array
     {
         $titles = [];
         $imagesHtml = '';
+        $firstPhotoUrl = '';
         foreach ($items as $item) {
             $propertyId = (int) ($item['property_id'] ?? 0);
             $name = trim((string) ($item['property_name'] ?? ''));
             if ($name !== '') {
                 $titles[] = $name;
             }
+            if ($firstPhotoUrl === '' && $propertyId > 0) {
+                $firstPhotoUrl = self::propertyPhotoUrlValue($propertyId, 1);
+            }
             $image = self::propertyPhotoHtml($propertyId, $name, 1, 320);
             if ($image !== '') {
                 $imagesHtml .= '<div style="margin:0 0 10px;">' . $image . '</div>';
             }
         }
-        return [implode(', ', $titles), $imagesHtml];
+        return [implode(', ', $titles), $imagesHtml, $firstPhotoUrl];
     }
 
     /**
@@ -3990,17 +3994,23 @@ final class ReservationsController extends Controller
         $empty = [
             'offre_titre' => '',
             'offre_image' => '',
+            'offre_image_url' => '',
             'offre_recap_bloc' => '',
             'offre_vol_titre' => '',
             'offre_vol_image' => '',
+            'offre_vol_image_url' => '',
             'offre_hebergements_titres' => '',
             'offre_hebergements_images' => '',
+            'offre_hebergement_image_url' => '',
             'offre_transport_titres' => '',
             'offre_transport_images' => '',
+            'offre_transport_image_url' => '',
             'offre_activites_titres' => '',
             'offre_activites_images' => '',
+            'offre_activite_image_url' => '',
             'offre_restauration_titres' => '',
             'offre_restauration_images' => '',
+            'offre_restauration_image_url' => '',
             'commission_offres_completes' => '',
             'total_a_payer_samchlolaure_offres_completes' => '',
             'offre_total_a_payer_client' => '',
@@ -4018,20 +4028,33 @@ final class ReservationsController extends Controller
         $currency = (string) ($accommodationBreakdown['currency'] ?? 'EUR');
         $vars = PackageRequests::commissionVariables($partner, $packageRequest, $accommodationPayout, $currency);
         $vars['offre_titre'] = (string) ($packageRequest['package_title'] ?? '');
-        $vars['offre_image'] = self::packageMediaImageHtml((string) ($packageRequest['package_photo_url'] ?? ''), $vars['offre_titre']);
+        $packagePhotoUrl = trim((string) ($packageRequest['package_photo_url'] ?? ''));
+        $vars['offre_image'] = self::packageMediaImageHtml($packagePhotoUrl, $vars['offre_titre']);
+        // {{offre_image_url}}/{{offre_vol_image_url}}/{{offre_hebergement_image_url}}/
+        // {{offre_transport_image_url}}/{{offre_activite_image_url}}/
+        // {{offre_restauration_image_url}} are the raw (non-<img>) photo
+        // URLs behind their "_images"/"_image" HTML-block counterparts
+        // above: they let the template editor's image-click modal offer
+        // these as resizable/repositionable image variables (like
+        // photo_bien_url), the same way {{offre_image}} exposes the
+        // ready-to-use <img> tag. For the "_images" plural variables only
+        // the first selected item's photo is exposed this way.
+        $vars['offre_image_url'] = $packagePhotoUrl !== '' ? self::absoluteUrl($packagePhotoUrl) : '';
         $vars['offre_recap_bloc'] = self::packageRecapBlocHtml($summaryText);
         $vars['offre_vol_titre'] = (string) ($packageRequest['flight_title'] ?? '');
-        $vars['offre_vol_image'] = self::packageMediaImageHtml((string) ($packageRequest['flight_photo_url'] ?? ''), $vars['offre_vol_titre']);
+        $flightPhotoUrl = trim((string) ($packageRequest['flight_photo_url'] ?? ''));
+        $vars['offre_vol_image'] = self::packageMediaImageHtml($flightPhotoUrl, $vars['offre_vol_titre']);
+        $vars['offre_vol_image_url'] = $flightPhotoUrl !== '' ? self::absoluteUrl($flightPhotoUrl) : '';
         // Accommodation(s) titles/images: passed in by the caller (either a
         // single-entry list from sendRequestEmails(), or every selected
         // property from sendPackageMultiRequestEmails() —
         // packageAccommodationsMedia()) rather than read off
         // $packageRequest, since a same-address multi-property selection is
         // never persisted per-property on package_requests itself.
-        [$vars['offre_hebergements_titres'], $vars['offre_hebergements_images']] = $accommodationsMedia ?? ['', ''];
-        [$vars['offre_transport_titres'], $vars['offre_transport_images']] = self::packageSelectionMedia($packageRequest['transports_json'] ?? null);
-        [$vars['offre_activites_titres'], $vars['offre_activites_images']] = self::packageSelectionMedia($packageRequest['activities_json'] ?? null);
-        [$vars['offre_restauration_titres'], $vars['offre_restauration_images']] = self::packageSelectionMedia($packageRequest['meals_json'] ?? null);
+        [$vars['offre_hebergements_titres'], $vars['offre_hebergements_images'], $vars['offre_hebergement_image_url']] = $accommodationsMedia ?? ['', '', ''];
+        [$vars['offre_transport_titres'], $vars['offre_transport_images'], $vars['offre_transport_image_url']] = self::packageSelectionMedia($packageRequest['transports_json'] ?? null);
+        [$vars['offre_activites_titres'], $vars['offre_activites_images'], $vars['offre_activite_image_url']] = self::packageSelectionMedia($packageRequest['activities_json'] ?? null);
+        [$vars['offre_restauration_titres'], $vars['offre_restauration_images'], $vars['offre_restauration_image_url']] = self::packageSelectionMedia($packageRequest['meals_json'] ?? null);
         $accommodationTotalTraveler = $accommodationBreakdown !== null ? (float) ($accommodationBreakdown['total_traveler'] ?? 0) : 0.0;
         $vars += PackageRequests::clientTotalVariable($packageRequest, $accommodationTotalTraveler, $currency);
         return $vars;
@@ -4044,18 +4067,21 @@ final class ReservationsController extends Controller
      * — each a list of ['title' => ..., 'photo_url' => ...]) into the
      * comma-separated titles list and the stacked <img> HTML block used by
      * {{offre_transport_titres}}/{{offre_transport_images}} and its
-     * activités/restauration counterparts.
+     * activités/restauration counterparts, plus the first item's raw
+     * (absolutized) photo URL for the single resizable
+     * {{offre_transport_image_url}}-style variable.
      *
-     * @return array{0: string, 1: string} [titles, imagesHtml]
+     * @return array{0: string, 1: string, 2: string} [titles, imagesHtml, firstPhotoUrl]
      */
     private static function packageSelectionMedia(mixed $json): array
     {
         $items = is_string($json) && $json !== '' ? json_decode($json, true) : null;
         if (!is_array($items) || $items === []) {
-            return ['', ''];
+            return ['', '', ''];
         }
         $titles = [];
         $imagesHtml = '';
+        $firstPhotoUrl = '';
         foreach ($items as $item) {
             if (!is_array($item)) {
                 continue;
@@ -4064,12 +4090,16 @@ final class ReservationsController extends Controller
             if ($title !== '') {
                 $titles[] = $title;
             }
-            $image = self::packageMediaImageHtml((string) ($item['photo_url'] ?? ''), $title);
+            $photoUrl = trim((string) ($item['photo_url'] ?? ''));
+            if ($firstPhotoUrl === '' && $photoUrl !== '') {
+                $firstPhotoUrl = self::absoluteUrl($photoUrl);
+            }
+            $image = self::packageMediaImageHtml($photoUrl, $title);
             if ($image !== '') {
                 $imagesHtml .= '<div style="margin:0 0 10px;">' . $image . '</div>';
             }
         }
-        return [implode(', ', $titles), $imagesHtml];
+        return [implode(', ', $titles), $imagesHtml, $firstPhotoUrl];
     }
 
     /**

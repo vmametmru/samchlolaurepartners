@@ -521,6 +521,12 @@ final class View
             ['name' => 'photo3', 'default' => 320, 'description' => '3e photo du bien'],
             ['name' => 'logo_partenaire', 'default' => 80, 'description' => 'Logo du partenaire'],
             ['name' => 'signature_photo', 'default' => 64, 'description' => 'Photo/avatar affiché dans la signature'],
+            ['name' => 'offre_photo', 'default' => 320, 'description' => 'Photo de l\'Offre Complète (taille réglable). Vide si la demande n\'a pas été faite depuis une offre'],
+            ['name' => 'offre_vol_photo', 'default' => 320, 'description' => 'Photo du vol choisi dans l\'Offre Complète (taille réglable). Vide si aucun vol n\'a été choisi'],
+            ['name' => 'offre_hebergement_image', 'default' => 320, 'description' => 'Photo du premier hébergement sélectionné dans l\'Offre Complète (taille réglable). Vide si aucune photo n\'est disponible'],
+            ['name' => 'offre_transport_image', 'default' => 320, 'description' => 'Photo du premier transport choisi dans l\'Offre Complète (taille réglable). Vide si aucune photo n\'est disponible'],
+            ['name' => 'offre_activite_image', 'default' => 320, 'description' => 'Photo de la première activité choisie dans l\'Offre Complète (taille réglable). Vide si aucune photo n\'est disponible'],
+            ['name' => 'offre_restauration_image', 'default' => 320, 'description' => 'Photo de la première formule de restauration choisie dans l\'Offre Complète (taille réglable). Vide si aucune photo n\'est disponible'],
         ];
     }
 }

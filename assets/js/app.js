@@ -2442,7 +2442,21 @@ function initTemplateEditor() {
     // legacy {{photo_bien}} token (a full server-generated <img> tag, kept
     // for templates saved before this variable existed) is still rendered
     // as a preview-only placeholder further below.
-    photo_bien: { src: '{{photo_bien_url}}', alt: '{{hebergement}}', label: 'photo du bien', defaultSize: 320, shape: 'rect' }
+    photo_bien: { src: '{{photo_bien_url}}', alt: '{{hebergement}}', label: 'photo du bien', defaultSize: 320, shape: 'rect' },
+    // Offre Complète resizable photo variables: like photo_bien, each
+    // resolves to a raw image URL ({{offre_*_url}}) so it can be picked,
+    // resized and repositioned from the "click on image" editor modal,
+    // distinct from the ready-to-use {{offre_image}}/{{offre_vol_image}}/
+    // {{offre_hebergements_images}}/... <img> HTML blocks (which may stack
+    // several images and are never individually resizable). For the
+    // plural hébergements/transport/activités/restauration selections only
+    // the first chosen item's photo is exposed this way.
+    offre_photo: { src: '{{offre_image_url}}', alt: '{{offre_titre}}', label: 'photo de l’offre', defaultSize: 320, shape: 'rect' },
+    offre_vol_photo: { src: '{{offre_vol_image_url}}', alt: '{{offre_vol_titre}}', label: 'photo du vol (offre)', defaultSize: 320, shape: 'rect' },
+    offre_hebergement_image: { src: '{{offre_hebergement_image_url}}', alt: '{{offre_hebergements_titres}}', label: 'photo de l’hébergement (offre)', defaultSize: 320, shape: 'rect' },
+    offre_transport_image: { src: '{{offre_transport_image_url}}', alt: '{{offre_transport_titres}}', label: 'photo du transport (offre)', defaultSize: 320, shape: 'rect' },
+    offre_activite_image: { src: '{{offre_activite_image_url}}', alt: '{{offre_activites_titres}}', label: 'photo de l’activité (offre)', defaultSize: 320, shape: 'rect' },
+    offre_restauration_image: { src: '{{offre_restauration_image_url}}', alt: '{{offre_restauration_titres}}', label: 'photo de la restauration (offre)', defaultSize: 320, shape: 'rect' }
   };
 
   // Sample values used only to populate the HTML preview so every plain-text
@@ -2826,7 +2840,7 @@ function initTemplateEditor() {
     let output = html;
 
     output = output.replace(
-      /<img\b([^>]*?)\ssrc=(['"])\{\{(photo_bien_url|photo[123]_url|logo_partenaire_url|signature_photo_url)\}\}\2([^>]*)>/gi,
+      /<img\b([^>]*?)\ssrc=(['"])\{\{(photo_bien_url|photo[123]_url|logo_partenaire_url|signature_photo_url|offre_image_url|offre_vol_image_url|offre_hebergement_image_url|offre_transport_image_url|offre_activite_image_url|offre_restauration_image_url)\}\}\2([^>]*)>/gi,
       (match, before, quote, tokenName, after) => {
         const source = `{{${tokenName}}}`;
         const template = mediaTemplateBySource(source);
