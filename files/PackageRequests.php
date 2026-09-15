@@ -146,6 +146,35 @@ final class PackageRequests
     }
 
     /**
+     * {{offre_total_a_payer_client}}: the full "sold as a whole" price of
+     * the Offre Complète actually payable by the client — accommodation
+     * (VAT/markup included, tourist tax excluded, same rule as
+     * {{total_voyageur}}/{{tarif_total}}) + Vol + Transport + Activités +
+     * Restauration, all snapshotted at submission time so this never drifts
+     * if the offer's own prices are edited afterwards. Unlike
+     * commissionVariables() above (partner-only, what SamChloLaure is owed),
+     * this is client-facing: it never reveals any per-line price, only the
+     * one all-in total, matching the "offer sold as whole" rule (see
+     * {{offre_recap_bloc}}).
+     *
+     * @param array<string, mixed>|null $packageRequest self::find()'s row, or null when this request wasn't made from an offer
+     * @param float $accommodationTotalTraveler the same {{total_voyageur}} figure buildQuoteVariables() computes for the accommodation share (tourist tax excluded)
+     */
+    public static function clientTotalVariable(?array $packageRequest, float $accommodationTotalTraveler, string $currency): array
+    {
+        if ($packageRequest === null) {
+            return ['offre_total_a_payer_client' => ''];
+        }
+        $total = $accommodationTotalTraveler
+            + (float) ($packageRequest['flight_total'] ?? 0)
+            + (float) ($packageRequest['transport_total'] ?? 0)
+            + (float) ($packageRequest['activity_total'] ?? 0)
+            + (float) ($packageRequest['meal_total'] ?? 0);
+        return ['offre_total_a_payer_client' => ReservationsController::formatMoneyFr(round($total, 2), $currency)];
+    }
+
+
+    /**
      * Partner ids whose package_requests appear on $partnerId's
      * /partner/offres/demandes page: itself, plus every hierarchical
      * principal (parent) that opted into partners.packages_force_child_visibility

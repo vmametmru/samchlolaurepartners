@@ -4003,6 +4003,7 @@ final class ReservationsController extends Controller
             'offre_restauration_images' => '',
             'commission_offres_completes' => '',
             'total_a_payer_samchlolaure_offres_completes' => '',
+            'offre_total_a_payer_client' => '',
         ];
         if ($packageRequestId <= 0) {
             return $empty;
@@ -4031,6 +4032,8 @@ final class ReservationsController extends Controller
         [$vars['offre_transport_titres'], $vars['offre_transport_images']] = self::packageSelectionMedia($packageRequest['transports_json'] ?? null);
         [$vars['offre_activites_titres'], $vars['offre_activites_images']] = self::packageSelectionMedia($packageRequest['activities_json'] ?? null);
         [$vars['offre_restauration_titres'], $vars['offre_restauration_images']] = self::packageSelectionMedia($packageRequest['meals_json'] ?? null);
+        $accommodationTotalTraveler = $accommodationBreakdown !== null ? (float) ($accommodationBreakdown['total_traveler'] ?? 0) : 0.0;
+        $vars += PackageRequests::clientTotalVariable($packageRequest, $accommodationTotalTraveler, $currency);
         return $vars;
     }
 
