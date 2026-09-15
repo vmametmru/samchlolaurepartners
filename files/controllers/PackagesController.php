@@ -695,6 +695,7 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
         // must not be able to claim a package_id of its own.
         unset($_POST['package_id'], $_POST['package_summary']);
         [$transportTotal, $activityTotal, $mealTotal] = self::extrasStepTotals($extras);
+        $media = self::extrasSelectionMedia($extras);
         $packageRequestId = PackageRequests::log(
             (int) $package['id'],
             (int) $partner['id'],
@@ -703,7 +704,12 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
             (float) ($extras['flight_total'] ?? 0),
             $transportTotal,
             $activityTotal,
-            $mealTotal
+            $mealTotal,
+            $media['flight_title'],
+            $media['flight_photo_url'],
+            $media['transports'],
+            $media['activities'],
+            $media['meals']
         );
         ReservationsController::setPackageContext((int) $package['id'], $summary, $packageRequestId);
 
@@ -771,6 +777,7 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
         );
         unset($_POST['package_id'], $_POST['package_summary'], $_POST['items']);
         [$transportTotal, $activityTotal, $mealTotal] = self::extrasStepTotals($extras);
+        $media = self::extrasSelectionMedia($extras);
         $packageRequestId = PackageRequests::log(
             (int) $package['id'],
             (int) $partner['id'],
@@ -779,7 +786,12 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
             (float) ($extras['flight_total'] ?? 0),
             $transportTotal,
             $activityTotal,
-            $mealTotal
+            $mealTotal,
+            $media['flight_title'],
+            $media['flight_photo_url'],
+            $media['transports'],
+            $media['activities'],
+            $media['meals']
         );
         ReservationsController::setPackageContext((int) $package['id'], $summary, $packageRequestId);
         ReservationsController::setPackageItems(array_map(
@@ -1088,6 +1100,39 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
             $sum($extras['transports'] ?? []),
             $sum($extras['activities'] ?? []),
             $sum($extras['meals'] ?? []),
+        ];
+    }
+
+    /**
+     * Title/photo of what was actually picked in each step of
+     * Packages::extrasSelection(), for PackageRequests::log()'s
+     * $flightTitle/$flightPhotoUrl/$transports/$activities/$meals
+     * (migration 070) — the source of the {{offre_vol_titre}}/
+     * {{offre_vol_image}}/{{offre_transport_titres}}/
+     * {{offre_transport_images}}/{{offre_activites_titres}}/
+     * {{offre_activites_images}}/{{offre_restauration_titres}}/
+     * {{offre_restauration_images}} email variables. Always the raw (French)
+     * label, matching summaryText()'s French-only recap.
+     *
+     * @param array{flight: array<string, mixed>|null, transports: array<int, array<string, mixed>>, activities: array<int, array<string, mixed>>, meals: array<int, array<string, mixed>>} $extras
+     * @return array{flight_title: ?string, flight_photo_url: ?string, transports: array<int, array{title: string, photo_url: string}>, activities: array<int, array{title: string, photo_url: string}>, meals: array<int, array{title: string, photo_url: string}>}
+     */
+    private static function extrasSelectionMedia(array $extras): array
+    {
+        $toMedia = static fn (array $items): array => array_map(
+            static fn (array $item): array => [
+                'title' => (string) ($item['label'] ?? ''),
+                'photo_url' => (string) ($item['photo_url'] ?? ''),
+            ],
+            $items
+        );
+        $flight = $extras['flight'] ?? null;
+        return [
+            'flight_title' => $flight !== null ? (string) ($flight['label'] ?? '') : null,
+            'flight_photo_url' => $flight !== null ? (string) ($flight['photo_url'] ?? '') : null,
+            'transports' => $toMedia($extras['transports'] ?? []),
+            'activities' => $toMedia($extras['activities'] ?? []),
+            'meals' => $toMedia($extras['meals'] ?? []),
         ];
     }
 

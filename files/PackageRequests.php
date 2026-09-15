@@ -43,6 +43,19 @@ final class PackageRequests
      * of each block's 'line_total'), snapshotted here so the commission owed
      * on this specific request (see commissionVariables()) never drifts if
      * the offer's own prices are edited afterwards.
+     *
+     * $flightTitle/$flightPhotoUrl and $transports/$activities/$meals
+     * (migration 070) are the title/photo of what was actually picked in
+     * each step, for the {{offre_vol_titre}}/{{offre_vol_image}}/
+     * {{offre_transport_titres}}/{{offre_transport_images}}/
+     * {{offre_activites_titres}}/{{offre_activites_images}}/
+     * {{offre_restauration_titres}}/{{offre_restauration_images}} email
+     * variables (see selectionVariables()). $transports/$activities/$meals
+     * are lists of ['title' => ..., 'photo_url' => ...].
+     *
+     * @param array<int, array{title: string, photo_url: string}> $transports
+     * @param array<int, array{title: string, photo_url: string}> $activities
+     * @param array<int, array{title: string, photo_url: string}> $meals
      */
     public static function log(
         int $packageId,
@@ -52,12 +65,18 @@ final class PackageRequests
         float $flightTotal = 0.0,
         float $transportTotal = 0.0,
         float $activityTotal = 0.0,
-        float $mealTotal = 0.0
+        float $mealTotal = 0.0,
+        ?string $flightTitle = null,
+        ?string $flightPhotoUrl = null,
+        array $transports = [],
+        array $activities = [],
+        array $meals = []
     ): int {
         if ($packageId <= 0 || $partnerId <= 0 || !self::tableReady()) {
             return 0;
         }
         $hasStepTotals = Database::columnExists('package_requests', 'flight_total');
+        $hasSelectionMedia = Database::columnExists('package_requests', 'flight_title');
         $columns = ['package_id', 'partner_id', 'status', 'client_name', 'client_email'];
         $params = [
             $packageId,
@@ -69,6 +88,17 @@ final class PackageRequests
         if ($hasStepTotals) {
             $columns = [...$columns, 'flight_total', 'transport_total', 'activity_total', 'meal_total'];
             $params = [...$params, round($flightTotal, 2), round($transportTotal, 2), round($activityTotal, 2), round($mealTotal, 2)];
+        }
+        if ($hasSelectionMedia) {
+            $columns = [...$columns, 'flight_title', 'flight_photo_url', 'transports_json', 'activities_json', 'meals_json'];
+            $params = [
+                ...$params,
+                $flightTitle !== null && trim($flightTitle) !== '' ? mb_substr(trim($flightTitle), 0, 190) : null,
+                $flightPhotoUrl !== null && trim($flightPhotoUrl) !== '' ? mb_substr(trim($flightPhotoUrl), 0, 500) : null,
+                $transports !== [] ? json_encode(array_values($transports)) : null,
+                $activities !== [] ? json_encode(array_values($activities)) : null,
+                $meals !== [] ? json_encode(array_values($meals)) : null,
+            ];
         }
         $stmt = Database::connection()->prepare(
             'INSERT INTO package_requests (' . implode(', ', $columns) . ')
@@ -168,7 +198,7 @@ final class PackageRequests
         }
         $where = implode(' AND ', $conditions);
         $stmt = Database::connection()->prepare(
-            "SELECT pr.*, pk.title AS package_title, pt.name AS partner_name,
+            "SELECT pr.*, pk.title AS package_title, pk.photo_url AS package_photo_url, pt.name AS partner_name,
                     (SELECT COUNT(*) FROM reservation_requests rr WHERE rr.package_request_id = pr.id) AS request_count
              FROM package_requests pr
              LEFT JOIN packages pk ON pk.id = pr.package_id
@@ -205,7 +235,7 @@ final class PackageRequests
         }
         $where = $conditions !== [] ? ('WHERE ' . implode(' AND ', $conditions)) : '';
         $stmt = Database::connection()->prepare(
-            "SELECT pr.*, pk.title AS package_title, pt.name AS partner_name,
+            "SELECT pr.*, pk.title AS package_title, pk.photo_url AS package_photo_url, pt.name AS partner_name,
                     (SELECT COUNT(*) FROM reservation_requests rr WHERE rr.package_request_id = pr.id) AS request_count
              FROM package_requests pr
              LEFT JOIN packages pk ON pk.id = pr.package_id
@@ -229,7 +259,7 @@ final class PackageRequests
         if ($id <= 0 || !self::tableReady()) {
             return null;
         }
-        $sql = 'SELECT pr.*, pk.title AS package_title, pt.name AS partner_name
+        $sql = 'SELECT pr.*, pk.title AS package_title, pk.photo_url AS package_photo_url, pt.name AS partner_name
                 FROM package_requests pr
                 LEFT JOIN packages pk ON pk.id = pr.package_id
                 INNER JOIN partners pt ON pt.id = pr.partner_id

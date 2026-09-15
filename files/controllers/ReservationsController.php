@@ -3702,7 +3702,11 @@ final class ReservationsController extends Controller
     }
 
     /**
-     * "Offres Complètes" email variables ({{offre_titre}}, {{offre_recap_bloc}},
+     * "Offres Complètes" email variables ({{offre_titre}}, {{offre_image}},
+     * {{offre_recap_bloc}}, {{offre_vol_titre}}, {{offre_vol_image}},
+     * {{offre_transport_titres}}, {{offre_transport_images}},
+     * {{offre_activites_titres}}, {{offre_activites_images}},
+     * {{offre_restauration_titres}}, {{offre_restauration_images}},
      * {{commission_offres_completes}}, {{total_a_payer_samchlolaure_offres_completes}}
      * — see View::emailTemplateVariableCatalog()): empty strings when the
      * request wasn't made from an offer (or its App\PackageRequests log
@@ -3720,7 +3724,16 @@ final class ReservationsController extends Controller
     ): array {
         $empty = [
             'offre_titre' => '',
+            'offre_image' => '',
             'offre_recap_bloc' => '',
+            'offre_vol_titre' => '',
+            'offre_vol_image' => '',
+            'offre_transport_titres' => '',
+            'offre_transport_images' => '',
+            'offre_activites_titres' => '',
+            'offre_activites_images' => '',
+            'offre_restauration_titres' => '',
+            'offre_restauration_images' => '',
             'commission_offres_completes' => '',
             'total_a_payer_samchlolaure_offres_completes' => '',
         ];
@@ -3737,8 +3750,67 @@ final class ReservationsController extends Controller
         $currency = (string) ($accommodationBreakdown['currency'] ?? 'EUR');
         $vars = PackageRequests::commissionVariables($partner, $packageRequest, $accommodationPayout, $currency);
         $vars['offre_titre'] = (string) ($packageRequest['package_title'] ?? '');
+        $vars['offre_image'] = self::packageMediaImageHtml((string) ($packageRequest['package_photo_url'] ?? ''), $vars['offre_titre']);
         $vars['offre_recap_bloc'] = self::packageRecapBlocHtml($summaryText);
+        $vars['offre_vol_titre'] = (string) ($packageRequest['flight_title'] ?? '');
+        $vars['offre_vol_image'] = self::packageMediaImageHtml((string) ($packageRequest['flight_photo_url'] ?? ''), $vars['offre_vol_titre']);
+        [$vars['offre_transport_titres'], $vars['offre_transport_images']] = self::packageSelectionMedia($packageRequest['transports_json'] ?? null);
+        [$vars['offre_activites_titres'], $vars['offre_activites_images']] = self::packageSelectionMedia($packageRequest['activities_json'] ?? null);
+        [$vars['offre_restauration_titres'], $vars['offre_restauration_images']] = self::packageSelectionMedia($packageRequest['meals_json'] ?? null);
         return $vars;
+    }
+
+    /**
+     * Decodes a package_requests.{transports,activities,meals}_json column
+     * (migration 070, PackageRequests::log()'s $transports/$activities/$meals
+     * — each a list of ['title' => ..., 'photo_url' => ...]) into the
+     * comma-separated titles list and the stacked <img> HTML block used by
+     * {{offre_transport_titres}}/{{offre_transport_images}} and its
+     * activités/restauration counterparts.
+     *
+     * @return array{0: string, 1: string} [titles, imagesHtml]
+     */
+    private static function packageSelectionMedia(mixed $json): array
+    {
+        $items = is_string($json) && $json !== '' ? json_decode($json, true) : null;
+        if (!is_array($items) || $items === []) {
+            return ['', ''];
+        }
+        $titles = [];
+        $imagesHtml = '';
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $title = trim((string) ($item['title'] ?? ''));
+            if ($title !== '') {
+                $titles[] = $title;
+            }
+            $image = self::packageMediaImageHtml((string) ($item['photo_url'] ?? ''), $title);
+            if ($image !== '') {
+                $imagesHtml .= '<div style="margin:0 0 10px;">' . $image . '</div>';
+            }
+        }
+        return [implode(', ', $titles), $imagesHtml];
+    }
+
+    /**
+     * A single {{offre_*_image}} <img> tag, hotlinked (absolutized, never
+     * CID-embedded — unlike {{photo_bien}}) since an offer can carry several
+     * of these (e.g. one per selected activity), which would otherwise mean
+     * attaching an unbounded number of embeds to every offer email.
+     */
+    private static function packageMediaImageHtml(string $photoUrl, string $alt): string
+    {
+        $photoUrl = trim($photoUrl);
+        if ($photoUrl === '') {
+            return '';
+        }
+        $absoluteUrl = self::absoluteUrl($photoUrl);
+        if ($absoluteUrl === '') {
+            return '';
+        }
+        return '<img src="' . htmlspecialchars($absoluteUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($alt, ENT_QUOTES, 'UTF-8') . '" width="320" style="display:block;width:320px;max-width:100%;height:auto;">';
     }
 
     /**
