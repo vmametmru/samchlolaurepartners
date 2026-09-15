@@ -1521,51 +1521,74 @@ final class ReservationsController extends Controller
         // submission into a 500 for the visitor, who would then wrongly
         // believe nothing was recorded.
         $itemCount = count($normalizedItems);
-        foreach ($normalizedItems as $itemIndex => $item) {
-            // computeItemQuote() returns null when Lodgify rates couldn't be
-            // fetched for this item; degrade to a zeroed quote (via the ??
-            // fallbacks below) instead of accessing array offsets on null.
-            $quote = $item['quote'] ?? [];
-            $itemChildrenUnder3 = (int) ($item['children_under3'] ?? $childrenUnder3);
-            $itemChildren3to12 = (int) ($item['children_3to12'] ?? $children3to12);
+        // "Offres Complètes": a same-address multi-property offer selection
+        // (see PackagesController::requestSameAddressSelection()) must send
+        // exactly ONE combined email to the client and ONE to the partner —
+        // covering every selected accommodation plus the rest of the offer
+        // (vol/transport/activités/restauration) — instead of one pair of
+        // emails per accommodation like the ordinary Calendrier multi-
+        // property cart below still does.
+        if (self::$packageContext !== null) {
             try {
-                self::sendRequestEmails($partner, [
-                    'id' => $createdIds[$itemIndex] ?? 0,
-                    'property_id' => $item['property_id'],
+                self::sendPackageMultiRequestEmails($partner, $normalizedItems, $createdIds, [
                     'client_name' => $clientName,
                     'client_email' => $clientEmail,
                     'client_phone' => $clientPhone,
-                    'checkin_date' => $item['checkin_date'],
-                    'checkout_date' => $item['checkout_date'],
-                    'adults' => (int) ($item['adults'] ?? $adults),
-                    'children' => $itemChildrenUnder3 + $itemChildren3to12,
-                    'children_under3' => $itemChildrenUnder3,
-                    'children_3to12' => $itemChildren3to12,
-                    'property_name' => $item['property_name'],
-                    'message' => $message,
                     'guests' => $input['guests'] ?? [],
+                    'message' => $message,
                     'booking_policy_id' => $input['booking_policy_id'] ?? null,
-                    'quote_currency' => $quote['currency'] ?? 'EUR',
-                    'quote_nights' => $quote['nights'] ?? 0,
-                    'quote_room_total' => $quote['room_total'] ?? 0,
-                    'quote_extra_person_total' => $quote['extra_person_total'] ?? 0,
-                    'quote_cleaning_total' => $quote['cleaning_total'] ?? 0,
-                    'quote_total_without_tax' => $quote['total_without_tax'] ?? 0,
-                    'quote_tourist_tax_total' => $quote['tourist_tax_total'] ?? 0,
-                    // Passed so requestQuoteVariables()/computeQuoteBreakdown()
-                    // extract the commission correctly (base rate - not
-                    // markup ratio) when this item's "Forcer le prix" override
-                    // is set — otherwise the {{commission_partenaire}}/
-                    // {{paiement_a_samchlolaure}} email variables would use
-                    // the standard markup% ratio and misreport the
-                    // commission for a manually forced price.
-                    'quote_room_base_before_commission' => $quote['room_base_before_commission'] ?? null,
-                    'quote_extra_person_base_before_commission' => $quote['extra_person_base_before_commission'] ?? null,
-                    'quote_vat_rate' => $quote['vat_rate'] ?? 0,
                     'language' => $requestLanguage,
-                ], $itemCount);
+                ]);
             } catch (Throwable $e) {
-                error_log('Failed to send reservation request emails: ' . $e);
+                error_log('Failed to send package reservation request emails: ' . $e);
+            }
+        } else {
+            foreach ($normalizedItems as $itemIndex => $item) {
+                // computeItemQuote() returns null when Lodgify rates couldn't be
+                // fetched for this item; degrade to a zeroed quote (via the ??
+                // fallbacks below) instead of accessing array offsets on null.
+                $quote = $item['quote'] ?? [];
+                $itemChildrenUnder3 = (int) ($item['children_under3'] ?? $childrenUnder3);
+                $itemChildren3to12 = (int) ($item['children_3to12'] ?? $children3to12);
+                try {
+                    self::sendRequestEmails($partner, [
+                        'id' => $createdIds[$itemIndex] ?? 0,
+                        'property_id' => $item['property_id'],
+                        'client_name' => $clientName,
+                        'client_email' => $clientEmail,
+                        'client_phone' => $clientPhone,
+                        'checkin_date' => $item['checkin_date'],
+                        'checkout_date' => $item['checkout_date'],
+                        'adults' => (int) ($item['adults'] ?? $adults),
+                        'children' => $itemChildrenUnder3 + $itemChildren3to12,
+                        'children_under3' => $itemChildrenUnder3,
+                        'children_3to12' => $itemChildren3to12,
+                        'property_name' => $item['property_name'],
+                        'message' => $message,
+                        'guests' => $input['guests'] ?? [],
+                        'booking_policy_id' => $input['booking_policy_id'] ?? null,
+                        'quote_currency' => $quote['currency'] ?? 'EUR',
+                        'quote_nights' => $quote['nights'] ?? 0,
+                        'quote_room_total' => $quote['room_total'] ?? 0,
+                        'quote_extra_person_total' => $quote['extra_person_total'] ?? 0,
+                        'quote_cleaning_total' => $quote['cleaning_total'] ?? 0,
+                        'quote_total_without_tax' => $quote['total_without_tax'] ?? 0,
+                        'quote_tourist_tax_total' => $quote['tourist_tax_total'] ?? 0,
+                        // Passed so requestQuoteVariables()/computeQuoteBreakdown()
+                        // extract the commission correctly (base rate - not
+                        // markup ratio) when this item's "Forcer le prix" override
+                        // is set — otherwise the {{commission_partenaire}}/
+                        // {{paiement_a_samchlolaure}} email variables would use
+                        // the standard markup% ratio and misreport the
+                        // commission for a manually forced price.
+                        'quote_room_base_before_commission' => $quote['room_base_before_commission'] ?? null,
+                        'quote_extra_person_base_before_commission' => $quote['extra_person_base_before_commission'] ?? null,
+                        'quote_vat_rate' => $quote['vat_rate'] ?? 0,
+                        'language' => $requestLanguage,
+                    ], $itemCount);
+                } catch (Throwable $e) {
+                    error_log('Failed to send reservation request emails: ' . $e);
+                }
             }
         }
 
@@ -3047,7 +3070,11 @@ final class ReservationsController extends Controller
             $partner,
             (int) (self::$packageContext['request_id'] ?? 0),
             self::$packageContext['summary'] ?? null,
-            $accommodationBreakdown
+            $accommodationBreakdown,
+            self::packageAccommodationsMedia([[
+                'property_id' => (int) ($input['property_id'] ?? 0),
+                'property_name' => (string) ($input['property_name'] ?? ''),
+            ]])
         );
         $signature = self::signatureVariables((int) ($partner['id'] ?? 0));
         $variables += $signature['variables'];
@@ -3115,6 +3142,239 @@ final class ReservationsController extends Controller
         } catch (Throwable $e) {
             error_log('Failed to send ' . $clientTemplateType . ' email to ' . (string) ($input['client_email'] ?? '') . ': ' . $e);
         }
+    }
+
+    /**
+     * Combined-email counterpart to sendRequestEmails(): sent exactly once
+     * for a same-address multi-property "Offre Complète" selection (see
+     * PackagesController::requestSameAddressSelection(), gated on
+     * self::$packageContext !== null in requestMultiple()) instead of one
+     * pair of partner/client emails per selected accommodation. All
+     * accommodation names/photos are listed via
+     * {{offre_hebergements_titres}}/{{offre_hebergements_images}}, and the
+     * {{tarif_*}}/{{tarif_bloc}} variables are the *sum* across every
+     * selected property (built with itemCount=1 so buildQuoteVariables()
+     * never adds its "voir les autres emails" caveat, since there are no
+     * other emails).
+     *
+     * @param array<int, array{property_id: int, property_name: string, checkin_date: string, checkout_date: string, adults?: int, children_3to12?: int, children_under3?: int, quote?: array}> $items
+     * @param array<int, int> $createdIds reservation_requests ids created for $items, same order
+     * @param array{client_name: string, client_email: string, client_phone: string, guests: array, message: string, booking_policy_id: mixed, language: string} $shared
+     */
+    private static function sendPackageMultiRequestEmails(array $partner, array $items, array $createdIds, array $shared): void
+    {
+        if ($items === []) {
+            return;
+        }
+        $firstItem = $items[0];
+        $firstId = (int) ($createdIds[0] ?? 0);
+        $firstPropertyId = (int) ($firstItem['property_id'] ?? 0);
+        $checkin = (string) ($firstItem['checkin_date'] ?? '');
+        $checkout = (string) ($firstItem['checkout_date'] ?? '');
+        $guestLanguage = in_array((string) ($shared['language'] ?? ''), I18n::SUPPORTED, true)
+            ? (string) $shared['language']
+            : I18n::DEFAULT_LANGUAGE;
+
+        $totalAdults = 0;
+        $totalChildren3to12 = 0;
+        $totalChildrenUnder3 = 0;
+        foreach ($items as $item) {
+            $totalAdults += (int) ($item['adults'] ?? 0);
+            $totalChildren3to12 += (int) ($item['children_3to12'] ?? 0);
+            $totalChildrenUnder3 += (int) ($item['children_under3'] ?? 0);
+        }
+
+        [$hebergementsTitres, $hebergementsImages] = self::packageAccommodationsMedia($items);
+        $photo = self::propertyPhotoTag($firstPropertyId, (string) ($firstItem['property_name'] ?? ''));
+
+        $variables = [
+            'nom_client' => (string) ($shared['client_name'] ?? ''),
+            'email_client' => (string) ($shared['client_email'] ?? ''),
+            'telephone_client' => (string) ($shared['client_phone'] ?? ''),
+            'adultes' => (string) $totalAdults,
+            // {{hebergement}} lists every selected accommodation (comma
+            // separated) rather than a single property name, since a
+            // package offer can span several properties at the same
+            // address — see packageAccommodationsMedia().
+            'hebergement' => $hebergementsTitres,
+            'message' => (string) ($shared['message'] ?? ''),
+            'partenaire' => (string) ($partner['name'] ?? ''),
+            'nationalites' => self::guestNationalitiesText(is_array($shared['guests'] ?? null) ? $shared['guests'] : []),
+            'photo_bien' => $photo['html'],
+            'photo_bien_url' => self::propertyPhotoUrlValue($firstPropertyId, 1),
+            'photo1' => self::propertyPhotoVariable($firstPropertyId, (string) ($firstItem['property_name'] ?? ''), 1),
+            'photo2' => self::propertyPhotoVariable($firstPropertyId, (string) ($firstItem['property_name'] ?? ''), 2),
+            'photo3' => self::propertyPhotoVariable($firstPropertyId, (string) ($firstItem['property_name'] ?? ''), 3),
+            'photo1_url' => self::propertyPhotoUrlValue($firstPropertyId, 1),
+            'photo2_url' => self::propertyPhotoUrlValue($firstPropertyId, 2),
+            'photo3_url' => self::propertyPhotoUrlValue($firstPropertyId, 3),
+            'email_partenaire' => (string) ($partner['email'] ?? ''),
+            'logo_partenaire' => self::partnerLogoVariable(
+                (string) ($partner['logo_url'] ?? ''),
+                (string) ($partner['name'] ?? '')
+            ),
+            'logo_partenaire_url' => self::partnerLogoUrlValue((string) ($partner['logo_url'] ?? '')),
+            'politique_reservation' => PageController::formatBookingPolicyHtml(
+                PageController::bookingPolicyText('fr', $partner, self::bookingPolicyIdFromInput($shared, $partner))
+            ),
+            'bouton_reservation' => self::bookingLinkButtonHtml($firstPropertyId, $checkin, $checkout, $totalAdults, $totalChildren3to12),
+            'bouton_verifier_disponibilites' => self::availabilityCheckButtonHtml($firstPropertyId, $checkin, $checkout, $totalAdults, $totalChildren3to12),
+            'useful_info' => self::usefulInfoButtonHtml($firstPropertyId, $guestLanguage),
+            'lien_demande_client' => self::clientReservationLink($firstId),
+            'copier_le_lien' => self::clientReservationLink($firstId),
+            'lien_demande_partenaire' => self::partnerReservationLink($firstId),
+        ];
+        $variables += self::stayVariables($checkin, $checkout, $totalChildrenUnder3, $totalChildren3to12, $totalAdults);
+
+        $markupPercent = (float) ($partner['markup_percent'] ?? 0);
+        $combinedBreakdown = self::combineQuoteBreakdowns($items, $markupPercent);
+        // itemCount is forced to 1: this IS the single combined email
+        // covering every property, so buildQuoteVariables() must never add
+        // its "voir les autres emails" caveat.
+        $variables += self::buildQuoteVariables($combinedBreakdown, 1);
+
+        $packageRequestId = (int) (self::$packageContext['request_id'] ?? 0);
+        $offerVariables = self::packageOfferVariables(
+            $partner,
+            $packageRequestId,
+            self::$packageContext['summary'] ?? null,
+            $combinedBreakdown,
+            [$hebergementsTitres, $hebergementsImages]
+        );
+        $variables += $offerVariables;
+
+        $signature = self::signatureVariables((int) ($partner['id'] ?? 0));
+        $variables += $signature['variables'];
+        $embeds = $photo['embed'] !== null ? [$photo['embed']] : [];
+        if ($signature['embed'] !== null) {
+            $embeds[] = $signature['embed'];
+        }
+
+        $pdo = Database::connection();
+        $partnerTemplate = self::findEmailTemplate($pdo, (int) $partner['id'], 'PACKAGE_REQUEST_RECEIVED_PARTNER', I18n::DEFAULT_LANGUAGE);
+        $partnerVariables = $variables;
+        if ($guestLanguage !== I18n::DEFAULT_LANGUAGE) {
+            $partnerVariables['useful_info'] = self::usefulInfoButtonHtml($firstPropertyId, I18n::DEFAULT_LANGUAGE);
+        }
+        $clientReplyTo = (string) ($shared['client_email'] ?? '');
+        try {
+            if ($partnerTemplate) {
+                Mailer::sendTemplatedEmail($partner, $partnerTemplate, (string) $partner['email'], $partnerVariables, $embeds, $clientReplyTo);
+            } else {
+                Mailer::sendRawEmail($partner, (string) $partner['email'], 'Nouvelle demande d\'offre complète - ' . $variables['nom_client'], '<p>Nouvelle demande de ' . htmlspecialchars($variables['nom_client']) . ' (' . htmlspecialchars($variables['email_client']) . ') pour ' . htmlspecialchars($hebergementsTitres !== '' ? $hebergementsTitres : 'hébergement non spécifié') . ' du ' . htmlspecialchars($variables['date_arrivee']) . ' au ' . htmlspecialchars($variables['date_depart']) . '.</p>' . $variables['tarif_bloc'], [], $clientReplyTo);
+            }
+        } catch (Throwable $e) {
+            error_log('Failed to send PACKAGE_REQUEST_RECEIVED_PARTNER email to partner #' . (int) ($partner['id'] ?? 0) . ' (' . (string) ($partner['email'] ?? '') . '): ' . $e);
+        }
+
+        $clientTemplate = self::findEmailTemplate($pdo, (int) $partner['id'], 'PACKAGE_REQUEST_RECEIVED_CLIENT', $guestLanguage);
+        $clientVariables = self::redactPartnerOnlyVariables($variables);
+        $partnerReplyTo = (string) ($partner['email'] ?? '');
+        if (trim((string) ($shared['client_email'] ?? '')) === '') {
+            return;
+        }
+        try {
+            if ($clientTemplate) {
+                Mailer::sendTemplatedEmail($partner, $clientTemplate, (string) $shared['client_email'], $clientVariables, $embeds, $partnerReplyTo);
+            } else {
+                Mailer::sendRawEmail($partner, (string) $shared['client_email'], 'Confirmation de votre demande - ' . (string) $partner['name'], '<p>Bonjour ' . htmlspecialchars((string) $shared['client_name']) . ',</p><p>Nous avons bien reçu votre demande d\'offre complète pour ' . htmlspecialchars($hebergementsTitres !== '' ? $hebergementsTitres : 'l\'hébergement') . ' du ' . htmlspecialchars($checkin) . ' au ' . htmlspecialchars($checkout) . '.</p>' . $variables['tarif_bloc'] . '<p>Nous vous contacterons très prochainement.</p><p>Cordialement,<br>' . htmlspecialchars((string) $partner['name']) . '</p>', [], $partnerReplyTo);
+            }
+        } catch (Throwable $e) {
+            error_log('Failed to send PACKAGE_REQUEST_RECEIVED_CLIENT email to ' . (string) ($shared['client_email'] ?? '') . ': ' . $e);
+        }
+    }
+
+    /**
+     * Sums each selected property's price breakdown (computeQuoteBreakdown())
+     * into a single one, so the combined offer email shows one {{tarif_bloc}}
+     * covering every accommodation instead of requiring a separate email per
+     * property. Nights is taken from the first item (same stay dates for
+     * every property in a same-address selection — see
+     * Packages::quoteSelection()).
+     *
+     * @param array<int, array{quote?: array}> $items
+     * @return array{room_total: float, partner_rate: float, vat_rate: float, commission_total: float, extra_person_total: float, cleaning_total: float, tourist_tax_total: float, total_traveler: float, vat_total: float, nights: int, currency: string}
+     */
+    private static function combineQuoteBreakdowns(array $items, float $markupPercent): array
+    {
+        $roomTotal = 0.0;
+        $extraPersonTotal = 0.0;
+        $cleaningTotal = 0.0;
+        $touristTaxTotal = 0.0;
+        $commissionTotal = 0.0;
+        $totalTraveler = 0.0;
+        $vatTotal = 0.0;
+        $nights = 0;
+        $currency = 'EUR';
+        $vatRate = 0.0;
+        foreach ($items as $item) {
+            // Unlike the ordinary Calendrier cart (where $item['quote'] is
+            // the raw computeItemQuote() output), a package multi-property
+            // item's 'quote' is already the per-property breakdown produced
+            // by Packages::quoteSelection() → ReservationsController::
+            // cacheOnlyStayQuote(), which itself returns
+            // computeQuoteBreakdown()'s result — so its fields are summed
+            // directly here rather than re-derived through
+            // computeQuoteBreakdown() a second time.
+            $breakdown = $item['quote'] ?? [];
+            $roomTotal += (float) ($breakdown['room_total'] ?? 0);
+            $extraPersonTotal += (float) ($breakdown['extra_person_total'] ?? 0);
+            $cleaningTotal += (float) ($breakdown['cleaning_total'] ?? 0);
+            $touristTaxTotal += (float) ($breakdown['tourist_tax_total'] ?? 0);
+            $commissionTotal += (float) ($breakdown['commission_total'] ?? 0);
+            $totalTraveler += (float) ($breakdown['total_traveler'] ?? 0);
+            $vatTotal += (float) ($breakdown['vat_total'] ?? 0);
+            $nights = max($nights, (int) ($breakdown['nights'] ?? 0));
+            $currency = (string) ($breakdown['currency'] ?? $currency);
+            $vatRate = max($vatRate, (float) ($breakdown['vat_rate'] ?? 0));
+        }
+
+        return [
+            'room_total' => round($roomTotal, 2),
+            'partner_rate' => round($markupPercent, 2),
+            'vat_rate' => round($vatRate, 2),
+            'commission_total' => round($commissionTotal, 2),
+            'extra_person_total' => round($extraPersonTotal, 2),
+            'cleaning_total' => round($cleaningTotal, 2),
+            'tourist_tax_total' => round($touristTaxTotal, 2),
+            'total_traveler' => round($totalTraveler, 2),
+            'vat_total' => round($vatTotal, 2),
+            'nights' => $nights,
+            'currency' => $currency ?: 'EUR',
+        ];
+    }
+
+    /**
+     * Builds the {{offre_hebergements_titres}}/{{offre_hebergements_images}}
+     * email variables: the comma-separated names and stacked hotlinked
+     * <img> tags (one per selected accommodation, see propertyPhotoHtml())
+     * for every property chosen in a same-address multi-property offer
+     * selection (Packages::quoteSelection()). Unlike
+     * packageSelectionMedia() (which decodes a JSON snapshot persisted on
+     * package_requests), this reads directly from the in-memory $items
+     * built at submission time since sendPackageMultiRequestEmails() always
+     * runs synchronously right after the reservation_requests rows are
+     * created.
+     *
+     * @param array<int, array{property_id: int, property_name: string}> $items
+     * @return array{0: string, 1: string} [titles, imagesHtml]
+     */
+    private static function packageAccommodationsMedia(array $items): array
+    {
+        $titles = [];
+        $imagesHtml = '';
+        foreach ($items as $item) {
+            $propertyId = (int) ($item['property_id'] ?? 0);
+            $name = trim((string) ($item['property_name'] ?? ''));
+            if ($name !== '') {
+                $titles[] = $name;
+            }
+            $image = self::propertyPhotoHtml($propertyId, $name, 1, 320);
+            if ($image !== '') {
+                $imagesHtml .= '<div style="margin:0 0 10px;">' . $image . '</div>';
+            }
+        }
+        return [implode(', ', $titles), $imagesHtml];
     }
 
     /**
@@ -3305,7 +3565,11 @@ final class ReservationsController extends Controller
             $partner,
             (int) ($request['package_request_id'] ?? 0),
             (string) ($request['package_summary'] ?? ''),
-            $accommodationBreakdown
+            $accommodationBreakdown,
+            self::packageAccommodationsMedia([[
+                'property_id' => (int) ($request['property_id'] ?? 0),
+                'property_name' => (string) ($request['property_name'] ?? ''),
+            ]])
         );
         $signature = self::signatureVariables((int) ($partner['id'] ?? 0));
         $variables += $signature['variables'];
@@ -3720,7 +3984,8 @@ final class ReservationsController extends Controller
         array $partner,
         int $packageRequestId,
         ?string $summaryText,
-        ?array $accommodationBreakdown
+        ?array $accommodationBreakdown,
+        ?array $accommodationsMedia = null
     ): array {
         $empty = [
             'offre_titre' => '',
@@ -3728,6 +3993,8 @@ final class ReservationsController extends Controller
             'offre_recap_bloc' => '',
             'offre_vol_titre' => '',
             'offre_vol_image' => '',
+            'offre_hebergements_titres' => '',
+            'offre_hebergements_images' => '',
             'offre_transport_titres' => '',
             'offre_transport_images' => '',
             'offre_activites_titres' => '',
@@ -3754,11 +4021,19 @@ final class ReservationsController extends Controller
         $vars['offre_recap_bloc'] = self::packageRecapBlocHtml($summaryText);
         $vars['offre_vol_titre'] = (string) ($packageRequest['flight_title'] ?? '');
         $vars['offre_vol_image'] = self::packageMediaImageHtml((string) ($packageRequest['flight_photo_url'] ?? ''), $vars['offre_vol_titre']);
+        // Accommodation(s) titles/images: passed in by the caller (either a
+        // single-entry list from sendRequestEmails(), or every selected
+        // property from sendPackageMultiRequestEmails() —
+        // packageAccommodationsMedia()) rather than read off
+        // $packageRequest, since a same-address multi-property selection is
+        // never persisted per-property on package_requests itself.
+        [$vars['offre_hebergements_titres'], $vars['offre_hebergements_images']] = $accommodationsMedia ?? ['', ''];
         [$vars['offre_transport_titres'], $vars['offre_transport_images']] = self::packageSelectionMedia($packageRequest['transports_json'] ?? null);
         [$vars['offre_activites_titres'], $vars['offre_activites_images']] = self::packageSelectionMedia($packageRequest['activities_json'] ?? null);
         [$vars['offre_restauration_titres'], $vars['offre_restauration_images']] = self::packageSelectionMedia($packageRequest['meals_json'] ?? null);
         return $vars;
     }
+
 
     /**
      * Decodes a package_requests.{transports,activities,meals}_json column
