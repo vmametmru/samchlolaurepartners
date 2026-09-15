@@ -678,6 +678,18 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
         $_POST['children_under3'] = (string) $params['children_under3'];
         $_POST['children_3to12'] = (string) $params['children_3to12'];
         $_POST['guests'] = $params['guests'];
+        // The accommodation was already priced cache-only by
+        // searchAccommodations() above (including the tourist tax computed
+        // from the party's declared nationality): hand that quote over
+        // as-is so requestReservation() persists and emails it unchanged,
+        // instead of letting it recompute from a live Lodgify call (offer
+        // pages must never call the Lodgify API — see searchAccommodations()).
+        $_POST['quote_currency'] = (string) ($match['currency'] ?? 'EUR');
+        $_POST['quote_nights'] = (string) $match['nights'];
+        $_POST['quote_room_total'] = (string) $match['room_total'];
+        $_POST['quote_extra_person_total'] = (string) $match['extra_person_total'];
+        $_POST['quote_cleaning_total'] = (string) $match['cleaning_total'];
+        $_POST['quote_tourist_tax_total'] = (string) $match['tourist_tax_total'];
         $summary = self::summaryText(
             $package,
             $extras,
@@ -1170,7 +1182,8 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
         }
         foreach ($stays as $stay) {
             $line = 'Hébergement : ' . (string) $stay['name']
-                . ' du ' . (string) $stay['checkin'] . ' au ' . (string) $stay['checkout'];
+                . ' du ' . self::recapDateFr((string) $stay['checkin'])
+                . ' au ' . self::recapDateFr((string) $stay['checkout']);
             // Multi-property selection: say who stays where, the party having
             // been spread over the properties server-side.
             if (count($stays) > 1 && isset($stay['adults'])) {
@@ -1196,6 +1209,18 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
     private static function amount(float $value, string $currency): string
     {
         return number_format($value, 2, ',', ' ') . ' ' . $currency;
+    }
+
+    /**
+     * Formats a Y-m-d stay date (as stored/returned by
+     * Packages::searchAccommodations()) as DD-MM-YYYY for the
+     * {{offre_recap_bloc}} plain-text recap (see summaryText()). Falls back
+     * to the raw value if it doesn't parse, rather than hiding the date.
+     */
+    private static function recapDateFr(string $date): string
+    {
+        $parsed = \DateTimeImmutable::createFromFormat('Y-m-d', $date);
+        return $parsed !== false ? $parsed->format('d-m-Y') : $date;
     }
 
     /**

@@ -1027,7 +1027,13 @@ final class ReservationsController extends Controller
             'currency' => $input['quote_currency'] ?? 'EUR',
             'vat_rate' => $input['quote_vat_rate'] ?? 0,
         ];
-        if ($propertyId > 0 && $checkin !== '' && $checkout !== '') {
+        if ($propertyId > 0 && $checkin !== '' && $checkout !== '' && self::$packageContext === null) {
+            // "Offres Complètes" never recompute here: the offer page's own
+            // cache-only quote (searchAccommodations()) was already handed
+            // over as the quote_* fields above by
+            // PackagesController::publicRequest(), and offer pages must
+            // never issue a live Lodgify call (see class-level note on
+            // cacheOnlyStayQuote()).
             try {
                 $checkoutDate = new \DateTimeImmutable($checkout);
                 $serverQuote = self::computeItemQuote(
