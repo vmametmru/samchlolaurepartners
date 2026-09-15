@@ -403,6 +403,16 @@ $formatVariance = static function (float $variance) use ($pricesHidden): ?string
       return parts[2] + '/' + parts[1] + '/' + parts[0];
     }
 
+    // DD-MM-YYYY variant of displayDate(), used in the "Faire une demande
+    // de réservation" recap (recapText()) to match the offer's own recap
+    // date format (see PackagesController::summaryText()/recapDateFr()).
+    function displayDateDash(isoDate) {
+      var text = String(isoDate || '');
+      var parts = text.split('-');
+      if (parts.length !== 3) { return text; }
+      return parts[2] + '-' + parts[1] + '-' + parts[0];
+    }
+
     // Tabs of the "Voir le bien" modal (description / équipements /
     // disponibilités). The page itself is a step wizard, not tabs.
     function initTabs(nav, panelsContainer, buttonAttribute, panelAttribute) {
@@ -1266,7 +1276,13 @@ $formatVariance = static function (float $variance) use ($pricesHidden): ?string
     function refreshSteps() {
       stepPanels.forEach(function (panel, index) {
         var nextButton = panel.querySelector('[data-package-step-next]');
-        if (nextButton) { nextButton.disabled = stepError(index) !== ''; }
+        var error = stepError(index);
+        if (nextButton) { nextButton.disabled = error !== ''; }
+        // Shown live next to the button (not only after a blocked click),
+        // so the client immediately sees why "Étape suivante" is disabled
+        // (e.g. "Choisissez votre hébergement pour continuer.").
+        var errorSpan = panel.querySelector('[data-package-step-error]');
+        if (errorSpan) { errorSpan.textContent = error; }
       });
       refreshTotalBar();
     }
@@ -1334,13 +1350,13 @@ $formatVariance = static function (float $variance) use ($pricesHidden): ?string
     function recapText() {
       var dates = stayDates();
       if (selected !== null) {
-        return selected.name + ' — du ' + dates.checkin + ' au ' + dates.checkout
+        return selected.name + ' — du ' + displayDateDash(dates.checkin) + ' au ' + displayDateDash(dates.checkout)
           + (pricesHidden || selected.total_all_in === null || selected.total_all_in === undefined
             ? '' : ' — total tout compris ' + money(selected.total_all_in, selected.currency));
       }
       var label = selectedGroupIds.length + ' biens à la même adresse'
         + (groupStay && groupStay.location ? ' (' + groupStay.location + ')' : '')
-        + ' — du ' + dates.checkin + ' au ' + dates.checkout;
+        + ' — du ' + displayDateDash(dates.checkin) + ' au ' + displayDateDash(dates.checkout);
       if (!pricesHidden && groupSelection && groupSelection.total_all_in !== null && groupSelection.total_all_in !== undefined) {
         label += ' — total tout compris ' + money(groupSelection.total_all_in, groupSelection.currency);
       }
