@@ -351,6 +351,18 @@ try {
         case route($method, $path, 'GET', '#^/partner/offres$#'):
             PackagesController::partnerIndex();
             break;
+        case route($method, $path, 'GET', '#^/partner/offres/demandes$#'):
+            PackagesController::partnerRequestsIndex();
+            break;
+        case route($method, $path, 'GET', '#^/partner/offres/demandes/(\d+)$#', $matches):
+            PackagesController::partnerRequestView((int) $matches[1]);
+            break;
+        case route($method, $path, 'POST', '#^/partner/offres/demandes/(\d+)/status$#', $matches):
+            PackagesController::partnerRequestStatus((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/partner/offres/demandes/(\d+)/delete$#', $matches):
+            PackagesController::partnerRequestDelete((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/partner/offres/force-child-visibility$#'):
+            PackagesController::partnerForceChildVisibility();
         case route($method, $path, 'GET', '#^/partner/offres/nouvelle$#'):
             PackagesController::partnerForm(null);
             break;
@@ -522,6 +534,16 @@ try {
         case route($method, $path, 'GET', '#^/admin/offres$#'):
             PackagesController::adminIndex();
             break;
+        case route($method, $path, 'GET', '#^/admin/offres/demandes$#'):
+            PackagesController::adminRequestsIndex();
+            break;
+        case route($method, $path, 'GET', '#^/admin/offres/demandes/(\d+)$#', $matches):
+            PackagesController::adminRequestView((int) $matches[1]);
+            break;
+        case route($method, $path, 'POST', '#^/admin/offres/demandes/(\d+)/status$#', $matches):
+            PackagesController::adminRequestStatus((int) $matches[1]);
+        case route($method, $path, 'POST', '#^/admin/offres/demandes/(\d+)/delete$#', $matches):
+            PackagesController::adminRequestDelete((int) $matches[1]);
         case route($method, $path, 'GET', '#^/admin/offres/nouvelle$#'):
             PackagesController::adminForm(null);
             break;

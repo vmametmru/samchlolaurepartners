@@ -2442,7 +2442,21 @@ function initTemplateEditor() {
     // legacy {{photo_bien}} token (a full server-generated <img> tag, kept
     // for templates saved before this variable existed) is still rendered
     // as a preview-only placeholder further below.
-    photo_bien: { src: '{{photo_bien_url}}', alt: '{{hebergement}}', label: 'photo du bien', defaultSize: 320, shape: 'rect' }
+    photo_bien: { src: '{{photo_bien_url}}', alt: '{{hebergement}}', label: 'photo du bien', defaultSize: 320, shape: 'rect' },
+    // Offre Complète resizable photo variables: like photo_bien, each
+    // resolves to a raw image URL ({{offre_*_url}}) so it can be picked,
+    // resized and repositioned from the "click on image" editor modal,
+    // distinct from the ready-to-use {{offre_image}}/{{offre_vol_image}}/
+    // {{offre_hebergements_images}}/... <img> HTML blocks (which may stack
+    // several images and are never individually resizable). For the
+    // plural hébergements/transport/activités/restauration selections only
+    // the first chosen item's photo is exposed this way.
+    offre_photo: { src: '{{offre_image_url}}', alt: '{{offre_titre}}', label: 'photo de l’offre', defaultSize: 320, shape: 'rect' },
+    offre_vol_photo: { src: '{{offre_vol_image_url}}', alt: '{{offre_vol_titre}}', label: 'photo du vol (offre)', defaultSize: 320, shape: 'rect' },
+    offre_hebergement_image: { src: '{{offre_hebergement_image_url}}', alt: '{{offre_hebergements_titres}}', label: 'photo de l’hébergement (offre)', defaultSize: 320, shape: 'rect' },
+    offre_transport_image: { src: '{{offre_transport_image_url}}', alt: '{{offre_transport_titres}}', label: 'photo du transport (offre)', defaultSize: 320, shape: 'rect' },
+    offre_activite_image: { src: '{{offre_activite_image_url}}', alt: '{{offre_activites_titres}}', label: 'photo de l’activité (offre)', defaultSize: 320, shape: 'rect' },
+    offre_restauration_image: { src: '{{offre_restauration_image_url}}', alt: '{{offre_restauration_titres}}', label: 'photo de la restauration (offre)', defaultSize: 320, shape: 'rect' }
   };
 
   // Sample values used only to populate the HTML preview so every plain-text
@@ -2489,7 +2503,16 @@ function initTemplateEditor() {
     lien_demande_client: 'https://exemple-partenaire.grand-baie-maurice.com/r/2f8c1d4b9a',
     copier_le_lien: 'https://exemple-partenaire.grand-baie-maurice.com/r/2f8c1d4b9a',
     lien_demande_partenaire: 'https://exemple-partenaire.grand-baie-maurice.com/partner/reservations/128',
-    detail_modification: 'Dates : du 12 juil. 2026 au 19 juil. 2026 (au lieu du 10 juil. 2026 au 17 juil. 2026)'
+    detail_modification: 'Dates : du 12 juil. 2026 au 19 juil. 2026 (au lieu du 10 juil. 2026 au 17 juil. 2026)',
+    offre_titre: 'Séjour Découverte Grand Baie',
+    offre_vol_titre: 'Vol Air Mauritius Paris ⇄ Maurice',
+    offre_hebergements_titres: 'Villa Bleu Océan, Appartement Lagon Bleu',
+    offre_transport_titres: 'Transfert aéroport privé',
+    offre_activites_titres: 'Excursion Île aux Cerfs',
+    offre_restauration_titres: 'Formule demi-pension',
+    offre_total_a_payer_client: '2 950,00 €',
+    commission_offres_completes: '210,00 €',
+    total_a_payer_samchlolaure_offres_completes: '1 550,00 €'
   };
 
   // These tokens are rendered as real <img> elements (or a dedicated block,
@@ -2499,9 +2522,54 @@ function initTemplateEditor() {
     'photo1', 'photo2', 'photo3', 'logo_partenaire', 'signature_photo', 'photo_bien', 'tarif_bloc', 'bouton_reservation', 'bouton_verifier_disponibilites', 'useful_info'
   ]);
 
+  // {{offre_image}}/{{offre_vol_image}}/{{offre_hebergements_images}}/
+  // {{offre_transport_images}}/{{offre_activites_images}}/
+  // {{offre_restauration_images}} are computed server-side as ready-to-use
+  // <img> HTML (ReservationsController::packageMediaImageHtml()/
+  // packageSelectionMedia()/packageAccommodationsMedia() — one or several
+  // stacked images for the "_images" plural ones). Without a dedicated
+  // sample builder they fell through to the generic plain-text chip
+  // (variableChipHtml()), which only ever shows the raw "{{name}}" token
+  // since these have no sampleTextValues entry — so the preview never
+  // actually showed an image for these Offre Complète variables.
+  const offerImageVariableSamples = {
+    offre_image: { label: 'Offre Complète', count: 1 },
+    offre_vol_image: { label: 'Vol', count: 1 },
+    offre_hebergements_images: { label: 'Hébergement', count: 2 },
+    offre_transport_images: { label: 'Transport', count: 1 },
+    offre_activites_images: { label: 'Activité', count: 2 },
+    offre_restauration_images: { label: 'Restauration', count: 1 }
+  };
+
+  function buildSampleOfferImageHtml(name) {
+    const config = offerImageVariableSamples[name];
+    if (!config) return '';
+    let inner = '';
+    for (let i = 0; i < config.count; i++) {
+      const label = config.count > 1 ? `${config.label} ${i + 1}` : config.label;
+      inner += `<div style="margin:0 0 10px;"><img src="${placeholderDataUrl(label, 320)}" alt="${label}" width="320" style="display:block;width:320px;max-width:100%;height:auto;"></div>`;
+    }
+    return `<div data-template-var="${name}" contenteditable="false" title="Image(s) générée(s) automatiquement (aperçu avec données temporaires)">${inner}</div>`;
+  }
+
+  function buildSampleOffreRecapBlocHtml() {
+    return '<div data-template-var="offre_recap_bloc" contenteditable="false" style="padding:12px 24px 16px;border:1px dashed #93c5fd;border-radius:8px;" title="Bloc généré automatiquement (aperçu avec données temporaires)">'
+      + '<p style="margin:0 0 10px;font-weight:bold;font-size:14px;color:#111827;">Récapitulatif de l\u2019Offre Complète :</p>'
+      + '<ul style="margin:0;padding-left:18px;font-size:14px;color:#374151;">'
+      + '<li style="padding:4px 0;">Vol : Vol Air Mauritius Paris ⇄ Maurice</li>'
+      + '<li style="padding:4px 0;">Transport : Transfert aéroport privé</li>'
+      + '<li style="padding:4px 0;">Activités : Excursion Île aux Cerfs</li>'
+      + '<li style="padding:4px 0;">Restauration : Formule demi-pension</li>'
+      + '</ul>'
+      + '</div>';
+  }
+
   // Variables rendered as a computed HTML block server-side: the preview must
   // mirror that markup instead of falling back to a plain-text chip.
-  const blockVariableNames = new Set(['tarif_bloc', 'bouton_reservation', 'bouton_verifier_disponibilites', 'useful_info']);
+  const blockVariableNames = new Set([
+    'tarif_bloc', 'bouton_reservation', 'bouton_verifier_disponibilites', 'useful_info', 'offre_recap_bloc',
+    ...Object.keys(offerImageVariableSamples)
+  ]);
 
   function buildSampleBoutonReservationHtml() {
     return '<div data-template-var="bouton_reservation" contenteditable="false" style="text-align:center;margin:20px 0;" title="Bouton généré automatiquement (aperçu avec données temporaires)">'
@@ -2772,7 +2840,7 @@ function initTemplateEditor() {
     let output = html;
 
     output = output.replace(
-      /<img\b([^>]*?)\ssrc=(['"])\{\{(photo_bien_url|photo[123]_url|logo_partenaire_url|signature_photo_url)\}\}\2([^>]*)>/gi,
+      /<img\b([^>]*?)\ssrc=(['"])\{\{(photo_bien_url|photo[123]_url|logo_partenaire_url|signature_photo_url|offre_image_url|offre_vol_image_url|offre_hebergement_image_url|offre_transport_image_url|offre_activite_image_url|offre_restauration_image_url)\}\}\2([^>]*)>/gi,
       (match, before, quote, tokenName, after) => {
         const source = `{{${tokenName}}}`;
         const template = mediaTemplateBySource(source);
@@ -2850,6 +2918,14 @@ function initTemplateEditor() {
         } else if (name === 'useful_info') {
           const wrapper = doc.createElement('div');
           wrapper.innerHTML = buildSampleUsefulInfoHtml();
+          fragment.appendChild(wrapper.firstElementChild);
+        } else if (Object.prototype.hasOwnProperty.call(offerImageVariableSamples, name)) {
+          const wrapper = doc.createElement('div');
+          wrapper.innerHTML = buildSampleOfferImageHtml(name);
+          fragment.appendChild(wrapper.firstElementChild);
+        } else if (name === 'offre_recap_bloc') {
+          const wrapper = doc.createElement('div');
+          wrapper.innerHTML = buildSampleOffreRecapBlocHtml();
           fragment.appendChild(wrapper.firstElementChild);
         } else {
           const wrapper = doc.createElement('span');
@@ -3320,6 +3396,8 @@ function initTemplateEditor() {
       if (name === 'tarif_bloc') return buildSampleTarifBlocHtml();
       if (name === 'bouton_verifier_disponibilites') return buildSampleAvailabilityButtonHtml();
       if (name === 'useful_info') return buildSampleUsefulInfoHtml();
+      if (Object.prototype.hasOwnProperty.call(offerImageVariableSamples, name)) return buildSampleOfferImageHtml(name);
+      if (name === 'offre_recap_bloc') return buildSampleOffreRecapBlocHtml();
       return variableChipHtml(name);
     }
 

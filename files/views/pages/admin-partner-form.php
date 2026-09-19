@@ -10,6 +10,16 @@
     <label><span>Page TikTok</span><input class="input" type="url" name="tiktok_url" value="<?= \App\View::e($partnerData['tiktok_url'] ?? '') ?>"></label>
     <label><span>Page Instagram</span><input class="input" type="url" name="instagram_url" value="<?= \App\View::e($partnerData['instagram_url'] ?? '') ?>"></label>
     <label><span>Marge % *</span><input class="input" type="number" name="markup_percent" min="0" max="100" step="0.5" value="<?= \App\View::e((string) ($partnerData['markup_percent'] ?? 0)) ?>"></label>
+    <?php if (\App\Database::columnExists('partners', 'packages_commission_flight_percent')): ?>
+    <h2 class="section-title">Commissions Offres Complètes (%)</h2>
+    <p class="text-muted">Commission due par ce partenaire sur chaque étape d'une Offre Complète, calculée sur le total réellement sélectionné par le client à cette étape. N'a d'effet que si "Offres Complètes" est activé ci-dessous.</p>
+    <div class="form-grid cols-2">
+      <label><span>Vol %</span><input class="input" type="number" name="packages_commission_flight_percent" min="0" max="100" step="0.5" value="<?= \App\View::e((string) ($partnerData['packages_commission_flight_percent'] ?? 0)) ?>"></label>
+      <label><span>Transport %</span><input class="input" type="number" name="packages_commission_transport_percent" min="0" max="100" step="0.5" value="<?= \App\View::e((string) ($partnerData['packages_commission_transport_percent'] ?? 0)) ?>"></label>
+      <label><span>Activités %</span><input class="input" type="number" name="packages_commission_activity_percent" min="0" max="100" step="0.5" value="<?= \App\View::e((string) ($partnerData['packages_commission_activity_percent'] ?? 0)) ?>"></label>
+      <label><span>Restauration %</span><input class="input" type="number" name="packages_commission_meal_percent" min="0" max="100" step="0.5" value="<?= \App\View::e((string) ($partnerData['packages_commission_meal_percent'] ?? 0)) ?>"></label>
+    </div>
+    <?php endif; ?>
     <label><span>Nettoyage (coût par nuit et par personne) *</span><input class="input" type="number" name="cleaning_fee_per_person_per_night" min="0" step="0.01" value="<?= \App\View::e((string) ($partnerData['cleaning_fee_per_person_per_night'] ?? 0)) ?>"></label>
     <div class="logo-upload-card">
       <label><span>Logo</span><input class="input" type="file" name="logo" accept="image/png,image/jpeg,image/gif,image/webp"></label>

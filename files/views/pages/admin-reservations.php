@@ -54,7 +54,7 @@ $currentUrl = $_SERVER['REQUEST_URI'] ?? '/admin/reservations';
           <tr>
             <td><input type="checkbox" name="ids[]" value="<?= $rid ?>" class="admin-reservations-row-checkbox"></td>
             <td><?= \App\View::e($reservation['partner_name'] ?? '—') ?></td>
-            <td><?= \App\View::e($reservation['client_name']) ?><br><small><?= \App\View::e($reservation['client_email']) ?></small></td>
+            <td><?= \App\View::e($reservation['client_name']) ?><?php if (!empty($reservation['package_request_id'])): ?> <a class="icon-btn" title="Rattachée à une demande d'offre complète" href="/admin/offres/demandes/<?= (int) $reservation['package_request_id'] ?>">📦</a><?php endif; ?><br><small><?= \App\View::e($reservation['client_email']) ?></small></td>
             <td><?= \App\View::e($reservation['property_name'] ?: '—') ?></td>
             <td><?= \App\View::e($reservation['checkin_date']) ?> → <?= \App\View::e($reservation['checkout_date']) ?></td>
             <td><?= (int) $reservation['adults'] ?>A · <?= (int) $reservation['children'] ?>E</td>

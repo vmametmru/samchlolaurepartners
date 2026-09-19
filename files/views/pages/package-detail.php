@@ -297,6 +297,19 @@ $formatVariance = static function (float $variance) use ($pricesHidden): ?string
     <?php endif; ?>
   </div>
 
+  <!-- Confirmation shown once the offer request email has actually been
+       sent: closing it (the only action available) sends the client back
+       to the offers listing rather than leaving them on a now-submitted
+       form. -->
+  <div class="simple-modal-overlay" data-package-request-sent-modal hidden>
+    <div class="simple-modal-dialog" role="dialog" aria-modal="true" aria-label="Email envoyé">
+      <p>Email envoyé</p>
+      <div class="button-row mt-16">
+        <button type="button" class="btn-primary" data-package-request-sent-ok>Ok</button>
+      </div>
+    </div>
+  </div>
+
   <!-- "Voir le bien" modal: presentation of one accommodation of the offer
        (photos, description, équipements) plus a plain availability calendar.
        An offer is sold as a whole, so nothing here ever shows a price: the
@@ -359,6 +372,7 @@ $formatVariance = static function (float $variance) use ($pricesHidden): ?string
     var requestBlock = page.querySelector('[data-package-request]');
     var requestForm = page.querySelector('[data-package-request-form]');
     var requestRecap = page.querySelector('[data-package-request-recap]');
+    var requestSentModal = page.querySelector('[data-package-request-sent-modal]');
     var searchStatus = page.querySelector('[data-package-search-status]');
     var totalBar = page.querySelector('[data-package-total-bar]');
     var totalBarLines = page.querySelector('[data-package-total-bar-lines]');
@@ -387,6 +401,16 @@ $formatVariance = static function (float $variance) use ($pricesHidden): ?string
       var parts = text.split('-');
       if (parts.length !== 3) { return text; }
       return parts[2] + '/' + parts[1] + '/' + parts[0];
+    }
+
+    // DD-MM-YYYY variant of displayDate(), used in the "Faire une demande
+    // de réservation" recap (recapText()) to match the offer's own recap
+    // date format (see PackagesController::summaryText()/recapDateFr()).
+    function displayDateDash(isoDate) {
+      var text = String(isoDate || '');
+      var parts = text.split('-');
+      if (parts.length !== 3) { return text; }
+      return parts[2] + '-' + parts[1] + '-' + parts[0];
     }
 
     // Tabs of the "Voir le bien" modal (description / équipements /
@@ -631,6 +655,19 @@ $formatVariance = static function (float $variance) use ($pricesHidden): ?string
       var first = filled[0].nationality;
       var same = filled.every(function (guest) { return guest.nationality === first; });
       return same ? first : '';
+    }
+
+    /**
+     * Whether every guest currently has a nationality selected (uniform
+     * value applied to all, or every individual selector filled in): the
+     * tourist tax (see Packages::guestsForNationality()) cannot be computed
+     * without it, so the accommodation step must not let the client move on
+     * until it is set (see accommodationStepError()).
+     */
+    function nationalitiesComplete() {
+      var guests = collectPackageGuests();
+      if (guests.length === 0) { return false; }
+      return guests.every(function (guest) { return (guest.nationality || '').trim() !== ''; });
     }
 
     function searchPayload() {
@@ -1116,20 +1153,33 @@ $formatVariance = static function (float $variance) use ($pricesHidden): ?string
     // those criteria, so the selection is dropped instead of being carried
     // over to a stay the client never validated.
     page.querySelectorAll('[data-package-checkin], [data-package-checkout], [data-package-adults],'
-      + ' [data-package-children], [data-package-babies], [data-package-same-nationality],'
-      + ' [data-package-uniform-nationality]').forEach(function (field) {
+      + ' [data-package-children], [data-package-babies]').forEach(function (field) {
       field.addEventListener('change', clearSelection);
       field.addEventListener('input', clearSelection);
+    });
+
+    // The nationality only changes the tourist tax (Packages::guestsForNationality()),
+    // never the availability: the bien already chosen (and the already
+    // displayed cards) stay valid, so a fresh search is re-run in place —
+    // mirroring how flight/extras options refresh the total — instead of
+    // wiping the results like the fields above.
+    function refreshOnNationalityChange() {
+      refreshSteps();
+      if (!results.hidden || !alternatives.hidden || !groupsBlock.hidden) { search(); }
+    }
+    page.querySelectorAll('[data-package-same-nationality], [data-package-uniform-nationality]').forEach(function (field) {
+      field.addEventListener('change', refreshOnNationalityChange);
+      field.addEventListener('input', refreshOnNationalityChange);
     });
     page.addEventListener('change', function (event) {
       var target = event.target;
       if (!target || !target.matches || !target.matches('[data-package-nationality-select]')) { return; }
-      clearSelection();
+      refreshOnNationalityChange();
     });
     page.addEventListener('input', function (event) {
       var target = event.target;
       if (!target || !target.matches || !target.matches('[data-package-nationality-select]')) { return; }
-      clearSelection();
+      refreshOnNationalityChange();
     });
     page.querySelectorAll('[data-package-adults], [data-package-children], [data-package-babies], [data-package-same-nationality], [data-package-uniform-nationality]')
       .forEach(function (field) {
@@ -1173,9 +1223,13 @@ $formatVariance = static function (float $variance) use ($pricesHidden): ?string
      * The accommodation step is the only blocking one: either one single bien
      * is chosen, or enough biens of one same address are ticked for everybody
      * to be housed (the server only returns a selection total when the whole
-     * party fits in the ticked biens).
+     * party fits in the ticked biens). The nationality is checked first since
+     * it also drives the tourist tax shown on every accommodation card.
      */
     function accommodationStepError() {
+      if (!nationalitiesComplete()) {
+        return 'Renseignez la nationalité pour continuer.';
+      }
       if (selectedGroupIds.length > 0) {
         if (selectedGroupIds.length < 2) {
           return 'Sélectionnez au moins deux biens à la même adresse.';
@@ -1222,7 +1276,13 @@ $formatVariance = static function (float $variance) use ($pricesHidden): ?string
     function refreshSteps() {
       stepPanels.forEach(function (panel, index) {
         var nextButton = panel.querySelector('[data-package-step-next]');
-        if (nextButton) { nextButton.disabled = stepError(index) !== ''; }
+        var error = stepError(index);
+        if (nextButton) { nextButton.disabled = error !== ''; }
+        // Shown live next to the button (not only after a blocked click),
+        // so the client immediately sees why "Étape suivante" is disabled
+        // (e.g. "Choisissez votre hébergement pour continuer.").
+        var errorSpan = panel.querySelector('[data-package-step-error]');
+        if (errorSpan) { errorSpan.textContent = error; }
       });
       refreshTotalBar();
     }
@@ -1290,13 +1350,13 @@ $formatVariance = static function (float $variance) use ($pricesHidden): ?string
     function recapText() {
       var dates = stayDates();
       if (selected !== null) {
-        return selected.name + ' — du ' + dates.checkin + ' au ' + dates.checkout
+        return selected.name + ' — du ' + displayDateDash(dates.checkin) + ' au ' + displayDateDash(dates.checkout)
           + (pricesHidden || selected.total_all_in === null || selected.total_all_in === undefined
             ? '' : ' — total tout compris ' + money(selected.total_all_in, selected.currency));
       }
       var label = selectedGroupIds.length + ' biens à la même adresse'
         + (groupStay && groupStay.location ? ' (' + groupStay.location + ')' : '')
-        + ' — du ' + dates.checkin + ' au ' + dates.checkout;
+        + ' — du ' + displayDateDash(dates.checkin) + ' au ' + displayDateDash(dates.checkout);
       if (!pricesHidden && groupSelection && groupSelection.total_all_in !== null && groupSelection.total_all_in !== undefined) {
         label += ' — total tout compris ' + money(groupSelection.total_all_in, groupSelection.currency);
       }
@@ -1407,11 +1467,21 @@ $formatVariance = static function (float $variance) use ($pricesHidden): ?string
           requestForm.reset();
           requestForm.hidden = true;
           requestRecap.textContent = 'Votre demande a bien été envoyée. Notre équipe vous répondra rapidement.';
+          if (requestSentModal) { requestSentModal.hidden = false; }
         }).catch(function () {
           status.textContent = 'Envoi impossible pour le moment.';
           releaseRequest();
         });
       });
+    }
+
+    if (requestSentModal) {
+      var requestSentOkButton = requestSentModal.querySelector('[data-package-request-sent-ok]');
+      if (requestSentOkButton) {
+        requestSentOkButton.addEventListener('click', function () {
+          window.location.href = '/offres';
+        });
+      }
     }
   })();
 </script>

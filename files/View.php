@@ -419,7 +419,7 @@ final class View
      */
     public static function clientFacingTemplateTypes(): array
     {
-        return ['REQUEST_RECEIVED_CLIENT', 'RESERVATION_CONFIRMED', 'RESERVATION_CANCELLED', 'RESERVATION_REOPENED', 'RESERVATION_MODIFIED_CLIENT', 'REMINDER_CLIENT'];
+        return ['REQUEST_RECEIVED_CLIENT', 'RESERVATION_CONFIRMED', 'RESERVATION_CANCELLED', 'RESERVATION_REOPENED', 'RESERVATION_MODIFIED_CLIENT', 'REMINDER_CLIENT', 'PACKAGE_REQUEST_RECEIVED_CLIENT', 'PACKAGE_REQUEST_CONFIRMED', 'PACKAGE_REQUEST_CANCELLED'];
     }
 
     public static function isClientFacingTemplateType(string $type): bool
@@ -486,6 +486,22 @@ final class View
             ['key' => 'copier_le_lien', 'description' => 'Copier le Lien / Copy link : identique à {{lien_demande_client}}, le même lien (/r/{token}) que celui copié par le bouton "🔗 Copier le lien"/"🔗 Copy link" affiché au client et au partenaire. Utilisable dans les templates client comme partenaire', 'partnerOnly' => false],
             ['key' => 'lien_demande_partenaire', 'description' => 'Lien direct vers la fiche de la demande de réservation dans l\'espace partenaire (/partner/reservations/{id}) ; nécessite d\'être connecté en tant que partenaire', 'partnerOnly' => true],
             ['key' => 'detail_modification', 'description' => 'Liste (déjà mise en forme) de ce qui a changé lors de la modification de la demande : dates, voyageurs, hébergement et tarif total (vide si rien de tout cela n\'a changé)', 'partnerOnly' => false],
+            ['key' => 'offre_titre', 'description' => 'Titre de l\'Offre Complète (App\\Packages) à l\'origine de la demande (vide si la demande n\'a pas été faite depuis une offre)', 'partnerOnly' => false],
+            ['key' => 'offre_image', 'description' => 'Photo de l\'Offre Complète (image <img> prête à l\'emploi). Vide si l\'offre n\'a pas de photo ou si la demande n\'a pas été faite depuis une offre', 'partnerOnly' => false],
+            ['key' => 'offre_recap_bloc', 'description' => 'Bloc récapitulatif déjà mis en forme des options choisies dans l\'Offre Complète (Vol, Transport, Activités, Restauration), sans jamais afficher leur prix individuel — l\'offre restant vendue en bloc. Vide si la demande n\'a pas été faite depuis une offre', 'partnerOnly' => false],
+            ['key' => 'offre_vol_titre', 'description' => 'Titre de l\'option de vol choisie dans l\'Offre Complète. Vide si aucun vol n\'a été choisi ou si la demande n\'a pas été faite depuis une offre', 'partnerOnly' => false],
+            ['key' => 'offre_vol_image', 'description' => 'Photo de l\'option de vol choisie (image <img> prête à l\'emploi). Vide si l\'option n\'a pas de photo', 'partnerOnly' => false],
+            ['key' => 'offre_hebergements_titres', 'description' => 'Nom(s) du ou des hébergements sélectionnés dans l\'Offre Complète, séparés par une virgule (plusieurs biens possibles pour un même groupe de voyageurs). Vide si la demande n\'a pas été faite depuis une offre', 'partnerOnly' => false],
+            ['key' => 'offre_hebergements_images', 'description' => 'Photo(s) du ou des hébergements sélectionnés (images <img> prêtes à l\'emploi, une par ligne). Vide si aucune photo n\'est disponible', 'partnerOnly' => false],
+            ['key' => 'offre_transport_titres', 'description' => 'Titre(s) du ou des transports choisis dans l\'Offre Complète, séparés par une virgule. Vide si aucun transport n\'a été choisi', 'partnerOnly' => false],
+            ['key' => 'offre_transport_images', 'description' => 'Photo(s) du ou des transports choisis (images <img> prêtes à l\'emploi, une par ligne). Vide si aucune photo n\'est disponible', 'partnerOnly' => false],
+            ['key' => 'offre_activites_titres', 'description' => 'Titre(s) de la ou des activités choisies dans l\'Offre Complète, séparés par une virgule. Vide si aucune activité n\'a été choisie', 'partnerOnly' => false],
+            ['key' => 'offre_activites_images', 'description' => 'Photo(s) de la ou des activités choisies (images <img> prêtes à l\'emploi, une par ligne). Vide si aucune photo n\'est disponible', 'partnerOnly' => false],
+            ['key' => 'offre_restauration_titres', 'description' => 'Titre(s) de la ou des formules de restauration choisies dans l\'Offre Complète, séparés par une virgule. Vide si aucune restauration n\'a été choisie', 'partnerOnly' => false],
+            ['key' => 'offre_restauration_images', 'description' => 'Photo(s) de la ou des formules de restauration choisies (images <img> prêtes à l\'emploi, une par ligne). Vide si aucune photo n\'est disponible', 'partnerOnly' => false],
+            ['key' => 'offre_total_a_payer_client', 'description' => 'Offre - Total à payer par le client : prix tout compris de l\'Offre Complète (Hébergement + Vol + Transport + Activités + Restauration), sans jamais détailler le prix de chaque ligne — l\'offre restant vendue en bloc. Vide si la demande n\'a pas été faite depuis une offre', 'partnerOnly' => false],
+            ['key' => 'commission_offres_completes', 'description' => 'Commission due par le partenaire sur cette Offre Complète, calculée à partir des % de commission Vol/Transport/Activités/Restauration configurés pour ce partenaire (Total Vol × %Vol + Total Transport × %Transport + Total Activités × %Activités + Total Restauration × %Restauration). Vide si la demande n\'a pas été faite depuis une offre (information partenaire uniquement)', 'partnerOnly' => true],
+            ['key' => 'total_a_payer_samchlolaure_offres_completes', 'description' => 'Total à payer à SamChloLaure pour cette Offre Complète : {{paiement_a_samchlolaure}} (hébergement) + {{commission_offres_completes}}. Vide si la demande n\'a pas été faite depuis une offre (information partenaire uniquement)', 'partnerOnly' => true],
         ];
     }
 
@@ -505,6 +521,12 @@ final class View
             ['name' => 'photo3', 'default' => 320, 'description' => '3e photo du bien'],
             ['name' => 'logo_partenaire', 'default' => 80, 'description' => 'Logo du partenaire'],
             ['name' => 'signature_photo', 'default' => 64, 'description' => 'Photo/avatar affiché dans la signature'],
+            ['name' => 'offre_photo', 'default' => 320, 'description' => 'Photo de l\'Offre Complète (taille réglable). Vide si la demande n\'a pas été faite depuis une offre'],
+            ['name' => 'offre_vol_photo', 'default' => 320, 'description' => 'Photo du vol choisi dans l\'Offre Complète (taille réglable). Vide si aucun vol n\'a été choisi'],
+            ['name' => 'offre_hebergement_image', 'default' => 320, 'description' => 'Photo du premier hébergement sélectionné dans l\'Offre Complète (taille réglable). Vide si aucune photo n\'est disponible'],
+            ['name' => 'offre_transport_image', 'default' => 320, 'description' => 'Photo du premier transport choisi dans l\'Offre Complète (taille réglable). Vide si aucune photo n\'est disponible'],
+            ['name' => 'offre_activite_image', 'default' => 320, 'description' => 'Photo de la première activité choisie dans l\'Offre Complète (taille réglable). Vide si aucune photo n\'est disponible'],
+            ['name' => 'offre_restauration_image', 'default' => 320, 'description' => 'Photo de la première formule de restauration choisie dans l\'Offre Complète (taille réglable). Vide si aucune photo n\'est disponible'],
         ];
     }
 }

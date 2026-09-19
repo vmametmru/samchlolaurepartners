@@ -11,6 +11,8 @@ use App\Flash;
 use App\HttpException;
 use App\LodgifyClient;
 use App\Packages;
+use App\PackageRequests;
+use App\PartnerLinks;
 use App\Tenant;
 use App\View;
 use PDO;
@@ -90,6 +92,108 @@ final class PackagesController extends Controller
         self::redirect('/partner/offres', 'Offre supprimée.');
     }
 
+    // ── Partner: offer requests log ──────────────────────────────────────
+
+    /**
+     * @return string[] Status filter selected via ?status[]=... on
+     * /partner/offres/demandes and /admin/offres/demandes, defaulting to
+     * every status when none is given (same pattern as
+     * partner-reservations.php's $selectedStatuses).
+     */
+    private static function selectedRequestStatuses(): array
+    {
+        $requested = array_values(array_intersect(
+            (array) ($_GET['status'] ?? []),
+            PackageRequests::STATUSES
+        ));
+        return $requested !== [] ? $requested : PackageRequests::STATUSES;
+    }
+
+    public static function partnerRequestsIndex(): void
+    {
+        $user = self::requirePartnerUser();
+        $partnerId = (int) $user['partner_id'];
+        $statuses = self::selectedRequestStatuses();
+        $scopeIds = PackageRequests::scopeIdsForPartner($partnerId);
+        View::render('pages/package-requests-list', [
+            'pageTitle' => 'Demandes d\'Offres Complètes',
+            'requests' => PackageRequests::listForPartnerIds($scopeIds, $statuses),
+            'basePath' => '/partner/offres/demandes',
+            'isAdmin' => false,
+            'showPartnerColumn' => count($scopeIds) > 1,
+            'selectedStatuses' => $statuses,
+            'canForceChildVisibility' => PartnerLinks::childPartnerIds($partnerId) !== [],
+            'forceChildVisibility' => self::forceChildVisibility($partnerId),
+        ]);
+    }
+
+    public static function partnerRequestView(int $id): void
+    {
+        $user = self::requirePartnerUser();
+        $partnerId = (int) $user['partner_id'];
+        $request = PackageRequests::find($id, PackageRequests::scopeIdsForPartner($partnerId));
+        if ($request === null) {
+            throw new HttpException(404, 'Not Found', 'Demande introuvable');
+        }
+        View::render('pages/package-request-detail', [
+            'pageTitle' => 'Demande d\'Offre Complète',
+            'request' => $request,
+            'reservations' => PackageRequests::reservationRequestsFor($id),
+            'basePath' => '/partner/offres/demandes',
+            'reservationBasePath' => '/partner/reservations',
+            'isAdmin' => false,
+        ]);
+    }
+
+    public static function partnerRequestStatus(int $id): never
+    {
+        $user = self::requirePartnerUser();
+        $partnerId = (int) $user['partner_id'];
+        $status = (string) ($_POST['status'] ?? '');
+        $ok = PackageRequests::updateStatus($id, $status, [$partnerId]);
+        self::redirect('/partner/offres/demandes', $ok ? 'Statut mis à jour.' : 'Demande introuvable.', $ok ? 'success' : 'error');
+    }
+
+    public static function partnerRequestDelete(int $id): never
+    {
+        $user = self::requirePartnerUser();
+        $partnerId = (int) $user['partner_id'];
+        PackageRequests::delete($id, [$partnerId]);
+        self::redirect('/partner/offres/demandes', 'Demande supprimée.');
+    }
+
+    /**
+     * Self-service toggle for a "Parent" partner: forces its own offer
+     * requests to additionally appear on its "Child" partners' own
+     * /partner/offres/demandes page (partners.packages_force_child_visibility,
+     * db/migrations/068_create_package_requests.sql). Only meaningful for a
+     * partner that actually has children (PartnerLinks::childPartnerIds());
+     * silently ignored otherwise.
+     */
+    public static function partnerForceChildVisibility(): never
+    {
+        $user = self::requirePartnerUser();
+        $partnerId = (int) $user['partner_id'];
+        if (PartnerLinks::childPartnerIds($partnerId) !== [] && Database::columnExists('partners', 'packages_force_child_visibility')) {
+            $enabled = (string) ($_POST['enabled'] ?? '') === '1' ? 1 : 0;
+            Database::connection()
+                ->prepare('UPDATE partners SET packages_force_child_visibility = ? WHERE id = ?')
+                ->execute([$enabled, $partnerId]);
+        }
+        self::redirect('/partner/offres/demandes', 'Préférence mise à jour.');
+    }
+
+    private static function forceChildVisibility(int $partnerId): bool
+    {
+        if (!Database::columnExists('partners', 'packages_force_child_visibility')) {
+            return false;
+        }
+        $stmt = Database::connection()->prepare('SELECT packages_force_child_visibility FROM partners WHERE id = ? LIMIT 1');
+        $stmt->execute([$partnerId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row !== false && (int) ($row['packages_force_child_visibility'] ?? 0) === 1;
+    }
+
     // ── Admin: management (every partner's offers) ────────────────────────
 
     public static function adminIndex(): void
@@ -161,6 +265,57 @@ final class PackagesController extends Controller
             Flash::set($newValue === 1 ? 'Offres Complètes activées pour ce partenaire.' : 'Offres Complètes désactivées pour ce partenaire.');
         }
         self::redirect('/admin/partners/' . $partnerId . '/edit');
+    }
+
+    // ── Admin: offer requests log (every partner's requests) ─────────────
+
+    public static function adminRequestsIndex(): void
+    {
+        self::requireAdminUser();
+        $partnerId = (int) ($_GET['partner_id'] ?? 0);
+        $statuses = self::selectedRequestStatuses();
+        View::render('pages/package-requests-list', [
+            'pageTitle' => 'Demandes d\'Offres Complètes',
+            'requests' => PackageRequests::listAll($partnerId > 0 ? $partnerId : null, $statuses),
+            'basePath' => '/admin/offres/demandes',
+            'isAdmin' => true,
+            'showPartnerColumn' => true,
+            'selectedStatuses' => $statuses,
+            'partners' => self::partnersWithPackagesEnabled(),
+            'selectedPartnerId' => $partnerId,
+        ]);
+    }
+
+    public static function adminRequestView(int $id): void
+    {
+        self::requireAdminUser();
+        $request = PackageRequests::find($id);
+        if ($request === null) {
+            throw new HttpException(404, 'Not Found', 'Demande introuvable');
+        }
+        View::render('pages/package-request-detail', [
+            'pageTitle' => 'Demande d\'Offre Complète',
+            'request' => $request,
+            'reservations' => PackageRequests::reservationRequestsFor($id),
+            'basePath' => '/admin/offres/demandes',
+            'reservationBasePath' => '/admin/reservations',
+            'isAdmin' => true,
+        ]);
+    }
+
+    public static function adminRequestStatus(int $id): never
+    {
+        self::requireAdminUser();
+        $status = (string) ($_POST['status'] ?? '');
+        $ok = PackageRequests::updateStatus($id, $status);
+        self::redirect('/admin/offres/demandes', $ok ? 'Statut mis à jour.' : 'Demande introuvable.', $ok ? 'success' : 'error');
+    }
+
+    public static function adminRequestDelete(int $id): never
+    {
+        self::requireAdminUser();
+        PackageRequests::delete($id);
+        self::redirect('/admin/offres/demandes', 'Demande supprimée.');
     }
 
     // ── Public pages ──────────────────────────────────────────────────────
@@ -523,6 +678,18 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
         $_POST['children_under3'] = (string) $params['children_under3'];
         $_POST['children_3to12'] = (string) $params['children_3to12'];
         $_POST['guests'] = $params['guests'];
+        // The accommodation was already priced cache-only by
+        // searchAccommodations() above (including the tourist tax computed
+        // from the party's declared nationality): hand that quote over
+        // as-is so requestReservation() persists and emails it unchanged,
+        // instead of letting it recompute from a live Lodgify call (offer
+        // pages must never call the Lodgify API — see searchAccommodations()).
+        $_POST['quote_currency'] = (string) ($match['currency'] ?? 'EUR');
+        $_POST['quote_nights'] = (string) $match['nights'];
+        $_POST['quote_room_total'] = (string) $match['room_total'];
+        $_POST['quote_extra_person_total'] = (string) $match['extra_person_total'];
+        $_POST['quote_cleaning_total'] = (string) $match['cleaning_total'];
+        $_POST['quote_tourist_tax_total'] = (string) $match['tourist_tax_total'];
         $summary = self::summaryText(
             $package,
             $extras,
@@ -539,7 +706,24 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
         // stock and the property/dates, so an ordinary reservation request
         // must not be able to claim a package_id of its own.
         unset($_POST['package_id'], $_POST['package_summary']);
-        ReservationsController::setPackageContext((int) $package['id'], $summary);
+        [$transportTotal, $activityTotal, $mealTotal] = self::extrasStepTotals($extras);
+        $media = self::extrasSelectionMedia($extras);
+        $packageRequestId = PackageRequests::log(
+            (int) $package['id'],
+            (int) $partner['id'],
+            (string) ($_POST['client_name'] ?? ''),
+            (string) ($_POST['client_email'] ?? ''),
+            (float) ($extras['flight_total'] ?? 0),
+            $transportTotal,
+            $activityTotal,
+            $mealTotal,
+            $media['flight_title'],
+            $media['flight_photo_url'],
+            $media['transports'],
+            $media['activities'],
+            $media['meals']
+        );
+        ReservationsController::setPackageContext((int) $package['id'], $summary, $packageRequestId);
 
         ReservationsController::requestReservation();
     }
@@ -604,7 +788,24 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
             (string) ($_POST['message'] ?? '') . "\n\n" . $summary
         );
         unset($_POST['package_id'], $_POST['package_summary'], $_POST['items']);
-        ReservationsController::setPackageContext((int) $package['id'], $summary);
+        [$transportTotal, $activityTotal, $mealTotal] = self::extrasStepTotals($extras);
+        $media = self::extrasSelectionMedia($extras);
+        $packageRequestId = PackageRequests::log(
+            (int) $package['id'],
+            (int) $partner['id'],
+            (string) ($_POST['client_name'] ?? ''),
+            (string) ($_POST['client_email'] ?? ''),
+            (float) ($extras['flight_total'] ?? 0),
+            $transportTotal,
+            $activityTotal,
+            $mealTotal,
+            $media['flight_title'],
+            $media['flight_photo_url'],
+            $media['transports'],
+            $media['activities'],
+            $media['meals']
+        );
+        ReservationsController::setPackageContext((int) $package['id'], $summary, $packageRequestId);
         ReservationsController::setPackageItems(array_map(
             static fn (array $item): array => [
                 'property_id' => (int) $item['property_id'],
@@ -892,6 +1093,62 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
     }
 
     /**
+     * Sums each non-flight step's line_total from Packages::extrasSelection()
+     * (transports/activities/meals), for the per-step commission owed by the
+     * partner on an "Offre Complète" (see PackageRequests::log()/
+     * commissionVariables(), migration 069). Flight total is already exposed
+     * directly as $extras['flight_total'].
+     *
+     * @param array{transports: array<int, array<string, mixed>>, activities: array<int, array<string, mixed>>, meals: array<int, array<string, mixed>>} $extras
+     * @return array{0: float, 1: float, 2: float} [transport_total, activity_total, meal_total]
+     */
+    private static function extrasStepTotals(array $extras): array
+    {
+        $sum = static fn (array $items): float => array_sum(array_map(
+            static fn (array $item): float => (float) ($item['line_total'] ?? 0),
+            $items
+        ));
+        return [
+            $sum($extras['transports'] ?? []),
+            $sum($extras['activities'] ?? []),
+            $sum($extras['meals'] ?? []),
+        ];
+    }
+
+    /**
+     * Title/photo of what was actually picked in each step of
+     * Packages::extrasSelection(), for PackageRequests::log()'s
+     * $flightTitle/$flightPhotoUrl/$transports/$activities/$meals
+     * (migration 070) — the source of the {{offre_vol_titre}}/
+     * {{offre_vol_image}}/{{offre_transport_titres}}/
+     * {{offre_transport_images}}/{{offre_activites_titres}}/
+     * {{offre_activites_images}}/{{offre_restauration_titres}}/
+     * {{offre_restauration_images}} email variables. Always the raw (French)
+     * label, matching summaryText()'s French-only recap.
+     *
+     * @param array{flight: array<string, mixed>|null, transports: array<int, array<string, mixed>>, activities: array<int, array<string, mixed>>, meals: array<int, array<string, mixed>>} $extras
+     * @return array{flight_title: ?string, flight_photo_url: ?string, transports: array<int, array{title: string, photo_url: string}>, activities: array<int, array{title: string, photo_url: string}>, meals: array<int, array{title: string, photo_url: string}>}
+     */
+    private static function extrasSelectionMedia(array $extras): array
+    {
+        $toMedia = static fn (array $items): array => array_map(
+            static fn (array $item): array => [
+                'title' => (string) ($item['label'] ?? ''),
+                'photo_url' => (string) ($item['photo_url'] ?? ''),
+            ],
+            $items
+        );
+        $flight = $extras['flight'] ?? null;
+        return [
+            'flight_title' => $flight !== null ? (string) ($flight['label'] ?? '') : null,
+            'flight_photo_url' => $flight !== null ? (string) ($flight['photo_url'] ?? '') : null,
+            'transports' => $toMedia($extras['transports'] ?? []),
+            'activities' => $toMedia($extras['activities'] ?? []),
+            'meals' => $toMedia($extras['meals'] ?? []),
+        ];
+    }
+
+    /**
      * Plain-text recap of what the client selected, stored on the request
      * and appended to its message so the agency sees the whole offer.
      *
@@ -925,7 +1182,8 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
         }
         foreach ($stays as $stay) {
             $line = 'Hébergement : ' . (string) $stay['name']
-                . ' du ' . (string) $stay['checkin'] . ' au ' . (string) $stay['checkout'];
+                . ' du ' . self::recapDateFr((string) $stay['checkin'])
+                . ' au ' . self::recapDateFr((string) $stay['checkout']);
             // Multi-property selection: say who stays where, the party having
             // been spread over the properties server-side.
             if (count($stays) > 1 && isset($stay['adults'])) {
@@ -951,6 +1209,18 @@ $labels[] = 'Vol : ' . (string) $extras['flight']['label']
     private static function amount(float $value, string $currency): string
     {
         return number_format($value, 2, ',', ' ') . ' ' . $currency;
+    }
+
+    /**
+     * Formats a Y-m-d stay date (as stored/returned by
+     * Packages::searchAccommodations()) as DD-MM-YYYY for the
+     * {{offre_recap_bloc}} plain-text recap (see summaryText()). Falls back
+     * to the raw value if it doesn't parse, rather than hiding the date.
+     */
+    private static function recapDateFr(string $date): string
+    {
+        $parsed = \DateTimeImmutable::createFromFormat('Y-m-d', $date);
+        return $parsed !== false ? $parsed->format('d-m-Y') : $date;
     }
 
     /**

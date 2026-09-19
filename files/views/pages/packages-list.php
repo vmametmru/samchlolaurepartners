@@ -25,6 +25,11 @@ $stockLabels = [
     <a class="btn-primary" href="<?= \App\View::e($basePath) ?>/nouvelle<?= $isAdmin && (int) $selectedPartnerId > 0 ? '?partner_id=' . (int) $selectedPartnerId : '' ?>">Nouvelle offre</a>
   </div>
 
+  <div class="button-row mt-16">
+    <a class="btn-secondary" href="<?= \App\View::e($basePath) ?>/demandes">Demandes d'Offres Complètes</a>
+  </div>
+
+
   <?php if ($isAdmin): ?>
     <form method="get" action="/admin/offres" class="form-grid cols-2 mt-16">
       <label>

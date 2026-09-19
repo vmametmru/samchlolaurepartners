@@ -9,6 +9,10 @@ $labels = [
   'RESERVATION_MODIFIED_CLIENT' => 'Demande modifiée (client)',
   'REMINDER_CLIENT' => 'Rappel avant arrivée (client)',
   'REMINDER_PARTNER' => 'Rappel avant arrivée (partenaire)',
+  'PACKAGE_REQUEST_RECEIVED_PARTNER' => 'Demande d\'offre complète reçue (partenaire)',
+  'PACKAGE_REQUEST_RECEIVED_CLIENT' => 'Accusé réception Offre Complète (client)',
+  'PACKAGE_REQUEST_CONFIRMED' => 'Offre Complète Confirmée (client)',
+  'PACKAGE_REQUEST_CANCELLED' => 'Offre Complète Annulée (client)',
 ];
 $plainVariables = \App\View::emailTemplateVariableCatalog();
 $resizableVariables = \App\View::emailTemplateImageVariableCatalog();

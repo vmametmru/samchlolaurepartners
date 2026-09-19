@@ -2081,6 +2081,10 @@ final class PageController extends Controller
             'primary_color' => '#E61E4D',
             'markup_percent' => 0,
             'cleaning_fee_per_person_per_night' => 0,
+            'packages_commission_flight_percent' => 0,
+            'packages_commission_transport_percent' => 0,
+            'packages_commission_activity_percent' => 0,
+            'packages_commission_meal_percent' => 0,
             'active' => 1,
             'phone' => '',
             'facebook_url' => '',
@@ -2131,7 +2135,8 @@ final class PageController extends Controller
         }
 
         if ($id === null) {
-            Database::connection()->prepare('INSERT INTO partners (subdomain, name, logo_url, catalog_pdf_url, primary_color, email, phone, facebook_url, tiktok_url, instagram_url, markup_percent, cleaning_fee_per_person_per_night, smtp_host, smtp_port, smtp_user, smtp_pass, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([
+            $columns = ['subdomain', 'name', 'logo_url', 'catalog_pdf_url', 'primary_color', 'email', 'phone', 'facebook_url', 'tiktok_url', 'instagram_url', 'markup_percent', 'cleaning_fee_per_person_per_night', 'smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'active'];
+            $params = [
                 $subdomain,
                 trim((string) ($_POST['name'] ?? '')),
                 $logoUrl !== '' ? $logoUrl : null,
@@ -2149,9 +2154,13 @@ final class PageController extends Controller
                 trim((string) ($_POST['smtp_user'] ?? '')) ?: null,
                 trim((string) ($_POST['smtp_pass'] ?? '')) ?: null,
                 isset($_POST['active']) ? 1 : 0,
-            ]);
+            ];
+            [$columns, $params] = self::withPackageCommissionColumns($columns, $params);
+            $placeholders = implode(', ', array_fill(0, count($columns), '?'));
+            Database::connection()->prepare('INSERT INTO partners (' . implode(', ', $columns) . ') VALUES (' . $placeholders . ')')->execute($params);
         } else {
-            Database::connection()->prepare('UPDATE partners SET subdomain = ?, name = ?, logo_url = ?, catalog_pdf_url = ?, primary_color = ?, email = ?, phone = ?, facebook_url = ?, tiktok_url = ?, instagram_url = ?, markup_percent = ?, cleaning_fee_per_person_per_night = ?, smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, active = ?, updated_at = NOW() WHERE id = ?')->execute([
+            $assignments = ['subdomain = ?', 'name = ?', 'logo_url = ?', 'catalog_pdf_url = ?', 'primary_color = ?', 'email = ?', 'phone = ?', 'facebook_url = ?', 'tiktok_url = ?', 'instagram_url = ?', 'markup_percent = ?', 'cleaning_fee_per_person_per_night = ?', 'smtp_host = ?', 'smtp_port = ?', 'smtp_user = ?', 'smtp_pass = ?', 'active = ?'];
+            $params = [
                 $subdomain,
                 trim((string) ($_POST['name'] ?? '')),
                 $logoUrl !== '' ? $logoUrl : null,
@@ -2169,10 +2178,35 @@ final class PageController extends Controller
                 trim((string) ($_POST['smtp_user'] ?? '')) ?: null,
                 trim((string) ($_POST['smtp_pass'] ?? '')) ?: null,
                 isset($_POST['active']) ? 1 : 0,
-                $id,
-            ]);
+            ];
+            [$assignments, $params] = self::withPackageCommissionColumns($assignments, $params, true);
+            $params[] = $id;
+            Database::connection()->prepare('UPDATE partners SET ' . implode(', ', $assignments) . ', updated_at = NOW() WHERE id = ?')->execute($params);
         }
         self::redirect('/admin/partners', 'Partenaire sauvegardé.');
+    }
+
+    /**
+     * Appends the 4 per-step "Offres Complètes" commission percent columns
+     * (migration 069) to an adminSavePartner() INSERT/UPDATE's column/value
+     * lists, only when the columns actually exist — so the form keeps
+     * working on an install where that migration hasn't applied yet.
+     *
+     * @param array<int, string> $columns column names for an INSERT, or "col = ?" assignments for an UPDATE (see $asAssignments)
+     * @param array<int, mixed> $params
+     * @return array{0: array<int, string>, 1: array<int, mixed>}
+     */
+    private static function withPackageCommissionColumns(array $columns, array $params, bool $asAssignments = false): array
+    {
+        if (!Database::columnExists('partners', 'packages_commission_flight_percent')) {
+            return [$columns, $params];
+        }
+        $commissionColumns = ['packages_commission_flight_percent', 'packages_commission_transport_percent', 'packages_commission_activity_percent', 'packages_commission_meal_percent'];
+        foreach ($commissionColumns as $column) {
+            $columns[] = $asAssignments ? "{$column} = ?" : $column;
+            $params[] = (float) ($_POST[$column] ?? 0);
+        }
+        return [$columns, $params];
     }
 
     public static function adminDeletePartner(int $id): never
@@ -5461,6 +5495,79 @@ HTML,
 </div>
 HTML,
             ],
+            'PACKAGE_REQUEST_RECEIVED_PARTNER' => [
+                'label' => 'Demande d\'offre complète reçue (partenaire)',
+                'subject' => 'Nouvelle demande d\'offre complète - {{nom_client}}',
+                'body_html' => <<<'HTML'
+<h2>Nouvelle demande d'offre complète</h2>
+<p><strong>Offre :</strong> {{offre_titre}}</p>
+<p><strong>Client :</strong> {{nom_client}} ({{email_client}})</p>
+<p><strong>Hébergement :</strong> {{hebergement}}</p>
+<img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;">
+<p><strong>Dates :</strong> {{dates}}</p>
+<p><strong>Voyageurs :</strong> {{adultes}} adulte(s), {{enfants}} enfant(s)</p>
+{{offre_recap_bloc}}
+{{tarif_bloc}}
+<p><strong>Message :</strong><br>{{message}}</p>
+<hr>
+<p>Veuillez traiter cette demande depuis votre espace partenaire (Offres Complètes &gt; Demandes).</p>
+HTML,
+            ],
+            'PACKAGE_REQUEST_RECEIVED_CLIENT' => [
+                'label' => 'Accusé réception Offre Complète (client)',
+                'subject' => 'Votre demande d\'offre complète est bien reçue - {{offre_titre}}',
+                'body_html' => <<<'HTML'
+<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+<div style="text-align:center;padding:28px 24px 16px;">
+<img src="{{logo_partenaire_url}}" alt="{{partenaire}}" width="80" style="display:block;width:80px;max-width:100%;height:auto;margin:0 auto;">
+<p style="margin:14px 0 8px;font-size:17px;color:#374151;">Votre demande d'offre complète est bien reçue !</p>
+<h2 style="margin:4px 0 0;font-size:22px;color:#111827;">{{offre_titre}}</h2>
+</div>
+<div style="text-align:center;padding:0 24px 20px;"><img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;"></div>
+<div style="padding:4px 24px 16px;">
+<p style="margin:0 0 10px;font-size:15px;color:#111827;">Bonjour <strong>{{nom_client}}</strong>,</p>
+<p style="margin:0;font-size:15px;color:#374151;">Un grand merci pour votre intérêt ! Nous avons bien reçu votre demande pour l'offre <strong>{{offre_titre}}</strong>.</p>
+</div>
+{{offre_recap_bloc}}
+{{tarif_bloc}}
+<div style="padding:16px 24px 24px;font-size:13px;color:#374151;">
+<p style="margin:0;">Cordialement,<br><strong>{{partenaire}}</strong></p>
+</div>
+</div>
+HTML,
+            ],
+            'PACKAGE_REQUEST_CONFIRMED' => [
+                'label' => 'Offre Complète Confirmée (client)',
+                'subject' => 'Votre offre complète est confirmée ! 🎉',
+                'body_html' => <<<'HTML'
+<h2>Offre complète confirmée</h2>
+<p>Bonjour {{nom_client}},</p>
+<p>Nous avons le plaisir de vous confirmer votre offre <strong>{{offre_titre}}</strong> :</p>
+<img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;">
+<ul>
+  <li><strong>Hébergement :</strong> {{hebergement}}</li>
+  <li><strong>Arrivée :</strong> {{date_arrivee}}</li>
+  <li><strong>Départ :</strong> {{date_depart}}</li>
+  <li><strong>Voyageurs :</strong> {{adultes}} adulte(s), {{enfants}} enfant(s)</li>
+</ul>
+{{offre_recap_bloc}}
+{{notes}}
+<p>À très bientôt à l'île Maurice !</p>
+<p>Cordialement,<br><strong>{{partenaire}}</strong></p>
+HTML,
+            ],
+            'PACKAGE_REQUEST_CANCELLED' => [
+                'label' => 'Offre Complète Annulée (client)',
+                'subject' => 'Annulation de votre offre complète',
+                'body_html' => <<<'HTML'
+<h2>Votre offre complète a été annulée</h2>
+<p>Bonjour {{nom_client}},</p>
+<p>Nous vous informons que votre offre <strong>{{offre_titre}}</strong> ({{dates}}) a malheureusement dû être annulée.</p>
+<img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;">
+<p>N'hésitez pas à nous contacter pour explorer d'autres options.</p>
+<p>Cordialement,<br><strong>{{partenaire}}</strong></p>
+HTML,
+            ],
         ];
     }
 
@@ -5642,6 +5749,79 @@ HTML,
 <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0;">
 <p style="margin:0;font-size:13px;color:#6b7280;">Best regards,<br><strong>{{expediteur}}</strong></p>
 </div>
+HTML,
+            ],
+            'PACKAGE_REQUEST_RECEIVED_PARTNER' => [
+                'label' => 'Complete offer request received (partner)',
+                'subject' => 'New complete offer request - {{nom_client}}',
+                'body_html' => <<<'HTML'
+<h2>New complete offer request</h2>
+<p><strong>Offer:</strong> {{offre_titre}}</p>
+<p><strong>Client:</strong> {{nom_client}} ({{email_client}})</p>
+<p><strong>Property:</strong> {{hebergement}}</p>
+<img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;">
+<p><strong>Dates:</strong> {{dates}}</p>
+<p><strong>Guests:</strong> {{adultes}} adult(s), {{enfants}} child(ren)</p>
+{{offre_recap_bloc}}
+{{tarif_bloc}}
+<p><strong>Message:</strong><br>{{message}}</p>
+<hr>
+<p>Please handle this request from your partner dashboard (Offres Complètes &gt; Demandes).</p>
+HTML,
+            ],
+            'PACKAGE_REQUEST_RECEIVED_CLIENT' => [
+                'label' => 'Complete offer acknowledgement (client)',
+                'subject' => 'Your complete offer request has been received - {{offre_titre}}',
+                'body_html' => <<<'HTML'
+<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+<div style="text-align:center;padding:28px 24px 16px;">
+<img src="{{logo_partenaire_url}}" alt="{{partenaire}}" width="80" style="display:block;width:80px;max-width:100%;height:auto;margin:0 auto;">
+<p style="margin:14px 0 8px;font-size:17px;color:#374151;">Your complete offer request has been received!</p>
+<h2 style="margin:4px 0 0;font-size:22px;color:#111827;">{{offre_titre}}</h2>
+</div>
+<div style="text-align:center;padding:0 24px 20px;"><img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;"></div>
+<div style="padding:4px 24px 16px;">
+<p style="margin:0 0 10px;font-size:15px;color:#111827;">Hello <strong>{{nom_client}}</strong>,</p>
+<p style="margin:0;font-size:15px;color:#374151;">Thank you for your interest! We have received your request for the offer <strong>{{offre_titre}}</strong>.</p>
+</div>
+{{offre_recap_bloc}}
+{{tarif_bloc}}
+<div style="padding:16px 24px 24px;font-size:13px;color:#374151;">
+<p style="margin:0;">Best regards,<br><strong>{{partenaire}}</strong></p>
+</div>
+</div>
+HTML,
+            ],
+            'PACKAGE_REQUEST_CONFIRMED' => [
+                'label' => 'Complete offer confirmed (client)',
+                'subject' => 'Your complete offer is confirmed! 🎉',
+                'body_html' => <<<'HTML'
+<h2>Complete offer confirmed</h2>
+<p>Hello {{nom_client}},</p>
+<p>We are pleased to confirm your offer <strong>{{offre_titre}}</strong>:</p>
+<img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;">
+<ul>
+  <li><strong>Property:</strong> {{hebergement}}</li>
+  <li><strong>Arrival:</strong> {{date_arrivee}}</li>
+  <li><strong>Departure:</strong> {{date_depart}}</li>
+  <li><strong>Guests:</strong> {{adultes}} adult(s), {{enfants}} child(ren)</li>
+</ul>
+{{offre_recap_bloc}}
+{{notes}}
+<p>See you soon in Mauritius!</p>
+<p>Best regards,<br><strong>{{partenaire}}</strong></p>
+HTML,
+            ],
+            'PACKAGE_REQUEST_CANCELLED' => [
+                'label' => 'Complete offer cancelled (client)',
+                'subject' => 'Your complete offer has been cancelled',
+                'body_html' => <<<'HTML'
+<h2>Your complete offer has been cancelled</h2>
+<p>Hello {{nom_client}},</p>
+<p>We regret to inform you that your offer <strong>{{offre_titre}}</strong> ({{dates}}) had to be cancelled.</p>
+<img src="{{photo1_url}}" alt="{{hebergement}}" width="320" style="display:block;width:320px;max-width:100%;height:auto;margin:0 auto;">
+<p>Please feel free to contact us to explore other options.</p>
+<p>Best regards,<br><strong>{{partenaire}}</strong></p>
 HTML,
             ],
         ];
